@@ -1,0 +1,6 @@
+# Generated job manifests and runtime data
+wetlands-tier*.yaml
+failed_indices*.json
+failed_indices*.txt
+job_snapshots/
+*.log

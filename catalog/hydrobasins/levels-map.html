@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>HydroBasins Levels 3-6 Viewer</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <script src="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.css" rel="stylesheet">
+    <script src="https://unpkg.com/pmtiles@3.0.7/dist/pmtiles.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        .layer-controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            font-family: Arial, sans-serif;
+            font-size: 13px;
+            z-index: 1;
+            min-width: 200px;
+        }
+
+        .layer-controls h3 {
+            margin: 0 0 12px 0;
+            font-size: 15px;
+            font-weight: bold;
+        }
+
+        .layer-controls label {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .layer-controls input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+        }
+
+        .layer-color {
+            display: inline-block;
+            width: 20px;
+            height: 12px;
+            margin-left: 8px;
+            border: 1px solid #ccc;
+            border-radius: 2px;
+        }
+
+        .zoom-info {
+            position: absolute;
+            bottom: 30px;
+            left: 10px;
+            background: white;
+            padding: 8px 12px;
+            border-radius: 3px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+            font-family: monospace;
+            font-size: 11px;
+            z-index: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <div class="layer-controls">
+        <h3>HydroBasins Levels</h3>
+        <label>
+            <input type="radio" name="view-mode" id="mode-unified" checked>
+            <span><strong>Unified (auto zoom)</strong></span>
+        </label>
+        <label>
+            <input type="radio" name="view-mode" id="mode-individual">
+            <span><strong>Individual layers</strong></span>
+        </label>
+        <hr style="margin: 10px 0; border: none; border-top: 1px solid #ddd;">
+        <div id="individual-controls" style="display: none;">
+            <label>
+                <input type="checkbox" id="toggle-level03" checked>
+                <span>Level 3 - Major basins</span>
+                <span class="layer-color" style="background-color: rgba(31, 120, 180, 0.6);"></span>
+            </label>
+            <label>
+                <input type="checkbox" id="toggle-level04">
+                <span>Level 4 - Sub-basins</span>
+                <span class="layer-color" style="background-color: rgba(51, 160, 44, 0.6);"></span>
+            </label>
+            <label>
+                <input type="checkbox" id="toggle-level05">
+                <span>Level 5 - Catchments</span>
+                <span class="layer-color" style="background-color: rgba(227, 26, 28, 0.6);"></span>
+            </label>
+            <label>
+                <input type="checkbox" id="toggle-level06">
+                <span>Level 6 - Sub-catchments</span>
+                <span class="layer-color" style="background-color: rgba(255, 127, 0, 0.6);"></span>
+            </label>
+        </div>
+    </div>
+
+    <div class="zoom-info" id="zoom-info">
+        Zoom: <span id="zoom-level">3</span>
+    </div>
+
+    <script>
+        // Add PMTiles protocol
+        let protocol = new pmtiles.Protocol();
+        maplibregl.addProtocol('pmtiles', protocol.tile);
+
+        // PMTiles URLs
+        const baseUrl = 'https://s3-west.nrp-nautilus.io/public-hydrobasins';
+        const pmtilesUrls = {
+            unified: `pmtiles://${baseUrl}/hydrobasins_unified.pmtiles`,
+            level03: `pmtiles://${baseUrl}/level_03/hydrobasins_level_03.pmtiles`,
+            level04: `pmtiles://${baseUrl}/level_04/hydrobasins_level_04.pmtiles`,
+            level05: `pmtiles://${baseUrl}/level_05/hydrobasins_level_05.pmtiles`,
+            level06: `pmtiles://${baseUrl}/level_06/hydrobasins_level_06.pmtiles`
+        };
+
+        // Layer colors
+        const layerColors = {
+            level03: 'rgba(31, 120, 180, 0.6)',
+            level04: 'rgba(51, 160, 44, 0.6)',
+            level05: 'rgba(227, 26, 28, 0.6)',
+            level06: 'rgba(255, 127, 0, 0.6)'
+        };
+
+        // Initialize map
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: {
+                version: 8,
+                sources: {
+                    'carto-light': {
+                        type: 'raster',
+                        tiles: [
+                            'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+                            'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+                            'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
+                        ],
+                        tileSize: 256,
+                        attribution: '© OpenStreetMap contributors, © CARTO'
+                    }
+                },
+                layers: [{
+                    id: 'carto-light',
+                    type: 'raster',
+                    source: 'carto-light',
+                    minzoom: 0,
+                    maxzoom: 22
+                }]
+            },
+            center: [-98, 38],
+            zoom: 3
+        });
+
+        // Add navigation controls
+        map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+        // Update zoom display
+        function updateZoom() {
+            document.getElementById('zoom-level').textContent = map.getZoom().toFixed(1);
+        }
+        map.on('zoom', updateZoom);
+
+        map.on('load', () => {
+            // Add all PMTiles sources
+            Object.entries(pmtilesUrls).forEach(([level, url]) => {
+                map.addSource(level, {
+                    type: 'vector',
+                    url: url,
+                    attribution: '<a href="https://www.hydrosheds.org/products/hydrobasins" target="_blank">HydroSHEDS HydroBasins</a>'
+                });
+            });
+
+            // Add unified layer with dynamic colors based on level
+            map.addLayer({
+                id: 'unified-fill',
+                type: 'fill',
+                source: 'unified',
+                'source-layer': 'hydrobasins',
+                paint: {
+                    'fill-color': [
+                        'match',
+                        ['get', 'level'],
+                        3, 'rgba(31, 120, 180, 0.6)',
+                        4, 'rgba(51, 160, 44, 0.6)',
+                        5, 'rgba(227, 26, 28, 0.6)',
+                        6, 'rgba(255, 127, 0, 0.6)',
+                        'rgba(128, 128, 128, 0.6)' // fallback
+                    ],
+                    'fill-opacity': 0.6
+                }
+            });
+
+            map.addLayer({
+                id: 'unified-line',
+                type: 'line',
+                source: 'unified',
+                'source-layer': 'hydrobasins',
+                paint: {
+                    'line-color': [
+                        'match',
+                        ['get', 'level'],
+                        3, '#1f78b4',
+                        4, '#33a02c',
+                        5, '#e31a1c',
+                        6, '#ff7f00',
+                        '#808080' // fallback
+                    ],
+                    'line-width': 1.5
+                }
+            });
+
+            // Add Level 3 layer (visible by default)
+            map.addLayer({
+                id: 'level03-fill',
+                type: 'fill',
+                source: 'level03',
+                'source-layer': 'hydrobasins_level_03',
+                paint: {
+                    'fill-color': layerColors.level03,
+                    'fill-opacity': 0.6
+                },
+                layout: {
+                    'visibility': 'none'
+                }
+            });
+
+            map.addLayer({
+                id: 'level03-line',
+                type: 'line',
+                source: 'level03',
+                'source-layer': 'hydrobasins_level_03',
+                paint: {
+                    'line-color': '#1f78b4',
+                    'line-width': 1.5
+                },
+                layout: {
+                    'visibility': 'none'
+                }
+            });
+
+            // Add Level 4 layer (hidden by default)
+            map.addLayer({
+                id: 'level04-fill',
+                type: 'fill',
+                source: 'level04',
+                'source-layer': 'hydrobasins_level_04',
+                paint: {
+                    'fill-color': layerColors.level04,
+                    'fill-opacity': 0.6
+                },
+                layout: {
+                    'visibility': 'none'
+                }
+            });
+
+            map.addLayer({
+                id: 'level04-line',
+                type: 'line',
+                source: 'level04',
+                'source-layer': 'hydrobasins_level_04',
+                paint: {
+                    'line-color': '#33a02c',
+                    'line-width': 1.5
+                },
+                layout: {
+                    'visibility': 'none'
+                }
+            });
+
+            // Add Level 5 layer (hidden by default)
+            map.addLayer({
+                id: 'level05-fill',
+                type: 'fill',
+                source: 'level05',
+                'source-layer': 'hydrobasins_level_05',
+                paint: {
+                    'fill-color': layerColors.level05,
+                    'fill-opacity': 0.6
+                },
+                layout: {
+                    'visibility': 'none'
+                }
+            });
+
+            map.addLayer({
+                id: 'level05-line',
+                type: 'line',
+                source: 'level05',
+                'source-layer': 'hydrobasins_level_05',
+                paint: {
+                    'line-color': '#e31a1c',
+                    'line-width': 1.5
+                },
+                layout: {
+                    'visibility': 'none'
+                }
+            });
+
+            // Add Level 6 layer (hidden by default)
+            map.addLayer({
+                id: 'level06-fill',
+                type: 'fill',
+                source: 'level06',
+                'source-layer': 'hydrobasins_level_06',
+                paint: {
+                    'fill-color': layerColors.level06,
+                    'fill-opacity': 0.6
+                },
+                layout: {
+                    'visibility': 'none'
+                }
+            });
+
+            map.addLayer({
+                id: 'level06-line',
+                type: 'line',
+                source: 'level06',
+                'source-layer': 'hydrobasins_level_06',
+                paint: {
+                    'line-color': '#ff7f00',
+                    'line-width': 1.5
+                },
+                layout: {
+                    'visibility': 'none'
+                }
+            });
+
+            // Set up mode toggles
+            const modeUnified = document.getElementById('mode-unified');
+            const modeIndividual = document.getElementById('mode-individual');
+            const individualControls = document.getElementById('individual-controls');
+
+            function setUnifiedMode() {
+                map.setLayoutProperty('unified-fill', 'visibility', 'visible');
+                map.setLayoutProperty('unified-line', 'visibility', 'visible');
+                ['level03', 'level04', 'level05', 'level06'].forEach(level => {
+                    map.setLayoutProperty(`${level}-fill`, 'visibility', 'none');
+                    map.setLayoutProperty(`${level}-line`, 'visibility', 'none');
+                });
+                individualControls.style.display = 'none';
+            }
+
+            function setIndividualMode() {
+                map.setLayoutProperty('unified-fill', 'visibility', 'none');
+                map.setLayoutProperty('unified-line', 'visibility', 'none');
+                individualControls.style.display = 'block';
+                // Apply current checkbox states
+                ['level03', 'level04', 'level05', 'level06'].forEach(level => {
+                    const checkbox = document.getElementById(`toggle-${level}`);
+                    const visibility = checkbox.checked ? 'visible' : 'none';
+                    map.setLayoutProperty(`${level}-fill`, 'visibility', visibility);
+                    map.setLayoutProperty(`${level}-line`, 'visibility', visibility);
+                });
+            }
+
+            modeUnified.addEventListener('change', () => {
+                if (modeUnified.checked) setUnifiedMode();
+            });
+
+            modeIndividual.addEventListener('change', () => {
+                if (modeIndividual.checked) setIndividualMode();
+            });
+
+            // Set up individual layer toggles
+            ['level03', 'level04', 'level05', 'level06'].forEach(level => {
+                const checkbox = document.getElementById(`toggle-${level}`);
+                checkbox.addEventListener('change', (e) => {
+                    if (modeIndividual.checked) {
+                        const visibility = e.target.checked ? 'visible' : 'none';
+                        map.setLayoutProperty(`${level}-fill`, 'visibility', visibility);
+                        map.setLayoutProperty(`${level}-line`, 'visibility', visibility);
+                    }
+                });
+            });
+
+            // Add click popup for unified layer
+            map.on('click', 'unified-fill', (e) => {
+                if (e.features.length > 0) {
+                    const props = e.features[0].properties;
+                    const levelNum = props.level || 'N/A';
+
+                    new maplibregl.Popup()
+                        .setLngLat(e.lngLat)
+                        .setHTML(`
+                            <strong>HydroBasins Level ${levelNum}</strong><br>
+                            <strong>HYBAS_ID:</strong> ${props.HYBAS_ID || 'N/A'}<br>
+                            <strong>SUB_AREA:</strong> ${props.SUB_AREA || 'N/A'} km²<br>
+                            <strong>UP_AREA:</strong> ${props.UP_AREA || 'N/A'} km²
+                        `)
+                        .addTo(map);
+                }
+            });
+
+            map.on('mouseenter', 'unified-fill', () => {
+                map.getCanvas().style.cursor = 'pointer';
+            });
+
+            map.on('mouseleave', 'unified-fill', () => {
+                map.getCanvas().style.cursor = '';
+            });
+
+            // Add click popup for individual layers
+            ['level03', 'level04', 'level05', 'level06'].forEach(level => {
+                map.on('click', `${level}-fill`, (e) => {
+                    if (e.features.length > 0) {
+                        const props = e.features[0].properties;
+                        const levelNum = level.replace('level', '');
+
+                        new maplibregl.Popup()
+                            .setLngLat(e.lngLat)
+                            .setHTML(`
+                                <strong>HydroBasins Level ${levelNum}</strong><br>
+                                <strong>HYBAS_ID:</strong> ${props.HYBAS_ID || 'N/A'}<br>
+                                <strong>SUB_AREA:</strong> ${props.SUB_AREA || 'N/A'} km²<br>
+                                <strong>UP_AREA:</strong> ${props.UP_AREA || 'N/A'} km²
+                            `)
+                            .addTo(map);
+                    }
+                });
+
+                // Change cursor on hover
+                map.on('mouseenter', `${level}-fill`, () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+
+                map.on('mouseleave', `${level}-fill`, () => {
+                    map.getCanvas().style.cursor = '';
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>

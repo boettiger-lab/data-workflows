@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPAD & CCED 2025b - California Protected Areas & Conservation Easements</title>
+    <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/pmtiles@3/dist/pmtiles.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        .map-overlay {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.95);
+            margin: 10px;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            max-width: 300px;
+        }
+
+        .map-overlay-top {
+            top: 0;
+            right: 0;
+        }
+
+        .map-overlay h3 {
+            margin: 0 0 12px 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            border-bottom: 2px solid #0066cc;
+            padding-bottom: 8px;
+        }
+
+        .layer-control {
+            margin-bottom: 10px;
+        }
+
+        .layer-control label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            padding: 6px 0;
+            font-size: 14px;
+            color: #555;
+            transition: color 0.2s;
+        }
+
+        .layer-control label:hover {
+            color: #0066cc;
+        }
+
+        .layer-control input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+
+        .legend {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 14px;
+            margin-right: 8px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 2px;
+        }
+
+        .info {
+            font-size: 11px;
+            color: #666;
+            margin-top: 12px;
+            font-style: italic;
+        }
+
+        .maplibregl-popup-content {
+            padding: 12px;
+            max-width: 300px;
+        }
+
+        .maplibregl-popup-content h4 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .maplibregl-popup-content p {
+            margin: 4px 0;
+            font-size: 12px;
+            color: #555;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <div class="map-overlay map-overlay-top">
+        <h3>🗺️ California Protected Lands</h3>
+
+        <div class="layer-control">
+            <label>
+                <input type="checkbox" id="toggle-holdings" checked>
+                <span>CPAD Holdings (parcels)</span>
+            </label>
+        </div>
+
+        <div class="layer-control">
+            <label>
+                <input type="checkbox" id="toggle-units" checked>
+                <span>CPAD Units (named areas)</span>
+            </label>
+        </div>
+
+        <div class="layer-control">
+            <label>
+                <input type="checkbox" id="toggle-easements" checked>
+                <span>CCED Easements</span>
+            </label>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(34, 139, 34, 0.6);"></div>
+                <span>Protected Areas (CPAD)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(255, 165, 0, 0.6);"></div>
+                <span>Conservation Easements (CCED)</span>
+            </div>
+        </div>
+
+        <div class="info">
+            Click on features for details.<br>
+            Data: CPAD & CCED 2025b
+        </div>
+    </div>
+
+    <script>
+        // PMTiles protocol handler
+        let protocol = new pmtiles.Protocol();
+        maplibregl.addProtocol('pmtiles', protocol.tile);
+
+        // Base S3 URL
+        const baseUrl = 'https://s3-west.nrp-nautilus.io/public-cpad';
+
+        // Initialize map
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: {
+                version: 8,
+                sources: {
+                    'osm': {
+                        type: 'raster',
+                        tiles: [
+                            'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+                        ],
+                        tileSize: 256,
+                        attribution: '© OpenStreetMap contributors'
+                    }
+                },
+                layers: [{
+                    id: 'osm',
+                    type: 'raster',
+                    source: 'osm',
+                    minzoom: 0,
+                    maxzoom: 19
+                }]
+            },
+            center: [-119.4, 37.0], // California center
+            zoom: 6,
+            maxZoom: 16
+        });
+
+        // Add navigation controls
+        map.addControl(new maplibregl.NavigationControl(), 'top-left');
+        map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
+
+        map.on('load', () => {
+            // Add CPAD Holdings source
+            map.addSource('cpad-holdings', {
+                type: 'vector',
+                url: `pmtiles://${baseUrl}/cpad-2025b-holdings.pmtiles`,
+                attribution: 'CPAD 2025b'
+            });
+
+            // Add CPAD Units source
+            map.addSource('cpad-units', {
+                type: 'vector',
+                url: `pmtiles://${baseUrl}/cpad-2025b-units.pmtiles`,
+                attribution: 'CPAD 2025b'
+            });
+
+            // Add CCED Easements source
+            map.addSource('cced-easements', {
+                type: 'vector',
+                url: `pmtiles://${baseUrl}/cced-2025b.pmtiles`,
+                attribution: 'CCED 2025b'
+            });
+
+            // CPAD Holdings fill layer
+            map.addLayer({
+                id: 'holdings-fill',
+                type: 'fill',
+                source: 'cpad-holdings',
+                'source-layer': 'cpad-2025b-holdings',
+                paint: {
+                    'fill-color': [
+                        'match',
+                        ['get', 'AGNCY_LEV'],
+                        'Federal', '#2E7D32',
+                        'State', '#388E3C',
+                        'County', '#43A047',
+                        'City', '#66BB6A',
+                        'Special District', '#81C784',
+                        'Non Profit', '#A5D6A7',
+                        '#228B22' // default
+                    ],
+                    'fill-opacity': [
+                        'case',
+                        ['boolean', ['feature-state', 'hover'], false],
+                        0.8,
+                        0.5
+                    ]
+                },
+                layout: {
+                    visibility: 'visible'
+                }
+            });
+
+            // CPAD Holdings outline layer
+            map.addLayer({
+                id: 'holdings-outline',
+                type: 'line',
+                source: 'cpad-holdings',
+                'source-layer': 'cpad-2025b-holdings',
+                paint: {
+                    'line-color': '#1B5E20',
+                    'line-width': 0.5,
+                    'line-opacity': 0.6
+                },
+                layout: {
+                    visibility: 'visible'
+                }
+            });
+
+            // CPAD Units fill layer
+            map.addLayer({
+                id: 'units-fill',
+                type: 'fill',
+                source: 'cpad-units',
+                'source-layer': 'cpad-2025b-units',
+                paint: {
+                    'fill-color': '#1976D2',
+                    'fill-opacity': 0.4
+                },
+                layout: {
+                    visibility: 'visible'
+                }
+            });
+
+            // CPAD Units outline layer
+            map.addLayer({
+                id: 'units-outline',
+                type: 'line',
+                source: 'cpad-units',
+                'source-layer': 'cpad-2025b-units',
+                paint: {
+                    'line-color': '#0D47A1',
+                    'line-width': 1,
+                    'line-opacity': 0.7
+                },
+                layout: {
+                    visibility: 'visible'
+                }
+            });
+
+            // CCED Easements fill layer
+            map.addLayer({
+                id: 'easements-fill',
+                type: 'fill',
+                source: 'cced-easements',
+                'source-layer': 'cced-2025b',
+                paint: {
+                    'fill-color': '#FF6F00',
+                    'fill-opacity': 0.5
+                },
+                layout: {
+                    visibility: 'visible'
+                }
+            });
+
+            // CCED Easements outline layer
+            map.addLayer({
+                id: 'easements-outline',
+                type: 'line',
+                source: 'cced-easements',
+                'source-layer': 'cced-2025b',
+                paint: {
+                    'line-color': '#E65100',
+                    'line-width': 0.5,
+                    'line-opacity': 0.7
+                },
+                layout: {
+                    visibility: 'visible'
+                }
+            });
+
+            // Layer toggle controls
+            const toggles = {
+                'toggle-holdings': ['holdings-fill', 'holdings-outline'],
+                'toggle-units': ['units-fill', 'units-outline'],
+                'toggle-easements': ['easements-fill', 'easements-outline']
+            };
+
+            Object.keys(toggles).forEach(toggleId => {
+                const checkbox = document.getElementById(toggleId);
+                const layerIds = toggles[toggleId];
+
+                checkbox.addEventListener('change', (e) => {
+                    const visibility = e.target.checked ? 'visible' : 'none';
+                    layerIds.forEach(layerId => {
+                        map.setLayoutProperty(layerId, 'visibility', visibility);
+                    });
+                });
+            });
+
+            // Popup on click
+            const popup = new maplibregl.Popup({
+                closeButton: true,
+                closeOnClick: true
+            });
+
+            // Holdings click handler
+            map.on('click', 'holdings-fill', (e) => {
+                if (e.features.length > 0) {
+                    const feature = e.features[0];
+                    const props = feature.properties;
+
+                    const html = `
+                        <h4>${props.UNIT_NAME || 'Protected Area'}</h4>
+                        <p><strong>Type:</strong> CPAD Holding</p>
+                        <p><strong>Owner:</strong> ${props.AGNCY_NAME || 'Unknown'}</p>
+                        ${props.MNG_AGNCY ? `<p><strong>Manager:</strong> ${props.MNG_AGNCY}</p>` : ''}
+                        <p><strong>Access:</strong> ${props.ACCESS_TYP || 'Unknown'}</p>
+                        <p><strong>Acres:</strong> ${props.ACRES ? Math.round(props.ACRES).toLocaleString() : 'Unknown'}</p>
+                        ${props.COUNTY ? `<p><strong>County:</strong> ${props.COUNTY}</p>` : ''}
+                    `;
+
+                    popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+                }
+            });
+
+            // Units click handler
+            map.on('click', 'units-fill', (e) => {
+                if (e.features.length > 0) {
+                    const feature = e.features[0];
+                    const props = feature.properties;
+
+                    const html = `
+                        <h4>${props.UNIT_NAME || 'Protected Area'}</h4>
+                        <p><strong>Type:</strong> CPAD Unit</p>
+                        <p><strong>Owner:</strong> ${props.AGNCY_NAME || 'Unknown'}</p>
+                        <p><strong>Access:</strong> ${props.ACCESS_TYP || 'Unknown'}</p>
+                        <p><strong>Acres:</strong> ${props.ACRES ? Math.round(props.ACRES).toLocaleString() : 'Unknown'}</p>
+                    `;
+
+                    popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+                }
+            });
+
+            // Easements click handler
+            map.on('click', 'easements-fill', (e) => {
+                if (e.features.length > 0) {
+                    const feature = e.features[0];
+                    const props = feature.properties;
+
+                    const html = `
+                        <h4>${props.sitename || 'Conservation Easement'}</h4>
+                        <p><strong>Type:</strong> CCED Easement</p>
+                        <p><strong>Holder:</strong> ${props.esmthldr || 'Unknown'}</p>
+                        ${props.s_emthd1 ? `<p><strong>Additional Holders:</strong> ${props.s_emthd1}</p>` : ''}
+                        <p><strong>Access:</strong> ${props.pubaccess || 'Closed'}</p>
+                        <p><strong>Acres:</strong> ${props.gis_acres ? Math.round(props.gis_acres).toLocaleString() : 'Unknown'}</p>
+                        ${props.county ? `<p><strong>County:</strong> ${props.county}</p>` : ''}
+                    `;
+
+                    popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+                }
+            });
+
+            // Cursor pointer on hover
+            ['holdings-fill', 'units-fill', 'easements-fill'].forEach(layerId => {
+                map.on('mouseenter', layerId, () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', layerId, () => {
+                    map.getCanvas().style.cursor = '';
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>

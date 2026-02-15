@@ -1,0 +1,153 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-post-process
+  labels:
+    k8s-app: iucn-post-process
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-post-process
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      restartPolicy: Never
+      initContainers:
+        - name: git-clone
+          image: alpine/git:2.45.2
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          command:
+            - sh
+            - -lc
+            - |
+              git clone --depth 1 "https://github.com/boettiger-lab/datasets.git" /workspace/datasets
+          volumeMounts:
+            - name: repo
+              mountPath: /workspace
+      containers:
+        - name: post-process-task
+          image: ghcr.io/rocker-org/ml-spatial
+          imagePullPolicy: Always
+          workingDir: /workspace/datasets
+          volumeMounts:
+            - name: repo
+              mountPath: /workspace
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: "rook-ceph-rgw-nautiluss3.rook"
+            - name: AWS_PUBLIC_ENDPOINT
+              value: "s3-west.nrp-nautilus.io"
+            - name: AWS_HTTPS
+              value: "false"
+            - name: AWS_VIRTUAL_HOSTING
+              value: "FALSE"
+          resources:
+            requests:
+              cpu: "8"
+              memory: 64Gi
+            limits:
+              cpu: "8"
+              memory: 64Gi
+          command:
+            - bash
+            - -lc
+            - |
+              set -e
+              set -o pipefail
+              echo "Starting IUCN post-processing to remove 0 values..."
+              
+              # Process all 14 IUCN richness layers sequentially
+              
+              # Species Richness layers
+              python -u iucn/post_process.py \
+                --layer-name amphibians_sr \
+                --value-column amphibians_sr
+              
+              python -u iucn/post_process.py \
+                --layer-name birds_sr \
+                --value-column birds_sr
+              
+              python -u iucn/post_process.py \
+                --layer-name mammals_sr \
+                --value-column mammals_sr
+              
+              python -u iucn/post_process.py \
+                --layer-name reptiles_sr \
+                --value-column reptiles_sr
+              
+              python -u iucn/post_process.py \
+                --layer-name fw_fish_sr \
+                --value-column fw_fish_sr
+              
+              python -u iucn/post_process.py \
+                --layer-name combined_sr \
+                --value-column combined_sr
+              
+              # Threatened Species Richness layers
+              python -u iucn/post_process.py \
+                --layer-name amphibians_thr_sr \
+                --value-column amphibians_thr_sr
+              
+              python -u iucn/post_process.py \
+                --layer-name birds_thr_sr \
+                --value-column birds_thr_sr
+              
+              python -u iucn/post_process.py \
+                --layer-name mammals_thr_sr \
+                --value-column mammals_thr_sr
+              
+              python -u iucn/post_process.py \
+                --layer-name reptiles_thr_sr \
+                --value-column reptiles_thr_sr
+              
+              python -u iucn/post_process.py \
+                --layer-name fw_fish_thr_sr \
+                --value-column fw_fish_thr_sr
+              
+              python -u iucn/post_process.py \
+                --layer-name combined_thr_sr \
+                --value-column combined_thr_sr
+              
+              # Range-Weighted Richness layers
+              python -u iucn/post_process.py \
+                --layer-name combined_rwr \
+                --value-column combined_rwr
+              
+              python -u iucn/post_process.py \
+                --layer-name combined_thr_rwr \
+                --value-column combined_thr_rwr
+              
+              echo "✓ All layers post-processed successfully!"
+      volumes:
+        - name: repo
+          emptyDir: {}

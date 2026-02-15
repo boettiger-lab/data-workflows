@@ -1,0 +1,123 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-cog-conversion
+  labels:
+    k8s-app: iucn-cog-conversion
+spec:
+  # Run 14 indexed completions (i = 0..13) for 14 GeoTIFF files
+  completions: 14
+  parallelism: 7  # adjust concurrency as cluster capacity allows
+  completionMode: Indexed
+  backoffLimit: 0
+  # Keep failed pods for 1 hour (3600 seconds) for debugging
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-cog-conversion
+    spec:
+      # allow others to pre-empt the pods, required for large CPU jobs
+      priorityClassName: opportunistic
+      # Avoid GPU nodes which can hit trouble.  also recommended for large CPU-only jobs.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      # Keep failed pods around for debugging (paired with ttlSecondsAfterFinished at job level)
+      # Never restart pod on failure - keep failed pods for debugging
+      restartPolicy: Never
+      containers:
+        - name: cog-task
+          image: ghcr.io/rocker-org/ml-spatial
+          imagePullPolicy: Always
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: "rook-ceph-rgw-nautiluss3.rook"
+            - name: AWS_PUBLIC_ENDPOINT
+              value: "s3-west.nrp-nautilus.io"
+            - name: AWS_HTTPS
+              value: "false"
+            - name: AWS_VIRTUAL_HOSTING
+              value: "FALSE"
+            - name: GDAL_DATA
+              value: "/opt/conda/share/gdal"
+            - name: PROJ_LIB
+              value: "/opt/conda/share/proj"
+            - name: INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+            limits:
+              cpu: "2"
+              memory: 8Gi
+          # Use bash array to map index to filename, then convert to COG
+          command:
+            - bash
+            - -lc
+            - |
+              set -e  # Exit on first error
+              set -o pipefail  # Exit if any command in a pipeline fails
+              echo "Running COG conversion for index ${INDEX}";
+              
+              # Array of input files
+              files=(
+                "Amphibians_SR_2025.tif"
+                "Birds_SR_2025.tif"
+                "Mammals_SR_2025.tif"
+                "Reptiles_SR_2025.tif"
+                "FW_Fish_SR_2025.tif"
+                "Combined_SR_2025.tif"
+                "Amphibians_THR_SR_2025.tif"
+                "Birds_THR_SR_2025.tif"
+                "Mammals_THR_SR_2025.tif"
+                "Reptiles_THR_SR_2025.tif"
+                "FW_Fish_THR_SR_2025.tif"
+                "Combined_THR_SR_2025.tif"
+                "Combined_RWR_2025.tif"
+                "Combined_THR_RWR_2025.tif"
+              )
+              
+              # Get the file for this index
+              file="${files[$INDEX]}"
+              echo "Processing: $file"
+              
+              # Define input and output paths
+              input_path="/vsis3/public-iucn/raw/richness/${file}"
+              output_path="/vsis3/public-iucn/cog/richness/${file}"
+              
+              # Convert to COG using gdal_translate
+              # -of COG: output format Cloud Optimized GeoTIFF
+              # -co COMPRESS=LZW: use LZW compression
+              # -co TILED=YES: create tiled output
+              # -co BLOCKXSIZE=512 -co BLOCKYSIZE=512: tile size
+              # -co OVERVIEW_RESAMPLING=NEAREST: overview generation method
+              gdal_translate -of COG \
+                -co COMPRESS=LZW \
+                -co TILED=YES \
+                -co BLOCKXSIZE=512 \
+                -co BLOCKYSIZE=512 \
+                -co OVERVIEW_RESAMPLING=NEAREST \
+                -co NUM_THREADS=ALL_CPUS \
+                "${input_path}" "${output_path}"
+              
+              echo "Successfully converted ${file} to COG"

@@ -1,0 +1,122 @@
+{
+    "type": "Collection",
+    "stac_version": "1.0.0",
+    "id": "us-census-2022",
+    "title": "US Census 2022 - Spatial Index",
+    "description": "Spatial crosswalk (H3 resolution 10) for US Census Tracts (2022).",
+    "license": "public-domain",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "keywords": [
+        "census",
+        "demography",
+        "united states",
+        "statistics",
+        "H3",
+        "crosswalk"
+    ],
+    "providers": [
+        {
+            "name": "US Census Bureau",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://www.census.gov/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180.0,
+                    18.0,
+                    -65.0,
+                    72.0
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2022-01-01T00:00:00Z",
+                    "2022-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/README.md",
+            "type": "text/markdown",
+            "title": "Data Dictionary & Usage Notes"
+        },
+        {
+            "rel": "source",
+            "href": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+            "type": "text/html",
+            "title": "US Census TIGER/Line Shapefiles"
+        }
+    ],
+    "assets": {
+        "census-tracts-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-census/year=2022/tracts-hex-z10.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "US Census 2022 Tracts - H3 Hexagonal Tiling (Resolution 10)",
+            "roles": [
+                "data"
+            ],
+            "table:columns": [
+                {
+                    "name": "FIPS",
+                    "type": "string",
+                    "description": "11-digit Census Tract FIPS Code (State+County+Tract)"
+                },
+                {
+                    "name": "h10",
+                    "type": "array",
+                    "description": "List of H3 resolution 10 indices overlapping the tract"
+                },
+                {
+                    "name": "STATE",
+                    "type": "string",
+                    "description": "FIPS State Code"
+                },
+                {
+                    "name": "COUNTY",
+                    "type": "string",
+                    "description": "FIPS County Code"
+                },
+                {
+                    "name": "year",
+                    "type": "integer",
+                    "description": "Census Year (2022)"
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,146 @@
+{
+    "type": "Collection",
+    "stac_version": "1.0.0",
+    "id": "inaturalist-ranges",
+    "title": "iNaturalist Species Ranges & Taxonomy",
+    "description": "Modeled species ranges (polygons and H3 hexagons) and comprehensive taxonomic data from iNaturalist.",
+    "license": "various",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "keywords": [
+        "biodiversity",
+        "species ranges",
+        "taxonomy",
+        "iNaturalist",
+        "H3"
+    ],
+    "providers": [
+        {
+            "name": "iNaturalist",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://www.inaturalist.org/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180.0,
+                    -90.0,
+                    180.0,
+                    90.0
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2000-01-01T00:00:00Z",
+                    "2025-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-inat/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-inat/README.md",
+            "type": "text/markdown",
+            "title": "Dataset Description"
+        },
+        {
+            "rel": "source",
+            "href": "https://www.inaturalist.org/",
+            "type": "text/html",
+            "title": "iNaturalist Homepage"
+        }
+    ],
+    "assets": {
+        "ranges-taxon-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-inat/taxon/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Species Ranges (Polygons)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by iconic_taxon_name",
+            "table:columns": [
+                {
+                    "name": "taxon_id",
+                    "type": "integer",
+                    "description": "iNaturalist Taxon ID"
+                },
+                {
+                    "name": "scientificName",
+                    "type": "string",
+                    "description": "Scientific Name"
+                },
+                {
+                    "name": "geom",
+                    "type": "binary",
+                    "description": "Range Geometry (WKB)"
+                },
+                {
+                    "name": "geomodel_version",
+                    "type": "string",
+                    "description": "Model Version"
+                }
+            ]
+        },
+        "ranges-hex-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-inat/ranges.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "Species Ranges (H3 Hexagons)",
+            "roles": [
+                "data"
+            ],
+            "description": "Ranges indexed to H4 hexagons",
+            "table:columns": [
+                {
+                    "name": "taxon_id",
+                    "type": "integer",
+                    "description": "iNaturalist Taxon ID"
+                },
+                {
+                    "name": "h4",
+                    "type": "string",
+                    "description": "H3 resolution 4 cell ID"
+                }
+            ]
+        },
+        "taxonomy-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-inat/taxonomy/taxa.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "Taxonomy Table",
+            "roles": [
+                "metadata"
+            ]
+        }
+    }
+}

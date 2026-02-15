@@ -1,0 +1,148 @@
+{
+    "type": "Collection",
+    "stac_version": "1.0.0",
+    "id": "mappinginequality",
+    "title": "Mapping Inequality: Redlining in New Deal America",
+    "description": "HOLC 'Redlining' maps for US cities (1930s-1940s), grading neighborhoods on mortgage security (A-D).",
+    "license": "CC-BY-NC-SA-4.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "keywords": [
+        "redlining",
+        "housing",
+        "inequality",
+        "history",
+        "HOLC",
+        "United States"
+    ],
+    "providers": [
+        {
+            "name": "Digital Scholarship Lab, University of Richmond",
+            "roles": [
+                "producer",
+                "licensor"
+            ],
+            "url": "https://dsl.richmond.edu/panorama/redlining/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -125.0,
+                    24.0,
+                    -66.0,
+                    50.0
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "1935-01-01T00:00:00Z",
+                    "1940-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-mappinginequality/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-mappinginequality/README.md",
+            "type": "text/markdown",
+            "title": "Detailed Data Description"
+        },
+        {
+            "rel": "source",
+            "href": "https://dsl.richmond.edu/panorama/redlining/",
+            "type": "text/html",
+            "title": "Mapping Inequality Project"
+        }
+    ],
+    "assets": {
+        "parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-mappinginequality/mappinginequality.parquet",
+            "type": "application/x-parquet",
+            "title": "Full Dataset (GeoParquet)",
+            "roles": [
+                "data"
+            ],
+            "table:storage_options": {
+                "s3": {
+                    "region": "us-west-2",
+                    "endpoint_url": "https://s3-west.nrp-nautilus.io"
+                }
+            }
+        },
+        "pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-mappinginequality/mappinginequality.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "Web Map Tiles (PMTiles)",
+            "roles": [
+                "visual"
+            ],
+            "pmtiles:layer": "redlining"
+        }
+    },
+    "table:columns": [
+        {
+            "name": "fid",
+            "type": "bigint",
+            "description": "Unique Feature ID"
+        },
+        {
+            "name": "area_id",
+            "type": "integer",
+            "description": "ID of the specific polygon area"
+        },
+        {
+            "name": "city",
+            "type": "string",
+            "description": "Name of the city"
+        },
+        {
+            "name": "state",
+            "type": "string",
+            "description": "Two-letter state abbreviation"
+        },
+        {
+            "name": "grade",
+            "type": "string",
+            "description": "HOLC Grade: A (Best), B (Still Desirable), C (Definitely Declining), D (Hazardous)"
+        },
+        {
+            "name": "label",
+            "type": "string",
+            "description": "Full area label (e.g., A1, B2)"
+        },
+        {
+            "name": "fill",
+            "type": "string",
+            "description": "Hex color code used in original maps"
+        }
+    ]
+}

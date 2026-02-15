@@ -1,0 +1,290 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-integrity-test
+  labels:
+    k8s-app: gbif-integrity-test
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-integrity-test
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: test
+        image: ghcr.io/rocker-org/ml-spatial
+        imagePullPolicy: Always
+        command: ["/bin/bash", "-lc"]
+        args:
+          - |
+            set -e
+            
+            echo "Installing dependencies..."
+            pip install -q duckdb boto3
+            
+            echo "Running data integrity test..."
+            cat > /tmp/test_data_integrity.py << 'EOFPYTHON'
+            """
+            Test data integrity between source GBIF data and processed output.
+
+            This script verifies:
+            1. Count of valid (non-null lat/lon) records in source AWS bucket
+            2. Count of records in processed NRP bucket
+            3. That the counts match
+            """
+
+            import duckdb
+            import os
+            import sys
+
+            def setup_duckdb():
+                """Initialize DuckDB connection with required extensions."""
+                con = duckdb.connect("/tmp/duck_test.db")
+                
+                # Install and load required extensions
+                con.execute("INSTALL httpfs;")
+                con.execute("LOAD httpfs;")
+                
+                # Configure for AWS (public anonymous access)
+                con.execute("""
+                    CREATE SECRET IF NOT EXISTS aws_public (
+                        TYPE S3,
+                        KEY_ID '',
+                        SECRET '',
+                        REGION 'us-east-1',
+                        SCOPE 's3://gbif-open-data-us-east-1'
+                    );
+                """)
+                
+                # Configure for NRP
+                aws_key = os.environ.get('AWS_ACCESS_KEY_ID', '')
+                aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY', '')
+                s3_endpoint = os.environ.get('AWS_S3_ENDPOINT', 'rook-ceph-rgw-nautiluss3.rook')
+                use_ssl = os.environ.get('AWS_HTTPS', 'false').lower() == 'true'
+                
+                con.execute(f"""
+                    CREATE SECRET IF NOT EXISTS nrp_public (
+                        TYPE S3,
+                        KEY_ID '{aws_key}',
+                        SECRET '{aws_secret}',
+                        REGION 'us-east-1',
+                        ENDPOINT '{s3_endpoint}',
+                        USE_SSL {use_ssl},
+                        URL_STYLE 'path',
+                        SCOPE 's3://public-gbif'
+                    );
+                """)
+                
+                print("✓ DuckDB configured for AWS and NRP access\n")
+                return con
+
+            def count_source_records(con):
+                """Count valid records in source AWS GBIF bucket."""
+                print("=" * 80)
+                print("Counting source records (AWS)")
+                print("=" * 80)
+                
+                source_path = "s3://gbif-open-data-us-east-1/occurrence/2025-06-01/occurrence.parquet/**"
+                
+                query = f"""
+                SELECT COUNT(*) as valid_count
+                FROM read_parquet('{source_path}')
+                WHERE decimallatitude IS NOT NULL 
+                  AND decimallongitude IS NOT NULL
+                """
+                
+                print(f"Source: {source_path}")
+                print("Querying... (this may take a few minutes)")
+                
+                try:
+                    result = con.execute(query).fetchone()
+                    count = result[0]
+                    print(f"\n✓ Source valid records: {count:,}\n")
+                    return count
+                except Exception as e:
+                    print(f"\n✗ Error counting source records: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return None
+
+            def count_processed_records(con):
+                """Count records in processed NRP bucket."""
+                print("=" * 80)
+                print("Counting processed records (NRP)")
+                print("=" * 80)
+                
+                processed_path = "s3://public-gbif/2025-06/hex/**"
+                
+                query = f"""
+                SELECT COUNT(*) as processed_count
+                FROM read_parquet('{processed_path}')
+                """
+                
+                print(f"Processed: {processed_path}")
+                print("Querying...")
+                
+                try:
+                    result = con.execute(query).fetchone()
+                    count = result[0]
+                    print(f"\n✓ Processed records: {count:,}\n")
+                    return count
+                except Exception as e:
+                    print(f"\n✗ Error counting processed records: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return None
+
+            def verify_sample_data(con):
+                """Verify a sample of records to check data quality."""
+                print("=" * 80)
+                print("Verifying sample data quality")
+                print("=" * 80)
+                
+                source_path = "s3://gbif-open-data-us-east-1/occurrence/2025-06-01/occurrence.parquet/**"
+                processed_path = "s3://public-gbif/2025-06/hex/**"
+                
+                # Check for any null coordinates in processed data
+                null_check_query = f"""
+                SELECT COUNT(*) as null_coords
+                FROM read_parquet('{processed_path}')
+                WHERE decimallatitude IS NULL OR decimallongitude IS NULL
+                """
+                
+                try:
+                    result = con.execute(null_check_query).fetchone()
+                    null_count = result[0]
+                    if null_count > 0:
+                        print(f"⚠ Warning: Found {null_count:,} records with null coordinates in processed data")
+                    else:
+                        print("✓ No null coordinates in processed data")
+                except Exception as e:
+                    print(f"⚠ Could not verify null coordinates: {e}")
+                
+                # Sample some gbifIDs from source and check they exist in processed
+                print("\nChecking sample gbifID preservation...")
+                sample_query = f"""
+                WITH source_sample AS (
+                    SELECT gbifid
+                    FROM read_parquet('{source_path}')
+                    WHERE decimallatitude IS NOT NULL 
+                      AND decimallongitude IS NOT NULL
+                    LIMIT 100
+                ),
+                processed_sample AS (
+                    SELECT gbifid
+                    FROM read_parquet('{processed_path}')
+                    WHERE gbifid IN (SELECT gbifid FROM source_sample)
+                )
+                SELECT 
+                    (SELECT COUNT(*) FROM source_sample) as source_sample,
+                    (SELECT COUNT(*) FROM processed_sample) as processed_sample
+                """
+                
+                try:
+                    result = con.execute(sample_query).fetchone()
+                    source_sample, processed_sample = result
+                    if source_sample == processed_sample:
+                        print(f"✓ Sample verification passed: {processed_sample}/{source_sample} gbifIDs found")
+                    else:
+                        print(f"⚠ Sample mismatch: {processed_sample}/{source_sample} gbifIDs found")
+                except Exception as e:
+                    print(f"⚠ Could not verify sample: {e}")
+                
+                print()
+
+            def main():
+                """Main test function."""
+                print("\n" + "=" * 80)
+                print("GBIF Data Integrity Test")
+                print("Testing: 2025-06 dataset")
+                print("=" * 80 + "\n")
+                
+                # Initialize DuckDB
+                con = setup_duckdb()
+                
+                # Count source records
+                source_count = count_source_records(con)
+                
+                # Count processed records
+                processed_count = count_processed_records(con)
+                
+                # Verify sample data quality
+                verify_sample_data(con)
+                
+                # Compare counts
+                print("=" * 80)
+                print("Test Results")
+                print("=" * 80)
+                
+                if source_count is None or processed_count is None:
+                    print("✗ TEST FAILED: Could not retrieve counts")
+                    con.close()
+                    sys.exit(1)
+                
+                print(f"Source records (valid lat/lon):  {source_count:,}")
+                print(f"Processed records:                {processed_count:,}")
+                
+                if source_count == processed_count:
+                    print(f"\n✓ TEST PASSED: Counts match exactly!")
+                    print("=" * 80 + "\n")
+                    con.close()
+                    sys.exit(0)
+                else:
+                    diff = abs(source_count - processed_count)
+                    pct_diff = (diff / source_count * 100) if source_count > 0 else 0
+                    print(f"\n✗ TEST FAILED: Count mismatch!")
+                    print(f"Difference: {diff:,} records ({pct_diff:.2f}%)")
+                    
+                    if processed_count > source_count:
+                        print("⚠ Processed has MORE records than source (unexpected duplicates?)")
+                    else:
+                        print("⚠ Processed has FEWER records than source (data loss?)")
+                    
+                    print("=" * 80 + "\n")
+                    con.close()
+                    sys.exit(1)
+
+            if __name__ == "__main__":
+                main()
+            EOFPYTHON
+            
+            # Run the test
+            python3 /tmp/test_data_integrity.py
+        
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_HTTPS
+          value: "false"
+        
+        resources:
+          requests:
+            memory: "16Gi"
+            cpu: "4"
+          limits:
+            memory: "16Gi"
+            cpu: "4"
+        
+        volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+      
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "4Gi"

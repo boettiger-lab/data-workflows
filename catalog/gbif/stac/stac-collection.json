@@ -1,0 +1,151 @@
+{
+    "type": "Collection",
+    "stac_version": "1.0.0",
+    "id": "gbif-derived",
+    "title": "GBIF Derived Products (Redlining & Taxonomy)",
+    "description": "Processed GBIF occurrence data, including a subset joined with historical redlining maps and global taxonomic aggregations.",
+    "license": "various",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "keywords": [
+        "biodiversity",
+        "GBIF",
+        "redlining",
+        "taxonomy",
+        "environmental justice"
+    ],
+    "providers": [
+        {
+            "name": "Global Biodiversity Information Facility",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://www.gbif.org/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180.0,
+                    -90.0,
+                    180.0,
+                    90.0
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "1900-01-01T00:00:00Z",
+                    "2024-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-gbif/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-gbif/README.md",
+            "type": "text/markdown",
+            "title": "Dataset Description"
+        },
+        {
+            "rel": "source",
+            "href": "https://www.gbif.org/",
+            "type": "text/html",
+            "title": "GBIF Homepage"
+        }
+    ],
+    "assets": {
+        "redlined-cities-gbif": {
+            "href": "https://s3-west.nrp-nautilus.io/public-gbif/redlined_cities_gbif.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "GBIF Occurrences in Redlined Cities",
+            "roles": [
+                "data"
+            ],
+            "description": "GBIF data joined with HOLC grades (Mapping Inequality)",
+            "table:columns": [
+                {
+                    "name": "gbifid",
+                    "type": "string",
+                    "description": "GBIF Occurrence ID"
+                },
+                {
+                    "name": "scientificname",
+                    "type": "string",
+                    "description": "Scientific Name"
+                },
+                {
+                    "name": "grade",
+                    "type": "string",
+                    "description": "HOLC Grade (A-D)"
+                },
+                {
+                    "name": "city",
+                    "type": "string",
+                    "description": "City Name"
+                }
+            ]
+        },
+        "taxonomic-aggregations": {
+            "href": "https://s3-west.nrp-nautilus.io/public-gbif/taxonomy/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Taxonomic Counts by Hexagon",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by h0",
+            "table:columns": [
+                {
+                    "name": "scientificname",
+                    "type": "string",
+                    "description": "Scientific Name"
+                },
+                {
+                    "name": "n",
+                    "type": "integer",
+                    "description": "Count of occurrences"
+                },
+                {
+                    "name": "h0",
+                    "type": "string",
+                    "description": "H3 resolution 0 cell ID"
+                }
+            ]
+        },
+        "taxa-list": {
+            "href": "https://s3-west.nrp-nautilus.io/public-gbif/taxa.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "Taxa List",
+            "roles": [
+                "metadata"
+            ]
+        }
+    }
+}

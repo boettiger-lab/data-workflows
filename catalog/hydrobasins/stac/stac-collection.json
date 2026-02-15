@@ -1,0 +1,237 @@
+{
+    "type": "Collection",
+    "stac_version": "1.0.0",
+    "id": "hydrobasins-v1c",
+    "title": "HydroBasins Global Watershed Boundaries v1c",
+    "description": "Global watershed boundary data from HydroSHEDS HydroBasins v1c, organized by hierarchical basin levels (1-12). Compiled from multiple continental datasets into unified global layers. Available in GeoParquet and PMTiles formats.",
+    "license": "proprietary",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180,
+                    -55.99,
+                    180,
+                    83.63
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2025-12-01T00:00:00Z",
+                    "2025-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "license",
+            "href": "https://www.hydrosheds.org/page/data-availability",
+            "title": "HydroSHEDS Data Terms"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/README.md",
+            "type": "text/markdown",
+            "title": "Processing Documentation"
+        }
+    ],
+    "providers": [
+        {
+            "name": "HydroSHEDS",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://www.hydrosheds.org/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "summaries": {
+        "formats": [
+            "parquet",
+            "pmtiles",
+            "h3-parquet"
+        ],
+        "basin_levels": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12
+        ]
+    },
+    "table:columns": [
+        {
+            "name": "HYBAS_ID",
+            "type": "int64",
+            "description": "Unique basin identifier"
+        },
+        {
+            "name": "NEXT_DOWN",
+            "type": "int64",
+            "description": "ID of the next downstream basin"
+        },
+        {
+            "name": "NEXT_SINK",
+            "type": "int64",
+            "description": "ID of the final sink basin"
+        },
+        {
+            "name": "MAIN_BAS",
+            "type": "int64",
+            "description": "ID of the main basin"
+        },
+        {
+            "name": "DIST_SINK",
+            "type": "number",
+            "description": "Distance to the final sink (km)"
+        },
+        {
+            "name": "DIST_MAIN",
+            "type": "number",
+            "description": "Distance to the main basin outlet (km)"
+        },
+        {
+            "name": "SUB_AREA",
+            "type": "number",
+            "description": "Area of the basin itself (km²)"
+        },
+        {
+            "name": "UP_AREA",
+            "type": "number",
+            "description": "Total upstream area (km²)"
+        },
+        {
+            "name": "PFAF_ID",
+            "type": "int32",
+            "description": "Pfafstetter code"
+        },
+        {
+            "name": "ENDO",
+            "type": "int32",
+            "description": "Endorheic (closed) basin indicator (1=yes, 0=no)"
+        },
+        {
+            "name": "COAST",
+            "type": "int32",
+            "description": "Coastal basin indicator (1=yes, 0=no)"
+        },
+        {
+            "name": "ORDER",
+            "type": "int32",
+            "description": "Strahler stream order"
+        },
+        {
+            "name": "SORT",
+            "type": "int64",
+            "description": "Sorting indicator for downstream traversal"
+        }
+    ],
+    "assets": {
+        "unified-pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_06/hydrobasins_level_06.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "HydroBasins Level 6 - PMTiles",
+            "roles": [
+                "visual"
+            ],
+            "description": "Level 6 basins for visualization",
+            "pmtiles:layer": "hydrobasins_level_06"
+        },
+        "level-01-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_01.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "Level 01 Basins - GeoParquet",
+            "roles": [
+                "data"
+            ],
+            "file:size": 18892327
+        },
+        "level-03-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_03.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "Level 03 Basins - GeoParquet",
+            "roles": [
+                "data"
+            ],
+            "file:size": 33146900
+        },
+        "level-03-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_03/hexes/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Level 03 Basins - H3 Hexagonal Tiling",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by H3 level 0 cell (h0)"
+        },
+        "level-04-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_04.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "Level 04 Basins - GeoParquet",
+            "roles": [
+                "data"
+            ],
+            "file:size": 53976582
+        },
+        "level-04-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_04/hexes/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Level 04 Basins - H3 Hexagonal Tiling",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by H3 level 0 cell (h0)"
+        },
+        "level-05-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_05/hexes/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Level 05 Basins - H3 Hexagonal Tiling",
+            "roles": [
+                "data"
+            ]
+        },
+        "level-06-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_06/hexes/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Level 06 Basins - H3 Hexagonal Tiling",
+            "roles": [
+                "data"
+            ]
+        }
+    }
+}

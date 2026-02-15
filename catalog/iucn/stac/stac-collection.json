@@ -1,0 +1,284 @@
+{
+    "stac_version": "1.0.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "type": "Collection",
+    "id": "iucn-richness-2025",
+    "title": "IUCN Species Richness 2025",
+    "description": "Global species richness and range-weighted richness maps derived from the IUCN Red List of Threatened Species (Version 2025.1). The dataset covers five major taxonomic groups: Amphibians, Birds, Mammals, Reptiles, and Freshwater Fish. Data is available as Cloud-Optimized GeoTIFFs (COGs) for visualization and H3 Hexagonal Tilings (Resolution 8) for analysis. The H3 data is partitioned by resolution 0 cells (h0) for global scalability. Layer types include: SR (Species Richness - count of all species), THR_SR (Threatened Species Richness - count of VU, EN, CR species), and RWR (Range-Weighted Richness - sum of inverse range sizes).",
+    "license": "proprietary",
+    "keywords": [
+        "IUCN",
+        "Red List",
+        "biodiversity",
+        "species richness",
+        "conservation",
+        "threatened species",
+        "range-weighted richness",
+        "global",
+        "Amphibians",
+        "Birds",
+        "Mammals",
+        "Reptiles",
+        "Freshwater Fish"
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180,
+                    -90,
+                    180,
+                    90
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2025-01-01T00:00:00Z",
+                    "2025-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "license",
+            "href": "https://www.iucnredlist.org/terms/terms-of-use",
+            "title": "IUCN Red List Terms of Use"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/README.md",
+            "type": "text/markdown",
+            "title": "Data Documentation with Field Descriptions"
+        }
+    ],
+    "providers": [
+        {
+            "name": "IUCN Red List",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://www.iucnredlist.org/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "summaries": {
+        "formats": [
+            "cog",
+            "h3-parquet"
+        ],
+        "taxonomic_groups": [
+            "Amphibians",
+            "Birds",
+            "Mammals",
+            "Reptiles",
+            "Freshwater Fish",
+            "Combined"
+        ],
+        "threat_categories": [
+            "All Species",
+            "Threatened Species",
+            "Range-Weighted Richness"
+        ]
+    },
+    "table:columns": [
+        {
+            "name": "amphibians_sr",
+            "type": "integer",
+            "description": "Amphibian species richness (count of species present)"
+        },
+        {
+            "name": "amphibians_thr_sr",
+            "type": "integer",
+            "description": "Threatened amphibian species richness (count of VU, EN, CR species promoted)"
+        },
+        {
+            "name": "birds_sr",
+            "type": "integer",
+            "description": "Bird species richness (count of species present)"
+        },
+        {
+            "name": "birds_thr_sr",
+            "type": "integer",
+            "description": "Threatened bird species richness (count of VU, EN, CR species promoted)"
+        },
+        {
+            "name": "mammals_sr",
+            "type": "integer",
+            "description": "Mammal species richness (count of species present)"
+        },
+        {
+            "name": "mammals_thr_sr",
+            "type": "integer",
+            "description": "Threatened mammal species richness (count of VU, EN, CR species promoted)"
+        },
+        {
+            "name": "reptiles_sr",
+            "type": "integer",
+            "description": "Reptile species richness (count of species present)"
+        },
+        {
+            "name": "reptiles_thr_sr",
+            "type": "integer",
+            "description": "Threatened reptile species richness (count of VU, EN, CR species promoted)"
+        },
+        {
+            "name": "fw_fish_sr",
+            "type": "integer",
+            "description": "Freshwater fish species richness (count of species present)"
+        },
+        {
+            "name": "fw_fish_thr_sr",
+            "type": "integer",
+            "description": "Threatened freshwater fish species richness (count of VU, EN, CR species promoted)"
+        },
+        {
+            "name": "combined_sr",
+            "type": "integer",
+            "description": "Combined species richness across all taxonomic groups"
+        },
+        {
+            "name": "combined_thr_sr",
+            "type": "integer",
+            "description": "Combined threatened species richness across all taxonomic groups"
+        },
+        {
+            "name": "combined_rwr",
+            "type": "float",
+            "description": "Combined range-weighted richness (sum of 1/range_area for all species)"
+        },
+        {
+            "name": "combined_thr_rwr",
+            "type": "float",
+            "description": "Combined threatened range-weighted richness (sum of 1/range_area for threatened species)"
+        },
+        {
+            "name": "h8",
+            "type": "string",
+            "description": "H3 hexagon cell ID at resolution 8"
+        },
+        {
+            "name": "h0",
+            "type": "string",
+            "description": "H3 resolution 0 cell ID (partition key)"
+        }
+    ],
+    "assets": {
+        "amphibians-sr-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/cog/richness/Amphibians_SR_2025.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Amphibians Species Richness - COG",
+            "roles": [
+                "data"
+            ],
+            "file:size": 1033127
+        },
+        "amphibians-sr-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/hex/amphibians_sr/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Amphibians Species Richness - H3 Hexagonal Tiling (Resolution 8)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by H3 level 0 cell (h0)"
+        },
+        "birds-sr-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/cog/richness/Birds_SR_2025.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Birds Species Richness - COG",
+            "roles": [
+                "data"
+            ],
+            "file:size": 4759971
+        },
+        "birds-sr-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/hex/birds_sr/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Birds Species Richness - H3 Hexagonal Tiling (Resolution 8)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by H3 level 0 cell (h0)"
+        },
+        "mammals-sr-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/cog/richness/Mammals_SR_2025.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Mammals Species Richness - COG",
+            "roles": [
+                "data"
+            ],
+            "file:size": 2829219
+        },
+        "mammals-sr-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/hex/mammals_sr/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Mammals Species Richness - H3 Hexagonal Tiling (Resolution 8)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by H3 level 0 cell (h0)"
+        },
+        "reptiles-sr-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/cog/richness/Reptiles_SR_2025.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Reptiles Species Richness - COG",
+            "roles": [
+                "data"
+            ],
+            "file:size": 1831547
+        },
+        "reptiles-sr-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/hex/reptiles_sr/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Reptiles Species Richness - H3 Hexagonal Tiling (Resolution 8)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by H3 level 0 cell (h0)"
+        },
+        "combined-sr-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/cog/richness/Combined_SR_2025.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Combined Species Richness - COG",
+            "roles": [
+                "data"
+            ],
+            "file:size": 5994947
+        },
+        "combined-sr-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/hex/combined_sr/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Combined Species Richness - H3 Hexagonal Tiling (Resolution 8)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by H3 level 0 cell (h0)"
+        }
+    }
+}

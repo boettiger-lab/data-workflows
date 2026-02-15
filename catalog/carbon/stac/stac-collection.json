@@ -1,0 +1,298 @@
+{
+    "stac_version": "1.0.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "type": "Collection",
+    "id": "irrecoverable-carbon",
+    "title": "Irrecoverable Earth: Carbon Reserves",
+    "description": "Global carbon storage data mapping 'irrecoverable carbon' (carbon stocks that, if lost, cannot be recovered by 2050), 'manageable carbon' (stocks that can be influenced by human management), and 'vulnerable carbon' (total stocks vulnerable to release upon land conversion). Data derived from Noon et al. (2022). Available as Cloud-Optimized GeoTIFFs (2010/2018) for biomass, soil, and total carbon, plus H3 Hexagonal Tilings (Resolution 8).",
+    "license": "proprietary",
+    "keywords": [
+        "carbon",
+        "irrecoverable carbon",
+        "climate change",
+        "biomass",
+        "soil carbon",
+        "conservation",
+        "manageable carbon",
+        "vulnerable carbon"
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180,
+                    -90,
+                    180,
+                    90
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2010-01-01T00:00:00Z",
+                    "2018-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/README.md",
+            "type": "text/markdown",
+            "title": "Data Documentation with Field Descriptions"
+        },
+        {
+            "rel": "about",
+            "href": "https://www.conservation.org/irrecoverable-carbon",
+            "title": "Conservation International - Irrecoverable Carbon Project"
+        },
+        {
+            "rel": "cite-as",
+            "href": "https://doi.org/10.1038/s41893-021-00803-6",
+            "title": "Noon et al. (2022) Nature Sustainability"
+        },
+        {
+            "rel": "derived_from",
+            "href": "https://doi.org/10.5281/zenodo.4091029",
+            "title": "Original Data - Zenodo"
+        }
+    ],
+    "providers": [
+        {
+            "name": "Conservation International",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://www.conservation.org/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "summaries": {
+        "formats": [
+            "cog",
+            "h3-parquet"
+        ],
+        "carbon_types": [
+            "irrecoverable_biomass",
+            "irrecoverable_soil",
+            "irrecoverable_total",
+            "manageable_biomass",
+            "manageable_soil",
+            "manageable_total",
+            "vulnerable_biomass",
+            "vulnerable_soil",
+            "vulnerable_total"
+        ],
+        "years": [
+            2010,
+            2018
+        ]
+    },
+    "table:columns": [
+        {
+            "name": "carbon",
+            "type": "number",
+            "description": "Total carbon stock in the hex cell (Mg C). Float for Irrecoverable Carbon, Integer for Vulnerable Carbon."
+        },
+        {
+            "name": "h8",
+            "type": "string",
+            "description": "H3 hexagon cell ID at resolution 8"
+        },
+        {
+            "name": "h0",
+            "type": "string",
+            "description": "H3 resolution 0 cell ID (partition key)"
+        }
+    ],
+    "assets": {
+        "irrecoverable-carbon-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/irrecoverable-carbon/hex//",
+            "type": "application/vnd.apache.parquet",
+            "title": "Irrecoverable Carbon (Total) - H3 Hexagonal Tiling",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by H3 level 0 cell (h0). Path contains double slash due to key naming."
+        },
+        "vulnerable-carbon-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/vulnerable-carbon/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Vulnerable Carbon (Total) - H3 Hexagonal Tiling",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by H3 level 0 cell (h0)"
+        },
+        "irrecoverable-biomass-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_biomass_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Irrecoverable Carbon - Biomass 2010",
+            "roles": [
+                "data"
+            ]
+        },
+        "irrecoverable-biomass-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_biomass_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Irrecoverable Carbon - Biomass 2018",
+            "roles": [
+                "data"
+            ]
+        },
+        "irrecoverable-soil-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_soil_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Irrecoverable Carbon - Soil 2010",
+            "roles": [
+                "data"
+            ]
+        },
+        "irrecoverable-soil-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_soil_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Irrecoverable Carbon - Soil 2018",
+            "roles": [
+                "data"
+            ]
+        },
+        "irrecoverable-total-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_total_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Irrecoverable Carbon - Total 2010",
+            "roles": [
+                "data"
+            ]
+        },
+        "irrecoverable-total-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_total_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Irrecoverable Carbon - Total 2018",
+            "roles": [
+                "data"
+            ]
+        },
+        "manageable-biomass-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_biomass_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Manageable Carbon - Biomass 2010",
+            "roles": [
+                "data"
+            ]
+        },
+        "manageable-biomass-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_biomass_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Manageable Carbon - Biomass 2018",
+            "roles": [
+                "data"
+            ]
+        },
+        "manageable-soil-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_soil_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Manageable Carbon - Soil 2010",
+            "roles": [
+                "data"
+            ]
+        },
+        "manageable-soil-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_soil_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Manageable Carbon - Soil 2018",
+            "roles": [
+                "data"
+            ]
+        },
+        "manageable-total-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_total_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Manageable Carbon - Total 2010",
+            "roles": [
+                "data"
+            ]
+        },
+        "manageable-total-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_total_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Manageable Carbon - Total 2018",
+            "roles": [
+                "data"
+            ]
+        },
+        "vulnerable-biomass-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_biomass_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Vulnerable Carbon - Biomass 2010",
+            "roles": [
+                "data"
+            ]
+        },
+        "vulnerable-biomass-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_biomass_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Vulnerable Carbon - Biomass 2018",
+            "roles": [
+                "data"
+            ]
+        },
+        "vulnerable-soil-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_soil_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Vulnerable Carbon - Soil 2010",
+            "roles": [
+                "data"
+            ]
+        },
+        "vulnerable-soil-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_soil_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Vulnerable Carbon - Soil 2018",
+            "roles": [
+                "data"
+            ]
+        },
+        "vulnerable-total-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_total_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Vulnerable Carbon - Total 2010",
+            "roles": [
+                "data"
+            ]
+        },
+        "vulnerable-total-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_total_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Vulnerable Carbon - Total 2018",
+            "roles": [
+                "data"
+            ]
+        }
+    }
+}

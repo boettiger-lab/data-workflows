@@ -1,0 +1,1688 @@
+CPAD DATABASE MANUAL
+Version 2025b
+Released: December 2025b
+
+BEFORE USING DATA, see Data Disclaimer inside
+
+CPAD is published by GreenInfo Network ​
+
+Contents
+Acknowledgements​
+Data Disclaimer​
+Acknowledgement of Indigenous and Native Lands​
+Summary​
+Current CPAD Release Improvements (v. 2025b)​
+Key Statistics​
+Introduction​
+Data Definitions​
+CPAD Geography​
+“Protected” Status​
+Open Space vs. Hardscape​
+Additional Open Space Criteria​
+Ownership vs. Management​
+Public Access​
+Land and Water​
+Database Structure​
+Data Dictionary​
+Holdings​
+Units​
+Super Units​
+CPAD Data Procedures​
+GAP Codes​
+Known Data Issues in CPAD​
+CPAD Releases and History​
+Current CPAD Release Improvements (v. 2025b)​
+History of CPAD​
+CPAD Release History​
+
+CPAD Database Manual, version 2025b
+
+2
+3
+5
+6
+6
+6
+7
+9
+9
+9
+10
+10
+12
+12
+12
+14
+16
+16
+19
+21
+23
+25
+26
+27
+27
+28
+30
+
+1
+
+Acknowledgements
+CPAD is now primarily supported by funding from the California Natural Resources Agency, through the
+Department of Water Resources – we greatly appreciate this assistance. Additional funding for CPAD comes from
+CPAD-related work on individual projects that GreenInfo Network conducts, including recent assistance from
+Placeworks/Los Angeles County, the Resources Legacy Fund, and The San Diego Foundation.
+Other recent CPAD supporters include: TOGETHER Bay Area, California Department of Parks and Recreation,
+California State Coastal Conservancy, and the U.S. Geological Survey Gap Analysis Program. Earlier CPAD
+supporters include: California Council of Land Trusts, Cal State Univ. Stanislaus, the Southern California Open Space
+Council, the Central Coast Open Space Council, The Annenberg Foundation, Great Valley Center, The Nature
+Conservancy, Pacific Gas & Electric Company, The Sierra Nevada Conservancy, California Department of Forestry
+and Fire Protection (CalFIRE), The California Endowment, and the UC Davis Information Center for the
+Environment/Great Places Program.
+A large number of other public agencies and private non-profits contributed data and advice to CPAD. We can’t list
+them all here, but we are very thankful for their time and assistance.
+Current and past GreenInfo Network staff and interns who designed CPAD and created the data contained in it
+include:
+Matt Lamborn, Executive Director
+Amanda Kochanek, Sr. Project Manager & Geospatial Data Analyst
+Dariya Draganova, Geospatial Analyst & Developer
+Joseph Stout, Geospatial Analyst
+Stephanie Ding, Sr. Geospatial Analyst & Cartographer
+Greg Allensworth, Sr. Web GIS Developer
+Kristina Yamamoto, GIS Manager and Sr. Analyst
+Andrew Kang Nham, Geospatial Analyst
+
+Prior staff and interns:
+Alexandra Barnish
+Kimberly Becerril
+Ryan Branciforte
+Brian Cohen
+Chris Cowin
+Gina Rosa Cova
+Laura Daly
+Jody DeArujo
+Kelly Dolan
+Aubrey Dugger
+Anjuli Jain Figueroa
+Lynn Frederico
+Imre Freeve
+Saba Gebreamlak
+Robert Graham
+
+CPAD Database Manual, version 2025b
+
+Jason Jones
+John Kelly
+Nick Maricich
+Mike McGunagle
+Diana Pancholi
+Larry Orman
+Charles-Antoine Perrault
+Bridget Smith
+Bobby Sudekum
+Lars Uhde
+Maianna Voge
+Mitch Wilks
+Yessenia Chaiu Zhang
+Jayita Bhojwani
+Dan Rademacher
+
+2
+
+Data Disclaimer
+Your use signifies agreement
+Summary
+
+The California Protected Areas Database (“CPAD”) has been developed by GreenInfo Network for general
+use in land use planning, education or other activities that do not rely upon the data for a legally binding
+decision. While GreenInfo Network strives to provide the best data possible, GREENINFO NETWORK
+MAKES NO REPRESENTATION OR WARRANTY AS TO ITS ACCURACY, TIMELINESS, OR COMPLETENESS.
+GREENINFO NETWORK MAKES NO WARRANTY OF MERCHANTABILITY OR WARRANTY FOR FITNESS OF
+USE FOR A PARTICULAR PURPOSE, EXPRESSED OR IMPLIED, WITH RESPECT TO THESE PRODUCTS OR THE
+UNDERLYING DATA. Any user of this data accepts same AS IS, WITH ALL FAULTS, and assumes all
+responsibility for the use thereof, and further covenants and agrees to defend, indemnify, and hold
+GreenInfo Network harmless from and against all damage, loss, or liability arising from any use of this
+product, in consideration of GreenInfo Network having made this information available.
+Independent verification of all data contained herein should be obtained by any user of these products,
+or the underlying data. GreenInfo Network disclaims, and shall not be held liable for, any and all damage,
+loss, or liability, whether direct, indirect, or consequential, which arises or may arise from these products
+or the use thereof by any person or entity.
+This edition of CPAD should be cited in any maps, reports, websites or other products as: “California
+Protected Areas Database (CPAD) – www.calands.org (December 2025)”
+1. Disclaimer Details
+This digital data and metadata, (hereinafter collectively referred to as the "information"), are provided
+on an "AS IS", "AS AVAILABLE" and "WITH ALL FAULTS" basis. Neither GreenInfo Network nor any of its
+employees makes any warranty of any kind for this information, express or implied, including but not
+limited to any warranties of merchantability or fitness for a particular purpose, nor shall the distribution
+of this information constitute any warranty.
+GreenInfo Network shall in no event be liable to you or anyone else for any inaccuracy, error failures,
+delays or interruptions in the use of the database and shall in no event be liable to you or anyone else for
+any consequential, incidental, special or tort damages arising out of or relating to the use or inability to
+use the database. It is the sole responsibility of the user to determine whether or not the data is suitable
+for the intended purpose.
+The information is collected from various sources and will change over time without notice. GreenInfo
+Network and its officials and employees assume no responsibility or legal liability for the accuracy,
+completeness, reliability, timeliness, or usefulness of any of the information provided nor do they
+represent that the use of any of the information will not infringe privately owned rights.
+The information is not intended to constitute advice nor is it to be used as a substitute for specific advice
+from a licensed professional. You should not act (or refrain from acting) based upon the information
+
+CPAD Database Manual, version 2025b
+
+3
+
+without independently verifying the information and, as necessary, obtaining professional advice
+regarding your particular facts and circumstances.
+Uses
+CPAD is made available without charge for a wide range of uses, for example, use by government
+agencies in planning and operations, use by private consultants in the development of plans and
+analyses, use by non-profit organizations and educational institutions for strategy, research, planning,
+management and other functions. This use includes the ability of agencies, organizations, individuals and
+businesses to distribute free of any charges copies of the data and to use the data on computer
+networks.
+Data Sources
+Data in CPAD is based on a wide range of sources within the budgets available for the data’s
+development and maintenance. The source datasets have a range of publication dates, varying degrees
+of accuracy, various projections, and different attribute information. GreenInfo Network has made every
+effort to standardize the multiple data inputs to create CPAD, but occasional errors in this process are to
+be expected. GreenInfo Network does not provide the original datasets from primary data source
+providers.
+Limitation of Liability
+IN NO EVENT WILL GREENINFO NETWORK BE LIABLE TO YOU OR ANY THIRD PARTY FOR ANY DAMAGES
+ARISING OUT OF THE USE OF OR INABILITY TO USE THE DIGITAL DATA, EVEN IF GREENINFO NETWORK IS
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+December 2025
+
+CPAD Database Manual, version 2025b
+
+4
+
+Acknowledgement of Indigenous and Native Lands
+The GIS data in CPAD and CCED are based on land ownership or legal easements that restrict how lands
+can be used. The ownership focus of the databases is intended to assist in the planning, management,
+and long-term care of lands owned by government agencies and nonprofits for open space purposes.
+The lands represented here are the traditional unceded territory of more than 100 nations. To learn
+more about a particular territory please visit the California Native Heritage Commission’s Digital Atlas.
+We recognize that the Western perspective of land ownership is limited and does not reflect an
+important range of cultural views, especially of many Indigenous peoples. Furthermore, land ownership
+as a structure has been used to promote empire and colonization.
+These data represent only one lens of how to view California’s landscape. CPAD and CCED are not
+intended to represent, replace, or negate different cultural views of lands such as spiritual ownership,
+stewardship, or caretaking.
+As we seek to respect the many diverse Indigenous people connected to this land from time
+immemorial, we welcome feedback on how to improve and address non-Western perspectives and how
+to respectfully represent them. Email us at cpad@calands.org.
+
+CPAD Database Manual, version 2025b
+
+5
+
+Summary
+
+The California Protected Areas Database contains data about lands that are owned outright (“in fee”)
+and protected for open space purposes by over 1,200 public agencies or non-profit organizations. CPAD
+lands range from the smallest urban pocket parks all the way to the largest wilderness areas – all told,
+CPAD inventories over 50 million acres in 16,000 “parks” (known in CPAD as Super Units). CPAD is
+published by GreenInfo Network (www.greeninfo.org), a nonprofit technology support organization
+founded in 1996.
+Access to CPAD GIS data is through the California Natural Resources Agency’s open data portal – see
+www.CALands.org for more information. CPAD is available in Esri shapefile format and consists of three
+related data sets – HOLDINGS (parcel-level components of parks and preserves), UNITS (commonly
+named holdings sharing the same access level within counties) and SUPER UNITS (units that are
+dissolved on the land manager and extend across counties – these are mostly for recreation-focused
+applications).
+Any depiction of CPAD data to illustrate public access must NOT include closed lands and must note lands
+coded as “restricted” as requiring permits or having limited operating times.
+This is the second release of CPAD in 2025, and includes the following improvements:
+
+Current CPAD Release Improvements (v. 2025b)
+The 2025b release of CPAD includes the following updates:
+●​ An increase of 20,000 acres to CPAD holdings from 2025a from various data submissions
+submitted between June to December 2025.
+●​ Parcelization across the board of large lands, resulting in more accurate and detailed
+parcel-aligned holdings.
+
+CPAD Database Manual, version 2025b
+
+6
+
+Key Statistics
+version 2025b
+
+ACRES BY ACCESS TYPE:
+
+ACRES BY AGENCY TYPE:
+
+*A limited number of privately owned lands are included in CPAD. They are predominantly Homeowner Associations(HOA) and account for less
+than 0.01% of lands in the database.
+
+More information on CPAD at www.CALands.org
+CPAD is a project of GreenInfo Network - www.greeninfo.org
+CPAD Database Manual, version 2025b
+
+7
+
+Introduction
+
+The California Protected Areas Database (CPAD) inventories open space lands that have been protected
+for open space uses through fee ownerships. A separate database – the California Conservation
+Easement Database (CCED)* – tracks lands protected through conservation easements (more below).
+CPAD is not a database of all public lands – for example, it does not include public buildings, water treatment
+sites, or other non-open space public land.
+CPAD is suitable for a wide range of planning, assessment, analysis, and display purposes. CPAD should
+not be used as the basis for official regulatory, legal, or other such governmental actions without more
+detailed review of current official land records in the area of focus.
+The lands in CPAD are defined by their owning and managing agencies at the Holdings and Units levels. At the
+Super Units level (a version of the release meant primarily for recreation applications, and for general
+cartography), CPAD lands are defined simply by name, managing agency, and public access.
+Access to CPAD GIS data is through the California Natural Resources Agency’s open data portal – a download
+link and more information about CPAD is at www.CALands.org. CPAD is released in shapefile format. The state
+site also hosts map services with CPAD data displayed by Access Type, Agency Classification, and Agency
+Level. This is a great resource for web developers interested in displaying CPAD data already classified and
+designed by GreenInfo’s team of cartographers.
+
+CPAD has been developed by GreenInfo Network (www.greeninfo.org), a non-profit technology support
+organization. Financial support for CPAD varies over time, most recently coming mainly from the
+California Natural Resources Agency. Many other agencies, foundations and nonprofits have supported
+CPAD in the past (See Acknowledgments for a listing).
+
+*NOTE ABOUT EASEMENTS: For conservation easement holdings, GreenInfo Network developed a second
+database called the California Conservation Easement Database (CCED). CCED feeds into a national inventory
+of easement holdings (the National Conservation Easement Database, or NCED). This national dataset is
+available at www.conservationeasement.us. CCED is available, with documentation, from www.CALands.org.
+
+CPAD Database Manual, version 2025b
+
+8
+
+Data Definitions
+
+CPAD Geography
+CPAD covers the entire area of California. In most counties, CPAD boundaries are aligned to digital
+assessor parcel boundaries (see “Known Issues in CPAD” below for exceptions). These boundaries are
+used to create three levels of CPAD geography: HOLDINGS, UNITS, and SUPER UNITS. See the Database
+Structure section for more information.
+The following are key elements in the CPAD data definitions:
+“Protected” Status
+Lands in CPAD must be protected for open space purposes through fee title ownership (easements are in
+a separate database). The purpose for the fee title ownership must be primarily for the continuation of
+open space values. CPAD “protected” status does not mean a specific level of conservation for
+biodiversity values (e.g., a USGS GAP rank). Instead, “protection” refers to a general commitment to
+maintain the property for any of a wide range of open space uses, listed below.
+Several caveats about land ownership and CPAD:
+●​ Leases, contracts, term easements and regulatory controls adopted through land use planning
+processes are not considered “protected lands” in CPAD, as they are not fee ownerships (even
+though they may provide important protection to open space lands)
+●​ Lands owned by public agencies that may have some open space values but that are not
+explicitly owned or held to protect those values are not included in CPAD. (Examples: a utility
+easement, unless it is also used or planned to be used as a non-motorized trail corridor intended
+for public use; a school with no joint use agreement for use of its play areas; a wastewater
+treatment plant; military installations).
+●​ U.S. Bureau of Land Management lands are all included in CPAD, even though significant areas of
+these lands may be sold or traded over time to better configure and conserve public land
+resources. Similarly, U.S. Forest Service ownerships are included even though actively harvested
+(a legitimate resource-based open space use) and occasionally traded.
+●​ Particularly for federal lands, only ownerships are included in CPAD – lands only in proclamation
+or planning boundaries are not part of CPAD (these are only areas of possible future jurisdiction
+or management, and often encompass private lands).
+
+CPAD Database Manual, version 2025b
+
+9
+
+Open Space Uses
+The lands in CPAD typically serve one or more of the following open space purposes:
+●​
+●​
+●​
+●​
+●​
+●​
+●​
+●​
+●​
+●​
+
+Habitat Conservation – Wildlife or plant reserve protected specifically for habitat
+Recreation – Active recreation (city parks, parks with developed areas, hiking, etc.)
+General Open Space – Open land serving a broad range of purposes
+Historical/Cultural – Historic sites, museums with large open areas
+Forestry – Active forest harvesting, tree growth for forestry
+Agriculture – Crop lands including developed pastures
+Ranching – Grazing lands - dry and grazing pasture
+Water Supply – Watersheds, waterways
+Scenic Area – Usually part of other uses, however, sometimes called out
+Flood Control – Flood plains, natural flood control channels (but generally not concrete or other
+impervious structures unless incidental to the overall holding)
+
+Open Space vs. Hardscape
+Open space holdings in CPAD may include buildings or other hardscape areas, provided the hardscape is
+subordinate or ancillary to the dominant open space purposes of the holding. As a general rule, the
+holding is not considered open space if structures or other hardscape constitutes a large portion of the
+total acreage (roughly more than half, based on visual inspection).
+●​ Parking lots used principally for qualifying public recreational purposes are considered part of
+the protected open space holding. In smaller urban parks, parking lots may not be included due
+to difficulties in determining their relationship to park holdings and resource limitations for
+fact-checking.
+●​ Recreation facilities that are primarily buildings (e.g. indoor ball courts, swim centers, stadiums
+without significant open space areas around them) are not included in CPAD.
+●​ City parks in CPAD sometimes exclude major building areas from remaining open space, due to
+lack of consistent and detailed information on which buildings are parts of parks. In general,
+parks with more than half their area in building structures are not included in CPAD.
+●​ Parklets are not included in CPAD, because they are usually entirely hardscape, extremely small,
+and temporary in nature.
+●​ Parks on building rooftops, while often open to public use, are not included in CPAD.
+
+Additional Open Space Criteria
+●​ Schools. Park-like areas that are parts of public schools are not included in CPAD unless there is
+a known, defined agreement to allow those for public use (often called “joint use agreements”).
+You can identify these schools by searching the Special Use field for “School JUA.” Only school
+
+CPAD Database Manual, version 2025b
+
+10
+
+fields and other open spaces are included in CPAD. CPAD may include some school park sites
+without such agreements – if you find these errors, please contact us at: cpad@calands.org
+●​ Cemeteries. Privately-owned cemeteries are not considered protected open space, but
+cemeteries owned by the public are considered open space – and are given a special use flag of
+“cemetery” in the database attribute table.
+●​ College Campuses. We only include off-campus open spaces such as University of California
+Nature Reserves. All other campus areas (sports fields, green space, etc) are not included. For
+GIS data of schools, including college campuses, see GreenInfo Network’s other data product,
+the California School Campus Database (www.californiaschoolcampusdatabase.org).
+●​ Golf courses. Privately-owned golf courses are not included in CPAD, but golf courses owned by
+the public are and are given a special “golf course” flag in the database attribute table. Golf
+courses owned by homeowners associations are considered privately owned and are not
+included in CPAD.
+●​ RV camping/parks. Publicly owned RV parks and similar highly-developed camping or lodging
+facilities are not generally included in CPAD; however, if they are a subordinate part of a larger
+protected open space area and are themselves protected through fee ownership, they may
+qualify (e.g., if a state park has camping areas for RVs, those areas are included).
+●​ Fairgrounds. Fairgrounds are not included in CPAD.
+●​ BLM offshore islands that make up the California Coastal National Monument are included in
+CPAD and marked as “offshore islands” in the Special Use field (they can be removed by query).
+●​ Open land holdings of transportation agencies (highway medians, construction staging areas,
+etc.) are generally not included in CPAD. (Note: such open space could be considered protected if
+significant enough in size and permanently protected in such use through joint-agency
+agreements or easements).
+●​ "Remnant" parcels of open land whose location or configuration significantly impair any broader
+open space purpose (e.g., highway or roadway shoulders or medians) are generally not included
+in CPAD.
+●​ If a non-open space use occupies a portion of a larger open space area, and it is a separate
+parcel and functions separately from the larger open space area, then it is usually excluded from
+CPAD. However, if it is not a separate parcel, and/or it is difficult to separate from the larger
+open space area, then the entire area is included in CPAD.
+●​ Holdings of water/flood control agencies that do not serve open space purposes are not
+generally included – for example, concrete flood channels and developed access ways along such
+channels or other open lands that only support the use of constructed facilities, unless those
+facilities are a small portion of an overall open space holding owned by such an agency (e.g.,
+dams that are part of recreation areas). However, trail corridors along such channels and water
+detention basins are often included.
+Ownership
+
+CPAD Database Manual, version 2025b
+
+11
+
+CPAD includes protected areas owned by public agencies and nonprofits. Private owners are not
+currently included, except for parkland owned by some homeowner associations and some conservation
+mitigation sites.
+●​ Military Lands. CPAD does not include Defense Department lands (DOD), except for a few public
+recreation facilities (e.g. golf courses) which are coded as “federal” level.
+●​ Tribal Lands. Tribal lands are sovereign lands and are not included in CPAD unless subject to
+enforceable conservation restrictions.
+●​ Homeowner Associations. CPAD includes some private park holdings owned by homeowner
+associations (HOAs), particularly in Southern California, where they are most prevalent. These
+lands are coded as Restricted Access because they are typically open only to the residents of the
+association. Only a fraction of California’s HOA parks are currently captured in CPAD. These parks
+are included since they provide important recreational opportunities even if restricted in use –
+without including them, any estimates of urban park needs could be misleading. Expansion of
+the CPAD inventory to cover more HOAs is under consideration. You can find all HOA parks in
+CPAD by filtering the Special Use flag “HOA.”
+●​ Private Owners. In many areas of California, open space is maintained by private owners
+(usually LLCs or other corporate entities, but sometimes individuals), when it is required to be
+dedicated as a condition of development. This category of land is not currently in CPAD but is
+under consideration as there are some protected areas in this category.
+Ownership vs. Management
+CPAD tracks lands according to the agency that owns the title to the property. If another agency manages
+the site, both agencies are noted: the owning agency is listed under ‘Owning Agency’ and the managing
+agency is listed under ‘Managing Agency.’ CPAD listings by agency may therefore differ from similar
+listings by an individual agency, where that agency is showing both owned and managed sites.
+Public Access
+CPAD lands are defined as Open Access, Restricted Access, or No Public Access. Restricted areas require
+permits or have irregular hours. No Public Access areas are not open to the public. Any CPAD-based map
+or web application of recreational opportunities must not include No Access areas and should indicate
+that any Restricted lands require a permit or a check-in before visiting (some restricted lands also have
+highly variable seasons or hours). Open Access means open to the public for agency-designated use,
+and does not suggest what activities can or cannot occur on the land.
+The best source of information for specifics about how to access individual parks is the managing
+agencies themselves. Two agencies have particularly nuanced access:
+●​ Many California Department of Fish and Wildlife lands are identified as Open Access, but all
+visitors should refer to CDFW’s website for more information before planning a visit.
+●​ Lands owned by the Los Angeles Department of Water and Power are predominantly available to
+the public for day use. Although the lands are open to the public, there are restrictions such as
+no campfires or camping. The public should be advised that some lands are open for hunting and
+must respect all signage for areas that may be closed (power facilities, restoration, exclusive use
+areas, etc.). Any questions about access can be addressed to the LA DWP office via their Support
+page.
+
+CPAD Database Manual, version 2025b
+
+12
+
+Land and Water
+Water areas of protected fee land holdings (tidal areas, coastal areas, lakes/reservoirs) are included for
+most of the state and identified with a “water” code. Water boundaries are taken from a variety of
+sources including 100K DLG and the National Hydrology Dataset (NHD), and in some cases manually
+drawing the water boundary using aerial imagery. Some revisions have been made for Bay Area tidal
+zones. CPAD does not show creeks, streams, or very small water bodies (i.e., small lakes, ponds under 10
+acres). The water/land attribute is only in the HOLDINGS feature class.
+Water area definition is important for counties with large areas of tidelands (primarily in the San
+Francisco Bay Area) where such acreage counts can create a misleading picture of publicly-available
+lands. ​
+Parcel Boundaries
+In general, CPAD is intended to be aligned to assessor parcel boundaries. However, in some rural areas of
+the state there is differing opinion on the spatial accuracy of these lines, and federal agencies often
+define their boundaries with the Public Land Survey System (PLSS), which may differ from assessor lines.
+This issue is still being addressed in CPAD, as there is no one “correct” system for rural area boundaries –
+sometimes parcel lines are accurate, sometimes PLSS, and sometimes neither. In metropolitan or other
+developed areas, parcels are almost always of good accuracy and are consistently used in CPAD (though
+not every CPAD holding is yet aligned to parcels). In areas where parcel boundaries appear out of date or
+incorrect, aerial imagery is used as a supplement for alignment.
+Agencies and organizations with highly detailed surveyor data can request CPAD use those results for
+alignment. If requested, and when possible, the CPAD database aligns to the survey boundary. It should
+be noted that this can cause conflicts with immediately adjacent properties. If authoritative boundaries
+are needed, the relevant agencies should be contacted for official data.
+It should also be noted that county assessors regularly update both the ownership and alignment of
+parcels. This can occasionally cause shifts in the parcel boundary as compared to aerial imagery or a park
+boundary. As a result some parks may appear to have a slightly shifted location. We aim to avoid
+frequent updates that do not improve a park location and typically do not realign a park unless the new
+location appears to be more accurate.
+
+Database Structure​
+​
+
+CPAD Database Manual, version 2025b
+
+13
+
+​
+The key framework of the database is the division of open space lands into the following feature classes,
+illustrated for this CPAD unit. CPAD is provided in ESRI shapefile format, with separate shapefiles for
+HOLDINGS, UNITS and SUPER UNITS.
+
+HOLDINGS are the individual parcels of protected
+lands.
+HOLDINGS level information is the most detailed
+and should be used for any analysis.
+
+UNITS are aggregations of HOLDINGS based on a
+common site name within each county.
+Note:
+●​ UNITS aggregated HOLDINGS by the
+following key fields: Park Name, Access,
+Managing Agency, Owning Agency, and
+County
+●​ Some UNITS may be comprised of a single
+HOLDING, while others aggregate a large
+number of HOLDINGS
+●​ UNITS may include multiple HOLDINGS that
+are not contiguous
+●​ UNITS have fewer attributes and are
+primarily used for sub-county analysis or for
+cartographic purposes
+
+CPAD Database Manual, version 2025b
+
+14
+
+SUPER UNITS are aggregations of UNITS to create
+use-focused polygons for each park name.
+SUPER UNITS are useful for recreation applications
+and for cartographic representation.
+Note:
+●​ SUPER UNITS aggregate units based on the
+
+Park Name, Access, and Managing Agency
+●​ SUPER UNITS maintain distinct units for
+different types of public access
+●​ SUPER UNITS cross county boundaries
+●​ SUPER UNITS are the most generalized
+representation of CPAD, and are primarily
+used for cartographic purposes, or to
+support recreational access application
+
+Data Dictionary
+
+Holdings
+Field Name
+
+Description
+
+Notes
+
+HOLDING_ID
+
+Holding ID
+
+Unique ID for HOLDING
+
+ACCESS_TYP
+
+Public Access
+Level
+
+Open Access, Restricted, No Public Access. “Restricted Access” is
+limited (permit required, days/hours limited, etc.). “Open Access”
+means open to the public for agency-designated use.
+
+UNIT_ID
+
+Unit ID
+
+Unique ID for the UNIT
+
+UNIT_NAME
+
+Unit Name
+
+Name of the UNIT/ SUPER UNIT
+
+SUID_NMA
+
+Super Unit ID
+
+Unique ID for the SUPER UNIT
+
+AGNCY_ID
+
+Agency ID
+
+Unique ID for owning agency
+
+AGNCY_NAME
+
+Agency Name
+
+Full name of owning agency
+
+CPAD Database Manual, version 2025b
+
+15
+
+Type of Owner
+
+Jurisdiction level of managing agency: City, County, Special
+District, Joint, State, Federal, Non Profit, Private
+
+AGNCY_TYP
+
+Type of Agency
+
+Subtypes for Agency Levels: FEDERAL: Federal Agency. STATE:
+State Agency. JOINT: Joint Powers Authority. COUNTY: County
+Agency - Parks, County Agency - Other. CITY: City Agency. SPECIAL
+DISTRICT: Airport District, Cemetery District, Community Services
+District, Conservation District, Fire District, Flood District,
+Irrigation District, Metropolitan Planning Organization, Open
+Space District, Port/Harbor District, Recreation/Parks District,
+Sanitation District, School District, Transportation Agency, Water
+District, Special District - Other. NON PROFIT: Non Profit Conservation, Non Profit - Education, Non Profit - Land Trust, Non
+Profit - Other. PRIVATE: Conservation, Commercial, Education,
+HomeOwners Association, Mitigation Bank, Tribal, Utility, Other.
+
+AGNCY_WEB
+
+Agency Website
+
+Owning Agency website
+
+LAYER
+
+Symbology Layer
+
+Agency classifications used for general symbology (based on
+State of California conventions), more detailed than Agency Level
+field
+
+MNG_AG_ID
+
+Managing
+Agency ID
+
+Unique ID of managing agency, if managed by an agency other
+than the owning agency
+
+MNG_AGNCY
+
+Managing
+Agency
+
+Name of agency, if managed by an agency other than the owning
+agency
+
+MNG_AG_LEV
+
+Managing
+Agency Level
+
+Jurisdiction level of managing agency: City, County, Special
+District, Joint, State, Federal, Non Profit, Private
+
+MNG_AG_TYP
+
+Type of
+Managing
+Agency
+
+Subtypes for Agency Levels: FEDERAL: Federal Agency. STATE:
+State Agency. JOINT: Joint Powers Authority. COUNTY: County
+Agency - Parks, County Agency - Other. CITY: City Agency. SPECIAL
+DISTRICT: Airport District, Cemetery District, Community Services
+District, Conservation District, Fire District, Flood District,
+Irrigation District, Metropolitan Planning Organization, Open
+Space District, Port/Harbor District, Recreation/Parks District,
+Sanitation District, School District, Transportation Agency, Water
+District, Special District - Other. NON PROFIT: Non Profit Conservation, Non Profit - Education, Non Profit - Land Trust, Non
+Profit - Other. PRIVATE: Conservation, Commercial, Education,
+HomeOwners Association, Mitigation Bank, Tribal, Utility, Other.
+
+SITE_NAME
+
+Site Name
+
+Name of HOLDING per owning agency
+
+ALT_SITE_N
+
+Alternate Site
+Name
+
+Alternate site name, if any
+
+PARK_URL
+
+Park Website
+
+Specific Website for HOLDING/UNIT, if available
+
+AGNCY_LEV
+
+CPAD Database Manual, version 2025b
+
+16
+
+Land or Water
+
+Land or water. The water boundaries are based on the National
+Hydrography Dataset (NHD)
+
+SPEC_USE
+
+Special Use
+
+Codes for specific uses: Arboretum/Botanical Garden, Cemetery,
+Community Center, Community Garden, Golf Course, HCP/NCCP,
+HOA, OHV/ATV, Planned Park, School JUA, Senior Center, Trail
+Corridor, Water Supply, Wildlife Sanctuary, Youth Center
+
+CITY
+
+City
+
+City HOLDING is within, if any
+
+COUNTY
+
+County
+
+County HOLDING is within
+
+ACRES
+
+Acres
+
+Acres, calculated by GIS
+
+LABEL_NAME
+
+Label Name
+
+Abbreviated name for cartographic labeling (e.g. “Sequoia NP”).
+If the unit name is “unnamed” or “unknown”, this field is left
+blank.
+
+DATE_REVIS
+
+Date Revised
+
+Date of last data revision
+
+Source of
+Attribute Data
+
+Source of attribute data: AERIAL, AGENCY, AGENCY+, ASSESSOR,
+ASSESSOR+, COG, GIN HISTORIC*, PARCELS, PARCELS+, PCTL*
+Appended "+" symbol if more than one source, *Legacy data,
+being reviewed on an ongoing basis.
+
+SRC_ALIGN
+
+Source of
+Geometry Data
+
+Source of Geometry data: AERIAL, AERIAL+, AGENCY, AGENCY+,
+ASSESSOR, ASSESSOR+, COG, GIN HISTORIC, PARCELS, PARCELS+,
+PCTL, SURVEY, SURVEY+, WATER, WATER+. Appended "+" symbol
+if more than one source, *Legacy data, being reviewed on an
+ongoing basis.
+
+YR_PROTECT
+
+Year Protected
+
+Year parcel was acquired, if known. Date field in YYYY format.
+
+Year Established
+
+Year the park or management unit was formed. This field is
+defined at the Super Unit level and carried down to the Unit and
+Holding level. Date field in YYYY format.
+
+GAP1_acres
+
+GAP 1 Acres
+
+Acres under GAP Status code 1 reflecting areas managed for
+biodiversity, where disturbance events proceed or are mimicked.
+
+GAP2_acres
+
+GAP 2 Acres
+
+Acres under GAP Status code 2 reflecting areas managed for
+biodiversity, where disturbance events suppressed.
+
+GAP 3 Acres
+
+Acres under GAP status code 3 reflecting areas managed for
+multiple uses, subject to extractive (e.g. mining or logging) or
+OHV use;
+
+GAP4_acres
+
+GAP 4 Acres
+
+Areas under GAP status code 4 where areas have no known
+mandate for protection.
+
+GAP_tot_ac
+
+GAP Total Acres
+
+Summation of GAP1_acres, GAP2_acres, GAP3_acres,
+GAP4_acres. Not all CPAD holdings have GAP status codes. The
+
+LAND_WATER
+
+SRC_ATTR
+
+YR_EST
+
+GAP3_acres
+
+CPAD Database Manual, version 2025b
+
+17
+
+method describing inclusion of GAP data is described in a
+separate document, which can be found here.
+
+GAP data source
+
+Data source for GAP acreage calculations. Includes: USGS’s
+PAD-US, California Department of Parks and Recreation
+assignment (CDPR) , or Managing agency.
+
+Field Name
+
+Description
+
+Notes
+
+ACCESS_TYP
+
+Public Access
+Level
+
+Open Access, Restricted, No Public Access. “Restricted Access” is
+limited (permit required, days/hours limited, etc.). “Open Access”
+means open to the public for agency-designated use.
+
+UNIT_ID
+
+Unit ID
+
+Unique ID for the UNIT
+
+UNIT_NAME
+
+Unit Name
+
+Name of the UNIT/ SUPER UNIT
+
+SUID_NMA
+
+Super Unit ID
+
+Unique ID for the SUPER UNIT
+
+AGNCY_ID
+
+Agency ID
+
+Unique ID for owning agency
+
+AGNCY_NAME
+
+Agency Name
+
+Full name of owning agency
+
+Type of Owner
+
+Jurisdiction level of managing agency: City, County, Special
+District, Joint, State, Federal, Non Profit, Private
+
+AGNCY_TYP
+
+Type of Agency
+
+Subtypes for Agency Levels: FEDERAL: Federal Agency. STATE:
+State Agency. JOINT: Joint Powers Authority. COUNTY: County
+Agency - Parks, County Agency - Other. CITY: City Agency. SPECIAL
+DISTRICT: Airport District, Cemetery District, Community Services
+District, Conservation District, Fire District, Flood District,
+Irrigation District, Metropolitan Planning Organization, Open
+Space District, Port/Harbor District, Recreation/Parks District,
+Sanitation District, School District, Transportation Agency, Water
+District, Special District - Other. NON PROFIT: Non Profit Conservation, Non Profit - Education, Non Profit - Land Trust, Non
+Profit - Other. PRIVATE: Conservation, Commercial, Education,
+HomeOwners Association, Mitigation Bank, Tribal, Utility, Other.
+
+AGNCY_WEB
+
+Agency Website
+
+Owning Agency website
+
+Symbology Layer
+
+Agency classifications used for symbology, based on State of
+California conventions
+
+GAP_Source
+
+Units
+
+AGNCY_LEV
+
+LAYER
+
+CPAD Database Manual, version 2025b
+
+18
+
+MNG_AG_ID
+
+Managing
+Agency ID
+
+Unique ID of managing agency, if managed by an agency other
+than the owning agency
+
+MNG_AGENCY
+
+Managing
+Agency
+
+Name of agency, if managed by an agency other than the owning
+agency
+
+MNG_AG_LEV
+
+Managing
+Agency Level
+
+Jurisdiction level of managing agency: City, County, Special
+District, Joint, State, Federal, Non Profit, Private
+
+MNG_AG_TYP
+
+Type of
+Managing
+Agency
+
+Subtypes for Agency Levels: FEDERAL: Federal Agency. STATE:
+State Agency. JOINT: Joint Powers Authority. COUNTY: County
+Agency - Parks, County Agency - Other. CITY: City Agency. SPECIAL
+DISTRICT: Airport District, Cemetery District, Community Services
+District, Conservation District, Fire District, Flood District,
+Irrigation District, Metropolitan Planning Organization, Open
+Space District, Port/Harbor District, Recreation/Parks District,
+Sanitation District, School District, Transportation Agency, Water
+District, Special District - Other. NON PROFIT: Non Profit Conservation, Non Profit - Education, Non Profit - Land Trust, Non
+Profit - Other. PRIVATE: Conservation, Commercial, Education,
+Home Owners Association, Mitigation Bank, Tribal, Utility, Other.
+
+PARK_URL
+
+Unit Website
+
+Specific Website for HOLDING/UNIT, if available
+
+COUNTY
+
+County
+
+County that HOLDING/UNIT is within*
+
+ACRES
+
+Acres
+
+Acres, calculated by GIS
+
+Label Name
+
+Abbreviated name for cartographic labeling (e.g. “Sequoia NP”).
+If the unit name is “unnamed” or “unknown”, this field is left
+blank.
+
+Year Established
+
+Year the park or management unit was formed. This field is
+defined at the Super Unit level and carried down to the Unit and
+Holding level. Date field in YYYY format.
+
+GAP1_acres
+
+GAP 1 Acres
+
+Acres under GAP Status code 1 reflecting areas managed for
+biodiversity, where disturbance events proceed or are mimicked.
+
+GAP2_acres
+
+GAP 2 Acres
+
+Acres under GAP Status code 2 reflecting areas managed for
+biodiversity, where disturbance events suppressed.
+
+GAP3_acres
+
+GAP 3 Acres
+
+Acres under GAP status code 3 reflecting areas managed for
+multiple uses, subject to extractive (e.g. mining or logging) or
+OHV use;
+
+GAP4_acres
+
+GAP 4 Acres
+
+Areas under GAP status code 4 where areas have no known
+mandate for protection.
+
+LABEL_NAME
+
+YR_EST
+
+CPAD Database Manual, version 2025b
+
+19
+
+GAP_tot_ac
+
+GAP Total Acres
+
+Summation of GAP1_acres, GAP2_acres, GAP3_acres,
+GAP4_acres. Not all CPAD holdings have GAP status codes. The
+method describing inclusion of GAP data is described in a
+separate document, which can be found here.
+
+*Note: CPAD county data is based on most recent California county GIS data published by CalFIRE and parcel data
+provided by individual county assessors. Not all CPAD units are perfectly aligned to these parcel lines and care
+should be taken when doing county-based calculations or geospatial processing, as some lands bordering one
+county could be included in another county’s total.
+
+Super Units
+Field Name
+
+Description
+
+Notes
+
+ACCESS_TYP
+
+Public Access
+Level
+
+Open Access, Restricted, No Public Access. “Restricted Access” is
+limited (permit required, days/hours limited, etc.). “Open
+Access” means open to the public for agency-designated use.
+
+PARK_NAME
+
+Park Name
+
+Name of the SUPER UNIT/ Park
+
+PARK_URL
+
+Park Website
+
+Park website, if available
+
+SUID_NMA
+
+Super Unit ID
+
+Unique ID for the SUPER UNIT
+
+MNG_AG_ID
+
+Managing
+Agency ID
+
+Unique ID for managing agency
+
+MNG_AGENCY
+
+Managing
+Agency Name
+
+Full name of managing agency
+
+MNG_AG_LEV
+
+Managing
+Agency Level
+
+Jurisdiction level of managing agency: City, County, Special
+District, Joint, State, Federal, Non Profit, Private
+
+Type of
+Managing
+Agency
+
+Subtypes for Agency Levels: FEDERAL: Federal Agency. STATE:
+State Agency. JOINT: Joint Powers Authority. COUNTY: County
+Agency - Parks, County Agency - Other. CITY: City Agency. SPECIAL
+DISTRICT: Airport District, Cemetery District, Community Services
+District, Conservation District, Fire District, Flood District,
+Irrigation District, Metropolitan Planning Organization, Open
+Space District, Port/Harbor District, Recreation/Parks District,
+Sanitation District, School District, Transportation Agency, Water
+District, Special District - Other. NON PROFIT: Non Profit Conservation, Non Profit - Education, Non Profit - Land Trust,
+Non Profit - Other. PRIVATE: Conservation, Commercial,
+Education, HomeOwners Association, Mitigation Bank, Tribal,
+Utility, Other.
+
+MNG_AG_TYP
+
+CPAD Database Manual, version 2025b
+
+20
+
+AGNCY_WEB
+
+Agency Website
+
+Managing Agency website
+
+LAYER
+
+Symbology Layer
+
+Agency classifications used for symbology, based on State of
+California conventions
+
+ACRES
+
+Acres
+
+Acres, calculated by GIS
+
+Label Name
+
+Abbreviated Name for cartographic labeling (e.g. “Sequoia NP”).
+If the unit name is “unnamed” or “unknown”, this field is left
+blank.
+
+YR_EST
+
+Year Established
+
+Year the park or management unit was formed. This field is
+defined at the Super Unit level and carried down to the Unit and
+Holding level. Date field in YYYY format.
+
+GAP1_acres
+
+GAP 1 Acres
+
+Acres under GAP Status code 1 reflecting areas managed for
+biodiversity, where disturbance events proceed or are mimicked.
+
+GAP2_acres
+
+GAP 2 Acres
+
+Acres under GAP Status code 2 reflecting areas managed for
+biodiversity, where disturbance events suppressed.
+
+GAP3_acres
+
+GAP 3 Acres
+
+Acres under GAP status code 3 reflecting areas managed for
+multiple uses, subject to extractive (e.g. mining or logging) or
+OHV use;
+
+GAP4_acres
+
+GAP 4 Acres
+
+Areas under GAP status code 4 where areas have no known
+mandate for protection.
+
+GAP Total Acres
+
+Summation of GAP1_acres, GAP2_acres, GAP3_acres,
+GAP4_acres. Not all CPAD holdings have GAP status codes. The
+method describing inclusion of GAP data is described in a
+separate document, which can be found here.
+
+LABEL_NAME
+
+GAP_tot_ac
+
+CPAD Database Manual, version 2025b
+
+21
+
+CPAD Data Procedures
+
+CPAD makes use of a wide range of data sources, including source agency databases, parcel data from
+counties, and other research. In general, the following approach has been taken:
+1.​ Agency source data: Source agency GIS data is secured for agencies where it is available. With
+more than 1,500 agencies and organizations having holdings in CPAD, contact with each of these
+is not possible. However, the top 50 agencies/organizations own over 98 percent of the acreage
+in CPAD and most have available source GIS data. In some cases, non-GIS source data may be
+acquired and used for digitizing. Not all agencies with lands in CPAD have completely accurate
+records, so additional research is sometimes required, and many smaller agencies do not have
+available or easily available source GIS data for their holdings.
+2.​ Parcels as geometry base: CPAD uses assessor parcels as its base geometry in almost all of
+California (in the southern deserts, most BLM lands which are mainly based on the Public Land
+Survey System (PLSS) are currently left in that system due to resource limits and issues with
+some parcel data there – however near urbanized areas, BLM lands may be aligned to parcels).
+Assessor parcels are not always completely accurate, particularly in undeveloped rural areas, and
+some adjustments may be done in collaboration with source agency data (notes are provided in
+CPAD about alignment methods used). Parcel data is also used to identify holdings not available
+in agency source data or that are unclear from that data.
+3.​ Cross-check with other data: Other existing protected lands information is then correlated with
+the parcel data – this includes prior data sets, along with GIS data sets for other related agencies
+or planning projects. For city, county and special district parks, checks of agency web sites are
+used as well (however, many cities do not have clearly-defined park maps available).
+4.​ Resolving conflicts: Agency source data is generally considered to be authoritative. However, in
+case of data conflicts between agencies or with assessor boundaries, the following guidelines are
+used: in urban areas, assessor parcels are given precedence regarding geometry; in rural areas,
+if the owning agency explains that its data is gathered by survey or analysis of coordinate
+geometry and that it is confident of its boundaries, that geometry can supersede the assessor
+parcels (particularly with BLM or USFS holdings). Where agencies differ about their holdings,
+efforts are made to review these issues with the agencies (often the issue is that one agency
+owns a site while the other operates it) and reach a resolution. When that is not possible, best
+judgment is used by GreenInfo Network staff and the reason for a decision is noted in the data
+record.
+5.​ Aerial image checks: 1-meter or better aerial photography is used to check boundaries – where
+there are assessor parcel conflicts with aerial imagery, operator judgment is used to decide
+which has precedence, but in general the rule of thumb is that parcel data will be more reliable
+in urban settings, and agency data will be more reliable in rural settings.
+
+CPAD Database Manual, version 2025b
+
+22
+
+6.​ Water: Where a holding extends over significant water bodies or tidal zones, the shape is
+divided into sections coded as land or water, with the USGS National Hydrography Dataset being
+used to define water areas. Coastal shorelines are defined using a modified, more accurate
+version of the official California county data file – these boundaries are matched visually through
+high resolution aerial photography to coastal features and do not represent scientific judgments
+about high water marks (Note: future releases will use the State’s new coastline data set).
+Smaller water bodies (i.e., under 10 acres) are generally not coded as water at all.
+7.​ County divisions: Where a park or other property spans a county boundary, it is separated into
+separate UNIT records for each county (e.g., a National Forest holding that extends across two or
+more counties), and then merged into a single SUPER UNIT. Because CPAD’s foundational
+geometry is based on county assessor’s parcels, county boundaries are largely defined by those
+parcels, and may sometimes differ with official county boundaries from Cal Fire.
+8.​ Scale of use: In general, CPAD is accurate to at least 1:24,000 scale, but parcels and some
+agency datasets have improved this to 1:5-10,000 or better in many parts of the state.
+
+GAP Codes
+
+Starting with the 2021a release, we have included additional details about the GAP status of easements.
+GAP codes are a USGS-defined metric that reflects management intent (USGS 2020, Prior-McGee 1998).
+GAP codes are categorized on a scale from 1 to 4 where GAP 1 and 2 are areas primarily managed with
+the intent to protect biodiversity, GAP 3 are areas managed for multiple uses including conservation,
+recreation, and extraction and GAP 4 has no known mandate for biodiversity protection. Data for GAP
+codes in CPAD is sourced from PADUS, CDPR and Local Agencies/Organizations
+Details about the geoprocessing are available through calands.org.1 It is important to understand that
+the acreages reported are estimates and for that reason have been rounded using the following
+methods:
+Any property less than 1 acre rounds the GAP acreage to two decimal places. Properties that are 1 acre
+or larger have their GAP acreage rounded down to the nearest whole numbers. This rounding helps
+reduce the reporting of slivers and helps reduce the perception of higher accuracy beyond what is
+significant.
+We estimate the error introduced as a result of this rounding, is less than 2% of the total CCED acres.
+PADUS
+1
+
+Additional information on geoprocessing steps can be found at:
+https://www.calands.org/wp-content/uploads/2022/12/Method-for-Including-Gap-Codes-in-CPAD-and-CCED.pdf
+CPAD Database Manual, version 2025b
+
+23
+
+With a geo-spatial intersection of CPAD and PADUS we assume an easement can contain acreage under
+multiple GAP codes. The results of this process ultimately assign GAP codes to approximately 91% of the
+acres inventoried in CPAD.
+California State Parks
+The inclusion of GAP codes from California State Parks cover land owned and/or managed by CDPR, this
+accounts for roughly 5% of GAP codes being reported.
+Local Agency/Organization
+As of the 2024a release, the remaining 4% of GAP codes reported in CPAD have been sourced from the
+group that owns and/or manages the land.
+Completing the GAP Inventory
+CPAD lands are predominately assigned GAP codes from PADUS, as many of the fee lands in California
+are managed by federal or state agencies - both of which are well inventoried via PADUS. When
+available, we defer to the GAP code provided by the most local agency/organization. California’s 30x30
+effort has, and will continue to, offer opportunities to work with groups to define accurate GAP codes to
+lands they own and/or manage.
+
+CPAD Database Manual, version 2025b
+
+24
+
+Known Data Issues in CPAD
+
+CPAD has become increasingly complete over the past years and is now estimated to include over 99% of
+the protected lands in California, but some issues do remain. The main issues in CPAD are coverage and
+alignment:
+1) Overlaps occur throughout the state and are predominantly slivers. Most often these are a result of
+disagreement between county boundaries on ownership. The total acreage of overlaps is not significant,
+but we do aim to resolve these over time. As of the 2025b release we now offer a report of overlaps at
+each release. The zip file contains a gdb itemizing overlaps at the holding level and a readme describing
+the various attributes. This can be downloaded at: https://bit.ly/overlap_analysis
+2) Historically CPAD updates were focused heavily on the 50 largest agencies/organizations who own
+98% of the acres in CPAD. Of the remaining agencies, many of these have been carefully assessed at one
+point but are not actively surveyed for each release. Efforts are being made to secure better review of
+these smaller agencies/organizations, through the use of the CPAD MapCollaborator application
+(www.mapcollaborator.org/cpad) which allows any user to quickly review their holdings in CPAD and
+inform GreenInfo of needed changes. California’s 30x30 efforts have also allowed for an increase in data
+collection from smaller agencies. We anticipate this trend will continue over the next decade to allow for
+more accurate land tracking.
+3) Parcel alignment in some areas is also not complete – while most of CPAD data is parcel aligned, there
+are areas of the state where this is not yet the case, or where there are small differences to parcels.
+Users can use the “aligned to” code in the CPAD Holding attributes to determine alignment basis.
+●​ Southern California Desert: CPAD lands in eastern Riverside and San Bernardino are mostly
+aligned to BLM base data – these areas are almost entirely BLM-owned and BLM ownerships
+here change rapidly, making use of the BLM base data (instead of parcels) more efficient in
+relation to the resources we currently have available, except in developed areas where parcels
+are mainly used in CPAD.
+●​ In some cities, CPAD holdings may overlap development in aerial photos indicating that parcel
+alignment has not yet occurred – there should be little of this error as of 2013.
+●​ With some agencies, occasional holdings are not aligned to parcels where those agencies have
+confirmed that their data has been field surveyed, and parcels have been shown to be
+inaccurate.
+●​ Areas of the central Sierra and northern California have significant acreages of US Forest Service
+lands that are not yet parcel aligned.
+Other CPAD issues:
+4) Small slivers and gaps occur in the dataset where polygons are not seamlessly aligned.
+
+CPAD Database Manual, version 2025b
+
+25
+
+5) The Access attribute in CPAD is sometimes a best estimate, as GreenInfo is not able to fully determine
+the access status of every parcel in CPAD – where access cannot be determined, and there is no evidence
+of closed access, it is assumed to be “Open Access.” “Open Access” means lands are open to the public
+for agency-designated use. Historically, the data has used “Unknown” as a fourth access type, but this
+domain will be retired in future versions of CPAD. User feedback on these codes is always welcome. ​
+
+CPAD Releases and History
+
+Current CPAD Release Improvements (v. 2025b)
+The 2025b release of CPAD includes the following updates:
+●​ The 2025b includes an addition of 20,000 acres. Many agencies saw additions to their lands
+including: East Bay Municipal Utilities District (EBMUD), The Nature Conservancy, Contra Costa
+Water District, Santa Clara Valley Habitat Agency, and many more.
+●​ Parcelization across the board of large lands, resulting in more accurate and detailed
+parcel-aligned holdings.
+
+As with any large data gathering program, there are likely to be lands that have been missed, wrongly
+included, or mis-attributed. We welcome feedback on corrections – see www.calands.org for more
+information, including information about GreenInfo’s MapCollaborator application, which allows online
+markup of mapped CPAD data with comments and proposed revisions. You can also email us at
+cpad@calands.org.
+
+History of CPAD​
+CPAD was developed out of efforts to create regional open space databases in parts of California. In the
+San Francisco Bay Area, tabular inventories by Greenbelt Alliance in the 1980s led to GIS-based
+inventories in the mid-1990s by the then-newly formed GreenInfo Network. This data was created based
+primarily on USGS topographic maps, comparing paper maps of owning agencies and digitizing the
+resulting boundaries. Originally, the protected lands data included only lands of 10 acres or greater and
+included some public lands that were not entirely open space (the original data title was “Public Lands
+Database”). In 2005, funding was secured to begin including Bay Area urban parks through the support
+of TOGETHER Bay Area, the earliest partner in the development of CPAD.
+
+CPAD Database Manual, version 2025b
+
+26
+
+In the early 2000s, the State of California developed an initial statewide coverage of protected lands
+known as the Public and Conservation Trust Lands (PCTL) database. This data included mainly state and
+federal lands owned in fee (with some other lands included), and was developed through a consortium
+of these agencies (last updated in 2005). PCTL, however, did not cover regional and local land holdings
+very completely and is now a legacy data set, replaced by CPAD.
+In the early 2000s, funding from the Resources Legacy Fund helped underwrite expansions of CPAD data
+to other parts of the state. In 2005, GreenInfo Network received special funding from the Annenberg
+Foundation to begin work on a Southern California version of the Bay Area database, and shortly
+thereafter funding was also secured from the California Coastal Commission for inventories of the
+Central Coast and Southern Central Valley. These data inventories were built up from newly available
+GIS-based assessor’s parcels to ensure accuracy and consistency. The Bay Area database was also revised
+to begin matching available digital assessor parcels during this time period. First versions of this data
+were completed in late 2006.
+In late 2006, GreenInfo Network also completed work on its first version of the ParkInfo web portal to
+support public access to this data – www.parkinfo.org provides users the chance to find parks near
+them, in particular cities, or by zip code and then get maps, lists and driving instructions, and follow out
+web links to source agency sites for more details (in mid-2012, the ParkInfo web map was greatly
+upgraded).
+In mid-2007, funding was secured from the California Department of Parks and Recreation to complete
+the state and to improve existing data accuracy and currency. During this version 1.1 revision, the entire
+file structure of the databases was overhauled, migrating the files to an ESRI file geodatabase format,
+integrating them into a single file and greatly increasing the attribute robustness of the database.
+In 2008 through mid-2009, further extensive updating was conducted (see Release History for details),
+greatly improving the coverage, accuracy and completeness of the database.
+Two editions of CPAD were released in 2010. These were all incremental improvements that expanded
+alignment to parcels, improved the accuracy of data and included newly acquired holdings. Also in 2010,
+GreenInfo’s MapCollaborator web application was launched as an online tool to let CPAD users more
+easily point out where corrections to CPAD are needed.
+CPAD also became a major data source for the USGS Gap Analysis Program’s Protected Areas Database of
+the U.S. (PAD-US) in 2010.
+In January 2011, another update of CPAD was released, followed by a release in September 2011. The
+next release was published in July 2012 and was a minor update.
+In late 2012, GreenInfo Network began a major project to improve CPAD, supported by a 20 month grant
+from the California Strategic Growth Council in collaboration with the USGS Gap Analysis Program. This
+project enabled GreenInfo to make major improvements in the quality of CPAD data and in the processes
+
+CPAD Database Manual, version 2025b
+
+27
+
+used to develop and maintain CPAD. It also supported an active outreach program to educate users and
+provide more extensive user support. This funding ended in April 2014.
+From April 2014 to early 2015, there was no direct support of CPAD from any agency or organization.
+However, two projects aided in various improvements to CPAD: 1) the development of CaliParks.org, a
+mobile-friendly park finder application supported by the Resources Legacy Fund and developed by
+Stamen Design with GreenInfo Network providing editing and expanded CPAD data (including site URLs
+for the 800 largest parks).
+In early 2015, the California Natural Resources Agency contracted with GreenInfo Network for two years
+of CPAD support, through the California Department of Water Resources. This work funds twice-yearly
+updates of CPAD (and CCED, the easement data), and outreach and engagement about CPAD and its use.
+In spring 2018, GreenInfo Network received generous funding from the California Natural Resources
+Agency and Department of Water Resources to continue this important work through spring 2020.
+Additionally, CPAD and CCED are now hosted on the CNRA’s open data portal at
+https://data.cnra.ca.gov/organization/protected-areas-gis-data.
+
+CPAD Release History
+
+Version 2025a– Published June 2025, this release saw an addition of 20,000 acres of new lands, including two new
+National Monuments: Sáttítla Highlands and Chuckwalla. Removal of approximately 8,000 acres of land including
+errors, some of which were shifted into CCED as easements.
+Version 2024b– Published December 2024. Addition of over 40,000 acres including lands from Mojave Desert Land
+Trust, San Joaquin Council of Governments, San Diego County, River Partners, Marin County, and Sequoia
+Riverlands Trust. Significant improvements have been made in improving and expanding GAP codes, with continued
+support from agencies resulting in an additional 79,000 acres qualifying for 30x30 since the last release. Removal of
+approximately 1,900 acres. Nearly 50% of the lands removed were lands that are protected by conservation
+easement and thus represented in CCED instead of CPAD. The remaining acres were removed as the result of
+improving park boundaries, removing private lands, and changes in land uses.
+Version 2024a- Published in June 2024, this release contained the addition of over 144,000 acres with new and
+revised lands in 58 of California’s 58 counties. Significant improvements were made in improving and expanding
+GAP codes. PADUS 4.0, updated data from California State Parks, as well as over 80 agencies and organizations have
+all been included resulting in over 385,000 acres qualifying for 30x30. Removal of approximately 17,075 acres also
+occurred. Of the lands removed, over 75% were lands that were sold in fee title but are now protected via
+conservation easement and thus represented in CCED instead of CPAD.
+Version 2023b– No release, 2023b was not released due to contracting and budget constraints.
+Version 2023a – Published in June 2023, this was the only release for the year of 2023. It included an addition of
+175,000 acres, significant spatial geometry improvements, as well as the removal of 985 acres.
+
+CPAD Database Manual, version 2025b
+
+28
+
+Version 2022b– Published December 2022. A net addition of approximately 88,000 acres were added within 32 of
+California’s 58 counties. Notable additions: BLM lands, Carrizo Plane Conservancy, Mojave National Preserve,
+McArthur Swamp, Lassen/Shasta/ Sierra National Forests, Grouse Ridge Forest. Key improvements were made for
+lands held by over 36 agencies. In a continued effort to resolve overlaps and slivers, roughly 85,000 acres were
+removed.
+Version 2022a– Published July 2022. The release marked an important bug fix in the GAP code assignments for
+CPAD and CCED lands, and as a result we now assign all lands that contain GAP data in PAD-US, CDPR, or from a
+local agency. Included an incremental increase in the integration of GAP Codes, through input of local agencies.
+This release added over 65,000 acres in 31 out of California’s 58 counties. Removal of 300 acres.
+Version 2021b– Published December 2021. Added over 28,000 acres and over 200 new/expanded units. 2021b also
+included additional Gap Code acres for more CDPR lands. Extensive edits in the Delta, adding over 25,000 acres
+through new and improved boundaries. New and revised lands in 48 of California’s 58 counties. Removal of
+approximately 37,000 acres. Over 95% of acres removed were a result of improved BLM, NPS, and USFS boundaries
+detailed above.
+Version 2021a– Published July 2021. Over 60,000 acres were added across 55 of California' s 58 counties. More
+than 150 California cities had new or revised city parks. We reviewed and resolved 100 contributions from
+MapCollaborator submissions. Divided large holdings of BLM and USFS lands at parcel geometry. Information on
+the GAP status code for each holding, unit and super unit was added. These data are now present in each
+geographic level as a total estimated acreage of the holding/unit/super unit that is GAP code 1, 2, 3, or 4.
+Version 2020b– Originally published December 2020, updated January 2021. The January 2021 update was
+conducted to include GAP Code fields missing in the original December 2020 release, no other changes were made.
+The most current shapefiles include "2020b" in the name, for example "CPAD_2020b_Units.shp".
+Version 2020a– Published June 2020. Approximately 30,000 acres were added across 48 of Californias’ 58 counties.
+Over 100 cities had new or revised parks data, along with new and revised lands for over 20 state agencies, lands
+trusts, and non profit organizations.
+Version 2019b – Published November 2019. A total of nearly 150,000 acres added, including approximately 10,000
+acres in the Klamath and Shasta-Trinity National Forests. Continued focus on the accuracy of community parks in
+support of ensuring equitable access to recreation, a special project with the California Department of Parks and
+Recreation. Moderate additions to the Year Protected and Year Established fields. Significant edits and additions to
+conserved lands in Riverside County. New and revised city parks in: Carlsbad, Chico, Fowler, King City, Oceanside,
+Lake Elsinore, Los Angeles, Manteca, Merced, Murrieta, Redlands, San Diego, San Ramon, Santa Paula, Santa Rosa,
+Shafter, and others. New acquisitions and edits to lands held by: Riverside County Habitat Conservation Agency,
+Western Riverside County Regional Conservation Authority, Riverside County Regional Park and Open Space
+District, California Department of Fish and Wildlife, California Department of Parks and Recreation, Mojave Desert
+Land Trust, Peninsula Open Space Trust, Coachella Valley Mountains Conservancy, Santa Clara Valley Open Space
+Authority, Ojai Valley Land Conservancy, Save the Redwoods League, Friends of the Desert Mountains, Lake County
+Land Trust, Sequoia Riverlands Trust, SCAPOSD, Valley-Wide Recreation and Park District, San Mateo County, San
+Francisco Public Utility Commission, Tuleyome, Northern California Regional Land Trust, University of California
+Reserve System, Santa Monica Mountains Conservancy / Mountains Recreation & Conservation Authority.
+Version 2019a – Published June 2019. Major revisions to the ownership boundaries of the Los Padres, Klamath, Six
+Rivers, and Siskiyou National Forests. New and revised city parks in Cities of Alameda, Anderson, Avalon, Azusa,
+Belmont, Carlsbad, Carson, Claremont, Colma, Compton, Covina, Culver City, Desert Hot Springs, Duarte, El Centro,
+
+CPAD Database Manual, version 2025b
+
+29
+
+Fillmore, Fremont, Fresno, Galt, Gardena, Glendora, Gonzales, Greenfield, Hawthorne, Hollister, La Mirada, Lincoln,
+Long Beach, Los Angeles, Lynwood, Maywood, Millbrae, Monrovia, Monterey Park, Norwalk, Oakland, Orland,
+Palmdale, Pasadena, Point Arena, Rancho Cucamonga, Rancho Palos Verdes, Redding, Redondo Beach, Rolling Hills
+Estates, Rosemead, San Bernardino, San Diego, San Pablo, San Luis Obispo, San Marcos, San Rafael, Sanger, Santa
+Clarita, Santa Fe Springs, Santa Monica, Santa Paula, Santa Rosa, South El Monte, South Gate, South Pasadena,
+Temecula, Torrance, Turlock, Union City, Walnut, Visalia, Vista, West Hollywood, Westlake Village, Whittier, and
+Yucca Valley. New and revised conserved lands for land trusts across the state, including: Peninsula Open Space
+Trust, Truckee Donner Land Trust, Lake County Land Trust, Sequoia Riverlands Trust, and Solano Land Trust.
+Version 2018a – Published December 2018. Added new 40,980 acres and 18 agencies. A new field was also
+introduced, Year Established (YR_EST). This field provides the year a park or management unit was formed, and
+now covers 92% of land in CPAD. Renamed the D_ACQ_YR field to YR_PROTECT, a more descriptive name for a field
+that represents the year an individual parcel was protected when it was acquired by a public or conservation
+agency. This field is only partly populated in the San Francisco Bay Area, but will be an ongoing effort to be updated
+in future releases. Captured the Jack and Laura Dangermond Preserve (24,000 acres), established in late 2017, a
+significant achievement in protecting rare coastal habitat in Santa Barbara County. Major review and updates to
+public access definitions for lands held by the California Department of Fish and Wildlife, with thanks to thoughtful
+input from CDFW staff. continue to refine and maintain naming conventions and special use flas, particularly for
+school parks and homeowners association parks. Updates and new additions to lands held by Orange County Parks,
+Midpeninsula Open Space District, Peninsula Open Space Trust, Land Trust of Santa Cruz County, California
+Department of Parks and Recreation, United States Forest Service, Yolo County, Marin County Parks, San Diego
+County, San Diego River Park Foundation, and cities of Poway, National City, Brentwood, Monrovia, Vista, Cayucos,
+Sacramento, Orangevale, and Carmichael.
+Version 2017a – Published August 2017. The 2017a release of CPAD was inclusive of edits made for the 2017
+update of BPAD, the Bay Area Protected Areas Database. That work accounted for most improvements made in the
+9 county San Francisco Bay Area in this release. 2017a included the addition of 10,415 new acres and 5 new
+agencies. Significant revisions and additions made in: San Diego, Santa Clara, San Mateo, San Bernardino, Contra
+Costa, and Alameda Counties. The Wildlands Conservancy preserves were updated and include over 7,000 new
+acres in 5 units. Most notable is Spyrock Reserve in Mendocino County. Agency data was reviewed for updates or
+missed lands for: San Mateo County Parks, Santa Clara County Parks, East Bay Regional Parks District, Santa Clara
+Valley Open Space Authority, Napa Land Trust, Midpeninsula Open Space District, Marin County Open Space
+District, Napa County Regional Open Space District. In San Diego County we corrected park names, added owning
+and managing agencies, and made big strides in improving the public access field. We made additions and
+improvements to protected lands in the following cities: Clayton, Concord, Cupertino, El Cerrito, Fremont, Hayward,
+Napa, Palo Alto, San Jose, San Ramon, Santa Cruz, Vallejo.
+Version 2016b – Published December 2016. Added new land acquisitions made by the top 50 agencies in CPAD,
+such as: Peninsula Open Space Trust, San Diego County, City and County of San Francisco, San Mateo County, Santa
+Clara County, Los Angeles County, Sonoma County Agricultural Preservation and Open Space District, and the
+Midpeninsula Regional Open Space District. Improvements to parcel alignment in San Mateo County and Orange
+County. Added dozens of new city parks, in cities across California - Los Angeles, San Diego, Fresno, Cupertino,
+Fremont, Temecula, Clayton, Davis, Elk Grove, Kingsburg, Redlands, Arcata, Santa Rosa, Chino, Chino Hills, Corona,
+Huntington Beach, Newport Beach, Loma Linda, Yorba Linda, and more. Expanded abbreviations in the Park Name
+field (names are still abbreviated in the Label Name field) to facilitate better querying. Reviewed data accuracy in
+San Joaquin and Mariposa Counties. Reviewed and improved park data along the Santa Ana River Parkway corridor.
+Improved the stability and reliability of the Unit ID structure by condensing dozens of duplicate unit records.
+Started the process of eliminating the “Unknown Access” category. Added Date Established data for many Holdings.
+Significant revisions made to correct overlapping geometries.
+
+CPAD Database Manual, version 2025b
+
+30
+
+Version 2016a – Published June 2016. Major improvements to the Designation Type (previously called Primary
+Designation Type) and GAP Status fields. GreenInfo staff worked closely with the USGS publishers of PAD-US to
+update and improve the methods for generating these fields. Both fields are now 90% complete. This release
+focused on updates to lands held by the top 50 agencies. Major data reviews were conducted for: California
+Department of Parks and Recreation, East Bay Regional Parks District, California Department of Fish & Wildlife, and
+the California Tahoe Conservancy. Updates to other agency lands include: Humboldt County, San Diego County
+Sonoma Land Trust, Peninsula Open Space District, Land Trust of Santa Cruz County, San Mateo County Department
+of Parks, Santa Clara County Parks and Recreation, and The Nature Conservancy. Many contributions were
+submitted by the public, via our Map Collaborator tool. Extensive technical edits were also completed for internal
+consistency and accuracy.
+Version 2015b – Published December 2015. Substantial improvements in Los Angeles County: Over 3,000 holdings
+were revised or added, with improvements made to the spatial alignment and attributes of lands; nearly 700 new
+units covering over 15,000 acres; major agency updates for SMMC/MRCA, County lands, LAUSD lands, cities of: Los
+Angeles, Long Beach, Santa Clarita, Azusa, Palmdale, Glendale; inclusion of many parks covered by joint use school
+agreements. Updates also included core attribute improvements, such as name and label field standards. Major
+improvements were also made in San Diego County: the addition of approximately 100 parks in the City of San
+Diego, and improvements/corrections to an additional 150+ existing city holdings; improvements to large-scale
+parks and open space in San Diego County, including Otay Ranch Preserve and San Dieguito River Park. In addition,
+there were minor fixes to Bureau of Land Management, CalFIRE, and the San Pablo Bay National Wildlife Refuge
+holdings; and the incorporation of over 50 user-submitted edits across the state through our MapCollaborator
+application.
+Version 2015a – Published April 2015. This was a minor update to CPAD including: General improvement of park
+boundary accuracy, especially for parks over 1,000 acres, and in the San Francisco Bay Area; major improvement to
+accuracy of Access levels for parks over 1,000 acres, and for other parks in the Bay Area; addition of 800
+park-specific URLs, mainly for parks over 1,000 acres; major updates to and improvement of California Dept. of
+Parks and Recreation attributes and geometry; agency data updates from East Bay Regional Parks District, Peninsula
+Open Space Trust, SCVOSA (data received Fall 2014) in the Bay Area; open space additions in Marin, Sonoma
+County (minor updates); City/County park updates in San Mateo County, City of San Jose, Riverside County, and Los
+Angeles County (minor updates); incorporated edits submitted by users through MapCollaborator (minor updates).
+Version 2014a – Published March 2014. This was a minor update to CPAD including: addition of 27,347 acres of
+protected land, including most recent CDFW, City of San Jose, The Conservation Fund, Jurupa Community Services
+District, and the City of Healdsburg; updates to 200 older holdings that were inaccurate; numerous edits and
+additions from submissions to the CPAD MapCollaborator; Major updates to Yuba County and other updates in
+Santa Clara and Kern counties. (Note Esri ArcGIS 10.3 users may experience a bug in using CPAD with 10.3, having
+to do with incorrect field ID display – this has been adjusted in CPAD 2015a, since Esri is not fixing its bug).
+Version 2013b – Published September 16, 2013. CPAD 2013b includes 194 new parks, with an additional 248,553
+acres of protected land from 994 agencies (14 agencies new in this release). Major updates to San Diego County,
+the addition of GAP codes, updated data from major agencies, and continued improvements to legacy data. New
+naming convention adopted, to more efficiently identify releases for users.
+Version 1.9 – Published March 15, 2013, released April 2013. CPAD 1.9 included almost 400 more urban parks,
+hundreds of corrections and changes submitted via MapCollaborator – CPAD Edition, extensive other corrections
+and updates from major agencies. This release also included systematic improvements such as improved spatial
+alignment to assessor parcels and improved attributes for hundreds of parcels that had previously been missing
+information.
+
+CPAD Database Manual, version 2025b
+
+31
+
+Version 1.8 – Released July 2, 2012. CPAD 1.8 was a minor update, with updates to information for 940 agencies,
+removal of inferior legacy data, and addition of newly protected areas. CPAD 1.8 included 7 more
+agencies/organizations and roughly 1,000 more holdings than CPAD 1.7, with a net increase of over 65,000 acres of
+protected areas. The field “d_acq_yr” was added for acquisition dates (currently only available in the Bay Area).
+​
+Version 1.7 – Released September 11, 2011. This version of CPAD continues to refine the database with better
+parcel alignment, removal of inferior legacy data, and addition of newly protected areas. CPAD 1.7 includes 24
+more agencies/organizations than CPAD 1.6, including a net increase of over 65,000 acres of protected areas. It has
+roughly 550 more Holdings and 180 more Units than version 1.6.
+Version 1.6 – Released January 31, 2011. CPAD 1.6 includes significant city park updates in the Southern California
+region. Orange County in particular has been completely updated and aligned to parcel data, with many new sites
+added to CPAD. This version more accurately captures the transition of lands from the State Land Commission or
+lands trust to the BLM in the desert region. National Park boundaries have been revised based upon more accurate
+alignment. Homeowner associations’ parks have now begun to be incorporated into CPAD. Data is better aligned to
+parcels throughout the state. In general, the top 20 agencies/organizations have been surveyed for new data and
+revisions made accordingly in CPAD.​
+Version 1.5 – Released June 9, 2010. CPAD 1.5 had significant updates made to federal lands in the Sierra Nevada
+region, plus updates to all federal and state agencies generally. Most land trust data was updated, especially in the
+Bay Area, the Sierra Nevada region and the San Joaquin Valley. Super Units, used for cartography were revised so
+that they aggregate just federal and state holdings (national forests, etc.) across county boundaries – other
+ownerships retain their Unit-based configuration. Managing agencies were more fully identified (especially Calif.
+Dept. of Fish & Game), but not all managing agencies are yet identified. CPAD 1.6 also removed a dozen State Lands
+holdings that were Calif. State Univ. campuses or prisons.
+Version 1.4 – Released February 3, 2010. CPAD 1.4 features updated city data in most areas of the state, and
+includes city park data for many smaller incorporated areas that were not included in previous releases. Parks and
+open spaces within incorporated areas of San Diego County have been updated extensively. The San Joaquin Valley
+data is greatly improved from the smallest city parks to larger state and federal preserves. In the nine county Bay
+Area, CPAD 1.6 is aligned to parcels and more inclusive. Special attention was paid to updating Calif. DFG and US
+FWS lands across the state. Super Units is a new feature class in CPAD 1.6. They differ from Units in that Super units
+are not divided by owning/managing agency or by county. Super units are intended to be used for cartographic
+purposes.
+Version 1.3 – Released August 27, 2009. The CPAD 1.3 has a more extensive management attributes, especially in
+regards to CDFG and CDPR managed lands that are owned by other agencies such as the State Lands Commission,
+BLM and Bureau of Reclamation. In addition management around reservoir areas is now more accurate. Version 1.3
+continues to capture more urban park coverage. GreenInfo Network relied heavily on the CPAD user community to
+report errors in CPAD through www.calands.org. Federal and state agency data has been aligned and updated
+throughout the state. CPAD 1.3 has improved parcel alignment and more extensive and accurate attributes. This
+work has been supported by grants from the California Department of Forestry and Fire Protection, the California
+Endowment, and the Resources Legacy Fund Preserving Wild California program.
+Version 1.2 – Released March 10, 2009. The CPAD 1.2 dataset was a major improvement over past CPAD data, with
+extensive new urban park coverage, full holding updates for major agencies, many new agencies and organizations,
+numerous geographic focus areas updated, improved parcel alignment, and more extensive attributes. This work
+has been supported by grants from the Calif. Dept. of Parks and Recreation, the Sierra Nevada Conservancy and the
+Resources Legacy Fund Preserving Wild California program.
+
+CPAD Database Manual, version 2025b
+
+32
+
+Version 1.1 – Released June 3, 2008. This was a minor update. Contains several corrections to Calif. Department of
+Fish & Game lands, including removal of some easement areas marked as fee, correction of Lake Sonoma as Army
+Corps not DFG, change of owner for lands transferred earlier to the department by the Land Trust of Napa County
+near Lake Berryessa, and additions of small areas of DFG land missed in Version 1.0 inventory. Contains minor
+additions for land trust fee lands in the Sierra foothills, additions for various agencies in the San Francisco Bay Area
+and in the Northern Sierra. Major holding changes for the U.S. Forest Service and Bureau of Land Management
+have been updated to most recent available releases for those agencies. Additional Calif. State Lands Commission
+lands (mostly School Lands) have been added where over 60 acres. Attributes of some city parks have been
+improved.
+Version 1.0 – Released May 8, 2008. Original CPAD statewide release. Limited data, many areas not fully
+inventoried, many inaccuracies.
+
+CPAD Database Manual, version 2025b
+
+33
+
+

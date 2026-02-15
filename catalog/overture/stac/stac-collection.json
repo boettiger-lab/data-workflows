@@ -1,0 +1,129 @@
+{
+    "type": "Collection",
+    "stac_version": "1.0.0",
+    "id": "overture-divisions",
+    "title": "Overture Maps - Divisions",
+    "description": "Global administrative boundaries (Divisions) from Overture Maps Foundation. Includes countries, regions, and subdivisions.",
+    "license": "CDLA-Permissive-2.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "keywords": [
+        "administrative boundaries",
+        "overture maps",
+        "regions",
+        "countries",
+        "divisions"
+    ],
+    "providers": [
+        {
+            "name": "Overture Maps Foundation",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://overturemaps.org/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180.0,
+                    -90.0,
+                    180.0,
+                    90.0
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2023-01-01T00:00:00Z",
+                    "2025-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-overturemaps/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-overturemaps/README.md",
+            "type": "text/markdown",
+            "title": "Dataset Description"
+        },
+        {
+            "rel": "source",
+            "href": "https://overturemaps.org/download/",
+            "type": "text/html",
+            "title": "Overture Maps Download"
+        }
+    ],
+    "assets": {
+        "divisions-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-overturemaps/regions.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "Divisions (GeoParquet)",
+            "roles": [
+                "data"
+            ],
+            "table:columns": [
+                {
+                    "name": "id",
+                    "type": "string",
+                    "description": "Overture ID"
+                },
+                {
+                    "name": "subtype",
+                    "type": "string",
+                    "description": "Division Type (country, region)"
+                },
+                {
+                    "name": "country",
+                    "type": "string",
+                    "description": "Country Code"
+                }
+            ]
+        },
+        "divisions-pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-overturemaps/regions.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "Divisions (PMTiles)",
+            "roles": [
+                "visual"
+            ],
+            "pmtiles:layer": "regions"
+        },
+        "divisions-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-overturemaps/regions/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Divisions (H3 Hexagons)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by h0"
+        }
+    }
+}

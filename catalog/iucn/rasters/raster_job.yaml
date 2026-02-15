@@ -1,0 +1,182 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-richness
+  labels:
+    k8s-app: iucn-richness
+spec:
+  # Run 122 indexed completions (i = 0..121)
+  completions: 122
+  parallelism: 61  # adjust concurrency as cluster capacity allows
+  completionMode: Indexed
+  backoffLimit: 0
+  # Keep failed pods for 1 hour (3600 seconds) for debugging
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-richness
+    spec:
+      # allow others to pre-empt the pods, required for large CPU jobs
+      priorityClassName: opportunistic
+      # Avoid GPU nodes which can hit trouble.  also recommended for large CPU-only jobs.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      # Keep failed pods around for debugging (paired with ttlSecondsAfterFinished at job level)
+      # Never restart pod on failure - keep failed pods for debugging
+      restartPolicy: Never
+      initContainers:
+        - name: git-clone
+          image: alpine/git:2.45.2
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          command:
+            - sh
+            - -lc
+            - |
+              git clone --depth 1 "https://github.com/boettiger-lab/datasets.git" /workspace/datasets
+          volumeMounts:
+            - name: repo
+              mountPath: /workspace
+      containers:
+        - name: iucn-task
+          image: ghcr.io/rocker-org/ml-spatial
+          imagePullPolicy: Always
+          workingDir: /workspace/datasets
+          volumeMounts:
+            - name: repo
+              mountPath: /workspace
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: "rook-ceph-rgw-nautiluss3.rook"
+            - name: AWS_PUBLIC_ENDPOINT
+              value: "s3-west.nrp-nautilus.io"
+            - name: AWS_HTTPS
+              value: "false"
+            - name: AWS_VIRTUAL_HOSTING
+              value: "FALSE"
+            - name: GDAL_DATA
+              value: "/opt/conda/share/gdal"
+            - name: PROJ_LIB
+              value: "/opt/conda/share/proj"
+            - name: INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+          resources:
+            requests:
+              cpu: "4"
+              memory: 34Gi
+            limits:
+              cpu: "4"
+              memory: 34Gi
+          # Use the indexed environment variable to pass --i
+          # Process all 14 IUCN richness layers
+          command:
+            - bash
+            - -lc
+            - |
+              set -e  # Exit on first error
+              set -o pipefail  # Exit if any command in a pipeline fails
+              echo "Running index ${INDEX}";
+              
+              # Species Richness layers
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Amphibians_SR_2025.tif \
+                --output-url s3://public-iucn/hex/amphibians_sr \
+                --layer-name amphibians_sr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Birds_SR_2025.tif \
+                --output-url s3://public-iucn/hex/birds_sr \
+                --layer-name birds_sr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Mammals_SR_2025.tif \
+                --output-url s3://public-iucn/hex/mammals_sr \
+                --layer-name mammals_sr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Reptiles_SR_2025.tif \
+                --output-url s3://public-iucn/hex/reptiles_sr \
+                --layer-name reptiles_sr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/FW_Fish_SR_2025.tif \
+                --output-url s3://public-iucn/hex/fw_fish_sr \
+                --layer-name fw_fish_sr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Combined_SR_2025.tif \
+                --output-url s3://public-iucn/hex/combined_sr \
+                --layer-name combined_sr
+              
+              # Threatened Species Richness layers
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Amphibians_THR_SR_2025.tif \
+                --output-url s3://public-iucn/hex/amphibians_thr_sr \
+                --layer-name amphibians_thr_sr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Birds_THR_SR_2025.tif \
+                --output-url s3://public-iucn/hex/birds_thr_sr \
+                --layer-name birds_thr_sr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Mammals_THR_SR_2025.tif \
+                --output-url s3://public-iucn/hex/mammals_thr_sr \
+                --layer-name mammals_thr_sr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Reptiles_THR_SR_2025.tif \
+                --output-url s3://public-iucn/hex/reptiles_thr_sr \
+                --layer-name reptiles_thr_sr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/FW_Fish_THR_SR_2025.tif \
+                --output-url s3://public-iucn/hex/fw_fish_thr_sr \
+                --layer-name fw_fish_thr_sr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Combined_THR_SR_2025.tif \
+                --output-url s3://public-iucn/hex/combined_thr_sr \
+                --layer-name combined_thr_sr
+              
+              # Range-Weighted Richness layers
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Combined_RWR_2025.tif \
+                --output-url s3://public-iucn/hex/combined_rwr \
+                --layer-name combined_rwr
+              
+              python -u iucn/raster.py --i ${INDEX} --zoom 8 \
+                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Combined_THR_RWR_2025.tif \
+                --output-url s3://public-iucn/hex/combined_thr_rwr \
+                --layer-name combined_thr_rwr
+              
+              echo "Completed all layers for index ${INDEX}"
+      volumes:
+        - name: repo
+          emptyDir: {}

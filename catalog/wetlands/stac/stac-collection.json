@@ -1,0 +1,151 @@
+{
+    "type": "Collection",
+    "stac_version": "1.0.0",
+    "id": "wetlands-global-unified",
+    "title": "Global Wetlands Data (Ramsar, GLWD, NWI)",
+    "description": "Unified collection of three major wetland datasets: Ramsar Sites (Global Vector), Global Lakes and Wetlands Database (Global Raster), and National Wetlands Inventory (USA Vector/H3).",
+    "license": "various",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "keywords": [
+        "wetlands",
+        "Ramsar",
+        "GLWD",
+        "NWI",
+        "hydrology",
+        "conservation",
+        "lakes",
+        "USFWS"
+    ],
+    "providers": [
+        {
+            "name": "Ramsar Convention Secretariat",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://rsis.ramsar.org/"
+        },
+        {
+            "name": "World Wildlife Fund (WWF) / GWSP",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://www.worldwildlife.org/pages/global-lakes-and-wetlands-database"
+        },
+        {
+            "name": "U.S. Fish & Wildlife Service",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://www.fws.gov/program/national-wetlands-inventory"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180.0,
+                    -90.0,
+                    180.0,
+                    90.0
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "1900-01-01T00:00:00Z",
+                    "2024-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-wetlands/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-wetlands/README.md",
+            "type": "text/markdown",
+            "title": "Dataset Documentation"
+        }
+    ],
+    "assets": {
+        "ramsar-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-wetlands/ramsar/ramsar_wetlands.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "Ramsar Sites (GeoParquet)",
+            "roles": [
+                "data"
+            ],
+            "description": "Ramsar Sites of International Importance (Global Vector)"
+        },
+        "ramsar-pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-wetlands/ramsar/ramsar_wetlands.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "Ramsar Sites (PMTiles)",
+            "roles": [
+                "visual"
+            ],
+            "pmtiles:layer": "ramsar"
+        },
+        "ramsar-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-wetlands/ramsar/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Ramsar Sites (H3 Hexagons)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by h0"
+        },
+        "glwd-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-wetlands/GLWD_v2_0/GLWD_v2_0_area_ha_x10_cog.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "GLWD v2.0 - Total Wetland Area",
+            "roles": [
+                "data"
+            ],
+            "description": "Global raster of wetland area (ha * 10)"
+        },
+        "glwd-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-wetlands/glwd/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "GLWD (H3 Hexagons)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by h0"
+        },
+        "nwi-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-wetlands/nwi/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "NWI (H3 Hexagons)",
+            "roles": [
+                "data"
+            ],
+            "description": "National Wetlands Inventory (USA) indexed to H3. Partitioned by h0."
+        }
+    }
+}

@@ -1,0 +1,104 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-h3-consolidate
+  labels:
+    k8s-app: gbif-h3-consolidate
+spec:
+  completions: 122  # One per h0 partition (update after first job to match actual count)
+  parallelism: 30
+  completionMode: Indexed
+  backoffLimitPerIndex: 5
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-h3-consolidate
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      restartPolicy: Never
+      initContainers:
+        - name: git-clone
+          image: alpine/git:2.45.2
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          command:
+            - sh
+            - -lc
+            - |
+              git clone --depth 1 "https://github.com/boettiger-lab/datasets.git" /workspace/datasets
+          volumeMounts:
+            - name: repo
+              mountPath: /workspace
+      containers:
+        - name: gbif-h3-consolidate-task
+          image: ghcr.io/rocker-org/ml-spatial
+          imagePullPolicy: Always
+          workingDir: /workspace/datasets
+          volumeMounts:
+            - name: repo
+              mountPath: /workspace
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: "rook-ceph-rgw-nautiluss3.rook"
+            - name: AWS_PUBLIC_ENDPOINT
+              value: "s3-west.nrp-nautilus.io"
+            - name: AWS_HTTPS
+              value: "false"
+            - name: AWS_VIRTUAL_HOSTING
+              value: "FALSE"
+            - name: TMPDIR
+              value: "/tmp"
+            - name: JOB_COMPLETION_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+          resources:
+            requests:
+              cpu: "4"
+              memory: 120Gi
+            limits:
+              cpu: "4"
+              memory: 120Gi
+          command:
+            - bash
+            - -lc
+            - |
+              # Install dependencies
+              pip install -q duckdb boto3
+              
+              # Run the consolidation script
+              python -u gbif/consolidate_h0_partitions.py
+      volumes:
+        - name: repo
+          emptyDir: {}

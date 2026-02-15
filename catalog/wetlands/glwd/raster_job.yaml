@@ -1,0 +1,107 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wetlands
+  labels:
+    k8s-app: wetlands
+spec:
+  # Run 122 indexed completions (i = 0..121)
+  completions: 122
+  parallelism: 61  # adjust concurrency as cluster capacity allows
+  completionMode: Indexed
+  backoffLimit: 0
+  # Keep failed pods for 1 hour (3600 seconds) for debugging
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        k8s-app: wetlands
+    spec:
+      # allow others to pre-empt the pods, required for large CPU jobs
+      priorityClassName: opportunistic
+      # Avoid GPU nodes which can hit trouble.  also recommended for large CPU-only jobs.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      # Keep failed pods around for debugging (paired with ttlSecondsAfterFinished at job level)
+      # Never restart pod on failure - keep failed pods for debugging
+      restartPolicy: Never
+      initContainers:
+        - name: git-clone
+          image: alpine/git:2.45.2
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          command:
+            - sh
+            - -lc
+            - |
+              git clone --depth 1 "https://github.com/boettiger-lab/datasets.git" /workspace/datasets
+          volumeMounts:
+            - name: repo
+              mountPath: /workspace
+      containers:
+        - name: carbon-task
+          image: ghcr.io/rocker-org/ml-spatial
+          imagePullPolicy: Always
+          workingDir: /workspace/datasets
+          volumeMounts:
+            - name: repo
+              mountPath: /workspace
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: "rook-ceph-rgw-nautiluss3.rook"
+            - name: AWS_PUBLIC_ENDPOINT
+              value: "s3-west.nrp-nautilus.io"
+            - name: AWS_HTTPS
+              value: "false"
+            - name: AWS_VIRTUAL_HOSTING
+              value: "FALSE"
+            - name: GDAL_DATA
+              value: "/opt/conda/share/gdal"
+            - name: PROJ_LIB
+              value: "/opt/conda/share/proj"
+            - name: INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+          resources:
+            requests:
+              cpu: "4"
+              memory: 34Gi
+            limits:
+              cpu: "4"
+              memory: 34Gi
+          # Use the indexed environment variable to pass --i
+          command:
+            - bash
+            - -lc
+            - |
+              echo "Running index ${INDEX}";
+              python -u wetlands/job.py --i ${INDEX} --zoom 8 --input-url https://minio.carlboettiger.info/public-wetlands/GLWD_v2_0/GLWD_v2_0_combined_classes/GLWD_v2_0_main_class.tif --output-url s3://public-wetlands/hex
+      volumes:
+        - name: repo
+          emptyDir: {}
+
+

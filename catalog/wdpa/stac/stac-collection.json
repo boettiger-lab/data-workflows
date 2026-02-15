@@ -1,0 +1,310 @@
+{
+    "stac_version": "1.0.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "type": "Collection",
+    "id": "wdpa-december-2025",
+    "title": "World Database on Protected Areas (WDPA) December 2025",
+    "description": "The World Database on Protected Areas (WDPA) is the most comprehensive global database of marine and terrestrial protected areas. A joint project between UN Environment Programme and IUCN, managed by UNEP-WCMC. This December 2025 edition includes protected area boundaries, designations, IUCN management categories, governance types, and status information indexed by H3 hexagons at resolution 8. IMPORTANT: Multiple protected areas can overlap the same hexagon - use DISTINCT h8 when calculating coverage to avoid double-counting.",
+    "license": "proprietary",
+    "keywords": [
+        "protected areas",
+        "conservation",
+        "IUCN",
+        "WDPA",
+        "national parks",
+        "nature reserves",
+        "biodiversity",
+        "UNEP-WCMC"
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180,
+                    -90,
+                    180,
+                    90
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "1800-01-01T00:00:00Z",
+                    "2025-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-wdpa/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-wdpa/README.md",
+            "type": "text/markdown",
+            "title": "Data Documentation with Field Descriptions"
+        },
+        {
+            "rel": "about",
+            "href": "https://www.protectedplanet.net/en/thematic-areas/wdpa",
+            "title": "Protected Planet - WDPA Information"
+        },
+        {
+            "rel": "license",
+            "href": "https://www.protectedplanet.net/en/legal",
+            "title": "Terms and Conditions"
+        }
+    ],
+    "providers": [
+        {
+            "name": "UNEP-WCMC and IUCN",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://www.protectedplanet.net/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "summaries": {
+        "formats": [
+            "h3-parquet"
+        ],
+        "iucn_categories": [
+            "Ia",
+            "Ib",
+            "II",
+            "III",
+            "IV",
+            "V",
+            "VI",
+            "Not Reported",
+            "Not Applicable",
+            "Not Assigned"
+        ]
+    },
+    "table:columns": [
+        {
+            "name": "OBJECTID",
+            "type": "number",
+            "description": "Unique object identifier"
+        },
+        {
+            "name": "SITE_ID",
+            "type": "number",
+            "description": "Unique site identifier"
+        },
+        {
+            "name": "SITE_PID",
+            "type": "string",
+            "description": "Protected Site ID"
+        },
+        {
+            "name": "SITE_TYPE",
+            "type": "string",
+            "description": "Type of site (e.g., polygon, point)"
+        },
+        {
+            "name": "NAME",
+            "type": "string",
+            "description": "Site name in original language"
+        },
+        {
+            "name": "NAME_ENG",
+            "type": "string",
+            "description": "Site name in English"
+        },
+        {
+            "name": "DESIG",
+            "type": "string",
+            "description": "Designation type in original language"
+        },
+        {
+            "name": "DESIG_ENG",
+            "type": "string",
+            "description": "Designation type in English (e.g., National Park, Nature Reserve)"
+        },
+        {
+            "name": "DESIG_TYPE",
+            "type": "string",
+            "description": "Designation classification"
+        },
+        {
+            "name": "IUCN_CAT",
+            "type": "string",
+            "description": "IUCN Protected Area Management Category (Ia, Ib, II, III, IV, V, VI, Not Reported)"
+        },
+        {
+            "name": "INT_CRIT",
+            "type": "string",
+            "description": "International criteria designation"
+        },
+        {
+            "name": "REALM",
+            "type": "string",
+            "description": "Terrestrial or Marine realm"
+        },
+        {
+            "name": "GIS_AREA",
+            "type": "number",
+            "description": "GIS-calculated area in km² (most reliable area measure)"
+        },
+        {
+            "name": "REP_AREA",
+            "type": "number",
+            "description": "Reported area in km²"
+        },
+        {
+            "name": "GIS_M_AREA",
+            "type": "number",
+            "description": "GIS-calculated marine area in km²"
+        },
+        {
+            "name": "REP_M_AREA",
+            "type": "number",
+            "description": "Reported marine area in km²"
+        },
+        {
+            "name": "NO_TAKE",
+            "type": "string",
+            "description": "No-take zone designation"
+        },
+        {
+            "name": "NO_TK_AREA",
+            "type": "number",
+            "description": "No-take area in km²"
+        },
+        {
+            "name": "STATUS",
+            "type": "string",
+            "description": "Current status (e.g., Designated, Proposed, Inscribed)"
+        },
+        {
+            "name": "STATUS_YR",
+            "type": "number",
+            "description": "Year of status designation"
+        },
+        {
+            "name": "GOV_TYPE",
+            "type": "string",
+            "description": "Governance type (e.g., Federal or national ministry, Collaborative, Indigenous peoples)"
+        },
+        {
+            "name": "GOVSUBTYPE",
+            "type": "string",
+            "description": "Governance sub-type (detailed classification)"
+        },
+        {
+            "name": "OWN_TYPE",
+            "type": "string",
+            "description": "Ownership type (e.g., State, Community, Private, Joint, Not Reported)"
+        },
+        {
+            "name": "OWNSUBTYPE",
+            "type": "string",
+            "description": "Ownership sub-type"
+        },
+        {
+            "name": "MANG_AUTH",
+            "type": "string",
+            "description": "Managing authority name"
+        },
+        {
+            "name": "MANG_PLAN",
+            "type": "string",
+            "description": "Management plan status"
+        },
+        {
+            "name": "VERIF",
+            "type": "string",
+            "description": "Verification status"
+        },
+        {
+            "name": "METADATAID",
+            "type": "number",
+            "description": "Metadata record identifier"
+        },
+        {
+            "name": "ISO3",
+            "type": "string",
+            "description": "Country ISO 3-letter code"
+        },
+        {
+            "name": "PRNT_ISO3",
+            "type": "string",
+            "description": "Parent country ISO code (for territories)"
+        },
+        {
+            "name": "SUPP_INFO",
+            "type": "string",
+            "description": "Supplementary information"
+        },
+        {
+            "name": "CONS_OBJ",
+            "type": "string",
+            "description": "Conservation objectives"
+        },
+        {
+            "name": "INLND_WTRS",
+            "type": "string",
+            "description": "Inland waters designation"
+        },
+        {
+            "name": "OECM_ASMT",
+            "type": "string",
+            "description": "Other Effective Area-Based Conservation Measures assessment"
+        },
+        {
+            "name": "h8",
+            "type": "string",
+            "description": "H3 hexagon cell ID at resolution 8 (~0.737 km² per hex)"
+        },
+        {
+            "name": "h0",
+            "type": "string",
+            "description": "H3 resolution 0 parent cell ID (partition key)"
+        }
+    ],
+    "assets": {
+        "wdpa-pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-wdpa/WDPA_Dec2025.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "WDPA - PMTiles",
+            "roles": [
+                "visual"
+            ],
+            "pmtiles:layer": "wdpa"
+        },
+        "wdpa-hex-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-wdpa/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "WDPA December 2025 - H3 Hexagonal Tiling",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by H3 level 0 cell (h0). Path pattern: hex/h0={cell}/data_0.parquet"
+        }
+    }
+}

@@ -1,0 +1,119 @@
+{
+    "type": "Collection",
+    "stac_version": "1.0.0",
+    "id": "ncp-biodiversity",
+    "title": "Nature's Contributions to People (NCP) - Biodiversity Indicators",
+    "description": "Global indicators of Nature's Contributions to People (NCP) focusing on biodiversity and natural habitat, derived from Chaplin-Kramer et al. (2019).",
+    "license": "CC-BY-4.0",
+    "stac_extensions": [],
+    "keywords": [
+        "ecosystem services",
+        "nature's contributions to people",
+        "biodiversity",
+        "natural habitat",
+        "global",
+        "IPBES"
+    ],
+    "providers": [
+        {
+            "name": "Natural Capital Project",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://naturalcapitalproject.stanford.edu/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180.0,
+                    -90.0,
+                    180.0,
+                    90.0
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2019-01-01T00:00:00Z",
+                    "2019-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-ncp/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-ncp/README.md",
+            "type": "text/markdown",
+            "title": "Data Description"
+        },
+        {
+            "rel": "source",
+            "href": "https://doi.org/10.1126/science.awx9597",
+            "type": "text/html",
+            "title": "Science Publication (2019)"
+        }
+    ],
+    "assets": {
+        "ncp-biod-nathab-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-ncp/NCP_biod_nathab_cog.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "Biodiversity & Natural Habitat (COG)",
+            "roles": [
+                "data"
+            ]
+        },
+        "ncp-only-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-ncp/NCP_only_cog.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "NCP Aggregate Index (COG)",
+            "roles": [
+                "data"
+            ]
+        },
+        "ncp-biod-nathab-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-ncp/hex/ncp_biod_nathab/",
+            "type": "application/vnd.apache.parquet",
+            "title": "Biodiversity & Natural Habitat (H3 Hexagons)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by h0"
+        },
+        "ncp-only-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-ncp/hex/ncp_only/",
+            "type": "application/vnd.apache.parquet",
+            "title": "NCP Aggregate Index (H3 Hexagons)",
+            "roles": [
+                "data"
+            ],
+            "description": "Partitioned by h0"
+        }
+    }
+}

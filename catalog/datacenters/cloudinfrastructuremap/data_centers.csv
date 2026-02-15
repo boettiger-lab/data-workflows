@@ -1,0 +1,1417 @@
+provider,region_name,type,metro,country,latitude,longitude,zones
+Huawei Cloud,LA Buenos Aires,Cloud Region,Buenos Aires,Argentina,-34.608521,-58.373539,1
+Microsoft Azure,Australia Central (Canberra),Cloud Region,Canberra,Australia,-35.306541,149.126556,1
+Microsoft Azure,Australia Central 2 (Canberra),Cloud Region,Canberra,Australia,-35.306541,149.126556,1
+Oracle Cloud,Australian Gov (Canberra),Cloud Region,Canberra,Australia,-35.306541,149.126556,1
+Amazon Web Services,Asia Pacific (Melbourne),Cloud Region,Melbourne,Australia,-37.817532,144.967148,3
+Google Cloud,Melbourne,Cloud Region,Melbourne,Australia,-37.817532,144.967148,3
+Microsoft Azure,Australia Southeast (Melbourne),Cloud Region,Melbourne,Australia,-37.817532,144.967148,1
+Oracle Cloud,Australia Southeast (Melbourne),Cloud Region,Melbourne,Australia,-37.817532,144.967148,1
+Amazon Web Services,Asia Pacific (Sydney),Cloud Region,Sydney,Australia,-33.869696,151.20704,3
+Google Cloud,Sydney,Cloud Region,Sydney,Australia,-33.869696,151.20704,3
+IBM Cloud,Sydney,Cloud Region,Sydney,Australia,-33.869696,151.20704,3
+Microsoft Azure,Australia East (Sydney),Cloud Region,Sydney,Australia,-33.869696,151.20704,3
+Oracle Cloud,Australia East (Sydney),Cloud Region,Sydney,Australia,-33.869696,151.20704,1
+OVH,Australia (Sydney),Cloud Region,Sydney,Australia,-33.869696,151.20704,1
+Microsoft Azure,Austria East (Vienna),Cloud Region,Vienna,Austria,48.202548,16.368805,3
+Amazon Web Services,Middle East (Bahrain),Cloud Region,Manama,Bahrain,26.229438,50.575955,3
+Microsoft Azure,Belgium Central,Cloud Region,Brussels,Belgium,50.846626886537614,4.3503418787872805,3
+Google Cloud,Belgium,Cloud Region,Mons,Belgium,50.447849,3.820250,3
+Oracle Cloud,Brazil Southeast (Vinhedo),Cloud Region,Campinas,Brazil,-23.0435155,-47.0255742,1
+Microsoft Azure,Brazil Southeast (Rio),Cloud Region,Rio de Janeiro,Brazil,-22.903448,-43.209557,3
+Amazon Web Services,South America (SÃ£o Paulo),Cloud Region,SÃ£o Paulo,Brazil,-23.562880,-46.654659,3
+Google Cloud,Sao Paulo,Cloud Region,SÃ£o Paulo,Brazil,-23.562880,-46.654659,3
+Huawei Cloud,LA-Sao Paulo,Cloud Region,SÃ£o Paulo,Brazil,-23.562880,-46.654659,3
+IBM Cloud,SÃ£o Paulo,Cloud Region,SÃ£o Paulo,Brazil,-23.562880,-46.654659,3
+Microsoft Azure,Brazil South (SÃ£o Paulo),Cloud Region,SÃ£o Paulo,Brazil,-23.562880,-46.654659,3
+Oracle Cloud,Brazil East (Sao Paulo),Cloud Region,SÃ£o Paulo,Brazil,-23.562880,-46.654659,1
+Tencent Cloud,South America (Sao Paulo),Cloud Region,SÃ£o Paulo,Brazil,-23.562880,-46.654659,1
+Amazon Web Services,Canada (West) ,Cloud Region,Calgary,Canada,51.045220,-114.063014,3
+Amazon Web Services,Canada (Central),Cloud Region,MontrÃ©al,Canada,45.5576996,-74.0104842,3
+Google Cloud,Montreal,Cloud Region,MontrÃ©al,Canada,45.5576996,-74.0104842,3
+IBM Cloud,Montreal,Cloud Region,MontrÃ©al,Canada,45.5576996,-74.0104842,3
+Oracle Cloud,Canada Southeast (Montreal),Cloud Region,MontrÃ©al,Canada,45.5576996,-74.0104842,1
+OVH,East Coast (Montreal),Cloud Region,MontrÃ©al,Canada,45.5576996,-74.0104842,1
+Microsoft Azure,Canada East (Quebec City),Cloud Region,Quebec City,Canada,46.812749,-71.219359,1
+Google Cloud,Toronto,Cloud Region,Toronto,Canada,43.648560,-79.385324,3
+IBM Cloud,Toronto,Cloud Region,Toronto,Canada,43.648560,-79.385324,3
+Microsoft Azure,Canada Central (Toronto),Cloud Region,Toronto,Canada,43.648560,-79.385324,3
+Oracle Cloud,Canada Southeast (Toronto),Cloud Region,Toronto,Canada,43.648560,-79.385324,1
+OVH,Canada (Toronto),Cloud Region,Toronto,Canada,43.648560,-79.385324,1
+Tencent Cloud,North America (Toronto),Cloud Region,Toronto,Canada,43.648560,-79.385324,1
+Amazon Web Services,AWS Chile (Santiago),Cloud Region,Santiago,Chile,-33.437269,-70.650564,3
+Google Cloud,Santiago,Cloud Region,Santiago,Chile,-33.437269,-70.650564,3
+Huawei Cloud,LA-Santiago,Cloud Region,Santiago,Chile,-33.437269,-70.650564,2
+Microsoft Azure,Chile Central (Santiago),Cloud Region,Santiago,Chile,-33.437269,-70.650564,3
+Oracle Cloud,Chile Central (Santiago),Cloud Region,Santiago,Chile,-33.437269,-70.650564,1
+Oracle Cloud,Chile West (VaparaÃ­so),Cloud Region,ValparaÃ­so,Chile,-33.045521,-71.620311,1
+Alibaba Cloud,China North 2 (Beijing),Cloud Region,Beijing,China,39.906010,116.387909,12
+Amazon Web Services,Mainland China (Beijing),Cloud Region,Beijing,China,39.906010,116.387909,3
+Huawei Cloud,CN North Beijing1,Cloud Region,Beijing,China,39.906010,116.387909,3
+Huawei Cloud,CN North Beijing2,Cloud Region,Beijing,China,39.906010,116.387909,2
+Huawei Cloud,CN North Beijing3,Cloud Region,Beijing,China,39.906010,116.387909,2
+Microsoft Azure,China North (Beijing),Cloud Region,Beijing,China,39.906010,116.387909,1
+Microsoft Azure,China North 2 (Beijing),Cloud Region,Beijing,China,39.906010,116.387909,1
+Microsoft Azure,China North 3 (Beijing),Cloud Region,Beijing,China,39.906010,116.387909,3
+Tencent Cloud,North China (Beijing),Cloud Region,Beijing,China,39.906010,116.387909,10
+Alibaba Cloud,China North 2 (Beijing),Cloud Region,Beijing,China,39.509720000000002,116.69472,12
+Amazon Web Services,Mainland China (Beijing),Cloud Region,Beijing,China,39.509720000000002,116.69472,3
+Huawei Cloud,CN North Beijing1,Cloud Region,Beijing,China,39.509720000000002,116.69472,3
+Huawei Cloud,CN North Beijing2,Cloud Region,Beijing,China,39.509720000000002,116.69472,2
+Huawei Cloud,CN North Beijing3,Cloud Region,Beijing,China,39.509720000000002,116.69472,2
+Microsoft Azure,China North (Beijing),Cloud Region,Beijing,China,39.509720000000002,116.69472,1
+Microsoft Azure,China North 2 (Beijing),Cloud Region,Beijing,China,39.509720000000002,116.69472,1
+Microsoft Azure,China North 3 (Beijing),Cloud Region,Beijing,China,39.509720000000002,116.69472,3
+Tencent Cloud,North China (Beijing),Cloud Region,Beijing,China,39.509720000000002,116.69472,10
+Alibaba Cloud,China West 1 (Chengdu),Cloud Region,Chengdu,China,30.670000,104.071022,2
+Tencent Cloud,Southwest China (Chengdu),Cloud Region,Chengdu,China,30.670000,104.071022,2
+Tencent Cloud,Southwest China (Chongqing),Cloud Region,Chongqing,China,29.544001,106.522621,1
+Alibaba Cloud,China (Fuzhou - Local Region),Cloud Region,Fuzhou,China,26.059285050938268,119.3073868980544,1
+Alibaba Cloud,China South 3 (Guangzhou),Cloud Region,Guangzhou,China,23.107389,113.267616,2
+Huawei Cloud,CN South Guangzhou,Cloud Region,Guangzhou,China,23.107389,113.267616,6
+Tencent Cloud,South China (Guangzhou),Cloud Region,Guangzhou,China,23.107389,113.267616,5
+Huawei Cloud,CN Southwest Guiyang,Cloud Region,Guiyang,China,26.58333,106.71667,3
+Alibaba Cloud,China East 1 (Hangzhou),Cloud Region,Hangzhou,China,30.252501,120.165024,8
+Alibaba Cloud,China South 2 (Heyuan),Cloud Region,Heyuan,China,23.730419,114.680023,2
+Alibaba Cloud,China (Hong Kong),Cloud Region,Hong Kong,China,22.283325,114.158720,3
+Amazon Web Services,China (Hong Kong),Cloud Region,Hong Kong,China,22.283325,114.158720,3
+Google Cloud,Hong Kong,Cloud Region,Hong Kong,China,22.283325,114.158720,3
+Huawei Cloud,CN-Hong Kong,Cloud Region,Hong Kong,China,22.283325,114.158720,4
+Microsoft Azure,East Asia (Hong Kong),Cloud Region,Hong Kong,China,22.283325,114.158720,3
+Tencent Cloud,Hong Kong,Cloud Region,Hong Kong,China,22.283325,114.158720,3
+Alibaba Cloud,China North 5 (Hohhot),Cloud Region,Huhehaote,China,40.842585,111.749181,2
+Huawei Cloud,CN Northwest Karamay,Cloud Region,Karamay,China,45.553142396747205,84.87656350058562,1
+Alibaba Cloud,China East 3 (Nanjing),Cloud Region,Nanjing,China,32.048500,118.778969,1
+Microsoft Azure,China East 3 (Jiangsu),Cloud Region,Nanjing,China,32.048500,118.778969,1
+Tencent Cloud,East China (Nanjing),Cloud Region,Nanjing,China,32.048500,118.778969,3
+Amazon Web Services,Mainland China (Ningxia),Cloud Region,Ningxiang,China,28.275333,112.552073,3
+Alibaba Cloud,China North 1 (Qingdao),Cloud Region,Qingdao,China,36.087417,120.342734,2
+Alibaba Cloud,China East 2 (Shanghai),Cloud Region,Shanghai,China,31.247571,121.472587,11
+Huawei Cloud,CN East Shanghai1,Cloud Region,Shanghai,China,31.247571,121.472587,4
+Huawei Cloud,CN East Shanghai2,Cloud Region,Shanghai,China,31.247571,121.472587,4
+Microsoft Azure,China East (Shanghai),Cloud Region,Shanghai,China,31.247571,121.472587,1
+Microsoft Azure,China East 2 (Shanghai),Cloud Region,Shanghai,China,31.247571,121.472587,1
+Tencent Cloud,East China (Shanghai),Cloud Region,Shanghai,China,31.247571,121.472587,9
+Alibaba Cloud,China East 2 (Shanghai),Cloud Region,Shanghai,China,31.298886,120.585316,11
+Huawei Cloud,CN East Shanghai1,Cloud Region,Shanghai,China,31.298886,120.585316,4
+Huawei Cloud,CN East Shanghai2,Cloud Region,Shanghai,China,31.298886,120.585316,4
+Microsoft Azure,China East (Shanghai),Cloud Region,Shanghai,China,31.298886,120.585316,1
+Microsoft Azure,China East 2 (Shanghai),Cloud Region,Shanghai,China,31.298886,120.585316,1
+Tencent Cloud,East China (Shanghai),Cloud Region,Shanghai,China,31.298886,120.585316,9
+Alibaba Cloud,China South 1 (Shenzhen),Cloud Region,Shenzhen,China,22.545539999999999,114.06829999999999,6
+Huawei Cloud,CN South Shenzhen,Cloud Region,Shenzhen,China,22.545539999999999,114.06829999999999,1
+Tencent Cloud,South China (Shenzen) ,Cloud Region,Shenzhen,China,22.545539999999999,114.06829999999999,3
+Alibaba Cloud,China (Ulanqab),Cloud Region,Ulanqab,China,40.994785,113.132585,3
+Huawei Cloud,CN North Ulanqab1 ,Cloud Region,Ulanqab,China,40.994785,113.132585,3
+Alibaba Cloud,China (Wuhan - Local Region),Cloud Region,Wuhan,China,30.572399,114.279121,1
+Huawei Cloud,Huawei Cloud East China (Wuhu),Cloud Region,Wuhu,China,31.33728,118.37351,3
+Alibaba Cloud,China North 3 (Zhangjiakou),Cloud Region,Zhangjiakou,China,40.824418,114.887543,3
+Oracle Cloud,Colombia Central (Bogota),Cloud Region,BogotÃ¡,Colombia,4.656370,-74.117790,1
+Microsoft Azure,Denmark East (Copenhagen),Cloud Region,Copenhagen,Denmark,55.676183,12.569333,3
+Huawei Cloud,Huawei Cloud North Africa (Cairo),Cloud Region,Cairo,Egypt,30.083740,31.255360,1
+Google Cloud,Finland,Cloud Region,Hamina,Finland,60.566667,27.2,3
+Microsoft Azure,Finland (Helsinki),Cloud Region,Helsinki,Finland,60.1712,24.932563,3
+OVH,France (Gravelines),Cloud Region,Dunkerque,France,50.98707,2.125537,1
+OVH,Western Europe (Roubaix),Cloud Region,Lille,France,50.691705,3.175200,1
+Microsoft Azure,France South (Marseille),Cloud Region,Marseille,France,43.293579,5.372507,1
+Oracle Cloud,France (Marseille),Cloud Region,Marseille,France,43.293579,5.372507,1
+Amazon Web Services,Europe West (Paris),Cloud Region,Paris,France,48.856930,2.341200,3
+Google Cloud,Paris,Cloud Region,Paris,France,48.856930,2.341200,3
+Microsoft Azure,France Central (Paris),Cloud Region,Paris,France,48.856930,2.341200,3
+Oracle Cloud,France Central (Paris),Cloud Region,Paris,France,48.856930,2.341200,1
+OVH,Western Europe (Paris),Cloud Region,Paris,France,48.856930,2.341200,3
+OVH,Western Europe (Strasbourg),Cloud Region,Strasbourg,France,48.585080,7.736430,1
+Google Cloud,Berlin,Cloud Region,Berlin,Germany,52.516074,13.376987,3
+Microsoft Azure,Germany North (Berlin),Cloud Region,Berlin,Germany,52.516074,13.376987,1
+Alibaba Cloud,EU Central 1 (Frankfurt),Cloud Region,Frankfurt,Germany,50.112065,8.683415,3
+Amazon Web Services,Europe Central (Frankfurt),Cloud Region,Frankfurt,Germany,50.112065,8.683415,3
+Amazon Web Services,European Sovereign Cloud (Germany),Cloud Region,Frankfurt,Germany,50.112065,8.683415,3
+Google Cloud,Frankfurt,Cloud Region,Frankfurt,Germany,50.112065,8.683415,3
+IBM Cloud,Frankfurt,Cloud Region,Frankfurt,Germany,50.112065,8.683415,3
+Microsoft Azure,Germany West Central (Frankfurt),Cloud Region,Frankfurt,Germany,50.112065,8.683415,3
+Oracle Cloud,EU Sovereign Central (Frankfurt),Cloud Region,Frankfurt,Germany,50.112065,8.683415,1
+Oracle Cloud,Germany Central (Frankfurt),Cloud Region,Frankfurt,Germany,50.112065,8.683415,3
+OVH,Central Europe (Frankfurt),Cloud Region,Frankfurt,Germany,50.112065,8.683415,1
+Tencent Cloud,Central Europe (Frankfurt),Cloud Region,Frankfurt,Germany,50.112065,8.683415,2
+Microsoft Azure,Greece Central (Athens),Cloud Region,Athens,Greece,37.976093,23.736254,3
+Microsoft Azure,South India (Chennai),Cloud Region,Chennai,India,13.063918,80.243049,1
+Amazon Web Services,Asia Pacific (Hyderabad),Cloud Region,Hyderabad,India,17.612611,78.451538,3
+Microsoft Azure,Southcentral (Hyderabad),Cloud Region,Hyderabad,India,17.612611,78.451538,3
+Oracle Cloud,India South (Hyderabad),Cloud Region,Hyderabad,India,17.612611,78.451538,1
+Amazon Web Services,Asia Pacific (Mumbai),Cloud Region,Mumbai,India,19.07608,72.875866,3
+Google Cloud,Mumbai,Cloud Region,Mumbai,India,19.07608,72.875866,3
+Microsoft Azure,West India (Mumbai),Cloud Region,Mumbai,India,19.07608,72.875866,1
+Oracle Cloud,India West (Mumbai),Cloud Region,Mumbai,India,19.07608,72.875866,1
+OVH,India (Mumbai),Cloud Region,Mumbai,India,19.07608,72.875866,1
+Tencent Cloud,South Asia (Mumbai),Cloud Region,Mumbai,India,19.07608,72.875866,2
+Google Cloud,Delhi,Cloud Region,New Delhi,India,28.635308,77.224960,3
+Microsoft Azure,Central India (Pune),Cloud Region,Pune,India,18.526710,73.861600,3
+Oracle Cloud,Indonesia North (Batam),Cloud Region,Batam,Indonesia,0.8378388,103.723443,1
+Alibaba Cloud,Asia Pacific SE 5 (Jakarta),Cloud Region,Jakarta,Indonesia,-6.171588,106.827868,3
+Amazon Web Services,Indonesia (Jakarta),Cloud Region,Jakarta,Indonesia,-6.171588,106.827868,3
+Google Cloud,Jakarta,Cloud Region,Jakarta,Indonesia,-6.171588,106.827868,3
+Huawei Cloud,AP Jakarta,Cloud Region,Jakarta,Indonesia,-6.171588,106.827868,3
+Microsoft Azure,Indonesia Central (Jakarta),Cloud Region,Jakarta,Indonesia,-6.171588,106.827868,3
+Tencent Cloud,Southeast Asia Pacific (Jakarta),Cloud Region,Jakarta,Indonesia,-6.171588,106.827868,2
+Amazon Web Services,Europe West (Ireland),Cloud Region,Dublin,Ireland,53.348114,-6.248262,3
+Huawei Cloud,EU Dublin,Cloud Region,Dublin,Ireland,53.348114,-6.248262,2
+Microsoft Azure,North Europe (Dublin),Cloud Region,Dublin,Ireland,53.348114,-6.248262,3
+Oracle Cloud,Israel Central (Jerusalem),Cloud Region,Jerusalem,Israel,31.773600,35.224998,1
+Amazon Web Services,Middle East (Tel Aviv),Cloud Region,Tel Aviv,Israel,32.045043,34.769661,3
+Google Cloud,Tel Aviv,Cloud Region,Tel Aviv,Israel,32.045043,34.769661,3
+Microsoft Azure,Israel Central (Tel Aviv),Cloud Region,Tel Aviv,Israel,32.045043,34.769661,3
+Oracle Cloud,Israel 2 (Tel Aviv),Cloud Region,Tel Aviv,Israel,32.045043,34.769661,1
+Amazon Web Services,Europe (Milan),Cloud Region,Milan,Italy,45.468945,9.181030,3
+Google Cloud,Milan,Cloud Region,Milan,Italy,45.468945,9.181030,3
+Microsoft Azure,Italy North (Milan),Cloud Region,Milan,Italy,45.468945,9.181030,3
+Oracle Cloud,Italy Northwest (Milan),Cloud Region,Milan,Italy,45.468945,9.181030,1
+Google Cloud,Turin,Cloud Region,Turin,Italy,45.069512,7.705403,3
+Oracle Cloud,Italy 2 (Turin),Cloud Region,Turin,Italy,45.069512,7.705403,1
+Amazon Web Services,Asia Pacific (Osaka),Cloud Region,Osaka,Japan,34.677471,135.503235,3
+Google Cloud,Osaka,Cloud Region,Osaka,Japan,34.677471,135.503235,3
+IBM Cloud,Osaka,Cloud Region,Osaka,Japan,34.677471,135.503235,3
+Microsoft Azure,Japan West (Osaka),Cloud Region,Osaka,Japan,34.677471,135.503235,1
+Oracle Cloud,Japan Central (Osaka),Cloud Region,Osaka,Japan,34.677471,135.503235,1
+Tencent Cloud,Northeast Asia Pacific 2 (Osaka),Cloud Region,Osaka,Japan,34.677471,135.503235,1
+Alibaba Cloud,Asia Pacific NE 1 (Tokyo),Cloud Region,Tokyo,Japan,35.5092405,139.7698121,3
+Amazon Web Services,Asia Pacific (Tokyo),Cloud Region,Tokyo,Japan,35.5092405,139.7698121,4
+Google Cloud,Tokyo,Cloud Region,Tokyo,Japan,35.5092405,139.7698121,3
+IBM Cloud,Tokyo,Cloud Region,Tokyo,Japan,35.5092405,139.7698121,3
+Microsoft Azure,"Japan East (Saitama, Tokyo)",Cloud Region,Tokyo,Japan,35.5092405,139.7698121,3
+Oracle Cloud,Japan East (Tokyo),Cloud Region,Tokyo,Japan,35.5092405,139.7698121,1
+Tencent Cloud,Northeast Asia Pacific (Tokyo),Cloud Region,Tokyo,Japan,35.5092405,139.7698121,2
+Alibaba Cloud,Asia Pacific NE 1 (Tokyo),Cloud Region,Tokyo,Japan,35.8617292,139.6454822,3
+Amazon Web Services,Asia Pacific (Tokyo),Cloud Region,Tokyo,Japan,35.8617292,139.6454822,4
+Google Cloud,Tokyo,Cloud Region,Tokyo,Japan,35.8617292,139.6454822,3
+IBM Cloud,Tokyo,Cloud Region,Tokyo,Japan,35.8617292,139.6454822,3
+Microsoft Azure,"Japan East (Saitama, Tokyo)",Cloud Region,Tokyo,Japan,35.8617292,139.6454822,3
+Oracle Cloud,Japan East (Tokyo),Cloud Region,Tokyo,Japan,35.8617292,139.6454822,1
+Tencent Cloud,Northeast Asia Pacific (Tokyo),Cloud Region,Tokyo,Japan,35.8617292,139.6454822,2
+Microsoft Azure,East Africa (Nairobi),Cloud Region,Nairobi,Kenya,-1.277298,36.806261,3
+Oracle Cloud,Kenya (Nairobi),Cloud Region,Nairobi,Kenya,-1.277298,36.806261,1
+Alibaba Cloud,Asia Pacific SE 3 (Kuala Lumpur),Cloud Region,Kuala Lumpur,Malaysia,3.104665,101.691170,3
+Amazon Web Services,Malaysia,Cloud Region,Kuala Lumpur,Malaysia,3.104665,101.691170,3
+Microsoft Azure,Malaysia West (Kuala Lumpur),Cloud Region,Kuala Lumpur,Malaysia,3.104665,101.691170,3
+Oracle Cloud,Malaysia,Cloud Region,Kuala Lumpur,Malaysia,3.104665,101.691170,1
+Huawei Cloud,LA-Mexico City1,Cloud Region,Mexico City,Mexico,19.431900,-99.132851,2
+Huawei Cloud,LA-Mexico City2,Cloud Region,Mexico City,Mexico,19.431900,-99.132851,2
+Oracle Cloud,Mexico Northeast (Monterrey),Cloud Region,Monterrey,Mexico,25.670975,-100.309959,1
+Alibaba Cloud,Mexico (QuerÃ©taro),Cloud Region,Santiago de QuerÃ©taro,Mexico,20.6121228,-100.4802578,1
+Amazon Web Services,AWS Mexico central,Cloud Region,Santiago de QuerÃ©taro,Mexico,20.6121228,-100.4802578,3
+Google Cloud,Mexico,Cloud Region,Santiago de QuerÃ©taro,Mexico,20.6121228,-100.4802578,3
+Microsoft Azure,Mexico Central (QuerÃ©taro),Cloud Region,Santiago de QuerÃ©taro,Mexico,20.6121228,-100.4802578,3
+Oracle Cloud,Mexico Central (QuerÃ©taro),Cloud Region,Santiago de QuerÃ©taro,Mexico,20.6121228,-100.4802578,1
+Oracle Cloud,Morocco 1 (Casablanca),Cloud Region,Casablanca,Morocco,33.605381,-7.631940,1
+Oracle Cloud,Morocco 2 (Settat),Cloud Region,Settat,Morocco,33.003193,-7.616129,1
+Microsoft Azure,West Europe (Amsterdam),Cloud Region,Amsterdam,Netherlands,52.7935659,4.9350576,3
+Oracle Cloud,Netherlands Northwest (Amsterdam),Cloud Region,Amsterdam,Netherlands,52.7935659,4.9350576,1
+Microsoft Azure,West Europe (Amsterdam),Cloud Region,Amsterdam,Netherlands,52.354775,4.7585408,3
+Oracle Cloud,Netherlands Northwest (Amsterdam),Cloud Region,Amsterdam,Netherlands,52.354775,4.7585408,1
+Google Cloud,Netherlands,Cloud Region,Groningen,Netherlands,53.442799,6.816020,3
+Amazon Web Services,Asia Pacific (Auckland),Cloud Region,Auckland,New Zealand,-36.884209,174.770419,3
+Google Cloud,New Zealand,Cloud Region,Auckland,New Zealand,-36.884209,174.770419,3
+Microsoft Azure,New Zealand North (Auckland),Cloud Region,Auckland,New Zealand,-36.884209,174.770419,3
+Google Cloud,Norway,Cloud Region,Oslo,Norway,59.912280,10.749980,3
+Microsoft Azure,Norway East (Oslo),Cloud Region,Oslo,Norway,59.912280,10.749980,3
+Microsoft Azure,Norway West (Stavanger),Cloud Region,Stavanger,Norway,58.970833,5.730794,1
+Huawei Cloud,LA-Lima1,Cloud Region,Lima,Peru,-12.043600,-77.021217,2
+Alibaba Cloud,Asia Pacific SE 6 (Manila),Cloud Region,Manila,Philippines,14.609620,121.005890,2
+Huawei Cloud,AP-Manila,Cloud Region,Manila,Philippines,14.609620,121.005890,3
+OVH,Western Europe ,Cloud Region,Sochaczew,Poland,52.229337,20.238359,1
+Google Cloud,Warsaw,Cloud Region,Warsaw,Poland,52.235370,21.009485,3
+Microsoft Azure,Poland Central (Warsaw),Cloud Region,Warsaw,Poland,52.235370,21.009485,3
+OVH,Central Europe (Warsaw),Cloud Region,Warsaw,Poland,52.235370,21.009485,1
+Google Cloud,Doha,Cloud Region,Doha,Qatar,25.294537,51.51939,3
+Microsoft Azure,Qatar Central (Doha),Cloud Region,Doha,Qatar,25.294537,51.51939,3
+Google Cloud,Damman,Cloud Region,Dammam,Saudi Arabia,26.444250,50.104671,3
+Oracle Cloud,Saudi Arabia West (Jeddah),Cloud Region,Jeddah,Saudi Arabia,21.481547,39.182863,1
+Alibaba Cloud,Saudi Arabia (Riyadh),Cloud Region,Riyadh,Saudi Arabia,24.647325,46.714585,2
+Amazon Web Services,Saudi Arabia (Riyadh),Cloud Region,Riyadh,Saudi Arabia,24.647325,46.714585,3
+Huawei Cloud,ME Riyadh,Cloud Region,Riyadh,Saudi Arabia,24.647325,46.714585,3
+Microsoft Azure,Saudi Arabia East,Cloud Region,Riyadh,Saudi Arabia,24.647325,46.714585,3
+Oracle Cloud,Saudi Arabia 3,Cloud Region,Riyadh,Saudi Arabia,24.647325,46.714585,1
+Oracle Cloud,Saudi Arabia Central (Riyadh),Cloud Region,Riyadh,Saudi Arabia,24.647325,46.714585,1
+Tencent Cloud,Middle East (Riyadh),Cloud Region,Riyadh,Saudi Arabia,24.647325,46.714585,2
+Oracle Cloud,Serbia Central (Jovanovac),Cloud Region,Kragujevac,Serbia,44.049455706181824,20.94976281010028,1
+Alibaba Cloud,Asia Pacific SE 1 (Singapore),Cloud Region,Singapore,Singapore,1.293873,103.853107,3
+Amazon Web Services,Asia Pacific (Singapore),Cloud Region,Singapore,Singapore,1.293873,103.853107,3
+Google Cloud,Singapore,Cloud Region,Singapore,Singapore,1.293873,103.853107,3
+Huawei Cloud,AP-Singapore,Cloud Region,Singapore,Singapore,1.293873,103.853107,4
+Microsoft Azure,Southeast Asia (Singapore),Cloud Region,Singapore,Singapore,1.293873,103.853107,3
+Oracle Cloud,Singapore (Singapore),Cloud Region,Singapore,Singapore,1.293873,103.853107,2
+Oracle Cloud,Singapore West,Cloud Region,Singapore,Singapore,1.293873,103.853107,1
+OVH,Asia (Singapore),Cloud Region,Singapore,Singapore,1.293873,103.853107,1
+Tencent Cloud,Southeast Asia Pacific (Singapore),Cloud Region,Singapore,Singapore,1.293873,103.853107,4
+Amazon Web Services,Africa (Cape Town),Cloud Region,Cape Town,South Africa,-33.919086,18.421981,3
+Microsoft Azure,South Africa West (Cape Town),Cloud Region,Cape Town,South Africa,-33.919086,18.421981,1
+Google Cloud,Johannesburg,Cloud Region,Johannesburg,South Africa,-26.204944,28.040035,3
+Huawei Cloud,AF-Johannesburg,Cloud Region,Johannesburg,South Africa,-26.204944,28.040035,3
+Microsoft Azure,South Africa North (Johannesburg),Cloud Region,Johannesburg,South Africa,-26.204944,28.040035,3
+Oracle Cloud,South Africa Central(Johannesburg),Cloud Region,Johannesburg,South Africa,-26.204944,28.040035,1
+Microsoft Azure,Korea South (Busan),Cloud Region,Busan,South Korea,35.170283,128.999485,1
+Oracle Cloud,South Korea North (Chuncheon),Cloud Region,Chuncheon,South Korea,37.89008,127.73814,1
+Alibaba Cloud,Asia Pacific NE 2 (Seoul),Cloud Region,Seoul,South Korea,37.557121,126.977379,2
+Amazon Web Services,Asia Pacific (Seoul),Cloud Region,Seoul,South Korea,37.557121,126.977379,4
+Google Cloud,Seoul,Cloud Region,Seoul,South Korea,37.557121,126.977379,3
+Microsoft Azure,Korea Central (Seoul),Cloud Region,Seoul,South Korea,37.557121,126.977379,3
+Oracle Cloud,South Korea Central (Seoul),Cloud Region,Seoul,South Korea,37.557121,126.977379,1
+Tencent Cloud,Northeast Asia Pacific  (Seoul),Cloud Region,Seoul,South Korea,37.557121,126.977379,2
+Google Cloud,Madrid,Cloud Region,Madrid,Spain,40.420300,-3.705774,3
+IBM Cloud,Madrid,Cloud Region,Madrid,Spain,40.420300,-3.705774,3
+Microsoft Azure,Spain Central (Madrid),Cloud Region,Madrid,Spain,40.420300,-3.705774,3
+Oracle Cloud,EU Sovereign South (Madrid),Cloud Region,Madrid,Spain,40.420300,-3.705774,1
+Oracle Cloud,Spain Central (Madrid),Cloud Region,Madrid,Spain,40.420300,-3.705774,1
+Oracle Cloud,Spain Central (Madrid),Cloud Region,Madrid,Spain,40.420300,-3.705774,1
+Amazon Web Services,Europe South (Spain),Cloud Region,Zaragoza,Spain,41.651730,-0.881319,3
+Microsoft Azure,Sweden Central (GÃ¤vle),Cloud Region,GÃ¤vle,Sweden,60.673665,17.145600,3
+Microsoft Azure,Sweden South (Staffanstorp),Cloud Region,MalmÃ¶,Sweden,55.64214,13.21247,3
+Amazon Web Services,Europe North (Stockholm),Cloud Region,Stockholm,Sweden,59.332268,18.062797,3
+Google Cloud,Sweden,Cloud Region,Stockholm,Sweden,59.332268,18.062797,3
+Oracle Cloud,Sweden Central (Stockholm),Cloud Region,Stockholm,Sweden,59.332268,18.062797,1
+Microsoft Azure,Switzerland West (Geneva),Cloud Region,Geneva,Switzerland,46.208358,6.142701,1
+Amazon Web Services,Europe (Zurich) ,Cloud Region,ZÃ¼rich,Switzerland,47.377060,8.539550,3
+Google Cloud,Zurich,Cloud Region,ZÃ¼rich,Switzerland,47.377060,8.539550,3
+Microsoft Azure,Switzerland North (ZÃ¼rich),Cloud Region,ZÃ¼rich,Switzerland,47.377060,8.539550,1
+Oracle Cloud,Switzerland North (Zurich),Cloud Region,ZÃ¼rich,Switzerland,47.377060,8.539550,1
+Google Cloud,Taiwan,Cloud Region,Taichung,Taiwan,24.0717,120.5624,3
+Amazon Web Services,Asia Pacific (Taipei),Cloud Region,Taipei,Taiwan,25.080441,121.564194,3
+Microsoft Azure,Taiwan North (Taipei),Cloud Region,Taipei,Taiwan,25.080441,121.564194,3
+Alibaba Cloud,Asia Pacific SE 7 (Bangkok),Cloud Region,Bangkok,Thailand,13.753330,100.504822,1
+Amazon Web Services,AWS Thailand,Cloud Region,Bangkok,Thailand,13.753330,100.504822,3
+Google Cloud,Thailand,Cloud Region,Bangkok,Thailand,13.753330,100.504822,3
+Huawei Cloud,AP-Bangkok,Cloud Region,Bangkok,Thailand,13.753330,100.504822,3
+Microsoft Azure,Thailand,Cloud Region,Bangkok,Thailand,13.753330,100.504822,3
+Tencent Cloud,Southeast Asia (Bangkok),Cloud Region,Bangkok,Thailand,13.753330,100.504822,2
+Huawei Cloud,TR-Istanbul,Cloud Region,Istanbul,Turkey,41.0408,28.98618,3
+Microsoft Azure,UAE Central (Abu Dhabi),Cloud Region,Abu Dhabi,United Arab Emirates,24.44396,54.41896,1
+Oracle Cloud,United Arab Emirates (Abu Dhabi),Cloud Region,Abu Dhabi,United Arab Emirates,24.44396,54.41896,1
+Alibaba Cloud,Middle East 1 (Dubai),Cloud Region,Dubai,United Arab Emirates,25.26934,55.308487,1
+Amazon Web Services,United Arab Emirates,Cloud Region,Dubai,United Arab Emirates,25.26934,55.308487,3
+Microsoft Azure,UAE North (Dubai),Cloud Region,Dubai,United Arab Emirates,25.26934,55.308487,3
+Oracle Cloud,United Arab Emirates (Dubai),Cloud Region,Dubai,United Arab Emirates,25.26934,55.308487,1
+Microsoft Azure,UK West (Cardiff),Cloud Region,Cardiff,United Kingdom,51.481250,-3.180734,1
+Alibaba Cloud,UK (London),Cloud Region,London,United Kingdom,51.506325,-0.127144,2
+Amazon Web Services,Europe West (London),Cloud Region,London,United Kingdom,51.506325,-0.127144,3
+Google Cloud,London,Cloud Region,London,United Kingdom,51.506325,-0.127144,3
+IBM Cloud,London,Cloud Region,London,United Kingdom,51.506325,-0.127144,3
+Microsoft Azure,UK South (London),Cloud Region,London,United Kingdom,51.506325,-0.127144,3
+Oracle Cloud,UK Gov South (London),Cloud Region,London,United Kingdom,51.506325,-0.127144,1
+Oracle Cloud,UK South (London),Cloud Region,London,United Kingdom,51.506325,-0.127144,3
+OVH,Western Europe (London),Cloud Region,London,United Kingdom,51.506325,-0.127144,1
+Oracle Cloud,UK Gov West (Newport),Cloud Region,Newport,United Kingdom,51.589016,-2.996922,1
+Oracle Cloud,UK West (Newport),Cloud Region,Newport,United Kingdom,51.589016,-2.996922,1
+Microsoft Azure,East US 3 (Atlanta),Cloud Region,Atlanta,United States,33.748315,-84.391109,3
+Microsoft Azure,US Gov Texas,Cloud Region,Austin,United States,30.267605,-97.742984,1
+Google Cloud,South Carolina,Cloud Region,Charleston,United States,33.196499,-80.012690,3
+Microsoft Azure,West Central US (Cheyenne),Cloud Region,Cheyenne,United States,41.134815,-104.821544,3
+Microsoft Azure,North Central US (Chicago),Cloud Region,Chicago,United States,41.917253,-87.895619,1
+Oracle Cloud,US DoD North,Cloud Region,Chicago,United States,41.917253,-87.895619,1
+Oracle Cloud,US Midwest (Chicago),Cloud Region,Chicago,United States,41.917253,-87.895619,1
+Microsoft Azure,North Central US (Chicago),Cloud Region,Chicago,United States,41.884150,-87.632409,1
+Oracle Cloud,US DoD North,Cloud Region,Chicago,United States,41.884150,-87.632409,1
+Oracle Cloud,US Midwest (Chicago),Cloud Region,Chicago,United States,41.884150,-87.632409,1
+Amazon Web Services,AWS GovCloud (US-East),Cloud Region,Columbus,United States,40.0811745,-82.8087864,3
+Amazon Web Services,US East (Ohio),Cloud Region,Columbus,United States,40.0811745,-82.8087864,3
+Google Cloud,Columbus,Cloud Region,Columbus,United States,40.0811745,-82.8087864,3
+Amazon Web Services,AWS GovCloud (US-East),Cloud Region,Columbus,United States,40.029810,-83.151054,3
+Amazon Web Services,US East (Ohio),Cloud Region,Columbus,United States,40.029810,-83.151054,3
+Google Cloud,Columbus,Cloud Region,Columbus,United States,40.029810,-83.151054,3
+Amazon Web Services,AWS GovCloud (US-East),Cloud Region,Columbus,United States,39.961960,-83.002984,3
+Amazon Web Services,US East (Ohio),Cloud Region,Columbus,United States,39.961960,-83.002984,3
+Google Cloud,Columbus,Cloud Region,Columbus,United States,39.961960,-83.002984,3
+Google Cloud,Dallas,Cloud Region,Dallas,United States,32.778155,-96.795404,3
+IBM Cloud,Dallas,Cloud Region,Dallas,United States,32.778155,-96.795404,3
+Microsoft Azure,Central US (Des Moines),Cloud Region,Des Moines,United States,41.589790,-93.615659,3
+Microsoft Azure,US DoD Central,Cloud Region,Des Moines,United States,41.589790,-93.615659,1
+Microsoft Azure,US Sec West Central,Cloud Region,Des Moines,United States,41.589790,-93.615659,3
+Amazon Web Services,AWS GovCloud (US-West),Cloud Region,Hermiston,United States,45.919796,-119.338855,3
+Amazon Web Services,US West (Oregon),Cloud Region,Hermiston,United States,45.919796,-119.338855,4
+Amazon Web Services,AWS GovCloud (US-West),Cloud Region,Hermiston,United States,45.839855,-119.700583,3
+Amazon Web Services,US West (Oregon),Cloud Region,Hermiston,United States,45.839855,-119.700583,4
+Google Cloud,Las Vegas,Cloud Region,Las Vegas,United States,36.171915,-115.139974,3
+Google Cloud,Los Angeles,Cloud Region,Los Angeles,United States,34.053481,-118.245336,3
+Microsoft Azure,West US 2 (Quincy),Cloud Region,Moses Lake,United States,47.237515,-119.853309,3
+Google Cloud,Iowa,Cloud Region,Omaha,United States,41.2328248,-95.9167208,4
+Google Cloud,Phoenix,Cloud Region,Phoenix,United States,33.448260,-112.075774,3
+Microsoft Azure,US Gov Arizona,Cloud Region,Phoenix,United States,33.448260,-112.075774,1
+Microsoft Azure,West US 3 (Phoenix),Cloud Region,Phoenix,United States,33.448260,-112.075774,3
+Oracle Cloud,US DoD West,Cloud Region,Phoenix,United States,33.448260,-112.075774,1
+Oracle Cloud,US Gov West (Phoenix),Cloud Region,Phoenix,United States,33.448260,-112.075774,1
+Oracle Cloud,US West (Phoenix),Cloud Region,Phoenix,United States,33.448260,-112.075774,3
+OVH,West Coast (Seattle),Cloud Region,Portland,United States,45.522900,-122.989800,1
+Microsoft Azure,East US (Richmond),Cloud Region,Richmond,United States,37.540700,-77.433654,3
+Microsoft Azure,East US 2 (Richmond),Cloud Region,Richmond,United States,37.540700,-77.433654,3
+Microsoft Azure,US DoD East,Cloud Region,Richmond,United States,37.540700,-77.433654,1
+Microsoft Azure,US Sec East,Cloud Region,Richmond,United States,37.540700,-77.433654,1
+Google Cloud,Salt Lake City,Cloud Region,Salt Lake City,United States,40.759505,-111.888229,3
+Microsoft Azure,South Central US (San Antonio),Cloud Region,San Antonio,United States,29.424490,-98.494624,3
+Alibaba Cloud,US West 1 (Silicon Valley),Cloud Region,San Francisco,United States,37.777125,-122.419644,2
+Amazon Web Services,US West (Northern California),Cloud Region,San Francisco,United States,37.777125,-122.419644,3
+Microsoft Azure,US Sec West,Cloud Region,San Francisco,United States,37.777125,-122.419644,1
+Microsoft Azure,West US (San Francisco),Cloud Region,San Francisco,United States,37.777125,-122.419644,1
+Oracle Cloud,US West (San Jose),Cloud Region,San Francisco,United States,37.777125,-122.419644,1
+Tencent Cloud,Western U.S. (Silicon Valley),Cloud Region,San Francisco,United States,37.777125,-122.419644,2
+Alibaba Cloud,US West 1 (Silicon Valley),Cloud Region,San Francisco,United States,37.338475,-121.885794,2
+Amazon Web Services,US West (Northern California),Cloud Region,San Francisco,United States,37.338475,-121.885794,3
+Microsoft Azure,US Sec West,Cloud Region,San Francisco,United States,37.338475,-121.885794,1
+Microsoft Azure,West US (San Francisco),Cloud Region,San Francisco,United States,37.338475,-121.885794,1
+Oracle Cloud,US West (San Jose),Cloud Region,San Francisco,United States,37.338475,-121.885794,1
+Tencent Cloud,Western U.S. (Silicon Valley),Cloud Region,San Francisco,United States,37.338475,-121.885794,2
+Google Cloud,Oregon,Cloud Region,The Dalles,United States,45.601555,-121.183434,3
+Alibaba Cloud,US East 1 (Virginia),Cloud Region,Washington,United States,38.890370,-77.031959,2
+Amazon Web Services,US East (Northern Virginia),Cloud Region,Washington,United States,38.890370,-77.031959,6
+Google Cloud,Northern Virginia,Cloud Region,Washington,United States,38.890370,-77.031959,3
+IBM Cloud,Washington DC,Cloud Region,Washington,United States,38.890370,-77.031959,3
+Microsoft Azure,US Gov Virginia ,Cloud Region,Washington,United States,38.890370,-77.031959,3
+Oracle Cloud,US DoD East,Cloud Region,Washington,United States,38.890370,-77.031959,1
+Oracle Cloud,US East (Ashburn),Cloud Region,Washington,United States,38.890370,-77.031959,3
+Oracle Cloud,US Gov East (Ashburn),Cloud Region,Washington,United States,38.890370,-77.031959,1
+OVH,East Coast (Washington DC),Cloud Region,Washington,United States,38.890370,-77.031959,1
+Tencent Cloud,Eastern U.S. (Virginia),Cloud Region,Washington,United States,38.890370,-77.031959,2
+Alibaba Cloud,US East 1 (Virginia),Cloud Region,Washington,United States,39.051631,-77.483151,2
+Amazon Web Services,US East (Northern Virginia),Cloud Region,Washington,United States,39.051631,-77.483151,6
+Google Cloud,Northern Virginia,Cloud Region,Washington,United States,39.051631,-77.483151,3
+IBM Cloud,Washington DC,Cloud Region,Washington,United States,39.051631,-77.483151,3
+Microsoft Azure,US Gov Virginia ,Cloud Region,Washington,United States,39.051631,-77.483151,3
+Oracle Cloud,US DoD East,Cloud Region,Washington,United States,39.051631,-77.483151,1
+Oracle Cloud,US East (Ashburn),Cloud Region,Washington,United States,39.051631,-77.483151,3
+Oracle Cloud,US Gov East (Ashburn),Cloud Region,Washington,United States,39.051631,-77.483151,1
+OVH,East Coast (Washington DC),Cloud Region,Washington,United States,39.051631,-77.483151,1
+Tencent Cloud,Eastern U.S. (Virginia),Cloud Region,Washington,United States,39.051631,-77.483151,2
+Alibaba Cloud,US East 1 (Virginia),Cloud Region,Washington,United States,38.746455,-77.673791,2
+Amazon Web Services,US East (Northern Virginia),Cloud Region,Washington,United States,38.746455,-77.673791,6
+Google Cloud,Northern Virginia,Cloud Region,Washington,United States,38.746455,-77.673791,3
+IBM Cloud,Washington DC,Cloud Region,Washington,United States,38.746455,-77.673791,3
+Microsoft Azure,US Gov Virginia ,Cloud Region,Washington,United States,38.746455,-77.673791,3
+Oracle Cloud,US DoD East,Cloud Region,Washington,United States,38.746455,-77.673791,1
+Oracle Cloud,US East (Ashburn),Cloud Region,Washington,United States,38.746455,-77.673791,3
+Oracle Cloud,US Gov East (Ashburn),Cloud Region,Washington,United States,38.746455,-77.673791,1
+OVH,East Coast (Washington DC),Cloud Region,Washington,United States,38.746455,-77.673791,1
+Tencent Cloud,Eastern U.S. (Virginia),Cloud Region,Washington,United States,38.746455,-77.673791,2
+Amazon Web Services,,Local Zone,Buenos Aires,Argentina,-34.608521,-58.373539,
+OVH,,Local Zone,Buenos Aires,Argentina,-34.608521,-58.373539,
+Google Cloud,,Local Zone,Melbourne,Australia,-37.817532,144.967148,
+Google Cloud,,Local Zone,Melbourne,Australia,-37.817532,144.967148,
+Amazon Web Services,,Local Zone,Perth,Australia,-31.953112,115.857254,
+Microsoft Azure,,Local Zone,Perth,Australia,-31.953112,115.857254,
+Google Cloud,,Local Zone,Sydney,Australia,-33.869696,151.20704,
+Google Cloud,,Local Zone,Sydney,Australia,-33.869696,151.20704,
+Amazon Web Services,,Local Zone,Vienna,Austria,48.202548,16.368805,
+OVH,,Local Zone,Vienna,Austria,48.202548,16.368805,
+Amazon Web Services,,Local Zone,Brussels,Belgium,50.8466269,4.35034188,
+OVH,,Local Zone,Brussels,Belgium,50.8466269,4.35034188,
+Amazon Web Services,,Local Zone,Rio de Janeiro,Brazil,-22.903448,-43.209557,
+Google Cloud,,Local Zone,SÃ£o Paulo,Brazil,-23.562880,-46.654659,
+Google Cloud,,Local Zone,SÃ£o Paulo,Brazil,-23.562880,-46.654659,
+Google Cloud,,Local Zone,SÃ£o Paulo,Brazil,-23.562880,-46.654659,
+OVH,,Local Zone,SÃ£o Paulo,Brazil,-23.562880,-46.654659,
+OVH,,Local Zone,Sofia,Bulgaria,42.697085,23.324550,
+Google Cloud,,Local Zone,London,Canada,42.986895,-81.246214,
+Google Cloud,,Local Zone,London,Canada,42.986895,-81.246214,
+Google Cloud,,Local Zone,MontrÃ©al,Canada,45.5576996,-74.0104842,
+Amazon Web Services,,Local Zone,Toronto,Canada,43.648560,-79.385324,
+Google Cloud,,Local Zone,Toronto,Canada,43.648560,-79.385324,
+Google Cloud,,Local Zone,Toronto,Canada,43.648560,-79.385324,
+Amazon Web Services,,Local Zone,Vancouver,Canada,49.260440,-123.114034,
+Amazon Web Services,,Local Zone,Santiago,Chile,-33.437269,-70.650564,
+Google Cloud,,Local Zone,Santiago,Chile,-33.437269,-70.650564,
+OVH,,Local Zone,Santiago,Chile,-33.437269,-70.650564,
+Google Cloud,,Local Zone,Hong Kong,China,22.283325,114.158720,
+Google Cloud,,Local Zone,Hong Kong,China,22.283325,114.158720,
+Amazon Web Services,,Local Zone,BogotÃ¡,Colombia,4.656370,-74.117790,
+Amazon Web Services,,Local Zone,Prague,Czech Republic,50.079083,14.433230,
+OVH,,Local Zone,Prague,Czech Republic,50.079083,14.433230,
+OVH,,Local Zone,Abidjan,CÃ´te d'Ivoire,5.323497,-4.026252,
+Amazon Web Services,,Local Zone,Copenhagen,Denmark,55.676183,12.569333,
+OVH,,Local Zone,Copenhagen,Denmark,55.676183,12.569333,
+Amazon Web Services,,Local Zone,Helsinki,Finland,60.1712,24.932563,
+Google Cloud,,Local Zone,Helsinki,Finland,60.1712,24.932563,
+Google Cloud,,Local Zone,Helsinki,Finland,60.1712,24.932563,
+OVH,,Local Zone,Helsinki,Finland,60.1712,24.932563,
+OVH,,Local Zone,Marseille,France,43.293579,5.372507,
+Google Cloud,,Local Zone,Paris,France,48.856930,2.341200,
+Google Cloud,,Local Zone,Paris,France,48.856930,2.341200,
+Google Cloud,,Local Zone,Paris,France,48.856930,2.341200,
+Google Cloud,,Local Zone,Paris,France,48.856930,2.341200,
+Google Cloud,,Local Zone,Frankfurt,Germany,50.112065,8.683415,
+Google Cloud,,Local Zone,Frankfurt,Germany,50.112065,8.683415,
+Google Cloud,,Local Zone,Frankfurt,Germany,50.112065,8.683415,
+Amazon Web Services,,Local Zone,Hamburg,Germany,53.553345,9.992455,
+Amazon Web Services,,Local Zone,Athens,Greece,37.976093,23.736254,
+OVH,,Local Zone,Bangalore,India,12.970920,77.604820,
+Amazon Web Services,,Local Zone,Kolkata,India,22.526670,88.346160,
+Google Cloud,,Local Zone,Mumbai,India,19.07608,72.875866,
+Google Cloud,,Local Zone,Mumbai,India,19.07608,72.875866,
+Amazon Web Services,,Local Zone,New Delhi,India,28.635308,77.224960,
+Google Cloud,,Local Zone,New Delhi,India,28.635308,77.224960,
+Google Cloud,,Local Zone,New Delhi,India,28.635308,77.224960,
+OVH,,Local Zone,New Delhi,India,28.635308,77.224960,
+Google Cloud,,Local Zone,Jakarta,Indonesia,-6.171588,106.827868,
+Google Cloud,,Local Zone,Jakarta,Indonesia,-6.171588,106.827868,
+Google Cloud,,Local Zone,Tel Aviv,Israel,32.045043,34.769661,
+Google Cloud,,Local Zone,Tel Aviv,Israel,32.045043,34.769661,
+Google Cloud,,Local Zone,Milan,Italy,45.468945,9.181030,
+Google Cloud,,Local Zone,Milan,Italy,45.468945,9.181030,
+Google Cloud,,Local Zone,Milan,Italy,45.468945,9.181030,
+Google Cloud,,Local Zone,Milan,Italy,45.468945,9.181030,
+OVH,,Local Zone,Milan,Italy,45.468945,9.181030,
+Google Cloud,,Local Zone,Osaka,Japan,34.677471,135.503235,
+Google Cloud,,Local Zone,Osaka,Japan,34.677471,135.503235,
+Google Cloud,,Local Zone,Tokyo,Japan,35.5092405,139.769812,
+Google Cloud,,Local Zone,Tokyo,Japan,35.5092405,139.769812,
+Google Cloud,,Local Zone,Tokyo,Japan,35.5092405,139.769812,
+Amazon Web Services,,Local Zone,Nairobi,Kenya,-1.277298,36.806261,
+OVH,,Local Zone,Luxembourg,Luxembourg,49.609531,6.129970,
+OVH,,Local Zone,Mexico City,Mexico,19.431900,-99.132851,
+Amazon Web Services,,Local Zone,Santiago de QuerÃ©taro,Mexico,20.6121228,-100.480258,
+OVH,,Local Zone,Rabat,Morocco,33.9222761,-6.90129563,
+Amazon Web Services,,Local Zone,Amsterdam,Netherlands,52.354775,4.7585408,
+Google Cloud,,Local Zone,Amsterdam,Netherlands,52.354775,4.7585408,
+Google Cloud,,Local Zone,Amsterdam,Netherlands,52.354775,4.7585408,
+OVH,,Local Zone,Amsterdam,Netherlands,52.354775,4.7585408,
+Amazon Web Services,,Local Zone,Auckland,New Zealand,-36.884209,174.770419,
+OVH,,Local Zone,Auckland,New Zealand,-36.884209,174.770419,
+Amazon Web Services,,Local Zone,Lagos,Nigeria,6.439095,3.423498,
+Amazon Web Services,,Local Zone,Oslo,Norway,59.912280,10.749980,
+OVH,,Local Zone,Oslo,Norway,59.912280,10.749980,
+Amazon Web Services,,Local Zone,Muscat,Oman,23.58413,58.40778,
+Amazon Web Services,,Local Zone,Lima,Peru,-12.043600,-77.021217,
+Amazon Web Services,,Local Zone,Manila,Philippines,14.609620,121.005890,
+Amazon Web Services,,Local Zone,Warsaw,Poland,52.235370,21.009485,
+Google Cloud,,Local Zone,Warsaw,Poland,52.235370,21.009485,
+Google Cloud,,Local Zone,Warsaw,Poland,52.235370,21.009485,
+Amazon Web Services,,Local Zone,Lisbon,Portugal,38.725681,-9.150192,
+OVH,,Local Zone,Lisbon,Portugal,38.725681,-9.150192,
+OVH,,Local Zone,Bucharest,Romania,44.434295,26.102965,
+Google Cloud,,Local Zone,Singapore,Singapore,1.293873,103.853107,
+Google Cloud,,Local Zone,Singapore,Singapore,1.293873,103.853107,
+Amazon Web Services,,Local Zone,Johannesburg,South Africa,-26.204944,28.040035,
+Google Cloud,,Local Zone,Johannesburg,South Africa,-26.204944,28.040035,
+Google Cloud,,Local Zone,Johannesburg,South Africa,-26.204944,28.040035,
+Amazon Web Services,,Local Zone,Johannesburg,South Africa,-26.136304,28.201905,
+Google Cloud,,Local Zone,Johannesburg,South Africa,-26.136304,28.201905,
+Google Cloud,,Local Zone,Johannesburg,South Africa,-26.136304,28.201905,
+Amazon Web Services,,Local Zone,Johannesburg,South Africa,-25.8602778,28.1894444,
+Google Cloud,,Local Zone,Johannesburg,South Africa,-25.8602778,28.1894444,
+Google Cloud,,Local Zone,Johannesburg,South Africa,-25.8602778,28.1894444,
+Google Cloud,,Local Zone,Seoul,South Korea,37.557121,126.977379,
+Google Cloud,,Local Zone,Seoul,South Korea,37.557121,126.977379,
+Google Cloud,,Local Zone,Seoul,South Korea,37.557121,126.977379,
+Google Cloud,,Local Zone,Seoul,South Korea,37.557121,126.977379,
+Google Cloud,,Local Zone,Madrid,Spain,40.420300,-3.705774,
+Google Cloud,,Local Zone,Madrid,Spain,40.420300,-3.705774,
+OVH,,Local Zone,Madrid,Spain,40.420300,-3.705774,
+OVH,,Local Zone,Stockholm,Sweden,59.332268,18.062797,
+Google Cloud,,Local Zone,ZÃ¼rich,Switzerland,47.377060,8.539550,
+Google Cloud,,Local Zone,ZÃ¼rich,Switzerland,47.377060,8.539550,
+OVH,,Local Zone,ZÃ¼rich,Switzerland,47.377060,8.539550,
+Amazon Web Services,,Local Zone,Taipei,Taiwan,25.080441,121.564194,
+Google Cloud,,Local Zone,Taipei,Taiwan,25.080441,121.564194,
+Google Cloud,,Local Zone,Taipei,Taiwan,25.080441,121.564194,
+Google Cloud,,Local Zone,Taipei,Taiwan,25.080441,121.564194,
+Amazon Web Services,,Local Zone,Bangkok,Thailand,13.753330,100.504822,
+OVH,,Local Zone,Tunis,Tunisia,36.798672,10.172630,
+OVH,,Local Zone,Dubai,United Arab Emirates,25.26934,55.308487,
+OVH,,Local Zone,Manchester,United Kingdom,53.479605,-2.248818,
+Amazon Web Services,,Local Zone,Atlanta,United States,33.748315,-84.391109,
+Google Cloud,,Local Zone,Atlanta,United States,33.748315,-84.391109,
+OVH,,Local Zone,Atlanta,United States,33.748315,-84.391109,
+Amazon Web Services,,Local Zone,Atlanta,United States,33.925182,-84.841532,
+Google Cloud,,Local Zone,Atlanta,United States,33.925182,-84.841532,
+OVH,,Local Zone,Atlanta,United States,33.925182,-84.841532,
+Amazon Web Services,,Local Zone,Boston,United States,42.358635,-71.056699,
+OVH,,Local Zone,Boston,United States,42.358635,-71.056699,
+Amazon Web Services,,Local Zone,Chicago,United States,41.884150,-87.632409,
+OVH,,Local Zone,Chicago,United States,41.884150,-87.632409,
+Google Cloud,,Local Zone,Columbus,United States,32.462925,-84.987629,
+Amazon Web Services,,Local Zone,Dallas,United States,32.778155,-96.795404,
+OVH,,Local Zone,Dallas,United States,32.778155,-96.795404,
+Amazon Web Services,,Local Zone,Denver,United States,39.740010,-104.992259,
+OVH,,Local Zone,Denver,United States,39.740010,-104.992259,
+Amazon Web Services,,Local Zone,Fresno,United States,37.271875,-119.270229,
+Amazon Web Services,,Local Zone,Honolulu,United States,21.304770,-157.857614,
+Amazon Web Services,,Local Zone,Houston,United States,29.760450,-95.369784,
+Amazon Web Services,,Local Zone,Kansas City,United States,39.113380,-94.626824,
+Amazon Web Services,,Local Zone,Las Vegas,United States,36.171915,-115.139974,
+Google Cloud,,Local Zone,Las Vegas,United States,36.171915,-115.139974,
+Amazon Web Services,,Local Zone,Los Angeles,United States,34.053481,-118.245336,
+Google Cloud,,Local Zone,Los Angeles,United States,34.053481,-118.245336,
+Google Cloud,,Local Zone,Los Angeles,United States,34.053481,-118.245336,
+Google Cloud,,Local Zone,Los Angeles,United States,34.053481,-118.245336,
+Google Cloud,,Local Zone,Los Angeles,United States,34.053481,-118.245336,
+Microsoft Azure,,Local Zone,Los Angeles,United States,34.053481,-118.245336,
+OVH,,Local Zone,Los Angeles,United States,34.053481,-118.245336,
+Amazon Web Services,,Local Zone,Miami,United States,25.728985,-80.237419,
+OVH,,Local Zone,Miami,United States,25.728985,-80.237419,
+Amazon Web Services,,Local Zone,Minneapolis,United States,44.979035,-93.264929,
+Amazon Web Services,,Local Zone,New York,United States,40.714550,-74.007124,
+OVH,,Local Zone,New York,United States,40.714550,-74.007124,
+Amazon Web Services,,Local Zone,New York,United States,40.731970,-74.174184,
+OVH,,Local Zone,New York,United States,40.731970,-74.174184,
+Google Cloud,,Local Zone,Omaha,United States,41.2328248,-95.9167208,
+Amazon Web Services,,Local Zone,Philadelphia,United States,39.952270,-75.162369,
+Amazon Web Services,,Local Zone,Phoenix,United States,33.448260,-112.075774,
+OVH,,Local Zone,Phoenix,United States,33.448260,-112.075774,
+Google Cloud,,Local Zone,Portland,United States,45.511795,-122.675629,
+Google Cloud,,Local Zone,Salt Lake City,United States,40.759505,-111.888229,
+OVH,,Local Zone,Salt Lake City,United States,40.759505,-111.888229,
+OVH,,Local Zone,San Francisco,United States,37.444660,-122.160794,
+Amazon Web Services,,Local Zone,Seattle,United States,47.603560,-122.329439,
+OVH,,Local Zone,Seattle,United States,47.603560,-122.329439,
+OVH,,Local Zone,St. Louis,United States,38.627740,-90.199514,
+Google Cloud,,Local Zone,Washington,United States,39.051631,-77.483151,
+Google Cloud,,Local Zone,Washington,United States,39.051631,-77.483151,
+Amazon Web Services,,Local Zone,Hanoi,Vietnam,21.031950,105.819908,
+Amazon Web Services,,On Ramp,Buenos Aires,Argentina,-34.5904043,-58.4671098,
+Google Cloud,,On Ramp,Buenos Aires,Argentina,-34.5904043,-58.4671098,
+Oracle Cloud,,On Ramp,Buenos Aires,Argentina,-34.5904043,-58.4671098,
+Amazon Web Services,,On Ramp,Brisbane,Australia,-27.453902,153.033201,
+Google Cloud,,On Ramp,Brisbane,Australia,-27.453902,153.033201,
+Amazon Web Services,,On Ramp,Canberra,Australia,-35.246226,149.096414,
+Google Cloud,,On Ramp,Canberra,Australia,-35.246226,149.096414,
+Microsoft Azure,,On Ramp,Canberra,Australia,-35.246226,149.096414,
+Microsoft Azure,,On Ramp,Canberra,Australia,-35.246226,149.096414,
+Oracle Cloud,,On Ramp,Canberra,Australia,-35.246226,149.096414,
+Amazon Web Services,,On Ramp,Melbourne,Australia,-37.82202,144.9324765,
+Amazon Web Services,,On Ramp,Melbourne,Australia,-37.82202,144.9324765,
+Google Cloud,,On Ramp,Melbourne,Australia,-37.82202,144.9324765,
+Google Cloud,,On Ramp,Melbourne,Australia,-37.82202,144.9324765,
+Google Cloud,,On Ramp,Melbourne,Australia,-37.82202,144.9324765,
+IBM Cloud,,On Ramp,Melbourne,Australia,-37.82202,144.9324765,
+Microsoft Azure,,On Ramp,Melbourne,Australia,-37.82202,144.9324765,
+Oracle Cloud,,On Ramp,Melbourne,Australia,-37.82202,144.9324765,
+Amazon Web Services,,On Ramp,Perth,Australia,-31.864402,115.895935,
+Google Cloud,,On Ramp,Perth,Australia,-31.864402,115.895935,
+IBM Cloud,,On Ramp,Perth,Australia,-31.864402,115.895935,
+Microsoft Azure,,On Ramp,Perth,Australia,-31.864402,115.895935,
+Amazon Web Services,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+Amazon Web Services,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+Amazon Web Services,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+Google Cloud,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+Google Cloud,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+IBM Cloud,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+IBM Cloud,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+IBM Cloud,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+IBM Cloud,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+IBM Cloud,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+Microsoft Azure,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+Microsoft Azure,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+Oracle Cloud,,On Ramp,Sydney,Australia,-33.9122374,151.1937548,
+Amazon Web Services,,On Ramp,Vienna,Austria,48.2697621,16.4102279,
+Google Cloud,,On Ramp,Vienna,Austria,48.2697621,16.4102279,
+Microsoft Azure,,On Ramp,Vienna,Austria,48.2697621,16.4102279,
+Microsoft Azure,,On Ramp,Vienna,Austria,48.2697621,16.4102279,
+Amazon Web Services,,On Ramp,Manama,Bahrain,26.229438,50.575955,
+Google Cloud,,On Ramp,Brussels,Belgium,50.8710692,4.4741265,
+IBM Cloud,,On Ramp,Campinas,Brazil,-23.0710353,-47.0140257,
+Microsoft Azure,,On Ramp,Campinas,Brazil,-23.0710353,-47.0140257,
+Oracle Cloud,,On Ramp,Campinas,Brazil,-23.0710353,-47.0140257,
+Amazon Web Services,,On Ramp,Rio de Janeiro,Brazil,-22.871520,-43.272836,
+Google Cloud,,On Ramp,Rio de Janeiro,Brazil,-22.871520,-43.272836,
+Google Cloud,,On Ramp,Rio de Janeiro,Brazil,-22.871520,-43.272836,
+Microsoft Azure,,On Ramp,Rio de Janeiro,Brazil,-22.871520,-43.272836,
+Huawei Cloud,,On Ramp,Santana de Parnaiba,Brazil,-23.496225,-46.876923,
+IBM Cloud,,On Ramp,Santana de Parnaiba,Brazil,-23.496225,-46.876923,
+Amazon Web Services,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Amazon Web Services,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Google Cloud,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Google Cloud,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Google Cloud,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Huawei Cloud,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Huawei Cloud,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Huawei Cloud,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+IBM Cloud,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+IBM Cloud,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Microsoft Azure,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Microsoft Azure,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Oracle Cloud,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Tencent Cloud,,On Ramp,SÃ£o Paulo,Brazil,-23.64850, -46.72238,
+Google Cloud,,On Ramp,Sofia,Bulgaria,42.7026051,23.3059837,
+Google Cloud,,On Ramp,Sofia,Bulgaria,42.7026051,23.3059837,
+Amazon Web Services,,On Ramp,Calgary,Canada,50.9757755,-113.962417,
+Amazon Web Services,,On Ramp,Calgary,Canada,50.9757755,-113.962417,
+Google Cloud,,On Ramp,Calgary,Canada,50.9757755,-113.962417,
+Amazon Web Services,,On Ramp,MontrÃ©al,Canada,45.49744333061516,-73.57040248232121,
+Amazon Web Services,,On Ramp,MontrÃ©al,Canada,45.49744333061516,-73.57040248232121,
+Google Cloud,,On Ramp,MontrÃ©al,Canada,45.49744333061516,-73.57040248232121,
+Google Cloud,,On Ramp,MontrÃ©al,Canada,45.49744333061516,-73.57040248232121,
+IBM Cloud,,On Ramp,MontrÃ©al,Canada,45.49744333061516,-73.57040248232121,
+IBM Cloud,,On Ramp,MontrÃ©al,Canada,45.49744333061516,-73.57040248232121,
+IBM Cloud,,On Ramp,MontrÃ©al,Canada,45.49744333061516,-73.57040248232121,
+Microsoft Azure,,On Ramp,MontrÃ©al,Canada,45.49744333061516,-73.57040248232121,
+Oracle Cloud,,On Ramp,MontrÃ©al,Canada,45.49744333061516,-73.57040248232121,
+OVH,,On Ramp,MontrÃ©al,Canada,45.49744333061516,-73.57040248232121,
+Microsoft Azure,,On Ramp,Quebec City,Canada,46.795640,-71.293071,
+Amazon Web Services,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+Amazon Web Services,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+Google Cloud,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+Google Cloud,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+IBM Cloud,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+IBM Cloud,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+IBM Cloud,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+IBM Cloud,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+IBM Cloud,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+Microsoft Azure,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+Microsoft Azure,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+Oracle Cloud,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+OVH,,On Ramp,Toronto,Canada,43.644762,-79.388181,
+Amazon Web Services,,On Ramp,Vancouver,Canada,49.287112,-123.119330,
+Amazon Web Services,,On Ramp,Vancouver,Canada,49.287112,-123.119330,
+Google Cloud,,On Ramp,Vancouver,Canada,49.287112,-123.119330,
+Microsoft Azure,,On Ramp,Vancouver,Canada,49.287112,-123.119330,
+Amazon Web Services,,On Ramp,Santiago,Chile,-33.357991,-70.676260,
+Google Cloud,,On Ramp,Santiago,Chile,-33.357991,-70.676260,
+Google Cloud,,On Ramp,Santiago,Chile,-33.357991,-70.676260,
+Google Cloud,,On Ramp,Santiago,Chile,-33.357991,-70.676260,
+Google Cloud,,On Ramp,Santiago,Chile,-33.357991,-70.676260,
+Huawei Cloud,,On Ramp,Santiago,Chile,-33.357991,-70.676260,
+Huawei Cloud,,On Ramp,Santiago,Chile,-33.357991,-70.676260,
+Microsoft Azure,,On Ramp,Santiago,Chile,-33.357991,-70.676260,
+Oracle Cloud,,On Ramp,Santiago,Chile,-33.357991,-70.676260,
+Oracle Cloud,,On Ramp,ValparaÃ­so,Chile,-33.12214717768524,-71.57639563672717,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Amazon Web Services,,On Ramp,Beijing,China,39.987962,116.499024,
+Amazon Web Services,,On Ramp,Beijing,China,39.987962,116.499024,
+Huawei Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Huawei Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Huawei Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Huawei Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Huawei Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Huawei Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Huawei Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Microsoft Azure,,On Ramp,Beijing,China,39.987962,116.499024,
+Microsoft Azure,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Tencent Cloud,,On Ramp,Beijing,China,39.987962,116.499024,
+Alibaba Cloud,,On Ramp,Changsha,China,28.228209,112.938814,
+Tencent Cloud,,On Ramp,Changsha,China,28.228209,112.938814,
+Alibaba Cloud,,On Ramp,Changshu,China,31.653584,120.752507,
+Alibaba Cloud,,On Ramp,Chengdu,China,30.572269,104.066541,
+Alibaba Cloud,,On Ramp,Chengdu,China,30.572269,104.066541,
+Alibaba Cloud,,On Ramp,Chengdu,China,30.572269,104.066541,
+Huawei Cloud,,On Ramp,Chengdu,China,30.572269,104.066541,
+Tencent Cloud,,On Ramp,Chengdu,China,30.572269,104.066541,
+Tencent Cloud,,On Ramp,Chengdu,China,30.572269,104.066541,
+Tencent Cloud,,On Ramp,Chongqing,China,29.563010,106.551557,
+Tencent Cloud,,On Ramp,Chongqing,China,29.563010,106.551557,
+Alibaba Cloud,,On Ramp,Dalian,China,38.943810,121.576523,
+Alibaba Cloud,,On Ramp,Fuzhou,China,26.058969999999999,119.33024,
+Tencent Cloud,,On Ramp,Fuzhou,China,26.058969999999999,119.33024,
+Alibaba Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Alibaba Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Alibaba Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Alibaba Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Alibaba Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Alibaba Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Tencent Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Tencent Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Tencent Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Tencent Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Tencent Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Tencent Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Tencent Cloud,,On Ramp,Guangzhou,China,23.129110,113.264385,
+Huawei Cloud,,On Ramp,Guiyang,China,26.647661,106.630153,
+Huawei Cloud,,On Ramp,Guiyang,China,26.647661,106.630153,
+Huawei Cloud,,On Ramp,Guiyang,China,26.647661,106.630153,
+Alibaba Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Alibaba Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Alibaba Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Alibaba Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Alibaba Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Alibaba Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Alibaba Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Alibaba Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Alibaba Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Tencent Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Tencent Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Tencent Cloud,,On Ramp,Hangzhou,China,30.274085,120.155070,
+Tencent Cloud,,On Ramp,Hefei,China,,,
+Alibaba Cloud,,On Ramp,Heyuan,China,23.730419,114.680023,
+Alibaba Cloud,,On Ramp,Heyuan,China,23.730419,114.680023,
+Alibaba Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Alibaba Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Alibaba Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Alibaba Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Alibaba Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Alibaba Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Amazon Web Services,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Amazon Web Services,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Google Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Google Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Google Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Huawei Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Huawei Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Huawei Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Huawei Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+IBM Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Microsoft Azure,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Microsoft Azure,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Tencent Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Tencent Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Tencent Cloud,,On Ramp,Hong Kong,China,22.266098,114.246512,
+Alibaba Cloud,,On Ramp,Huhehaote,China,40.842585,111.749181,
+Alibaba Cloud,,On Ramp,Huhehaote,China,40.842585,111.749181,
+Alibaba Cloud,,On Ramp,Huhehaote,China,40.842585,111.749181,
+Alibaba Cloud,,On Ramp,Jinan,China,36.655510,116.967010,
+Tencent Cloud,,On Ramp,Jinan,China,36.655510,116.967010,
+Alibaba Cloud,,On Ramp,Nanjing,China,31.9212979,118.8630864,
+Tencent Cloud,,On Ramp,Nanjing,China,31.9212979,118.8630864,
+Tencent Cloud,,On Ramp,Nanjing,China,31.9212979,118.8630864,
+Tencent Cloud,,On Ramp,Nanjing,China,31.9212979,118.8630864,
+Alibaba Cloud,,On Ramp,Qingdao,China,36.087417,120.342734,
+Alibaba Cloud,,On Ramp,Qingdao,China,36.087417,120.342734,
+Huawei Cloud,,On Ramp,Qingdao,China,36.087417,120.342734,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Alibaba Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Amazon Web Services,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Huawei Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Microsoft Azure,,On Ramp,Shanghai,China,31.254154,121.484363,
+Microsoft Azure,,On Ramp,Shanghai,China,31.254154,121.484363,
+Microsoft Azure,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shanghai,China,31.254154,121.484363,
+Tencent Cloud,,On Ramp,Shenyang,China,,,
+Alibaba Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Alibaba Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Alibaba Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Alibaba Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Amazon Web Services,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Tencent Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Tencent Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Tencent Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Tencent Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Tencent Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Tencent Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Tencent Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Tencent Cloud,,On Ramp,Shenzhen,China,22.543099,114.112556,
+Tencent Cloud,,On Ramp,Shijiazhuang,China,,,
+Tencent Cloud,,On Ramp,Taiyuan,China,,,
+Alibaba Cloud,,On Ramp,Tianjin,China,39.084158,117.200983,
+Tencent Cloud,,On Ramp,Tianjin,China,39.084158,117.200983,
+Alibaba Cloud,,On Ramp,Ulanqab,China,40.994785,113.132585,
+Alibaba Cloud,,On Ramp,Ulanqab,China,40.994785,113.132585,
+Alibaba Cloud,,On Ramp,Ulanqab,China,40.994785,113.132585,
+Huawei Cloud,,On Ramp,Ulanqab,China,40.994785,113.132585,
+Huawei Cloud,,On Ramp,Ulanqab,China,40.994785,113.132585,
+Alibaba Cloud,,On Ramp,Wuhan,China,30.592849,114.305539,
+Huawei Cloud,,On Ramp,Wuhan,China,30.592849,114.305539,
+Huawei Cloud,,On Ramp,Wuhan,China,30.592849,114.305539,
+Tencent Cloud,,On Ramp,Wuhan,China,30.592849,114.305539,
+Huawei Cloud,,On Ramp,Wuhu,China,,,
+Huawei Cloud,,On Ramp,Wuhu,China,,,
+Huawei Cloud,,On Ramp,Wuhu,China,,,
+Alibaba Cloud,,On Ramp,Xi'an,China,34.235395,108.908963,
+Tencent Cloud,,On Ramp,Xi'an,China,34.235395,108.908963,
+Amazon Web Services,,On Ramp,Yinchuan,China,38.467899,106.262299,
+Amazon Web Services,,On Ramp,Yinchuan,China,38.467899,106.262299,
+Alibaba Cloud,,On Ramp,Zhangjiakou,China,40.824418,114.887543,
+Alibaba Cloud,,On Ramp,Zhangjiakou,China,40.824418,114.887543,
+Alibaba Cloud,,On Ramp,Zhangjiakou,China,40.824418,114.887543,
+Alibaba Cloud,,On Ramp,Zhengzhou,China,,,
+Tencent Cloud,,On Ramp,Zhengzhou,China,,,
+Amazon Web Services,,On Ramp,BogotÃ¡,Colombia,4.6747696,-74.1550367,
+Google Cloud,,On Ramp,BogotÃ¡,Colombia,4.6747696,-74.1550367,
+Google Cloud,,On Ramp,BogotÃ¡,Colombia,4.6747696,-74.1550367,
+Oracle Cloud,,On Ramp,BogotÃ¡,Colombia,4.6747696,-74.1550367,
+Oracle Cloud,,On Ramp,BogotÃ¡,Colombia,4.6747696,-74.1550367,
+Amazon Web Services,,On Ramp,Prague,Czech Republic,50.0601656,14.4829317,
+Google Cloud,,On Ramp,Prague,Czech Republic,50.0601656,14.4829317,
+Amazon Web Services,,On Ramp,Copenhagen,Denmark,55.7284884,12.3761805,
+Google Cloud,,On Ramp,Copenhagen,Denmark,55.7284884,12.3761805,
+Microsoft Azure,,On Ramp,Copenhagen,Denmark,55.7284884,12.3761805,
+Huawei Cloud,,On Ramp,Cairo,Egypt,30.083740,31.255360,
+Amazon Web Services,,On Ramp,Helsinki,Finland,60.203031000000003,24.777861000000001,
+Google Cloud,,On Ramp,Helsinki,Finland,60.203031000000003,24.777861000000001,
+Google Cloud,,On Ramp,Helsinki,Finland,60.203031000000003,24.777861000000001,
+OVH,,On Ramp,Lille,France,50.59097069032507,3.13448932612687,
+Amazon Web Services,,On Ramp,Marseille,France,43.3109242,5.372926,
+Google Cloud,,On Ramp,Marseille,France,43.3109242,5.372926,
+Google Cloud,,On Ramp,Marseille,France,43.3109242,5.372926,
+Microsoft Azure,,On Ramp,Marseille,France,43.3109242,5.372926,
+Oracle Cloud,,On Ramp,Marseille,France,43.3109242,5.372926,
+Amazon Web Services,,On Ramp,Paris,France,48.924907,2.403000,
+Amazon Web Services,,On Ramp,Paris,France,48.924907,2.403000,
+Amazon Web Services,,On Ramp,Paris,France,48.924907,2.403000,
+Google Cloud,,On Ramp,Paris,France,48.924907,2.403000,
+Google Cloud,,On Ramp,Paris,France,48.924907,2.403000,
+Google Cloud,,On Ramp,Paris,France,48.924907,2.403000,
+Google Cloud,,On Ramp,Paris,France,48.924907,2.403000,
+IBM Cloud,,On Ramp,Paris,France,48.924907,2.403000,
+IBM Cloud,,On Ramp,Paris,France,48.924907,2.403000,
+IBM Cloud,,On Ramp,Paris,France,48.924907,2.403000,
+Microsoft Azure,,On Ramp,Paris,France,48.924907,2.403000,
+Microsoft Azure,,On Ramp,Paris,France,48.924907,2.403000,
+Oracle Cloud,,On Ramp,Paris,France,48.924907,2.403000,
+OVH,,On Ramp,Paris,France,48.924907,2.403000,
+OVH,,On Ramp,Paris,France,48.924907,2.403000,
+OVH,,On Ramp,Paris,France,48.924907,2.403000,
+Amazon Web Services,,On Ramp,Berlin,Germany,52.50207270194395 ,13.369348294264048,
+Google Cloud,,On Ramp,Berlin,Germany,52.50207270194395 ,13.369348294264048,
+Google Cloud,,On Ramp,Berlin,Germany,52.50207270194395 ,13.369348294264048,
+Microsoft Azure,,On Ramp,Berlin,Germany,52.50207270194395 ,13.369348294264048,
+Google Cloud,,On Ramp,DÃ¼sseldorf,Germany,51.188268,6.8650715,
+Alibaba Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Alibaba Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Amazon Web Services,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Amazon Web Services,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Google Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Google Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Google Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+IBM Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+IBM Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+IBM Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+IBM Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Microsoft Azure,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Microsoft Azure,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Oracle Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Oracle Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+OVH,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Tencent Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Tencent Cloud,,On Ramp,Frankfurt,Germany,50.1282537731062,8.601467683791077,
+Amazon Web Services,,On Ramp,Hamburg,Germany,53.638939,10.015626,
+Google Cloud,,On Ramp,Hamburg,Germany,53.638939,10.015626,
+Google Cloud,,On Ramp,Hamburg,Germany,53.638939,10.015626,
+Amazon Web Services,,On Ramp,Munich,Germany,48.14381,11.55602,
+Google Cloud,,On Ramp,Munich,Germany,48.14381,11.55602,
+Microsoft Azure,,On Ramp,Munich,Germany,48.14381,11.55602,
+Amazon Web Services,,On Ramp,Athens,Greece,37.8710369,23.8707349,
+Google Cloud,,On Ramp,Athens,Greece,37.8710369,23.8707349,
+Amazon Web Services,,On Ramp,Bangalore,India,12.966202,77.671876,
+Amazon Web Services,,On Ramp,Chennai,India,13.0605657,80.2612642,
+Google Cloud,,On Ramp,Chennai,India,13.0605657,80.2612642,
+Google Cloud,,On Ramp,Chennai,India,13.0605657,80.2612642,
+IBM Cloud,,On Ramp,Chennai,India,13.0605657,80.2612642,
+Microsoft Azure,,On Ramp,Chennai,India,13.0605657,80.2612642,
+Microsoft Azure,,On Ramp,Chennai,India,13.0605657,80.2612642,
+Amazon Web Services,,On Ramp,Hyderabad,India,17.4410181,78.3778312,
+Google Cloud,,On Ramp,Hyderabad,India,17.4410181,78.3778312,
+Oracle Cloud,,On Ramp,Hyderabad,India,17.4410181,78.3778312,
+Amazon Web Services,,On Ramp,Kolkata,India,22.5882689,88.3909508,
+Amazon Web Services,,On Ramp,Mumbai,India,19.113897,72.892780,
+Amazon Web Services,,On Ramp,Mumbai,India,19.113897,72.892780,
+Amazon Web Services,,On Ramp,Mumbai,India,19.113897,72.892780,
+Google Cloud,,On Ramp,Mumbai,India,19.113897,72.892780,
+Google Cloud,,On Ramp,Mumbai,India,19.113897,72.892780,
+IBM Cloud,,On Ramp,Mumbai,India,19.113897,72.892780,
+Microsoft Azure,,On Ramp,Mumbai,India,19.113897,72.892780,
+Microsoft Azure,,On Ramp,Mumbai,India,19.113897,72.892780,
+Oracle Cloud,,On Ramp,Mumbai,India,19.113897,72.892780,
+Oracle Cloud,,On Ramp,Mumbai,India,19.113897,72.892780,
+OVH,,On Ramp,Mumbai,India,19.113897,72.892780,
+Tencent Cloud,,On Ramp,Mumbai,India,19.113897,72.892780,
+Tencent Cloud,,On Ramp,Mumbai,India,19.113897,72.892780,
+Amazon Web Services,,On Ramp,New Delhi,India,28.5429133,77.2381605,
+Google Cloud,,On Ramp,New Delhi,India,28.5429133,77.2381605,
+Google Cloud,,On Ramp,New Delhi,India,28.5429133,77.2381605,
+Microsoft Azure,,On Ramp,Pune,India,18.6040169,73.8622026,
+Oracle Cloud,,On Ramp,Batam,Indonesia,1.1285454,104.05144,
+Alibaba Cloud,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Alibaba Cloud,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Alibaba Cloud,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Amazon Web Services,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Amazon Web Services,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Google Cloud,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Google Cloud,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Huawei Cloud,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Huawei Cloud,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Microsoft Azure,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Tencent Cloud,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Tencent Cloud,,On Ramp,Jakarta,Indonesia,-6.238680,106.824063,
+Amazon Web Services,,On Ramp,Dublin,Ireland,53.400181846259976,-6.216623019373875,
+Amazon Web Services,,On Ramp,Dublin,Ireland,53.400181846259976,-6.216623019373875,
+Amazon Web Services,,On Ramp,Dublin,Ireland,53.400181846259976,-6.216623019373875,
+Google Cloud,,On Ramp,Dublin,Ireland,53.400181846259976,-6.216623019373875,
+Microsoft Azure,,On Ramp,Dublin,Ireland,53.400181846259976,-6.216623019373875,
+Microsoft Azure,,On Ramp,Dublin,Ireland,53.400181846259976,-6.216623019373875,
+Amazon Web Services,,On Ramp,Haifa,Israel,32.770198489617556,34.96698999753257,
+Oracle Cloud,,On Ramp,Jerusalem,Israel,31.80445463553626,35.211905642785155,
+Google Cloud,,On Ramp,Modi'in-Maccabim-Re'ut,Israel,31.918398715199984,34.96167205881106,
+Amazon Web Services,,On Ramp,Tel Aviv,Israel,32.0884756,34.8539642,
+Google Cloud,,On Ramp,Tel Aviv,Israel,32.0884756,34.8539642,
+Microsoft Azure,,On Ramp,Tel Aviv,Israel,32.0884756,34.8539642,
+Microsoft Azure,,On Ramp,Tel Aviv,Israel,32.0884756,34.8539642,
+Amazon Web Services,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+Amazon Web Services,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+Google Cloud,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+Google Cloud,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+Google Cloud,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+Google Cloud,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+IBM Cloud,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+IBM Cloud,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+Microsoft Azure,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+Microsoft Azure,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+Oracle Cloud,,On Ramp,Milan,Italy,45.4789921,9.1026941,
+Google Cloud,,On Ramp,Turin,Italy,45.14702685128028,7.741727972469855,
+Google Cloud,,On Ramp,Turin,Italy,45.14702685128028,7.741727972469855,
+Amazon Web Services,,On Ramp,Osaka,Japan,34.6757188,135.493392,
+Amazon Web Services,,On Ramp,Osaka,Japan,34.6757188,135.493392,
+Google Cloud,,On Ramp,Osaka,Japan,34.6757188,135.493392,
+Google Cloud,,On Ramp,Osaka,Japan,34.6757188,135.493392,
+IBM Cloud,,On Ramp,Osaka,Japan,34.6757188,135.493392,
+IBM Cloud,,On Ramp,Osaka,Japan,34.6757188,135.493392,
+Microsoft Azure,,On Ramp,Osaka,Japan,34.6757188,135.493392,
+Oracle Cloud,,On Ramp,Osaka,Japan,34.6757188,135.493392,
+Alibaba Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Alibaba Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Amazon Web Services,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Amazon Web Services,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Amazon Web Services,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Google Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Google Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Google Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Google Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+IBM Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+IBM Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+IBM Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+IBM Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+IBM Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Microsoft Azure,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Microsoft Azure,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Microsoft Azure,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Oracle Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Oracle Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Tencent Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Tencent Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Tencent Cloud,,On Ramp,Tokyo,Japan,35.622100099999997,139.74998400000001,
+Alibaba Cloud,,On Ramp,Kuala Lumpur,Malaysia,3.149439,101.705977,
+Alibaba Cloud,,On Ramp,Kuala Lumpur,Malaysia,3.149439,101.705977,
+Amazon Web Services,,On Ramp,Kuala Lumpur,Malaysia,3.149439,101.705977,
+Amazon Web Services,,On Ramp,Kuala Lumpur,Malaysia,3.149439,101.705977,
+Google Cloud,,On Ramp,Kuala Lumpur,Malaysia,3.149439,101.705977,
+Google Cloud,,On Ramp,Kuala Lumpur,Malaysia,3.149439,101.705977,
+Microsoft Azure,,On Ramp,Kuala Lumpur,Malaysia,3.149439,101.705977,
+Huawei Cloud,,On Ramp,Ixtlahuaca,Mexico,19.568475,-99.766891,
+Huawei Cloud,,On Ramp,Mexico City,Mexico,19.6268047,-99.1530786,
+Huawei Cloud,,On Ramp,Mexico City,Mexico,19.6268047,-99.1530786,
+Huawei Cloud,,On Ramp,Mexico City,Mexico,19.6268047,-99.1530786,
+Oracle Cloud,,On Ramp,Monterrey,Mexico,25.738175,-100.203438,
+Oracle Cloud,,On Ramp,Monterrey,Mexico,25.738175,-100.203438,
+Amazon Web Services,,On Ramp,Santiago de QuerÃ©taro,Mexico,20.56734636065104,-100.2562442772873,
+Amazon Web Services,,On Ramp,Santiago de QuerÃ©taro,Mexico,20.56734636065104,-100.2562442772873,
+Google Cloud,,On Ramp,Santiago de QuerÃ©taro,Mexico,20.56734636065104,-100.2562442772873,
+Google Cloud,,On Ramp,Santiago de QuerÃ©taro,Mexico,20.56734636065104,-100.2562442772873,
+Microsoft Azure,,On Ramp,Santiago de QuerÃ©taro,Mexico,20.56734636065104,-100.2562442772873,
+Oracle Cloud,,On Ramp,Santiago de QuerÃ©taro,Mexico,20.56734636065104,-100.2562442772873,
+Amazon Web Services,,On Ramp,Amsterdam,Netherlands,52.282169,4.767912,
+Amazon Web Services,,On Ramp,Amsterdam,Netherlands,52.282169,4.767912,
+Google Cloud,,On Ramp,Amsterdam,Netherlands,52.282169,4.767912,
+Google Cloud,,On Ramp,Amsterdam,Netherlands,52.282169,4.767912,
+IBM Cloud,,On Ramp,Amsterdam,Netherlands,52.282169,4.767912,
+IBM Cloud,,On Ramp,Amsterdam,Netherlands,52.282169,4.767912,
+Microsoft Azure,,On Ramp,Amsterdam,Netherlands,52.282169,4.767912,
+Microsoft Azure,,On Ramp,Amsterdam,Netherlands,52.282169,4.767912,
+Oracle Cloud,,On Ramp,Amsterdam,Netherlands,52.282169,4.767912,
+Oracle Cloud,,On Ramp,Amsterdam,Netherlands,52.282169,4.767912,
+Amazon Web Services,,On Ramp,Auckland,New Zealand,-36.750412,174.696070,
+Google Cloud,,On Ramp,Auckland,New Zealand,-36.750412,174.696070,
+Microsoft Azure,,On Ramp,Auckland,New Zealand,-36.750412,174.696070,
+Amazon Web Services,,On Ramp,Lagos,Nigeria,6.5985919,3.368917,
+Huawei Cloud,,On Ramp,Lagos,Nigeria,6.5985919,3.368917,
+Amazon Web Services,,On Ramp,Oslo,Norway,59.92480028571552,10.809492013316284,
+Google Cloud,,On Ramp,Oslo,Norway,59.92480028571552,10.809492013316284,
+Microsoft Azure,,On Ramp,Oslo,Norway,59.92480028571552,10.809492013316284,
+Microsoft Azure,,On Ramp,Stavanger,Norway,59.06867,5.75837,
+Amazon Web Services,,On Ramp,Muscat,Oman,23.7268063,57.792209300000003,
+Amazon Web Services,,On Ramp,Lima,Peru,-12.089054,-76.973144,
+Huawei Cloud,,On Ramp,Lima,Peru,-12.089054,-76.973144,
+Alibaba Cloud,,On Ramp,Manila,Philippines,14.571241,121.068983,
+Amazon Web Services,,On Ramp,Manila,Philippines,14.571241,121.068983,
+Google Cloud,,On Ramp,Manila,Philippines,14.571241,121.068983,
+Google Cloud,,On Ramp,Manila,Philippines,14.571241,121.068983,
+Huawei Cloud,,On Ramp,Manila,Philippines,14.571241,121.068983,
+Huawei Cloud,,On Ramp,Manila,Philippines,14.571241,121.068983,
+Amazon Web Services,,On Ramp,Warsaw,Poland,52.154805,21.002255,
+Google Cloud,,On Ramp,Warsaw,Poland,52.154805,21.002255,
+Google Cloud,,On Ramp,Warsaw,Poland,52.154805,21.002255,
+Microsoft Azure,,On Ramp,Warsaw,Poland,52.154805,21.002255,
+OVH,,On Ramp,Warsaw,Poland,52.154805,21.002255,
+Amazon Web Services,,On Ramp,Lisbon,Portugal,38.78792,-9.1234920000000006,
+Google Cloud,,On Ramp,Lisbon,Portugal,38.78792,-9.1234920000000006,
+Google Cloud,,On Ramp,Doha,Qatar,25.198705,51.499240,
+Google Cloud,,On Ramp,Doha,Qatar,25.198705,51.499240,
+Microsoft Azure,,On Ramp,Doha,Qatar,25.198705,51.499240,
+Microsoft Azure,,On Ramp,Doha,Qatar,25.198705,51.499240,
+Google Cloud,,On Ramp,Bucharest,Romania,44.481675,26.120647,
+Google Cloud,,On Ramp,Dammam,Saudi Arabia,29.5746,49.5224,
+Google Cloud,,On Ramp,Dammam,Saudi Arabia,29.5746,49.5224,
+Oracle Cloud,,On Ramp,Jeddah,Saudi Arabia,21.489565,39.225036,
+Huawei Cloud,,On Ramp,Riyadh,Saudi Arabia,24.647325,46.714585,
+Huawei Cloud,,On Ramp,Riyadh,Saudi Arabia,24.647325,46.714585,
+Oracle Cloud,,On Ramp,Riyadh,Saudi Arabia,24.647325,46.714585,
+Oracle Cloud,,On Ramp,Kragujevac,Serbia,44.0197475,20.9106071,
+Alibaba Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Alibaba Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Alibaba Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Alibaba Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Amazon Web Services,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Amazon Web Services,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Google Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Google Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Huawei Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Huawei Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Huawei Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Huawei Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Huawei Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Huawei Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+IBM Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Microsoft Azure,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Microsoft Azure,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Oracle Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Oracle Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+OVH,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Tencent Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Tencent Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Tencent Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Tencent Cloud,,On Ramp,Singapore,Singapore,1.3210158,103.69519,
+Amazon Web Services,,On Ramp,Cape Town,South Africa,-33.9700507,18.4622284,
+Google Cloud,,On Ramp,Cape Town,South Africa,-33.9700507,18.4622284,
+Microsoft Azure,,On Ramp,Cape Town,South Africa,-33.9700507,18.4622284,
+Amazon Web Services,,On Ramp,Johannesburg,South Africa,-26.13778,28.19756,
+Google Cloud,,On Ramp,Johannesburg,South Africa,-26.13778,28.19756,
+Google Cloud,,On Ramp,Johannesburg,South Africa,-26.13778,28.19756,
+Huawei Cloud,,On Ramp,Johannesburg,South Africa,-26.13778,28.19756,
+Huawei Cloud,,On Ramp,Johannesburg,South Africa,-26.13778,28.19756,
+Huawei Cloud,,On Ramp,Johannesburg,South Africa,-26.13778,28.19756,
+Huawei Cloud,,On Ramp,Johannesburg,South Africa,-26.13778,28.19756,
+Huawei Cloud,,On Ramp,Johannesburg,South Africa,-26.13778,28.19756,
+Microsoft Azure,,On Ramp,Johannesburg,South Africa,-26.13778,28.19756,
+Oracle Cloud,,On Ramp,Johannesburg,South Africa,-26.13778,28.19756,
+Microsoft Azure,,On Ramp,Busan,South Korea,35.14073541638571,128.8603560769288,
+Oracle Cloud,,On Ramp,Chuncheon,South Korea,37.846750,127.702003,
+Alibaba Cloud,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Amazon Web Services,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Amazon Web Services,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Amazon Web Services,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Google Cloud,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Google Cloud,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Google Cloud,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Google Cloud,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Microsoft Azure,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Microsoft Azure,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Oracle Cloud,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Tencent Cloud,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Tencent Cloud,,On Ramp,Seoul,South Korea,37.3980211412823,126.96536102829921,
+Google Cloud,,On Ramp,Barcelona,Spain,41.3517595,2.1369324000000001,
+Amazon Web Services,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+Amazon Web Services,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+Google Cloud,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+Google Cloud,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+Google Cloud,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+Google Cloud,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+IBM Cloud,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+IBM Cloud,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+IBM Cloud,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+IBM Cloud,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+Microsoft Azure,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+Microsoft Azure,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+Oracle Cloud,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+Oracle Cloud,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+OVH,,On Ramp,Madrid,Spain,40.4391411,-3.6214827,
+Amazon Web Services,,On Ramp,Stockholm,Sweden,59.36286,17.95561,
+Amazon Web Services,,On Ramp,Stockholm,Sweden,59.36286,17.95561,
+Google Cloud,,On Ramp,Stockholm,Sweden,59.36286,17.95561,
+Google Cloud,,On Ramp,Stockholm,Sweden,59.36286,17.95561,
+Google Cloud,,On Ramp,Stockholm,Sweden,59.36286,17.95561,
+Google Cloud,,On Ramp,Stockholm,Sweden,59.36286,17.95561,
+Google Cloud,,On Ramp,Stockholm,Sweden,59.36286,17.95561,
+Google Cloud,,On Ramp,Stockholm,Sweden,59.36286,17.95561,
+Microsoft Azure,,On Ramp,Stockholm,Sweden,59.36286,17.95561,
+Oracle Cloud,,On Ramp,Stockholm,Sweden,59.36286,17.95561,
+Google Cloud,,On Ramp,Baden,Switzerland,47.447427,8.211379,
+Google Cloud,,On Ramp,Baden,Switzerland,47.447427,8.211379,
+Google Cloud,,On Ramp,Geneva,Switzerland,46.2079585,6.0982134,
+Microsoft Azure,,On Ramp,Geneva,Switzerland,46.2079585,6.0982134,
+Amazon Web Services,,On Ramp,ZÃ¼rich,Switzerland,47.431926,8.559344,
+Amazon Web Services,,On Ramp,ZÃ¼rich,Switzerland,47.431926,8.559344,
+Google Cloud,,On Ramp,ZÃ¼rich,Switzerland,47.431926,8.559344,
+Google Cloud,,On Ramp,ZÃ¼rich,Switzerland,47.431926,8.559344,
+Microsoft Azure,,On Ramp,ZÃ¼rich,Switzerland,47.431926,8.559344,
+Microsoft Azure,,On Ramp,ZÃ¼rich,Switzerland,47.431926,8.559344,
+Oracle Cloud,,On Ramp,ZÃ¼rich,Switzerland,47.431926,8.559344,
+Google Cloud,,On Ramp,Hsinchu,Taiwan,24.829062418395086,121.01157573295465,
+Amazon Web Services,,On Ramp,Taipei,Taiwan,25.073467,121.577519,
+Amazon Web Services,,On Ramp,Taipei,Taiwan,25.073467,121.577519,
+Google Cloud,,On Ramp,Taipei,Taiwan,25.073467,121.577519,
+Google Cloud,,On Ramp,Taipei,Taiwan,25.073467,121.577519,
+Google Cloud,,On Ramp,Taipei,Taiwan,25.073467,121.577519,
+IBM Cloud,,On Ramp,Taipei,Taiwan,25.073467,121.577519,
+Microsoft Azure,,On Ramp,Taipei,Taiwan,25.073467,121.577519,
+Microsoft Azure,,On Ramp,Taipei,Taiwan,25.073467,121.577519,
+Alibaba Cloud,,On Ramp,Bangkok,Thailand,13.726356,100.516125,
+Amazon Web Services,,On Ramp,Bangkok,Thailand,13.726356,100.516125,
+Amazon Web Services,,On Ramp,Bangkok,Thailand,13.726356,100.516125,
+Google Cloud,,On Ramp,Bangkok,Thailand,13.726356,100.516125,
+Google Cloud,,On Ramp,Bangkok,Thailand,13.726356,100.516125,
+Huawei Cloud,,On Ramp,Bangkok,Thailand,13.726356,100.516125,
+Huawei Cloud,,On Ramp,Bangkok,Thailand,13.726356,100.516125,
+Microsoft Azure,,On Ramp,Bangkok,Thailand,13.726356,100.516125,
+Tencent Cloud,,On Ramp,Bangkok,Thailand,13.726356,100.516125,
+Tencent Cloud,,On Ramp,Bangkok,Thailand,13.726356,100.516125,
+Amazon Web Services,,On Ramp,Istanbul,Turkey,41.0408,28.98618,
+Huawei Cloud,,On Ramp,Istanbul,Turkey,41.0408,28.98618,
+Huawei Cloud,,On Ramp,Istanbul,Turkey,41.0408,28.98618,
+Microsoft Azure,,On Ramp,Abu Dhabi,United Arab Emirates,24.418585,54.621748,
+Oracle Cloud,,On Ramp,Abu Dhabi,United Arab Emirates,24.418585,54.621748,
+Alibaba Cloud,,On Ramp,Dubai,United Arab Emirates,25.0264285,55.1844334,
+Alibaba Cloud,,On Ramp,Dubai,United Arab Emirates,25.0264285,55.1844334,
+Amazon Web Services,,On Ramp,Dubai,United Arab Emirates,25.0264285,55.1844334,
+Google Cloud,,On Ramp,Dubai,United Arab Emirates,25.0264285,55.1844334,
+Microsoft Azure,,On Ramp,Dubai,United Arab Emirates,25.0264285,55.1844334,
+Microsoft Azure,,On Ramp,Dubai,United Arab Emirates,25.0264285,55.1844334,
+Oracle Cloud,,On Ramp,Dubai,United Arab Emirates,25.0264285,55.1844334,
+Oracle Cloud,,On Ramp,Dubai,United Arab Emirates,25.0264285,55.1844334,
+Amazon Web Services,,On Ramp,Fujairah,United Arab Emirates,25.130328,56.336567,
+IBM Cloud,,On Ramp,Hemel Hempstead,United Kingdom,51.76131268451886,-0.4380702302109748,
+Alibaba Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Alibaba Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Alibaba Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Alibaba Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Amazon Web Services,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Amazon Web Services,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Amazon Web Services,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Google Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Google Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Google Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+IBM Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+IBM Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+IBM Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+IBM Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Microsoft Azure,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Microsoft Azure,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Oracle Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Oracle Cloud,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+OVH,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+OVH,,On Ramp,London,United Kingdom,51.499762, -0.0107569,
+Amazon Web Services,,On Ramp,Manchester,United Kingdom,53.4673783,-2.292725,
+Google Cloud,,On Ramp,Manchester,United Kingdom,53.4673783,-2.292725,
+Microsoft Azure,,On Ramp,Newport,United Kingdom,51.5529035,-3.0389071,
+Oracle Cloud,,On Ramp,Newport,United Kingdom,51.5529035,-3.0389071,
+Amazon Web Services,,On Ramp,Atlanta,United States,33.75561037354432,-84.39165115356445,
+Amazon Web Services,,On Ramp,Atlanta,United States,33.75561037354432,-84.39165115356445,
+Google Cloud,,On Ramp,Atlanta,United States,33.75561037354432,-84.39165115356445,
+Google Cloud,,On Ramp,Atlanta,United States,33.75561037354432,-84.39165115356445,
+Google Cloud,,On Ramp,Atlanta,United States,33.75561037354432,-84.39165115356445,
+Microsoft Azure,,On Ramp,Atlanta,United States,33.75561037354432,-84.39165115356445,
+Microsoft Azure,,On Ramp,Atlanta,United States,33.75561037354432,-84.39165115356445,
+Google Cloud,,On Ramp,Austin,United States,30.206671,-97.698308,
+Amazon Web Services,,On Ramp,Boston,United States,42.3544921,-71.0595237,
+Google Cloud,,On Ramp,Boston,United States,42.3544921,-71.0595237,
+Amazon Web Services,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Amazon Web Services,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Amazon Web Services,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Amazon Web Services,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Google Cloud,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Google Cloud,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Google Cloud,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Google Cloud,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Google Cloud,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+IBM Cloud,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Microsoft Azure,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Microsoft Azure,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Oracle Cloud,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Oracle Cloud,,On Ramp,Chicago,United States,41.8541674,-87.618531,
+Amazon Web Services,,On Ramp,Columbus,United States,40.116569,-83.002043,
+Google Cloud,,On Ramp,Columbus,United States,40.116569,-83.002043,
+Amazon Web Services,,On Ramp,Dallas,United States,32.80098325000927,-96.81972026824951,
+Google Cloud,,On Ramp,Dallas,United States,32.80098325000927,-96.81972026824951,
+IBM Cloud,,On Ramp,Dallas,United States,32.80098325000927,-96.81972026824951,
+IBM Cloud,,On Ramp,Dallas,United States,32.80098325000927,-96.81972026824951,
+IBM Cloud,,On Ramp,Dallas,United States,32.80098325000927,-96.81972026824951,
+IBM Cloud,,On Ramp,Dallas,United States,32.80098325000927,-96.81972026824951,
+Microsoft Azure,,On Ramp,Dallas,United States,32.80098325000927,-96.81972026824951,
+Microsoft Azure,,On Ramp,Dallas,United States,32.80098325000927,-96.81972026824951,
+Oracle Cloud,,On Ramp,Dallas,United States,32.80098325000927,-96.81972026824951,
+Amazon Web Services,,On Ramp,Denver,United States,39.74572161117953, -104.99559760093689,
+Google Cloud,,On Ramp,Denver,United States,39.74572161117953, -104.99559760093689,
+IBM Cloud,,On Ramp,Denver,United States,39.74572161117953, -104.99559760093689,
+Microsoft Azure,,On Ramp,Denver,United States,39.74572161117953, -104.99559760093689,
+Amazon Web Services,,On Ramp,Honolulu,United States,21.3345794,-158.0885753,
+Amazon Web Services,,On Ramp,Houston,United States,29.841738,-95.561292,
+Google Cloud,,On Ramp,Houston,United States,29.841738,-95.561292,
+Amazon Web Services,,On Ramp,Kansas City,United States,39.1008326,-94.5810044,
+Google Cloud,,On Ramp,Kansas City,United States,39.1008326,-94.5810044,
+Amazon Web Services,,On Ramp,Las Vegas,United States,36.06003540497314,-115.21018863776774,
+Amazon Web Services,,On Ramp,Las Vegas,United States,36.06003540497314,-115.21018863776774,
+Google Cloud,,On Ramp,Las Vegas,United States,36.06003540497314,-115.21018863776774,
+Microsoft Azure,,On Ramp,Las Vegas,United States,36.06003540497314,-115.21018863776774,
+Amazon Web Services,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Amazon Web Services,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Amazon Web Services,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Google Cloud,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Google Cloud,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Google Cloud,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Google Cloud,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Google Cloud,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+IBM Cloud,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Microsoft Azure,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Microsoft Azure,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Oracle Cloud,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Oracle Cloud,,On Ramp,Los Angeles,United States,33.926077,-118.394123,
+Amazon Web Services,,On Ramp,Miami,United States,25.78262624,-80.193069234,
+Google Cloud,,On Ramp,Miami,United States,25.78262624,-80.193069234,
+IBM Cloud,,On Ramp,Miami,United States,25.78262624,-80.193069234,
+Microsoft Azure,,On Ramp,Miami,United States,25.78262624,-80.193069234,
+Amazon Web Services,,On Ramp,Minneapolis,United States,44.9723813,-93.2556691,
+Google Cloud,,On Ramp,Minneapolis,United States,44.9723813,-93.2556691,
+Microsoft Azure,,On Ramp,Minneapolis,United States,44.9723813,-93.2556691,
+Microsoft Azure,,On Ramp,Minneapolis,United States,44.9723813,-93.2556691,
+Microsoft Azure,,On Ramp,Moses Lake,United States,47.254022,-119.820537,
+Amazon Web Services,,On Ramp,New York,United States,40.736763,-74.173364,
+Amazon Web Services,,On Ramp,New York,United States,40.736763,-74.173364,
+Amazon Web Services,,On Ramp,New York,United States,40.736763,-74.173364,
+Google Cloud,,On Ramp,New York,United States,40.736763,-74.173364,
+Google Cloud,,On Ramp,New York,United States,40.736763,-74.173364,
+Google Cloud,,On Ramp,New York,United States,40.736763,-74.173364,
+Google Cloud,,On Ramp,New York,United States,40.736763,-74.173364,
+IBM Cloud,,On Ramp,New York,United States,40.736763,-74.173364,
+IBM Cloud,,On Ramp,New York,United States,40.736763,-74.173364,
+Microsoft Azure,,On Ramp,New York,United States,40.736763,-74.173364,
+Google Cloud,,On Ramp,Omaha,United States,41.257446,-95.940331,
+Amazon Web Services,,On Ramp,Philadelphia,United States,39.959793,-75.161931,
+Google Cloud,,On Ramp,Philadelphia,United States,39.959793,-75.161931,
+Amazon Web Services,,On Ramp,Phoenix,United States,33.415954,-112.009214,
+Amazon Web Services,,On Ramp,Phoenix,United States,33.415954,-112.009214,
+Google Cloud,,On Ramp,Phoenix,United States,33.415954,-112.009214,
+Google Cloud,,On Ramp,Phoenix,United States,33.415954,-112.009214,
+Microsoft Azure,,On Ramp,Phoenix,United States,33.415954,-112.009214,
+Microsoft Azure,,On Ramp,Phoenix,United States,33.415954,-112.009214,
+Microsoft Azure,,On Ramp,Phoenix,United States,33.415954,-112.009214,
+Oracle Cloud,,On Ramp,Phoenix,United States,33.415954,-112.009214,
+Oracle Cloud,,On Ramp,Phoenix,United States,33.415954,-112.009214,
+Amazon Web Services,,On Ramp,Portland,United States,45.5211838,-122.6807626,
+Amazon Web Services,,On Ramp,Portland,United States,45.5211838,-122.6807626,
+Google Cloud,,On Ramp,Portland,United States,45.5211838,-122.6807626,
+Microsoft Azure,,On Ramp,Portland,United States,45.5211838,-122.6807626,
+Google Cloud,,On Ramp,Salt Lake City,United States,40.586198,-111.969729,
+Google Cloud,,On Ramp,Salt Lake City,United States,40.586198,-111.969729,
+Google Cloud,,On Ramp,San Antonio,United States,29.466508,-98.688287,
+Microsoft Azure,,On Ramp,San Antonio,United States,29.466508,-98.688287,
+Alibaba Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Alibaba Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Amazon Web Services,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Amazon Web Services,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Amazon Web Services,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Google Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Google Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Google Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Google Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+IBM Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+IBM Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+IBM Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Microsoft Azure,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Microsoft Azure,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Microsoft Azure,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Oracle Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Tencent Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Tencent Cloud,,On Ramp,San Francisco,United States,37.376468,-121.970447,
+Amazon Web Services,,On Ramp,Seattle,United States,47.6143473,-122.338515,
+Amazon Web Services,,On Ramp,Seattle,United States,47.6143473,-122.338515,
+Amazon Web Services,,On Ramp,Seattle,United States,47.6143473,-122.338515,
+Google Cloud,,On Ramp,Seattle,United States,47.6143473,-122.338515,
+Google Cloud,,On Ramp,Seattle,United States,47.6143473,-122.338515,
+IBM Cloud,,On Ramp,Seattle,United States,47.6143473,-122.338515,
+Microsoft Azure,,On Ramp,Seattle,United States,47.6143473,-122.338515,
+Alibaba Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Alibaba Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Alibaba Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Alibaba Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Amazon Web Services,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Amazon Web Services,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Amazon Web Services,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Amazon Web Services,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Amazon Web Services,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Google Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Google Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Google Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Google Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Google Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Google Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Google Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Google Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Google Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Google Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+IBM Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+IBM Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+IBM Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+IBM Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+IBM Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Microsoft Azure,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Microsoft Azure,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Microsoft Azure,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Oracle Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Oracle Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Tencent Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Tencent Cloud,,On Ramp,Washington,United States,38.95054655734388,-77.36459024433911,
+Alibaba Cloud,,On Ramp,Ho Chi Minh City,Vietnam,10.8572396,106.7861407,

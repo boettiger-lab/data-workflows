@@ -1,0 +1,430 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdpa-workflow
+  labels:
+    k8s-app: wdpa-workflow
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wdpa-workflow
+    spec:
+      serviceAccountName: workflow-runner
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+        - name: workflow-coordinator
+          image: bitnami/kubectl:latest
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              
+              echo "======================================"
+              echo "WDPA Data Processing Workflow"
+              echo "======================================"
+              echo ""
+              
+              # Function to wait for a job to complete
+              wait_for_job() {
+                local job_name=$1
+                local timeout=${2:-3600}
+                local elapsed=0
+                local interval=30
+                
+                echo "Waiting for job $job_name to complete..."
+                
+                while [ $elapsed -lt $timeout ]; do
+                  status=$(kubectl get job "$job_name" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || echo "")
+                  failed=$(kubectl get job "$job_name" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || echo "")
+                  
+                  if [ "$status" = "True" ]; then
+                    echo "✓ Job $job_name completed successfully"
+                    return 0
+                  elif [ "$failed" = "True" ]; then
+                    echo "✗ Job $job_name failed"
+                    kubectl logs "job/$job_name" -n "$NAMESPACE" --tail=50 || true
+                    return 1
+                  fi
+                  
+                  sleep $interval
+                  elapsed=$((elapsed + interval))
+                  echo "  Still waiting for $job_name... (${elapsed}s elapsed)"
+                done
+                
+                echo "✗ Timeout waiting for job $job_name"
+                return 1
+              }
+              
+              # Delete job if exists
+              delete_job_if_exists() {
+                local job_name=$1
+                if kubectl get job "$job_name" -n "$NAMESPACE" &>/dev/null; then
+                  echo "Deleting existing job $job_name..."
+                  kubectl delete job "$job_name" -n "$NAMESPACE" --wait=false
+                  sleep 5
+                fi
+              }
+              
+              # Step 1 & 2: Run parquet and pmtiles in parallel (both read from GDB)
+              echo "=== Step 1 & 2: Generate Parquet and PMTiles (parallel) ==="
+              
+              delete_job_if_exists "wdpa-convert"
+              delete_job_if_exists "wdpa-pmtiles"
+              
+              # Submit both jobs
+              cat <<EOF | kubectl apply -n "$NAMESPACE" -f -
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: wdpa-convert
+                labels:
+                  k8s-app: wdpa-convert
+                  workflow: wdpa-workflow
+              spec:
+                completions: 1
+                parallelism: 1
+                backoffLimit: 3
+                ttlSecondsAfterFinished: 10800
+                template:
+                  metadata:
+                    labels:
+                      k8s-app: wdpa-convert
+                  spec:
+                    priorityClassName: opportunistic
+                    restartPolicy: Never
+                    initContainers:
+                      - name: git-clone
+                        image: alpine/git:2.45.2
+                        command: [sh, -lc, 'git clone --depth 1 "https://github.com/boettiger-lab/datasets.git" /workspace/datasets']
+                        volumeMounts:
+                          - name: repo
+                            mountPath: /workspace
+                    containers:
+                      - name: convert-task
+                        image: ghcr.io/rocker-org/ml-spatial
+                        imagePullPolicy: Always
+                        workingDir: /workspace/datasets
+                        command: [bash, -lc, 'bash wdpa/convert_gdb_to_parquet.sh']
+                        env:
+                          - name: AWS_ACCESS_KEY_ID
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws
+                                key: AWS_ACCESS_KEY_ID
+                          - name: AWS_SECRET_ACCESS_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws
+                                key: AWS_SECRET_ACCESS_KEY
+                          - name: AWS_S3_ENDPOINT
+                            value: "rook-ceph-rgw-nautiluss3.rook"
+                          - name: AWS_PUBLIC_ENDPOINT
+                            value: "s3-west.nrp-nautilus.io"
+                          - name: AWS_HTTPS
+                            value: "false"
+                          - name: AWS_VIRTUAL_HOSTING
+                            value: "FALSE"
+                          - name: GDAL_DATA
+                            value: "/opt/conda/share/gdal"
+                          - name: PROJ_LIB
+                            value: "/opt/conda/share/proj"
+                        resources:
+                          requests:
+                            cpu: "4"
+                            memory: 64Gi
+                          limits:
+                            cpu: "4"
+                            memory: 64Gi
+                        volumeMounts:
+                          - name: repo
+                            mountPath: /workspace
+                    volumes:
+                      - name: repo
+                        emptyDir: {}
+              EOF
+              
+              cat <<EOF | kubectl apply -n "$NAMESPACE" -f -
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: wdpa-pmtiles
+                labels:
+                  k8s-app: wdpa-pmtiles
+                  workflow: wdpa-workflow
+              spec:
+                completions: 1
+                parallelism: 1
+                backoffLimit: 3
+                ttlSecondsAfterFinished: 10800
+                template:
+                  metadata:
+                    labels:
+                      k8s-app: wdpa-pmtiles
+                  spec:
+                    priorityClassName: opportunistic
+                    restartPolicy: Never
+                    initContainers:
+                      - name: git-clone
+                        image: alpine/git:2.45.2
+                        command: [sh, -lc, 'git clone --depth 1 "https://github.com/boettiger-lab/datasets.git" /workspace/datasets']
+                        volumeMounts:
+                          - name: repo
+                            mountPath: /workspace
+                    containers:
+                      - name: pmtiles-task
+                        image: ghcr.io/rocker-org/ml-spatial
+                        imagePullPolicy: Always
+                        workingDir: /workspace/datasets
+                        command: [bash, -lc, 'bash wdpa/create_pmtiles.sh']
+                        env:
+                          - name: AWS_ACCESS_KEY_ID
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws
+                                key: AWS_ACCESS_KEY_ID
+                          - name: AWS_SECRET_ACCESS_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws
+                                key: AWS_SECRET_ACCESS_KEY
+                          - name: AWS_S3_ENDPOINT
+                            value: "rook-ceph-rgw-nautiluss3.rook"
+                          - name: AWS_PUBLIC_ENDPOINT
+                            value: "s3-west.nrp-nautilus.io"
+                          - name: AWS_HTTPS
+                            value: "false"
+                          - name: AWS_VIRTUAL_HOSTING
+                            value: "FALSE"
+                          - name: GDAL_DATA
+                            value: "/opt/conda/share/gdal"
+                          - name: PROJ_LIB
+                            value: "/opt/conda/share/proj"
+                          - name: TMPDIR
+                            value: "/tmp"
+                        resources:
+                          requests:
+                            cpu: "4"
+                            memory: 64Gi
+                          limits:
+                            cpu: "4"
+                            memory: 64Gi
+                        volumeMounts:
+                          - name: repo
+                            mountPath: /workspace
+                    volumes:
+                      - name: repo
+                        emptyDir: {}
+              EOF
+              
+              sleep 10
+              
+              # Wait for both jobs (parquet is required, pmtiles is optional)
+              wait_for_job "wdpa-convert" 7200 || {
+                echo "✗ Parquet generation failed, aborting workflow"
+                exit 1
+              }
+              
+              wait_for_job "wdpa-pmtiles" 7200 || {
+                echo "⚠ PMTiles generation failed, but continuing with hex processing"
+              }
+              
+              # Step 3: Generate H3 hexes (requires parquet)
+              echo ""
+              echo "=== Step 3: Generate H3 Hexes ==="
+              
+              delete_job_if_exists "wdpa-hex"
+              
+              kubectl apply -f - <<EOF
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: wdpa-hex
+                labels:
+                  k8s-app: wdpa-hex
+                  workflow: wdpa-workflow
+              spec:
+                completions: 50
+                parallelism: 10
+                completionMode: Indexed
+                backoffLimit: 3
+                ttlSecondsAfterFinished: 10800
+                template:
+                  metadata:
+                    labels:
+                      k8s-app: wdpa-hex
+                  spec:
+                    priorityClassName: opportunistic
+                    restartPolicy: Never
+                    initContainers:
+                      - name: git-clone
+                        image: alpine/git:2.45.2
+                        command: [sh, -lc, 'git clone --depth 1 "https://github.com/boettiger-lab/datasets.git" /workspace/datasets']
+                        volumeMounts:
+                          - name: repo
+                            mountPath: /workspace
+                    containers:
+                      - name: hex-task
+                        image: ghcr.io/rocker-org/ml-spatial
+                        imagePullPolicy: Always
+                        workingDir: /workspace/datasets
+                        env:
+                          - name: AWS_ACCESS_KEY_ID
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws
+                                key: AWS_ACCESS_KEY_ID
+                          - name: AWS_SECRET_ACCESS_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws
+                                key: AWS_SECRET_ACCESS_KEY
+                          - name: AWS_S3_ENDPOINT
+                            value: "rook-ceph-rgw-nautiluss3.rook"
+                          - name: AWS_PUBLIC_ENDPOINT
+                            value: "s3-west.nrp-nautilus.io"
+                          - name: AWS_HTTPS
+                            value: "false"
+                          - name: AWS_VIRTUAL_HOSTING
+                            value: "FALSE"
+                          - name: INDEX
+                            valueFrom:
+                              fieldRef:
+                                fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+                        command:
+                          - bash
+                          - -lc
+                          - |
+                            python -u wdpa/vec.py --i "\$INDEX" --zoom 8 --chunk-size 6000
+                        resources:
+                          requests:
+                            cpu: "2"
+                            memory: 16Gi
+                          limits:
+                            cpu: "2"
+                            memory: 16Gi
+                        volumeMounts:
+                          - name: repo
+                            mountPath: /workspace
+                    volumes:
+                      - name: repo
+                        emptyDir: {}
+              EOF
+              
+              sleep 10
+              
+              wait_for_job "wdpa-hex" 14400 || {
+                echo "✗ Hex generation failed, aborting workflow"
+                exit 1
+              }
+              
+              # Step 4: Repartition data (includes cleanup on success)
+              echo ""
+              echo "=== Step 4: Repartition Data ==="
+              
+              delete_job_if_exists "wdpa-repartition"
+              
+              kubectl apply -f - <<EOF
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: wdpa-repartition
+                labels:
+                  k8s-app: wdpa-repartition
+                  workflow: wdpa-workflow
+              spec:
+                completions: 1
+                parallelism: 1
+                backoffLimit: 3
+                ttlSecondsAfterFinished: 10800
+                template:
+                  metadata:
+                    labels:
+                      k8s-app: wdpa-repartition
+                  spec:
+                    priorityClassName: opportunistic
+                    restartPolicy: Never
+                    initContainers:
+                      - name: git-clone
+                        image: alpine/git:2.45.2
+                        command: [sh, -lc, 'git clone --depth 1 "https://github.com/boettiger-lab/datasets.git" /workspace/datasets']
+                        volumeMounts:
+                          - name: repo
+                            mountPath: /workspace
+                    containers:
+                      - name: repartition-task
+                        image: ghcr.io/rocker-org/ml-spatial
+                        imagePullPolicy: Always
+                        workingDir: /workspace/datasets
+                        command: [bash, -lc, 'python -u wdpa/repartition.py']
+                        env:
+                          - name: AWS_ACCESS_KEY_ID
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws
+                                key: AWS_ACCESS_KEY_ID
+                          - name: AWS_SECRET_ACCESS_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws
+                                key: AWS_SECRET_ACCESS_KEY
+                          - name: MINIO_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: nvme
+                                key: MINIO_KEY
+                          - name: MINIO_SECRET
+                            valueFrom:
+                              secretKeyRef:
+                                name: nvme
+                                key: MINIO_SECRET
+                          - name: MINIO_ENDPOINT
+                            valueFrom:
+                              secretKeyRef:
+                                name: nvme
+                                key: MINIO_ENDPOINT
+                          - name: AWS_S3_ENDPOINT
+                            value: "rook-ceph-rgw-nautiluss3.rook"
+                          - name: AWS_PUBLIC_ENDPOINT
+                            value: "s3-west.nrp-nautilus.io"
+                          - name: AWS_HTTPS
+                            value: "false"
+                          - name: AWS_VIRTUAL_HOSTING
+                            value: "FALSE"
+                        resources:
+                          requests:
+                            cpu: "4"
+                            memory: 64Gi
+                          limits:
+                            cpu: "4"
+                            memory: 64Gi
+                        volumeMounts:
+                          - name: repo
+                            mountPath: /workspace
+                    volumes:
+                      - name: repo
+                        emptyDir: {}
+              EOF
+              
+              sleep 10
+              
+              wait_for_job "wdpa-repartition" 3600 || {
+                echo "✗ Repartitioning failed"
+                exit 1
+              }
+              
+              echo ""
+              echo "======================================"
+              echo "✓ Workflow completed successfully!"
+              echo "======================================"

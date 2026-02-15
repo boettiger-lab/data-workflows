@@ -1,0 +1,102 @@
+# Wetlands Processing Job Configuration
+
+# Kubernetes settings
+namespace: biodiversity
+job_name_prefix: wetlands
+total_indices: 18587
+
+# Container configuration
+container_image: ghcr.io/rocker-org/ml-spatial
+image_pull_policy: Always
+working_directory: /workspace/datasets
+
+# Resource tiers (memory will be doubled on each retry)
+resource_tiers:
+  - memory: "10Gi"
+    cpu: "1"
+  - memory: "20Gi"
+    cpu: "1"
+  - memory: "40Gi"
+    cpu: "2"
+  - memory: "80Gi"
+    cpu: "2"
+  - memory: "160Gi"
+    cpu: "4"
+  - memory: "320Gi"
+    cpu: "1"
+
+# Job execution settings
+parallelism: 50  # Max concurrent pods
+max_retries_per_tier: 2  # Retries for transient failures before moving to next tier
+ttl_seconds_after_finished: 28800  # Keep completed jobs for 8 hours
+
+# Priority and scheduling
+priority_class: opportunistic
+avoid_gpu_nodes: true
+
+# Init container for git clone
+init_container:
+  enabled: true
+  image: alpine/git:2.45.2
+  repo_url: https://github.com/boettiger-lab/datasets.git
+  clone_depth: 1
+
+# Main container command
+# For retry tiers, INDEX_MAPPING contains the list of failed indices to retry
+# For Tier 0, INDEX_MAPPING is not set, so we use JOB_COMPLETION_INDEX directly
+command:
+  - bash
+  - -c
+  - |
+    set -euo pipefail
+    
+    # Determine which index to process
+    if [ -n "${INDEX_MAPPING:-}" ]; then
+      # Retry tier: map completion index to failed index
+      INDEX=$(python3 -c "import json, os; print(json.loads(os.environ['INDEX_MAPPING'])[int(os.environ['JOB_COMPLETION_INDEX'])])")
+    else
+      # Initial tier: use completion index directly
+      INDEX=$JOB_COMPLETION_INDEX
+    fi
+    
+    echo "Processing wetlands index $INDEX at tier $MEMORY_TIER"
+    
+    # Install dependencies
+    pip install -q git+https://github.com/boettiger-lab/cng-python
+    
+    # Process the wetlands data
+    python -u wetlands/nwi.py \
+      --i "$INDEX" \
+      --zoom 8 \
+      --input-url 's3://us-west-2.opendata.source.coop/giswqs/nwi/wetlands/**' \
+      --output-url 's3://public-wetlands/nwi/chunks'
+
+# Environment variables
+environment:
+  - name: AWS_ACCESS_KEY_ID
+    value_from:
+      secret:
+        name: aws
+        key: AWS_ACCESS_KEY_ID
+  - name: AWS_SECRET_ACCESS_KEY
+    value_from:
+      secret:
+        name: aws
+        key: AWS_SECRET_ACCESS_KEY
+  - name: AWS_S3_ENDPOINT
+    value: rook-ceph-rgw-nautiluss3.rook
+  - name: AWS_PUBLIC_ENDPOINT
+    value: s3-west.nrp-nautilus.io
+  - name: AWS_HTTPS
+    value: "false"
+  - name: AWS_VIRTUAL_HOSTING
+    value: "FALSE"
+  - name: GDAL_DATA
+    value: /opt/conda/share/gdal
+  - name: PROJ_LIB
+    value: /opt/conda/share/proj
+
+# Volumes
+volumes:
+  - name: repo
+    type: emptyDir

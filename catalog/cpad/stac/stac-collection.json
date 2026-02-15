@@ -1,0 +1,453 @@
+{
+    "stac_version": "1.0.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "type": "Collection",
+    "id": "cpad-2025b",
+    "title": "California Protected Areas Database (CPAD) & Conservation Easement Database (CCED) 2025b",
+    "description": "Comprehensive spatial data on California's protected lands and conservation easements. CPAD inventories over 50 million acres across 16,000+ parks and protected areas owned by 1,200+ public agencies and nonprofits. CCED inventories 3+ million acres across 3,800+ conservation easements held by 180+ agencies and nonprofits. Available in cloud-optimized formats: GeoParquet, PMTiles, and H3 hexagonal tilings (resolution 10, partitioned by h0). CPAD provides three geographic levels: HOLDINGS (individual parcels), UNITS (aggregations within counties), and SUPER UNITS (dissolved across county boundaries). All data includes GAP conservation status codes (1-4) based on USGS GAP Analysis Program. CCED lands are predominantly closed to public access as conservation easements are on primarily private lands with legal restrictions on development. Access levels include: Open Access (public use), Restricted (permits/limited hours), and No Public Access. Best used at scales above 1:24,000.",
+    "license": "proprietary",
+    "keywords": [
+        "California",
+        "protected areas",
+        "conservation easements",
+        "parks",
+        "biodiversity",
+        "GAP status",
+        "land conservation",
+        "open space"
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -124.5,
+                    32.5,
+                    -114.0,
+                    42.0
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2025-01-01T00:00:00Z",
+                    "2025-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "license",
+            "href": "https://www.calands.org/cpad/",
+            "title": "CPAD/CCED Data License - GreenInfo Network"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/README.md",
+            "type": "text/markdown",
+            "title": "Data Documentation with Field Descriptions"
+        },
+        {
+            "rel": "about",
+            "href": "https://www.calands.org",
+            "title": "CALands.org - Official Documentation and Manuals"
+        }
+    ],
+    "providers": [
+        {
+            "name": "GreenInfo Network",
+            "description": "Develops CPAD and CCED databases with support from California Natural Resources Agency, California Strategic Growth Council, USGS Gap Analysis Program, and Department of Water Resources",
+            "roles": [
+                "producer"
+            ],
+            "url": "https://www.calands.org/"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "summaries": {
+        "formats": [
+            "parquet",
+            "pmtiles",
+            "h3-parquet"
+        ],
+        "geographic_levels": [
+            "Holdings (parcel-level)",
+            "Units (county aggregations)",
+            "Super Units (cross-county)"
+        ],
+        "access_types": [
+            "Open Access",
+            "Restricted",
+            "No Public Access"
+        ],
+        "agency_levels": [
+            "City",
+            "County",
+            "Special District",
+            "Joint",
+            "State",
+            "Federal",
+            "Non Profit",
+            "Private"
+        ],
+        "gap_status_codes": [
+            "GAP 1: Managed for biodiversity, disturbance events proceed",
+            "GAP 2: Managed for biodiversity, disturbance suppressed",
+            "GAP 3: Multiple uses including extraction or OHV",
+            "GAP 4: No known mandate for protection"
+        ]
+    },
+    "table:columns": [
+        {
+            "name": "HOLDING_ID",
+            "type": "string",
+            "description": "Unique identifier for each parcel (CPAD Holdings only)"
+        },
+        {
+            "name": "UNIT_ID",
+            "type": "string",
+            "description": "ID linking holding to parent unit"
+        },
+        {
+            "name": "SUID_NMA",
+            "type": "string",
+            "description": "Super unit ID for cross-county aggregation"
+        },
+        {
+            "name": "UNIT_NAME",
+            "type": "string",
+            "description": "Name of the park or protected area unit"
+        },
+        {
+            "name": "PARK_NAME",
+            "type": "string",
+            "description": "Name of the park (Super Units only)"
+        },
+        {
+            "name": "AGNCY_NAME",
+            "type": "string",
+            "description": "Full name of the owning agency"
+        },
+        {
+            "name": "AGNCY_LEV",
+            "type": "string",
+            "description": "Jurisdiction level: City, County, Special District, Joint, State, Federal, Non Profit, Private"
+        },
+        {
+            "name": "AGNCY_TYP",
+            "type": "string",
+            "description": "Detailed agency type (e.g., State Agency, Non Profit - Land Trust, Recreation/Parks District)"
+        },
+        {
+            "name": "MNG_AGNCY",
+            "type": "string",
+            "description": "Managing agency if different from owner"
+        },
+        {
+            "name": "MNG_AGENCY",
+            "type": "string",
+            "description": "Managing agency name (Super Units)"
+        },
+        {
+            "name": "MNG_AG_LEV",
+            "type": "string",
+            "description": "Managing agency jurisdiction level (Super Units)"
+        },
+        {
+            "name": "MNG_AG_TYP",
+            "type": "string",
+            "description": "Detailed managing agency type (Super Units)"
+        },
+        {
+            "name": "ACCESS_TYP",
+            "type": "string",
+            "description": "Public access level: Open Access, Restricted, No Public Access"
+        },
+        {
+            "name": "LAND_WATER",
+            "type": "string",
+            "description": "Whether holding is land or water (Holdings only)"
+        },
+        {
+            "name": "COUNTY",
+            "type": "string",
+            "description": "County containing the holding"
+        },
+        {
+            "name": "CITY",
+            "type": "string",
+            "description": "City containing the holding (if applicable)"
+        },
+        {
+            "name": "ACRES",
+            "type": "float64",
+            "description": "Acreage calculated by GIS"
+        },
+        {
+            "name": "SPEC_USE",
+            "type": "string",
+            "description": "Special uses: Cemetery, Golf Course, School JUA, Trail Corridor, Wildlife Sanctuary, etc. (Holdings only)"
+        },
+        {
+            "name": "YR_PROTECT",
+            "type": "int32",
+            "description": "Year parcel was acquired (Holdings only)"
+        },
+        {
+            "name": "YR_EST",
+            "type": "int32",
+            "description": "Year the park/unit was established"
+        },
+        {
+            "name": "GAP1_acres",
+            "type": "float64",
+            "description": "Acres managed for biodiversity where disturbance events proceed or are mimicked"
+        },
+        {
+            "name": "GAP2_acres",
+            "type": "float64",
+            "description": "Acres managed for biodiversity where disturbance events are suppressed"
+        },
+        {
+            "name": "GAP3_acres",
+            "type": "float64",
+            "description": "Acres managed for multiple uses including extraction (mining, logging) or OHV use"
+        },
+        {
+            "name": "GAP4_acres",
+            "type": "float64",
+            "description": "Acres with no known mandate for protection"
+        },
+        {
+            "name": "GAP_tot_ac",
+            "type": "float64",
+            "description": "Sum of all GAP acres"
+        },
+        {
+            "name": "GAP_Source",
+            "type": "string",
+            "description": "Source of GAP data: USGS PAD-US, CDPR, or managing agency"
+        },
+        {
+            "name": "e_hold_id",
+            "type": "string",
+            "description": "Unique easement record ID (CCED only)"
+        },
+        {
+            "name": "sitename",
+            "type": "string",
+            "description": "Site name as reported by agency (CCED only)"
+        },
+        {
+            "name": "ease_label",
+            "type": "string",
+            "description": "Generic label 'Conservation Easement' for mapping (CCED only)"
+        },
+        {
+            "name": "esmthldr",
+            "type": "string",
+            "description": "Primary easement holder agency name (CCED only)"
+        },
+        {
+            "name": "eholdtyp",
+            "type": "string",
+            "description": "Holder type: federal, state, local, NGO, other (CCED only)"
+        },
+        {
+            "name": "s_emthd1",
+            "type": "string",
+            "description": "Any additional easement holders (CCED only)"
+        },
+        {
+            "name": "e_type",
+            "type": "string",
+            "description": "Main purpose of easement (CCED only, under development)"
+        },
+        {
+            "name": "pubaccess",
+            "type": "string",
+            "description": "Access status: closed, restricted, or open - almost all are closed (CCED only)"
+        },
+        {
+            "name": "duration",
+            "type": "string",
+            "description": "Permanent or term-limited if 10+ years (CCED only)"
+        },
+        {
+            "name": "term",
+            "type": "int32",
+            "description": "Numeric term length if applicable (CCED only)"
+        },
+        {
+            "name": "date_est",
+            "type": "string",
+            "description": "Full date established MM/DD/YYYY (CCED only)"
+        },
+        {
+            "name": "year_est",
+            "type": "int32",
+            "description": "Year established YYYY (CCED only)"
+        },
+        {
+            "name": "gis_acres",
+            "type": "float64",
+            "description": "Acres calculated by GIS (CCED only)"
+        },
+        {
+            "name": "TOT_GAP_AC",
+            "type": "float64",
+            "description": "Sum of GAP acres (CCED only)"
+        },
+        {
+            "name": "iucncat",
+            "type": "string",
+            "description": "IUCN management category: Ia, Ib, II, III, IV, V, VI, N/A (CCED only)"
+        },
+        {
+            "name": "h10",
+            "type": "uint64",
+            "description": "H3 hexagon cell ID at resolution 10 (~15,000 m² per hex)"
+        },
+        {
+            "name": "h9",
+            "type": "uint64",
+            "description": "Parent H3 hexagon at resolution 9"
+        },
+        {
+            "name": "h8",
+            "type": "uint64",
+            "description": "Parent H3 hexagon at resolution 8"
+        },
+        {
+            "name": "h0",
+            "type": "uint64",
+            "description": "H3 resolution 0 cell ID (partition key for efficient spatial queries)"
+        }
+    ],
+    "assets": {
+        "cpad-holdings-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/cpad-2025b-holdings.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "CPAD Holdings (Parcel-level) - GeoParquet",
+            "description": "Individual parcels of protected land - most detailed level for analysis. Includes all core fields, GAP status, agency info, and access levels.",
+            "roles": [
+                "data"
+            ],
+            "file:size": 72379786
+        },
+        "cpad-holdings-pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/cpad-2025b-holdings.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "CPAD Holdings - PMTiles",
+            "description": "Vector tiles for web mapping with progressive loading.",
+            "roles": [
+                "data"
+            ],
+            "pmtiles:layer": "cpad-2025b-holdings",
+            "file:size": 169942580
+        },
+        "cpad-holdings-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/cpad-2025b-holdings/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "CPAD Holdings - H3 Hexagonal Tiling (Resolution 10)",
+            "description": "Hierarchical hexagonal grid partitioned by H3 resolution 0 (h0) cell. Includes parent resolutions h0, h8, h9 for aggregation. Path: h0={cell}/data_0.parquet",
+            "roles": [
+                "data"
+            ]
+        },
+        "cpad-units-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/cpad-2025b-units.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "CPAD Units (Named holdings within counties) - GeoParquet",
+            "description": "Aggregations of holdings with common name, access level, and managing agency within each county. Fewer fields than holdings.",
+            "roles": [
+                "data"
+            ],
+            "file:size": 53162058
+        },
+        "cpad-units-pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/cpad-2025b-units.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "CPAD Units - PMTiles",
+            "description": "Vector tiles for web mapping.",
+            "roles": [
+                "data"
+            ],
+            "pmtiles:layer": "cpad-2025b-units",
+            "file:size": 85225336
+        },
+        "cpad-units-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/cpad-2025b-units/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "CPAD Units - H3 Hexagonal Tiling (Resolution 10)",
+            "description": "Partitioned by H3 level 0 cell (h0). Path: h0={cell}/data_0.parquet",
+            "roles": [
+                "data"
+            ]
+        },
+        "cced-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/cced-2025b.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "CCED Conservation Easements - GeoParquet",
+            "description": "Conservation easements on primarily private lands with legal restrictions on development. Predominantly closed to public access.",
+            "roles": [
+                "data"
+            ],
+            "file:size": 18535750
+        },
+        "cced-pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/cced-2025b.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "CCED - PMTiles",
+            "description": "Vector tiles for web mapping.",
+            "roles": [
+                "data"
+            ],
+            "pmtiles:layer": "cced-2025b",
+            "file:size": 26701097
+        },
+        "cced-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/cced-2025b/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "CCED - H3 Hexagonal Tiling (Resolution 10)",
+            "description": "Partitioned by H3 level 0 cell (h0). Path: h0={cell}/data_0.parquet",
+            "roles": [
+                "data"
+            ]
+        },
+        "readme": {
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/README.md",
+            "type": "text/markdown",
+            "title": "README - Full Data Documentation",
+            "description": "Comprehensive documentation including all field descriptions, example SQL queries, data quality notes, and usage guidelines.",
+            "roles": [
+                "metadata"
+            ]
+        }
+    }
+}

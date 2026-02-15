@@ -1,0 +1,783 @@
+​
+California Conservation Easement Database (CCED) ​
+Notice for Database Manual ​
+​
+
+Before You Use CCED Data:​
+​
+Your use of CCED data signifies that you will abide by the guidelines below
+and in the Disclaimer that follows.
+CCED contains GIS data for conservation easements over public and private property. While this data is
+from public records, your use of the data should make every effort to respect the privacy concerns and
+sensitivities of land owners and those agencies and organizations who work with them.
+1. Any maps of CCED data should show clearly that easement properties are closed to any public access,
+unless CCED has specific information to the contrary. Very few easements allow public access.
+2. Private land owner names are typically not included in CCED and should not be attached to CCED data
+shown on maps. When labeling easement properties, users should access the generic holding name
+field ease_label, use “Restricted lands”, or use an equivalent general title whenever feasible.
+3. Likewise, avoid showing on maps the individual agencies or organizations who hold easements, unless
+essential to your task. Instead, consider using the agency level field eholdtyp classifying the agency
+as: federal, state, local, or nonprofit, to indicate the type of easement holder.
+4. If specific easement boundaries are not needed for map display, use center point symbols or other
+forms of abstraction.
+5. CCED is provided as is, without any warranty of accuracy. CCED boundaries are as provided by various
+sources and not all lands have not been enhanced to align with parcels or other GIS data. Where
+CCED is missing data, please contact us at cpad@calands.org to let us know about these gaps.
+CCED is suitable for a wide range of planning, assessment, analysis, and display purposes. CCED should
+not be used as the basis for official regulatory, legal or other such governmental actions – these types of
+uses require official land records from county recorders or easement holding agencies in the area of
+focus.
+Thank you for your consideration and cooperation in using and improving CCED.​
+
+GreenInfo Network
+December 2025
+
+California Conservation Easement Database (CCED) - Version 2025b
+
+CCED DATABASE MANUAL
+Revised: December 2025
+CCED 2025b saw a net increase in conservation easement acreage by 71,000 acres from our previous 2025a
+release. A number of easements were parcelized to better improve data accuracy.
+
+BEFORE USING DATA, see Data Disclaimer inside and note that:
+●​ Easement lands are most frequently private property - maps must clearly show them with no
+public access
+●​ CCED is not suitable for property survey or other legally-binding functions – see source agency
+data or County Recorder records for such information
+●​ CCED data may not be the most current data for any specific agency or organization, as it is
+updated less frequently
+●​ Display on maps of easement holder agency/organization names and actual property names
+should be avoided whenever feasible, in favor of more generic titles
+
+For more information on CCED, go to: www.CALands.org/cced
+
+CCED is published by GreenInfo Network
+www.greeninfo.org
+
+2
+
+Acknowledgements​
+Disclaimer​
+Summary​
+Disclaimer Details​
+Uses​
+Data Sources​
+Limitation of Liability​
+Acknowledgement of Indigenous and Native Lands​
+Summary​
+CCED 2025b – Key Statistics​
+I. Introduction​
+II. Data Definitions​
+CCED Geography​
+Conservation Easement Status and Purposes​
+Easement Definition within a Parcel​
+Ownership vs. Management​
+No Public Access​
+Parcel Boundaries​
+III. Database Structure​
+IV. CCED Data Dictionary​
+V. CCED Data Procedures​
+VI. GAP Codes​
+VII. Known Issues In CCED​
+VII. CCED Releases and History​
+Current Release - CCED 2025b (December 2025)​
+Brief History of CCED​
+CCED Release History​
+
+​
+
+1
+2
+2
+2
+3
+3
+3
+4
+5
+6
+6
+8
+8
+8
+8
+8
+8
+9
+10
+11
+12
+13
+14
+16
+16
+16
+17
+
+​
+
+Acknowledgements
+GreenInfo Network staff who currently maintain CCED and created the data contained in it include:
+Amanda Kochanek, Dariya Draganova, Joseph Stout, Kristina Yamamoto, Andrew Nham
+For more information on CCED and CPAD (data on fee owned protected areas), visit www.CALands.org
+Current funding, from 2018 to 2025, is generously provided by the California Natural Resources Agency – we
+greatly appreciate this assistance.
+​
+
+1
+
+California Conservation Easement Database (CCED)
+
+Disclaimer
+Summary
+The California Conservation Easement Database (“CCED”) has been developed by GreenInfo Network for
+general use in land use planning, education or other activities that do not rely upon the data for a legally
+binding decision. While GreenInfo Network strives to provide the best data possible, GREENINFO
+NETWORK MAKES NO REPRESENTATION OR WARRANTY AS TO ITS ACCURACY, TIMELINESS, OR
+COMPLETENESS. GREENINFO NETWORK MAKES NO WARRANTY OF MERCHANTABILITY OR WARRANTY
+FOR FITNESS OF USE FOR A PARTICULAR PURPOSE, EXPRESSED OR IMPLIED, WITH RESPECT TO THESE
+PRODUCTS OR THE UNDERLYING DATA. Any user of this data, accepts same AS IS, WITH ALL FAULTS, and
+assumes all responsibility for the use thereof, and further covenants and agrees to defend, indemnify,
+and hold GreenInfo Network harmless from and against all damage, loss, or liability arising from any use
+of this product, in consideration of GreenInfo Network having made this information available.
+Independent verification of all data contained herein should be obtained by any user of these products,
+or the underlying data. GreenInfo Network disclaims, and shall not be held liable for, any and all damage,
+loss, or liability, whether direct, indirect, or consequential, which arises or may arise from these products
+or the use thereof by any person or entity.
+This edition of CCED should be cited in any maps, reports, websites or other products as: “California
+Conservation Easement Database (CCED) – www.CALands.org (December 2025b)”
+Disclaimer Details
+This digital data and metadata, (hereinafter collectively referred to as the "information"), are provided
+on an "AS IS", "AS AVAILABLE" and "WITH ALL FAULTS" basis. Neither GreenInfo Network nor any of its
+employees makes any warranty of any kind for this information, express or implied, including but not
+limited to any warranties of merchantability or fitness for a particular purpose, nor shall the distribution
+of this information constitute any warranty.
+GreenInfo Network shall in no event be liable to you or anyone else for any inaccuracy, error failures,
+delays or interruptions in the use of the database and shall in no event be liable to you or anyone else for
+any consequential, incidental, special or tort damages arising out of or relating to the use or inability to
+use the database. It is the sole responsibility of the user to determine whether or not the data is suitable
+for the intended purpose.
+The information is collected from various sources and will change over time without notice. GreenInfo
+Network and its officials and employees assume no responsibility or legal liability for the accuracy,
+completeness, reliability, timeliness, or usefulness of any of the information provided nor do they
+represent that the use of any of the information will not infringe privately owned rights.
+The information is not intended to constitute advice nor is it to be used as a substitute for specific advice
+from a licensed professional. You should not act (or refrain from acting) based upon the information
+without independently verifying the information and, as necessary, obtaining professional advice
+regarding your particular facts and circumstances.
+2
+
+Uses
+CCED is made available without charge for a wide range of uses, for example, use by government
+agencies in planning and operations, use by private consultants in the development of plans and
+analyses, use by non-profit organizations and educational institutions for strategy, research, planning,
+management and other functions. While agencies, organizations, individuals and businesses may
+distribute free of charge copies of the data, any such replication must include this disclaimer and require
+the user to review the provisions therein.
+CCED may be used on computer data networks, but should not be published for public website maps
+that allow users to view the data at a scale of 1:100,000 or larger.
+See the attached document, “Before You Use CCED Data” for further use guidelines.
+Data Sources
+Data in the CCED is based on a wide range of sources within the budgets available for the data’s
+development and maintenance. The source datasets have a range of publication dates, varying degrees
+of accuracy, various projections, and different attribute information. Over time, and as funding allows,
+some CCED boundaries will be aligned to ownership parcel boundaries, but that independent alignment
+work has not been conducted for this edition. GreenInfo Network has made every effort to standardize
+the multiple data inputs to create CCED, but occasional errors in this process are to be expected.
+GreenInfo Network does not provide the original datasets from primary data source providers.
+Limitation of Liability
+IN NO EVENT WILL GREENINFO NETWORK BE LIABLE TO YOU OR ANY THIRD PARTY FOR ANY DAMAGES
+ARISING OUT OF THE USE OF OR INABILITY TO USE THE DIGITAL DATA, EVEN IF GREENINFO NETWORK IS
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+December 2025
+
+3
+
+Acknowledgement of Indigenous and Native Lands
+
+The GIS data in CPAD and CCED are based on land ownership or legal easements that restrict how lands
+can be used. The ownership focus of the databases is intended to assist in the planning, management,
+and long-term care of lands owned by government agencies and nonprofits for open space purposes.
+The lands represented here are the traditional unceded territory of more than 100 nations. To learn
+more about a particular territory please visit the California Native Heritage Commission’s Digital Atlas.
+We recognize that the Western perspective of land ownership is limited and does not reflect an
+important range of cultural views, especially of many Indigenous peoples. Furthermore, land ownership
+as a structure has been used to promote empire and colonization.
+These data represent only one lens of how to view California’s landscape. CPAD and CCED are not
+intended to represent, replace, or negate different cultural views of lands such as spiritual ownership,
+stewardship, or caretaking.
+As we seek to respect the many diverse Indigenous people connected to this land from time
+immemorial, we welcome feedback on how to improve and address non-Western perspectives and how
+to respectfully represent them. Email us at cpad@calands.org.
+
+4
+
+Summary
+IMPORTANT: Easements are special types of protected areas, where the land can remain in private
+ownership. Consequently, anyone using California Conservation Easement Database (CCED) data shall
+follow these overall guidelines:
+1. Any maps of CCED data should show clearly that easement properties are closed to any public access,
+unless CCED has specific information to the contrary (very few easements allow public access).
+2. Private land owner names are typically not included in CCED and should not be attached to CCED data
+shown on maps. When labeling easement properties, users should access the generic holding name
+field ease_label or use “restricted lands” or equivalent general title whenever feasible.
+3. Likewise, showing on public maps the individual agencies or organizations who hold easements should
+be avoided whenever feasible. Instead, consider using the agency level field eholdtyp classifying the
+agency as: federal, state, local, or nonprofit, to indicate the type of easement holder.
+CCED contains data about lands that are under conservation or open space easement (as opposed to
+those in CPAD that are owned outright “in fee”). Easement lands are typically private property and are
+only rarely open to the public. Some easements overlay publicly-owned lands, with both a fee and
+easement status.
+CCED easement lands range from the very small parcels in cities to large rural or wild landscapes. Uses
+on these parcels may include farming, ranching, timber harvesting or open space (including use as
+floodways, scenic viewsheds or for the protection of biodiversity). Easement protected lands are
+sometimes parts of larger protected landscapes and sometimes they exist on their own. It is important
+to note that one privately owned property may have two or more easements held by agencies or
+nonprofits (“stacked” easements).
+This edition of CCED inventories over 3 million acres across roughly 3,800 easements, held by over 180
+agencies and nonprofits. CCED is published by GreenInfo Network (www.greeninfo.org). Access to CCED
+data files is available online - see www.CALands.org for more information. CCED is available in ESRI
+shape file format. Related data sets are available at www.CALands.org for fee-owned protected areas
+(CPAD).
+The current release is CCED 2025b, published in December 2025.
+NOTE: CCED is regularly submitted to the National Conservation Easement Database (NCED –
+conservationeasement.us) and is expected to become a part of their next release, though minor
+differences may be present.
+
+5
+
+CCED 2025b – Key Statistics
+December 2025
+
+IMPORTANT: The CCED dataset still contains some overlapping “stacked” polygons (see Section III.,
+Database Structure below). The stacked polygons represent lands under easements held by more than
+one agency, multiple funding sources, transaction dates, or other unique situations. We continue to
+resolve these duplicate polygons however some overlaps remain until we are able to verify further
+details about the easement. Additionally, some easements exist on land that is also in fee ownership,
+and will overlap wholly or partly with land identified in CPAD, the California Protected Areas Database.
+CCED statistics are provided statewide and for the top 10 easement holding agencies. Agency level
+statistics are calculated using the primary easement holding agency or organization. When multiple
+agencies hold an easement over the same land, the most local agency is assigned as the primary
+easement holder.
+●​ Total acres statewide in California = 3,058,3931
+●​ Number of easement polygons = 21,717
+●​ Estimated number of easement properties = 3,8132
+1
+
+Acres are estimated given data constraints. Silver and minor overlaps are estimated to total 300 acres as of the 2025b release.
+Fluctuations in the number of easements since 2022a are a result of an incremental shift from single easement records to
+multi-parcel easement records. This statistic should be used with caution.
+2
+
+Top 10 easement holding organizations
+AGENCY/ORGANIZATION
+
+California Rangeland Trust
+The Nature Conservancy
+California Department of Fish and Wildlife
+United States Natural Resources Conservation Service
+United States Fish and Wildlife Service
+Sonoma County Agricultural Preservation and Open Space District
+California Department of Forestry and Fire
+Pacific Forest Trust
+Tejon Ranch Conservancy
+Wildlife Heritage Foundation
+
+ACRES
+
+428,899
+380,341
+193,784
+133,125
+129,413
+123,421
+117,281
+114,802
+109,014
+66,192
+
+6
+
+I. Introduction
+The California Conservation Easement Database (CCED) inventories lands that have been protected
+through conservation or open space easements. A separate database (CPAD – the California Protected
+Areas Database) tracks open lands owned outright (“in fee”).
+Conservation easements are legal restrictions created by a contract between a land owner and a
+qualified agency or organization that are usually based on limiting the future uses of a property to those
+compatible with open space, conservation, farming or other defined uses. Such easements reduce or
+remove development opportunities on these lands. All easements in California are officially filed with
+the relevant County Recorder’s office (not necessarily the Assessor’s office) and are public records data.
+Some easements are acquired with public funding; others are created by landowner donations, and
+many by a combination of the two. Where public funding is involved, public records describing and
+mapping the property and presenting its appraisal are created.
+CCED is focused on lands conserved for natural or other open space purposes and does not include all
+easements. For example, it does not include utility easements or easements created for short terms.
+Williamson Act and Farmland Security Zones are not included unless they have additional protections on
+the land.
+CCED is suitable for a wide range of planning, assessment, analysis, and display purposes. CCED should
+not be used as the basis for official regulatory, legal or other such governmental actions – these types of
+uses require official land records from county recorders or easement holding agencies in the area of
+focus.
+The lands in CCED are typically defined by the agency or organization who manages the site, and
+information on the private land owner is only reported if readily available in public records and/or
+reported to CCED. Some easement holders do indicate owner name in property titles (e.g., “Jones Ranch
+easement”) and this source information is transferred into CCED.
+Access to CCED GIS data is through a download link, see more information at CALands.org/cced. CCED is
+available in ESRI shape file format.
+CCED has been developed by GreenInfo Network, a non-profit technology support organization
+www.greeninfo.org, with support from other non-profits, foundations and public agencies. Previous
+supporters of CPAD and CCED have included: California Department of Parks and Recreation, Sierra
+Nevada Conservancy, and the Coastal Conservancy. From 2012 to 2014, CCED development was
+supported by a grant from the California Strategic Growth Council through the U.S. Geological Survey’s
+Gap Analysis Program (GAP). Current funding, from 2018 to 2025, is generously provided by the
+California Natural Resources Agency – we greatly appreciate this assistance.
+NOTE ABOUT EASEMENTS ACROSS THE US: A national inventory (the National Conservation Easement
+Database, or NCED) is available to track easements.
+
+7
+
+II. Data Definitions
+CCED Geography
+CCED covers the entire state of California. Easement boundaries are most frequently identified by the
+managing agency. Given their unique status, these boundaries may not align precisely to digital assessor
+parcel boundaries. Future releases will explore options for improving alignment (see “VI. Known Issues in
+CCED” below for further discussion).
+Conservation Easement Status and Purposes
+Lands in CCED have been identified as those with legal conservation or open space easements, typically
+serving one or more of the following open space purposes:
+●​
+●​
+●​
+●​
+●​
+●​
+●​
+●​
+●​
+
+Habitat Conservation - wildlife or plant reserve protected specifically for habitat
+General Open Space – open land used serving a broad range of purposes
+Historical/Cultural - historic sites
+Forestry - active forest harvesting, tree growth for forestry
+Agriculture - crop lands including irrigated pastures
+Ranching - grazing lands – grasslands, mixed forest, dry and grazing pasture
+Water Supply - watersheds, waterways
+Scenic area – viewscapes, etc.
+Flood Control – flood plains, natural flood control channels
+Easement Definition within a Parcel
+
+Conservation easements can be placed on part of a parcel, or the entire parcel. Existing buildings,
+hardscape areas, and ancillary structures may be present on the parcel. The data in this release has not
+been reviewed in great detail to include or exclude portions of parcels that may not be a part of an
+easement. Users should therefore exercise caution when using the data and should refer to county
+recorder property records and/or the easement holding agency/organization for most current and
+accurate information.
+Ownership vs. Management
+CCED tracks lands according to the agency that manages the easement over the property. Information on
+the owner of the land is not included, nor is it planned to be included in future releases.
+
+8
+
+No Public Access
+Almost all lands in CCED should be considered Closed and not open to the public. Any maps including
+easement lands must clearly and prominently indicate that these lands are Closed areas – and any
+map of recreational or other public access sites/opportunities must not include easement lands.
+Where easement properties are known to allow managed public use, these opportunities may be
+shown, but only where they are validated with the easement holder.
+
+Parcel Boundaries
+While CPAD has generally been aligned to assessor parcel boundaries, much of the data in CCED is not. In
+many cases easement boundaries from source agencies have been digitized independently of assessor
+parcel data – sometimes due to accuracy issues in the assessor data, sometimes because assessor data
+may not have been available when easement data was created. In addition, assessor parcels in rural
+areas are not always highly accurate spatially.
+Easements may also vary in their coverage of a parcel. Some easements cover an entire parcel; others
+only define a portion of the parcel as an easement. An assessment of the alignment of easement edges
+with CPAD lands shows it would require substantial work. Should funding be available, it will be
+addressed in future releases.
+
+9
+
+III. Database Structure
+
+The CCED easement database is a single shapefile containing polygons. The current CCED data set
+contains a mix of geographic levels. Some easements are defined by individual parcels (or pieces of
+parcels), while others are dissolved groupings of parcels. Future releases of CCED will explore the
+possible use of a holdings/units structure, as is implemented in CPAD, where parcels aggregate to
+commonly named units in order to provide consistent definitions of parcels and aggregated easements
+held by the same land owner and managing agency.
+It should be noted that the source data sets used to create CCED often identify easements in different
+manners. In particular, the overlap of easements when there are multiple easement holders and/or
+funding sources is not consistent. CCED makes incremental attempts to standardize the data from
+disparate sources, but additional work will be needed in future releases to standardize the data. For this
+reason, users should exercise caution when reporting acreage statistics that may contain stacked
+polygons.
+The 2019 release of CCED marked a significant improvement in resolving stacked easements. Records
+were reviewed to identify easements with similar geography and attributes. When an easement was
+verified to cover the same land, with only minor edge differences (less than an acre and/or less than 10%
+of the total easement area), stacked polygons were resolved.
+
+Stacked polygons were resolved by:
+●​ Selecting the most accurate polygon feature
+●​ Assigning the most local agency as the primary easement holder
+●​ Listing all other easement holders in the secondary easement holder field
+●​ Providing any necessary data notes in the comments field
+Scenarios we were not able to resolve were those that:
+●​ Easement attributes varied significantly (name, reported size, access)
+●​ Easement geometry varied significantly (shape or size)
+
+10
+
+IV. CCED Data Dictionary
+
+We strive to keep the core fields of CCED in alignment with NCED, allowing for the California data to
+efficiently transfer into the national data set. However, not all NCED fields are included in CCED.
+In the 2021a release, the data schema of CCED was refreshed to incorporate recent changes in the NCED
+database schema. The table below lists the fields released in CCED, the metadata details: field alias,
+domains, data type, length, and source.
+Field Name
+
+Description
+
+e_hold_id
+
+Unique ID for each easement database record
+
+ease_label
+
+Conservation Easement (text, for use in most mapping displays, rather than site name)
+
+sitename
+
+Site name, as reported by agency or source data
+
+esmthldr
+
+Primary easement holder (agency) name
+
+eholdtyp
+s_emthd1
+
+Easement holder level: federal, state, local, NGO, or other legal classification
+Any additional easement holders
+
+e_type
+
+Main purpose of the easement - this field is under development.
+
+pubaccess
+
+Identifies if an easement is: closed, restricted, or open
+
+duration
+
+Identifies whether the easement is permanent or term-limited (if 10+ years)
+
+term
+
+Numeric field noting the term of the easement
+
+comments
+
+Any comments from either the source, provider, or aggregator
+
+date_est
+
+Full date the easement was established (MM/DD/YYYY) or date of project approval.
+
+year_est
+
+Year easement was established (YYYY)
+
+county
+
+County holding is within (or mostly within)
+
+src_attr
+
+Source of the easement table attribute data
+
+src_align
+
+Source of the easement spatial geometry
+
+iucncat
+
+IUCN management category: Ia, Ib, II, III, IV, V, VI, N/A
+
+nced_uid
+
+NCED identifier (mostly unique)
+
+eholduid1
+
+Unique identifier by any other data providing agency
+
+last_edit
+
+Date of last edit MM-DD-YYYY
+
+cced_id
+
+CCED identifier (mostly unique) from pre 2021a releases. To be retired.
+
+gis_acres
+
+Easement acres, as calculated in GIS
+
+GAP1_acres
+
+Total acres with GAP code 1, extracted from PADUS, CDPR, and Local Agencies
+
+GAP2_acres
+
+Total acres with GAP code 2, extracted from PADUS, CDPR, and Local Agencies
+
+GAP3_acres
+
+Total acres with GAP code 3, extracted from PADUS, CDPR, and Local Agencies
+
+GAP4_acres
+
+Total acres with GAP code 4, extracted from PADUS, CDPR, and Local Agencies
+
+GAP_Source
+
+Source of GAP acres in the fields: GAP1_acres, GAP2_acres, GAP3_acres, GAP4_acres
+Sum of the fields: GAP1_acres, GAP2_acres, GAP3_acres, GAP4_acres
+
+TOT_GAP_AC
+
+NOTE: The sum of this field may not be an exact match with gis_acres,due to
+geoprocessing, differences between NCED and CCED, as well as rounding.
+
+The field gapcat was removed in 2023a to avoid confusion with more detailed GAP code data provided as
+a part of California’s 30x30 effort.
+
+11
+
+V. CCED Data Procedures
+
+CCED makes use of a wide range of data sources, including source agency databases, parcel data from
+counties, and other research. In general, the following approach has been taken:
+1.​ AGENCY SOURCE DATA: Source agency GIS data is secured for agencies, where it is available.
+With hundreds of agencies and organizations having holdings in CCED, contact with each of
+these is not possible However, the top 20 agencies/organizations are believed to hold over 90
+percent of the easements in CCED and many have GIS data. Additionally, some easements are
+defined by public data sets covering county or statewide inventories (eg, that of the Wildlife
+Conservation Board - WCB). Not all agencies have contributed data to CCED. When possible,
+additional research is done to define very large known easements through available public
+information sources.
+2.​ PARCELS AS GEOMETRIC BASE: CCED is evaluated in the context of assessor parcels and, to some
+extent, the Public Land Survey System (PLSS) but is not aligned to these base data layers. The
+information gathered will be used in future releases to guide a refined geometry of easements.
+Easements do not always cover entire parcels, as they may exclude existing structures and
+development.
+3.​ CROSS-CHECK WITH CPAD: CCED is spatially reviewed in context with CPAD to try and evaluate
+easement boundaries, future efforts will be required to resolve edge matching. Both gaps and
+silvers occur when using CCED in conjunction with CPAD and other GIS layers.
+4.​ RESOLVING CONFLICTS: Agency source data is generally considered to be authoritative in CCED.
+When an easement is defined in multiple contributing data sources, data contributed directly
+from the agency managing the easement is assumed to be authoritative over compiled data sets
+such as WCB. Given the unique scenario of easements, additional in-depth research is often
+required by data users to accurately define the easement boundaries.
+5.​ AERIAL IMAGE CHECKS: As possible, 1-meter or better aerial photography is used to verify the
+location of an easement. Future efforts may be taken to check boundaries against physical
+features such as fence lines, roads, waterways, and physical structures. However, parcel
+boundaries are accepted even if they do not perfectly align to such aerial images.
+6.​ COUNTY BREAKS: Easements that span a county boundary are not split. They are assigned to the
+county they have the most acreage in.
+7.​ SCALE: The scale of accuracy is highly varied across the state. In general, the data is best used at
+scales above 1:24,000.
+
+12
+
+VI. GAP Codes
+Starting with the 2021a release, we have included additional details about the GAP status of easements.
+GAP codes are a USGS-defined metric that reflects management intent (USGS 2020, Prior-McGee 1998).
+GAP codes are categorized on a scale from 1 to 4 where GAP 1 and 2 are areas primarily managed with
+the intent to protect biodiversity, GAP 3 are areas managed for multiple uses including conservation,
+recreation, and extraction and GAP 4 has no known mandate for biodiversity protection. Data for GAP
+codes in CCED is sourced from PADUS, CDPR and Local Agencies/Organizations
+Details about the geoprocessing are available through calands.org.1 It is important to understand that
+the acreages reported are estimates and for that reason have been rounded using the following
+methods:
+Any property less than 1 acre rounds the GAP acreage to two decimal places. Properties that are 1 acre
+or larger have their GAP acreage rounded down to the nearest whole numbers. This rounding helps
+reduce the reporting of slivers and helps reduce the perception of higher accuracy beyond what is
+significant.
+We estimate the error introduced as a result of this rounding, is less than 2% of the total CCED acres.
+PADUS
+With a geo-spatial intersection of CCED and PADUS we assume an easement can contain acreage under
+multiple GAP codes. The results of this process ultimately assign GAP codes to 26% of the acres
+inventoried in CCED.
+California State Parks
+The inclusion of GAP codes from California State Parks cover are minimal, with less than 1% of GAP codes
+being reported. This is due to most CDPR lands being held in fee title.
+Local Agency/Organization
+As of the 2025b release, approximately 84% of GAP codes reported in CCED have been sourced from the
+group holding the easement (and/or the managing agency). Codes assigned by these groups are more
+accurate and current.
+Completing the GAP Inventory
+While the majority of acres are assigned GAP codes by the local agency/organization, there are still a
+significant number of groups we aim to gather data from. California’s 30x30 effort has, and will continue
+to, offer opportunities to work with groups to define accurate GAP codes to lands they own and/or
+manage.
+
+1
+
+Additional information on geoprocessing steps can be found at:
+https://www.calands.org/wp-content/uploads/2022/12/Method-for-Including-Gap-Codes-in-CPAD-and-CCED.pdf
+13
+
+VII. Known Issues In CCED
+
+CCED is a developing data set and contains a number of unresolved issues.
+Main issues:
+1)​ Overlaps occur throughout the state and are predominantly slivers. Most often these are a result
+of disagreement between county boundaries on ownership. The total acreage of overlaps is not
+significant, but we do aim to resolve these over time. As of the 2024b release we now offer a
+report of overlaps at each release. The zip file contains a gdb itemizing overlaps at the holding
+level and a readme describing the various attributes. This can be downloaded at:
+https://bit.ly/overlap_analysis
+2)​ Not all agency/organization easement data is in CCED. CCED is heavily focused on easements
+that are already defined by the managing agency in GIS format. Many smaller easements are not
+included, as it is difficult to survey all possible easement holders across the state. Efforts are
+under way to encourage all easement-holding agencies/organizations to participate in CCED. In
+particular, many city and county easements are not yet included.
+3)​ Alignment of easements varies greatly - some match parcel boundaries, some use physical
+features of the landscape or manmade features, others are loosely defined. CCED currently
+accepts any agency/organization submitted boundary as the most accurate. Future release will
+attempt to improve the alignment and accuracy of easement boundaries.
+4)​ Slivers will exist when using CCED in coordination with other layers such as CPAD.
+5)​ Complete attributes are not always available for all easements; these are blank or specified as
+“Unknown” until further information is found.
+6)​ Easements have not been attributed as being on land or water.
+7)​ Agencies may track multiple easement holders on one property differently. Stacked polygons are
+used to indicate multiple easement holders with significant differences in the geometry and/or
+attributes. For this reason, CCED users must use caution when reporting any acreage or number
+easements statistics. CCED 2018 removed many duplicate easements in previous releases, and
+2019 and 2024 both made significant improvements in overlapping sliver areas, but not all
+easements have not been comprehensively resolved as of 2025.
+8)​ Efforts to include additional information on GAP codes have been made, using data from PADUS
+and NCED. However, at times, the reported acreage and overall GAP code of an easement will
+differ. Some easements have areas where the GAP code is unknown, and/or areas have been
+assigned multiple GAP codes.
+14
+
+VII. CCED Releases and History
+
+Current Release - CCED 2025b (December 2025)
+The 2025b release of CCED includes nearly 71,000 new acres, with improvements across various
+easements throughout the state. Many agencies have submitted new easements into CCED since our last
+release. Here are some highlights:
+The Nature Conservancy - Updated 39,790 Acres spread across 11 conservation easements.
+California Department of Forestry and Fire Protection - Added 13,611 Acres. 12,000 of those acres are
+part of their newly-conserved easement, Shackleford Forest.
+Wildlife Heritage Foundation - Updated 10,659 Acres spread across 26 conservation easements.
+CCED 2025b is another major improvement in tracking conservation easements. Between June and
+December over 71,000 acres have been added. Major additions were made for many organizations,
+including: The Nature Conservancy, California Department of Forestry and Fire Protection, Wildlife
+Heritage Foundation, Save the Redwoods League, Bear Yuba Land Trust, and many more. Acres added
+are a mix of newly protected lands and additions of previously missing easements.
+As with any large data gathering program, there are likely to be lands that have been missed, wrongly
+included, or miss-attributed. If you find errors, please contact GreenInfo Network at cpad@CALands.org.
+Not all inquiries can be responded to given funding constraints. However, issues and errors are logged for
+future research if/when funding is available.
+
+Brief History of CCED
+CCED was developed during 2013-2014 and first published in March 2014. The dataset was created in
+response to direction from the California Strategic Growth Council (SGC), which is overseeing a wide
+range of planning related efforts for the state. The data has been prepared in response to frequent
+requests by local, state and federal agencies and nonprofits for a more complete representation of
+California’s protected landscape. Easements are a vital part of protected California’s natural resources. As
+such, it is important to know their location, size and how they relate to a whole host of other features
+(soil types, watersheds, flood control, habitat, etc.).
+Initial efforts to track easements go back as far as the initial work on CPAD in the 1980s, mostly focused
+in the San Francisco Bay Area. However, funding only became available in 2013 to try and standardize
+and improve information about easements. Previously, when data on a conservation easement was
+15
+
+received it was filed in a digital collection of folders and files. It was not integrated with other data on
+easements, reviewed for accuracy, or researched for important attributes.
+In the early 2000s, the State of California developed an initial statewide coverage of protected lands
+known as the Public and Conservation Trust Lands (PCTL) database. This data included mainly state and
+federal lands owned in fee, but it did include some conservation easements. It did not include: regional
+lands, local lands, non-profit lands – for both fee and easements. It was last updated in 2005 and is now
+a legacy data set, replaced by CPAD and CCED.
+From the early 2000s to 2006 GreenInfo Network received funding from a variety of sources to advance
+the CPAD content, structure and distribution. However, easement data did not receive funding and
+remained stagnant until 2012. In late 2012, GreenInfo Network began a major project to improve CPAD
+and create CCED, supported by a grant from the California Strategic Growth Council in collaboration with
+the USGS Gap Analysis Program. See details on www.CALands.org.
+In 2015, GreenInfo received funding from the California Natural Resources Agency for two years of
+support for CPAD and CCED. In 2018 GreenInfo received additional funding from the California Natural
+Resources Agency and the Department of Water Resources to continue improvements to the database.
+Those have included the addition of easements and the migration to a multi-editor environment (in
+2021).
+
+16
+
+CCED Release History
+CCED 2025b (Published December 2025) – The 2025b release of CCED includes nearly 71,000 new acres, with
+
+improvements in 43 out of the 58 counties. Many agencies have submitted new easements into CCED since our last
+release. Agencies like The Nature Conservancy, California Department of Forestry and Fire Protection (CAL FIRE)
+and the Wildlife Heritage Foundation among many others have contributed to CCED.
+CCED 2025a (Published June 2025) – The 2025a release of CCED includes nearly 60,000 new acres, with
+
+improvements in 56 out of the 58 counties. Many agencies have submitted new easements into CCED since our last
+release.
+CCED 2024b (Published December 2024) – A major update with the addition of over 300,00 acres and substantial
+
+new lands and existing land improvements added for a number of agencies, including Sierra Foothills Conservancy,
+California Rangeland Trust, Rivers and Land Conservancy, Feather River Lands Trust, San Joaquin Council of
+Governments, and Northern California Regional Land Trust.
+CCED 2024a (Published June 2024) – A major update with the addition of over 200,000 acres and significant new
+
+reporting of GAP codes from easement holding agencies.
+CCED 2023b – No release, 2023b was not released due to contracting and budget constraints.
+CCED 2023a (Published June 2023) – 2023a was a major release with the addition of over 100,000 acres. Significant
+updates were made for over 35 agencies, many as a direct result of 30x30 efforts. Database improvements were also
+made to improve the accuracy and consistency of data over time.
+CCED 2022b (Published December 2022) – Over 10,000 new acres were added. The majority of new easements
+were a result of identifying PG&E settlement properties now under easement.
+CCED 2022a (Published July 2022) – The tenth version of CCED included the addition of roughly 30,000 acres of
+easements. With significant new lands added for: Feather River Land Trust, The Land Conservancy of San Luis
+Obispo County, and the San Joaquin Council of Governments. 2022a also included a pilot project of adding more
+detailed GAP codes for a small set of local agencies.
+CCED 2021b (Published December 2021) – The ninth version of CCED included 19,000 new acres with major
+additions to easements held by California Rangeland Trust, City of Elk Grove, Siskiyou Land Trust, and Yolo Land
+Trust.
+CCED 2021a (Published August 2021) – The eighth version of CCED included two major structural updates 1) a
+technical migration of the data to a PostGIS, enabling a multi-editor environment 2) the inclusion of GAP Codes from
+PADUS. It also improved in completeness with the addition of 32,500 acres mostly through the update of 10 large
+easement holding agencies.
+CCED 2020b (Published December 2020) – The seventh version of CCED focused on additions of newly identified
+easements from Big Sur Land Trust, California Department of Forestry and Fire Protection, Eastern Sierra Land
+Trust, Feather River Land Trust, Northcoast Regional Land Trust, Pacific Forest Trust, and the Riverside County
+Regional Conservation Authority totalling over 32,500 acres. Topological errors were also resolved, aligning edges
+with gaps and overlaps.
+CCED 2020a (Published June 2020) – The sixth version of CCED focused on the addition of new lands (over 14,000
+acres) as well as continued efforts to resolve topological errors for over 1,000 acres.
+
+17
+
+CCED 2019 (Published November 2019) – The fifth version of CCED focuses on the addition of new lands as well as
+resolving topological errors, most notable data slivers resulting in overlaps.
+CCED 2018 (Published December 2018) – The fourth version of CCED is an important release, which focused on
+adding new lands that totaled over 500,000 acres.
+CCED 2016 (Published December 2016) – This major release included the addition of hundreds of new agencies and
+over half a million new acres. Many duplicate easements were resolved and fields were improved to facilitate better
+syncing with the national NCED database.
+CCED 2015a (Published April 2015) – The second release of CCED was a minor release. It included the addition of
+37 easements and covered 71,898 new acres. Data formats were changed, for three fields, to match NCED.
+CCED 2014a (Published March 2014) – The first release of CCED, it included conservation easements held by 93
+agencies/organizations covering 1.5 million acres. Initial attempts were made to standardize the data attributes,
+assess edge alignment, and compile spatial data from all contributing groups. The release also defined the database
+structure, documented known issues, provided a detailed user manual, and outlined a use agreement and data usage
+policy for CCED.
+
+18
+
+

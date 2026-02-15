@@ -1,0 +1,416 @@
+# Auto-generated ConfigMap containing job definitions
+# Generated from: padus-4-1-fee-setup-bucket.yaml, padus-4-1-fee-convert.yaml, padus-4-1-fee-pmtiles.yaml, padus-4-1-fee-hex.yaml, padus-4-1-fee-repartition.yaml
+# Generation command: cng-datasets workflow --dataset padus-4-1/fee --source-url https://s3-west.nrp-nautilus.io/public-padus/raw/PADUS4_1Geodatabase.gdb --bucket public-padus --h3-resolution 10 --parent-resolutions "9,8,0"
+#
+# This ConfigMap is equivalent to running:
+#   kubectl create configmap padus-4-1-fee-yamls \
+#     --from-file=padus-4-1-fee-setup-bucket.yaml \
+#     --from-file=padus-4-1-fee-convert.yaml \
+#     --from-file=padus-4-1-fee-pmtiles.yaml \
+#     --from-file=padus-4-1-fee-hex.yaml \
+#     --from-file=padus-4-1-fee-repartition.yaml
+#
+# To update: regenerate workflow with cng-datasets and re-apply with kubectl apply -f configmap.yaml
+apiVersion: v1
+data:
+  padus-4-1-fee-convert.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: padus-4-1-fee-convert
+      labels:
+        k8s-app: padus-4-1-fee-convert
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: padus-4-1-fee-convert
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: convert-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-padus
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              cng-convert-to-parquet \
+                https://s3-west.nrp-nautilus.io/public-padus/raw/PADUS4_1Geodatabase.gdb \
+                s3://public-padus/padus-4-1/fee.parquet \
+                --row-group-size 100000 \
+                --layer PADUS4_1Fee
+            resources:
+              requests:
+                cpu: '4'
+                memory: 32Gi
+              limits:
+                cpu: '4'
+                memory: 32Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+  padus-4-1-fee-hex.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: padus-4-1-fee-hex
+      labels:
+        k8s-app: padus-4-1-fee-hex
+    spec:
+      completions: 200
+      parallelism: 50
+      completionMode: Indexed
+      backoffLimitPerIndex: 3
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - type: DisruptionTarget
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: padus-4-1-fee-hex
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: hex-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
+            - name: BUCKET
+              value: public-padus
+            - name: DATASET
+              value: padus-4-1-fee
+            command:
+            - bash
+            - -c
+            - |-
+              set -e
+              cng-datasets vector --input s3://public-padus/padus-4-1/fee.parquet --output s3://public-padus/padus-4-1/fee/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1483 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+            resources:
+              requests:
+                cpu: '4'
+                memory: 32Gi
+              limits:
+                cpu: '4'
+                memory: 32Gi
+  padus-4-1-fee-pmtiles.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: padus-4-1-fee-pmtiles
+      labels:
+        k8s-app: padus-4-1-fee-pmtiles
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: padus-4-1-fee-pmtiles
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: pmtiles-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
+            - name: BUCKET
+              value: public-padus
+            - name: DATASET
+              value: fee
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              # Use optimized GeoParquet (has ID column) from convert job
+              # GDAL can read parquet via vsicurl
+              ogr2ogr -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee.parquet -progress
+
+              # Generate PMTiles from GeoJSONSeq
+              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$DATASET.geojsonl
+
+              # Upload to S3 using rclone
+              rclone copy /tmp/$DATASET.pmtiles nrp:public-padus/padus-4-1/
+              rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles
+            resources:
+              requests:
+                cpu: '4'
+                memory: 32Gi
+              limits:
+                cpu: '4'
+                memory: 32Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+  padus-4-1-fee-repartition.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: padus-4-1-fee-repartition
+      labels:
+        k8s-app: padus-4-1-fee-repartition
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: padus-4-1-fee-repartition
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: repartition-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
+            - name: BUCKET
+              value: public-padus
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              cng-datasets repartition --chunks-dir s3://public-padus/padus-4-1/fee/chunks --output-dir s3://public-padus/padus-4-1/fee/hex --source-parquet s3://public-padus/padus-4-1/fee.parquet --cleanup
+            resources:
+              requests:
+                cpu: '4'
+                memory: 32Gi
+              limits:
+                cpu: '4'
+                memory: 32Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+  padus-4-1-fee-setup-bucket.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: padus-4-1-fee-setup-bucket
+      labels:
+        k8s-app: padus-4-1-fee-setup-bucket
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: padus-4-1-fee-setup-bucket
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: setup-bucket-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-padus
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              echo "Setting up bucket with public access and CORS..."
+              cng-datasets storage setup-bucket \
+                --bucket "${BUCKET}" \
+                --remote nrp \
+                --verify
+
+              echo "Bucket setup complete!"
+            resources:
+              requests:
+                cpu: '1'
+                memory: 2Gi
+              limits:
+                cpu: '1'
+                memory: 2Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+kind: ConfigMap
+metadata:
+  name: padus-4-1-fee-yamls
+  namespace: biodiversity
