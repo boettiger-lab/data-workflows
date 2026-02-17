@@ -27,21 +27,39 @@
     "providers": [
         {
             "name": "USGS Gap Analysis Project",
-            "roles": ["producer", "licensor"],
+            "roles": [
+                "producer",
+                "licensor"
+            ],
             "url": "https://www.usgs.gov/programs/gap-analysis-project"
         },
         {
             "name": "Boettiger Lab",
-            "roles": ["processor", "host"],
+            "roles": [
+                "processor",
+                "host"
+            ],
             "url": "https://github.com/boettiger-lab"
         }
     ],
     "extent": {
         "spatial": {
-            "bbox": [[-180, 14, -64, 72]]
+            "bbox": [
+                [
+                    -180,
+                    14,
+                    -64,
+                    72
+                ]
+            ]
         },
         "temporal": {
-            "interval": [["1800-01-01T00:00:00Z", "2024-12-31T23:59:59Z"]]
+            "interval": [
+                [
+                    "1800-01-01T00:00:00Z",
+                    "2024-12-31T23:59:59Z"
+                ]
+            ]
         }
     },
     "links": [
@@ -78,11 +96,43 @@
         }
     ],
     "summaries": {
-        "formats": ["geoparquet", "pmtiles", "h3-parquet"],
-        "gap_status": ["1", "2", "3", "4"],
-        "iucn_categories": ["Ia", "Ib", "II", "III", "IV", "V", "VI"],
-        "owner_types": ["FED", "STAT", "LOC", "PVT", "JNT", "TRIB", "TERR", "DIST", "NGO"],
-        "public_access": ["OA", "RA", "XA", "UK"]
+        "formats": [
+            "geoparquet",
+            "pmtiles",
+            "h3-parquet"
+        ],
+        "gap_status": [
+            "1",
+            "2",
+            "3",
+            "4"
+        ],
+        "iucn_categories": [
+            "Ia",
+            "Ib",
+            "II",
+            "III",
+            "IV",
+            "V",
+            "VI"
+        ],
+        "owner_types": [
+            "FED",
+            "STAT",
+            "LOC",
+            "PVT",
+            "JNT",
+            "TRIB",
+            "TERR",
+            "DIST",
+            "NGO"
+        ],
+        "public_access": [
+            "OA",
+            "RA",
+            "XA",
+            "UK"
+        ]
     },
     "assets": {
         "geoparquet": {
@@ -90,21 +140,27 @@
             "type": "application/vnd.apache.parquet",
             "title": "GeoParquet file with all 656,986 protected areas",
             "description": "Cloud-native GeoParquet format optimized for analytical queries. Use with DuckDB, Polars, pandas, or any GeoParquet-compatible tool. Geometries in EPSG:4326.",
-            "roles": ["data"]
+            "roles": [
+                "data"
+            ]
         },
         "pmtiles": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined.pmtiles",
             "type": "application/vnd.pmtiles",
             "title": "PMTiles for web mapping",
             "description": "Pyramid of map tiles in PMTiles format. Supports zoom levels 0-14 for efficient web map rendering.",
-            "roles": ["visual"]
+            "roles": [
+                "visual"
+            ]
         },
         "h3-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined/hex/",
             "type": "application/vnd.apache.parquet",
             "title": "H3 hex-indexed parquet files",
             "description": "Parquet files partitioned by H3 cell at resolution 10 (15m²) and resolution 8 (0.74 km²) for 20 complex features. Partitioned by h0 for efficient spatial queries. Each row contains a protected area feature with its intersecting H3 cell.",
-            "roles": ["data"],
+            "roles": [
+                "data"
+            ],
             "table:storage_options": {
                 "partitioning": "h0"
             }
