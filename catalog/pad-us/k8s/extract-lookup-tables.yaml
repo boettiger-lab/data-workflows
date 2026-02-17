@@ -1,0 +1,116 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: padus-extract-lookup-tables
+  namespace: biodiversity
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: padus-extract-lookup-tables
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: extract-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        
+        env:
+        - name: AWS_EC2_METADATA_DISABLED
+          value: "true"
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        
+        envFrom:
+        - secretRef:
+            name: aws
+        
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          
+          echo "=== Extracting PAD-US lookup tables ==="
+          
+          # Configure GDAL for S3 access
+          export CPL_AWS_CREDENTIALS_FILE=/dev/null
+          export AWS_NO_SIGN_REQUEST=NO
+          
+          # List of non-spatial tables
+          TABLES=(
+            "Public_Access"
+            "Category"
+            "Designation_Type"
+            "GAP_Status"
+            "IUCN_Category"
+            "Agency_Name"
+            "Agency_Type"
+            "State_Name"
+          )
+          
+          for table in "${TABLES[@]}"; do
+            echo "Processing $table..."
+            
+            export TABLE_NAME="$table"
+            
+            python3 << 'PYEOF'
+          import duckdb
+          import os
+          
+          # Get table name from environment
+          table = os.environ['TABLE_NAME']
+          
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial;")
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          
+          # Configure S3 for DuckDB
+          con.execute(f"""
+              CREATE SECRET secret1 (
+                  TYPE S3,
+                  KEY_ID '{os.environ['AWS_ACCESS_KEY_ID']}',
+                  SECRET '{os.environ['AWS_SECRET_ACCESS_KEY']}',
+                  ENDPOINT '{os.environ['AWS_S3_ENDPOINT']}',
+                  URL_STYLE 'path',
+                  USE_SSL false
+              )
+          """)
+          
+          # Use /vsis3/ path for GDAL to access S3 with credentials
+          print(f"Reading {table} from GDB...")
+          con.execute(f"""
+              COPY (
+                  SELECT * FROM ST_Read(
+                      '/vsis3/public-padus/raw/PADUS4_1Geodatabase.gdb',
+                      layer='{table}'
+                  )
+              ) TO 's3://public-padus/padus-4-1/lookup/{table}.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)
+          """)
+          
+          # Verify
+          count = con.execute(f"SELECT COUNT(*) FROM read_parquet('s3://public-padus/padus-4-1/lookup/{table}.parquet')").fetchone()[0]
+          print(f"✓ {table}: {count} rows written")
+          PYEOF
+          
+          done
+          
+          echo ""
+          echo "=== All lookup tables extracted ==="
+        
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+          limits:
+            memory: "4Gi"
+            cpu: "2"

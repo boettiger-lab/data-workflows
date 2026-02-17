@@ -229,10 +229,19 @@ for layer in fee easement proclamation marine combined; do
 done
 ```
 
-Non-spatial lookup tables in the GDB were converted locally:
+### Lookup Tables
+
+Non-spatial lookup tables (8 tables: Public_Access, Category, Designation_Type, GAP_Status, IUCN_Category, Agency_Name, Agency_Type, State_Name) were extracted using a k8s job with DuckDB:
+
 ```bash
-for table in Public_Access Category DesignationType ManagerType; do
-  ogr2ogr -f Parquet "$table.parquet" /vsicurl/<source-url>.gdb "$table"
-done
-rclone copy *.parquet nrp:public-padus/padus-4-1/lookup/ -P
+# Extract all lookup tables - see catalog/pad-us/k8s/extract-lookup-tables.yaml
+kubectl apply -f catalog/pad-us/k8s/extract-lookup-tables.yaml
+
+# Monitor extraction
+kubectl logs -f job/padus-extract-lookup-tables
+
+# Files written to: s3://public-padus/padus-4-1/lookup/*.parquet
+# Documentation: catalog/pad-us/lookup-tables.md
 ```
+
+The extraction job uses DuckDB's spatial extension with `/vsis3/` paths to read the GDB from S3 with credentials, then writes each table to parquet. All 204 rows across 8 tables extracted in ~30 seconds.
