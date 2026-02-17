@@ -12,7 +12,18 @@ You are taking source geospatial data and producing three outputs per dataset:
 | PMTiles | `dataset.pmtiles` | Web map visualization |
 | H3 Hex Parquet | `dataset/hex/h0={cell}/data_0.parquet` | Spatial joins and aggregation |
 
-You do **not** process data locally. You generate Kubernetes jobs that do the processing on the cluster.
+
+**ALWAYS use the k8s workflow for data processing. The local environment does not have all required tools and permissions.**
+
+### Local Environment Setup
+
+The `cng-datasets` CLI is only used locally to generate k8s YAML files:
+
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install git+https://github.com/boettiger-lab/datasets.git
+```
 
 ## How To Process a Dataset
 
@@ -101,11 +112,25 @@ rclone copy catalog/<dataset>/stac/stac-collection.json nrp:<bucket>/
 
 ## Common Parameters
 
+### Memory and Chunking Mental Model
+
+**Memory usage is driven by SPATIAL AREA, not geometry complexity:**
+
+The hex generation step creates millions of H3 cells that must be unnested in memory. At resolution 10:
+- Each hex covers ~0.015 km²
+- Large spatial areas → many hexes → high memory usage
+- A US state like Alaska (~1.7M km²) → ~113M hexes → requires 64Gi+ memory per chunk
+
+**For US-scale datasets at resolution 10:**
+- **Always use max-completions 200 and max-parallelism 50** (not 1!)
+- Small feature count does NOT mean low memory - 50 US states need chunking just as much as 85K census tracts
+- If hex pods OOM, increase `--hex-memory` (not decrease completions)
+
 | Parameter | Default | When to change |
 |-----------|---------|----------------|
-| `--h3-resolution` | 10 | Lower (8, 6) for coarser data or very large features |
-| `--hex-memory` | 8Gi | Increase to 32Gi or 64Gi for large/complex geometries |
-| `--max-completions` | 200 | Keep at 200 for datasets > 50K features |
+| `--h3-resolution` | 10 | Lower (8, 6) for coarser data OR to reduce hex count for very large areas |
+| `--hex-memory` | 8Gi | Increase to 16-64Gi based on spatial area per chunk, not feature count |
+| `--max-completions` | 200 | Keep at 200 for any US-scale dataset (states, counties, tracts) |
 | `--max-parallelism` | 50 | Reduce if cluster is already busy |
 | `--parent-resolutions` | "9,8,0" | Almost never change this |
 | `--intermediate-chunk-size` | auto | Decrease if hex pods OOM during unnest step |
