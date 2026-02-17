@@ -57,13 +57,25 @@ The `/` in `--dataset` creates hierarchical S3 paths while using `-` in k8s job 
 
 ### Step 3: Apply to the cluster
 
+**One-time RBAC setup** (only needed once per cluster/namespace, likely already done):
 ```bash
-kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-setup-bucket.yaml \
-              -f catalog/<dataset>/k8s/<name>/<name>-convert.yaml \
+kubectl apply -f catalog/<dataset>/k8s/<name>/workflow-rbac.yaml
+```
+
+**Per-workflow** (for each dataset):
+```bash
+kubectl apply -f catalog/<dataset>/k8s/<name>/configmap.yaml \
               -f catalog/<dataset>/k8s/<name>/workflow.yaml
 ```
 
-The workflow orchestrator handles the rest: setup-bucket → convert → pmtiles + hex (parallel) → repartition.
+The workflow orchestrator automatically creates all jobs: setup-bucket → convert → pmtiles + hex (parallel) → repartition.
+
+**Alternative:** You can manually apply individual job YAMLs for step-by-step control:
+```bash
+kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-setup-bucket.yaml
+kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-convert.yaml
+# ... etc
+```
 
 ### Step 4: Monitor
 
@@ -130,6 +142,49 @@ kubectl logs job/<name>-workflow
 kubectl get jobs | grep <name>
 ```
 
+### Reprocessing Failed Chunks
+
+If specific chunks fail (e.g., due to DuckDB parquet page size limits on extremely complex geometries), reprocess them at a coarser H3 resolution:
+
+1. **Identify failed chunk IDs:** `kubectl get pods | grep <name>-hex | grep -E "Error|Failed"`
+
+2. **Generate base YAML and edit for rechunking:**
+   ```bash
+   # Copy the existing hex job YAML as a template
+   cp catalog/<dataset>/k8s/<name>/<name>-hex.yaml <name>-hex-rechunk.yaml
+   ```
+   
+   Edit the YAML to:
+   - Change job name: `<name>-hex-rechunk`
+   - Set `completions: 4` (number of failed chunks)
+   - Change the `cng-datasets vector` command to use a CHUNK_MAP:
+   ```yaml
+   args:
+   - |
+     set -e
+     CHUNK_MAP=(0 1 2 94)  # Failed chunk IDs
+     CHUNK_ID=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
+     echo "Reprocessing chunk $CHUNK_ID at resolution 8"
+     
+     cng-datasets vector \
+       --input s3://<bucket>/<dataset>.parquet \
+       --output s3://<bucket>/<dataset>/chunks \
+       --chunk-id $CHUNK_ID \
+       --chunk-size <same> \
+       --intermediate-chunk-size <same> \
+       --resolution 8 \
+       --parent-resolutions 9,8,0
+   ```
+
+3. **Apply and run repartition after completion:**
+   ```bash
+   kubectl apply -f <name>-hex-rechunk.yaml
+   # Wait for completion, then:
+   kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-repartition.yaml
+   ```
+
+Repartition automatically merges all chunks (both resolutions) from `chunks/` into `hex/` partitioned by h0.
+
 ## What NOT To Do
 
 - **Do not process data locally.** The CLI generates k8s jobs. You apply them. The cluster does the work.
@@ -163,11 +218,13 @@ for args in \
     --output-dir "catalog/pad-us/k8s/$(echo $1 | cut -d/ -f2)"
 done
 
+# One-time RBAC setup (only needed once, likely already done)
+kubectl apply -f catalog/pad-us/k8s/fee/workflow-rbac.yaml
+
 # Apply all workflows
 for layer in fee easement proclamation marine combined; do
   kubectl apply \
-    -f catalog/pad-us/k8s/$layer/*-setup-bucket.yaml \
-    -f catalog/pad-us/k8s/$layer/*-convert.yaml \
+    -f catalog/pad-us/k8s/$layer/configmap.yaml \
     -f catalog/pad-us/k8s/$layer/workflow.yaml
 done
 ```

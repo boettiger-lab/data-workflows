@@ -31,9 +31,11 @@ cng-datasets workflow \
   --max-parallelism 50 \
   --output-dir catalog/mydata/k8s/mylayer
 
-# Apply to the cluster
-kubectl apply -f catalog/mydata/k8s/mylayer/workflow-rbac.yaml \
-              -f catalog/mydata/k8s/mylayer/configmap.yaml \
+# One-time RBAC setup (only needed once per cluster/namespace, likely already done)
+kubectl apply -f catalog/mydata/k8s/mylayer/workflow-rbac.yaml
+
+# Apply workflow (per dataset)
+kubectl apply -f catalog/mydata/k8s/mylayer/configmap.yaml \
               -f catalog/mydata/k8s/mylayer/workflow.yaml
 
 # Monitor
