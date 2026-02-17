@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: padus-4-1-combined-hex-res8-rechunk
+  namespace: biodiversity
+spec:
+  parallelism: 4
+  completions: 4
+  completionMode: Indexed
+  backoffLimit: 12
+  backoffLimitPerIndex: 3
+  template:
+    metadata:
+      labels:
+        app: padus-4-1-combined-hex-res8
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        
+        env:
+        - name: AWS_EC2_METADATA_DISABLED
+          value: "true"
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: TMPDIR
+          value: "/tmp"
+        - name: BUCKET
+          value: "public-padus"
+        
+        envFrom:
+        - secretRef:
+            name: aws
+        
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          
+          # Map job index (0-3) to actual chunk IDs that failed
+          CHUNK_MAP=(0 1 2 94)
+          CHUNK_ID=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
+          
+          echo "Processing chunk $CHUNK_ID at resolution 8 (job index $JOB_COMPLETION_INDEX)"
+          
+          cng-datasets vector \
+            --input s3://public-padus/padus-4-1/combined.parquet \
+            --output s3://public-padus/padus-4-1/combined/chunks \
+            --chunk-id $CHUNK_ID \
+            --chunk-size 3285 \
+            --intermediate-chunk-size 3 \
+            --resolution 8 \
+            --parent-resolutions 9,8,0
+          
+          echo "Chunk $CHUNK_ID completed at resolution 8"
+        
+        resources:
+          requests:
+            memory: "32Gi"
+            cpu: "4"
+          limits:
+            memory: "32Gi"
+            cpu: "4"

@@ -65,7 +65,7 @@ spec:
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-padus/padus-4-1/combined.parquet --output s3://public-padus/padus-4-1/combined/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 3285 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+          cng-datasets vector --input s3://public-padus/padus-4-1/combined.parquet --output s3://public-padus/padus-4-1/combined/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 3285 --intermediate-chunk-size 3 --resolution 10 --parent-resolutions 9,8,0
         resources:
           requests:
             cpu: '4'
