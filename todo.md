@@ -278,6 +278,17 @@ This document tracks the completion status of datasets in the boettiger-lab/data
 
 ---
 
+### ECOM Farm Polygons
+- **Status:** ❓ Needs Investigation
+- **Type:** 
+- **Bucket:** 
+- **Formats:**
+  - 
+- **Documentation:**
+  - https://berkeley.app.box.com/folder/359824940922
+
+---
+
 ## ❌ Incomplete / No Hex Data
 
 ### HydroBasins
