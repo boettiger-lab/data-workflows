@@ -9,67 +9,194 @@
     "description": "2024 census tract boundaries from the US Census Bureau's TIGER/Line shapefiles, processing approximately 85,000 census tracts across all 50 states, DC, Puerto Rico, and territories into cloud-native formats with H3 hexagonal spatial indexing at resolution 10 (~0.015 km² per hex). Census tracts are small statistical subdivisions of counties designed for 1,200-8,000 people.",
     "license": "other",
     "license_other": "Public Domain (U.S. Government Work)",
-    "keywords": ["census", "census tracts", "boundaries", "TIGER/Line", "United States", "demographics"],
+    "keywords": [
+        "census",
+        "census tracts",
+        "boundaries",
+        "TIGER/Line",
+        "United States",
+        "demographics"
+    ],
     "providers": [
         {
             "name": "US Census Bureau",
-            "roles": ["producer", "licensor"],
+            "roles": [
+                "producer",
+                "licensor"
+            ],
             "url": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html"
         },
         {
             "name": "Boettiger Lab",
-            "roles": ["processor", "host"],
+            "roles": [
+                "processor",
+                "host"
+            ],
             "url": "https://github.com/boettiger-lab"
         }
     ],
     "extent": {
-        "spatial": {"bbox": [[-180, 14, -64, 72]]},
-        "temporal": {"interval": [["2024-01-01T00:00:00Z", "2024-12-31T23:59:59Z"]]}
+        "spatial": {
+            "bbox": [
+                [
+                    -180,
+                    14,
+                    -64,
+                    72
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2024-01-01T00:00:00Z",
+                    "2024-12-31T23:59:59Z"
+                ]
+            ]
+        }
     },
     "links": [
-        {"rel": "self", "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/tract/stac-collection.json", "type": "application/json"},
-        {"rel": "root", "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json", "type": "application/json"},
-        {"rel": "parent", "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json", "type": "application/json"},
-        {"rel": "describedby", "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/README-tract.md", "type": "text/markdown"},
-        {"rel": "about", "href": "https://www.census.gov/programs-surveys/geography/about/glossary.html#par_textimage_13"}
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/tract/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/README-tract.md",
+            "type": "text/markdown"
+        },
+        {
+            "rel": "about",
+            "href": "https://www.census.gov/programs-surveys/geography/about/glossary.html#par_textimage_13"
+        }
     ],
-    "summaries": {"formats": ["geoparquet", "pmtiles", "h3-parquet"], "feature_count": [85000]},
+    "summaries": {
+        "formats": [
+            "geoparquet",
+            "pmtiles",
+            "h3-parquet"
+        ],
+        "feature_count": [
+            85000
+        ]
+    },
     "assets": {
         "geoparquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/tract.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "GeoParquet file with all ~85,000 census tract boundaries",
-            "roles": ["data"]
+            "roles": [
+                "data"
+            ]
         },
         "pmtiles": {
             "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/tract.pmtiles",
             "type": "application/vnd.pmtiles",
             "title": "PMTiles for web mapping",
-            "roles": ["visual"]
+            "roles": [
+                "visual"
+            ]
         },
         "h3-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/tract/hex/",
             "type": "application/vnd.apache.parquet",
             "title": "H3 hex-indexed parquet files",
-            "roles": ["data"]
+            "roles": [
+                "data"
+            ]
         }
     },
     "table:columns": [
-        {"name": "_cng_fid", "type": "int64", "description": "Cloud-native geometry feature ID. Unique identifier for each census tract."},
-        {"name": "STATEFP", "type": "string", "description": "State FIPS code (2 digits)."},
-        {"name": "COUNTYFP", "type": "string", "description": "County FIPS code (3 digits)."},
-        {"name": "TRACTCE", "type": "string", "description": "Census tract code (6 digits)."},
-        {"name": "GEOID", "type": "string", "description": "Geographic identifier (STATEFP + COUNTYFP + TRACTCE, 11 digits total)."},
-        {"name": "GEOIDFQ", "type": "string", "description": "Fully qualified geographic identifier."},
-        {"name": "NAME", "type": "string", "description": "Census tract number (e.g., '9503.03', '1')."},
-        {"name": "NAMELSAD", "type": "string", "description": "Full name with legal/statistical area description (e.g., 'Census Tract 9503.03')."},
-        {"name": "MTFCC", "type": "string", "description": "MAF/TIGER Feature Class Code (G5020 for census tract)."},
-        {"name": "FUNCSTAT", "type": "string", "description": "Functional status: S=Statistical entity (all tracts are statistical)."},
-        {"name": "ALAND", "type": "int64", "description": "Land area in square meters."},
-        {"name": "AWATER", "type": "int64", "description": "Water area in square meters."},
-        {"name": "INTPTLAT", "type": "string", "description": "Internal point latitude (decimal degrees)."},
-        {"name": "INTPTLON", "type": "string", "description": "Internal point longitude (decimal degrees)."},
-        {"name": "geom", "type": "binary", "description": "Geometry column (multipolygon) in WKB format, EPSG:4326."},
-        {"name": "bbox", "type": "struct", "description": "Bounding box (xmin, ymin, xmax, ymax)."}
+        {
+            "name": "_cng_fid",
+            "type": "int64",
+            "description": "Cloud-native geometry feature ID. Unique identifier for each census tract."
+        },
+        {
+            "name": "STATEFP",
+            "type": "string",
+            "description": "State FIPS code (2 digits)."
+        },
+        {
+            "name": "COUNTYFP",
+            "type": "string",
+            "description": "County FIPS code (3 digits)."
+        },
+        {
+            "name": "TRACTCE",
+            "type": "string",
+            "description": "Census tract code (6 digits)."
+        },
+        {
+            "name": "GEOID",
+            "type": "string",
+            "description": "Geographic identifier (STATEFP + COUNTYFP + TRACTCE, 11 digits total)."
+        },
+        {
+            "name": "GEOIDFQ",
+            "type": "string",
+            "description": "Fully qualified geographic identifier."
+        },
+        {
+            "name": "NAME",
+            "type": "string",
+            "description": "Census tract number (e.g., '9503.03', '1')."
+        },
+        {
+            "name": "NAMELSAD",
+            "type": "string",
+            "description": "Full name with legal/statistical area description (e.g., 'Census Tract 9503.03')."
+        },
+        {
+            "name": "MTFCC",
+            "type": "string",
+            "description": "MAF/TIGER Feature Class Code (G5020 for census tract)."
+        },
+        {
+            "name": "FUNCSTAT",
+            "type": "string",
+            "description": "Functional status: S=Statistical entity (all tracts are statistical)."
+        },
+        {
+            "name": "ALAND",
+            "type": "int64",
+            "description": "Land area in square meters."
+        },
+        {
+            "name": "AWATER",
+            "type": "int64",
+            "description": "Water area in square meters."
+        },
+        {
+            "name": "INTPTLAT",
+            "type": "string",
+            "description": "Internal point latitude (decimal degrees)."
+        },
+        {
+            "name": "INTPTLON",
+            "type": "string",
+            "description": "Internal point longitude (decimal degrees)."
+        },
+        {
+            "name": "geom",
+            "type": "binary",
+            "description": "Geometry column (multipolygon) in WKB format, EPSG:4326."
+        },
+        {
+            "name": "bbox",
+            "type": "struct",
+            "description": "Bounding box (xmin, ymin, xmax, ymax)."
+        }
     ]
 }

@@ -197,6 +197,19 @@ rclone copy catalog/<dataset>/stac/README.md nrp:<bucket>/
 rclone copy catalog/<dataset>/stac/stac-collection.json nrp:<bucket>/
 ```
 
+### Step 6: Update Main Catalog
+
+Add the new collection to the central STAC catalog:
+
+```bash
+# Download, edit to add child link, then upload
+curl -s https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json > /tmp/catalog.json
+# Edit /tmp/catalog.json to add new child link in "links" array
+rclone copyto /tmp/catalog.json nrp:public-data/stac/catalog.json
+```
+
+The child link should point to your dataset's `stac-collection.json` URL.
+
 ## Common Parameters
 
 ### Memory and Chunking Mental Model

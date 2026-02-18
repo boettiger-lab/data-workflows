@@ -73,9 +73,27 @@ rclone copy datasets/<dataset>/stac/README.md nrp:public-<dataset>/
 rclone copy datasets/<dataset>/stac/stac-collection.json nrp:public-<dataset>/
 ```
 
-## 6. Update Catalog (Optional)
+## 6. Update Main STAC Catalog
 
-If this is a new dataset, ensure it is linked in the central catalog: `nrp:public-data/stac/catalog.json`.
+For new datasets, add links to the central catalog at `nrp:public-data/stac/catalog.json`:
+
+```bash
+# Download current catalog
+curl -s https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json > /tmp/catalog.json
+
+# Edit to add new child links in the "links" array:
+# {
+#   "rel": "child",
+#   "href": "https://s3-west.nrp-nautilus.io/<bucket>/<dataset>/stac-collection.json",
+#   "type": "application/json",
+#   "title": "Your Dataset Title"
+# }
+
+# Upload updated catalog
+rclone copyto /tmp/catalog.json nrp:public-data/stac/catalog.json
+```
+
+Verify at: https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json
 
 ## 7. Commit to Git
 
