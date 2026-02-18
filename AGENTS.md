@@ -27,14 +27,101 @@ uv pip install git+https://github.com/boettiger-lab/datasets.git
 
 ## How To Process a Dataset
 
-### Step 1: Identify the source data
+### Step 1: Identify and verify the source data
 
-Find the public URL to the source data. If it's already uploaded to S3, it will be at:
+**ALWAYS verify URLs exist before generating workflows.** Do not assume file naming patterns.
+
+#### Verify single-file datasets
+
+Use curl to check that the file exists:
+```bash
+curl -I https://example.com/data.zip
+# Look for "HTTP/2 200" - anything else (404, 403) means the file doesn't exist
+```
+
+#### Discover multi-file datasets
+
+Many datasets are distributed as **multiple files** (e.g., per-state, per-region). Check the directory listing:
+
+```bash
+# List available files in a directory
+curl -s https://www2.census.gov/geo/tiger/TIGER2024/TRACT/ | grep '.zip' | head -20
+
+# Check specific file pattern
+curl -I https://www2.census.gov/geo/tiger/TIGER2024/TRACT/tl_2024_01_tract.zip
+```
+
+**Common patterns:**
+- Census TIGER data: Per-state files (`tl_2024_{STATEFP}_tract.zip`)
+- Protected areas: Often per-region or national
+- Raster data: May be tiled
+
+#### Preprocessing multi-file zipped datasets
+
+**CRITICAL: `cng-convert-to-parquet` cannot handle multiple .zip URLs — it detects .zip in paths and blocks multi-source processing.**
+
+For datasets distributed as multiple zipped files (e.g., per-state shapefiles):
+
+**✅ CORRECT: Download, unzip, pass shapefiles**
+```bash
+# Download all in parallel
+for id in 01 02 03; do
+  curl -sS -O "https://example.com/data_${id}.zip" &
+done
+wait
+
+# Unzip all
+unzip -q -o "*.zip"
+
+# Let the tool merge them (that's what it does!)
+cng-convert-to-parquet /tmp/data/*.shp s3://bucket/output.parquet
+```
+
+**❌ WRONG: Sequential merging with ogr2ogr**
+```bash
+# Don't do this - you're reimplementing what the tool already does
+ogr2ogr -f Shapefile merged.shp file1.shp
+ogr2ogr -update -append merged.shp file2.shp  # Slow!
+ogr2ogr -update -append merged.shp file3.shp  # Very slow!
+cng-convert-to-parquet merged.shp output.parquet
+```
+
+**Why parallel download + direct tool usage is better:**
+- Parallel downloads complete in seconds vs sequential minutes
+- `cng-convert-to-parquet` already merges multiple shapefiles efficiently
+- Don't re-implement what the tool does — let it handle the merge
+- Census tracts: 3 minutes total (vs 30+ minutes with sequential ogr2ogr)
+
+**Example: Census TIGER preprocessing job**
+```yaml
+command: [bash, -c, |
+  STATE_FIPS="01 02 04 05 ..."
+  mkdir -p /tmp/data && cd /tmp/data
+  
+  # Parallel download
+  for fips in $STATE_FIPS; do
+    curl -sS -O "https://example.com/tl_2024_${fips}_tract.zip" &
+  done
+  wait
+  
+  # Unzip
+  unzip -q -o "*.zip"
+  
+  # Convert (tool handles merging)
+  cng-convert-to-parquet /tmp/data/*.shp s3://bucket/output.parquet
+]
+```
+
+#### Check S3 uploads
+
+If data is already uploaded to S3:
 ```
 https://s3-west.nrp-nautilus.io/<bucket>/raw/<filename>
 ```
 
-For multi-layer files (GDB, GPKG), inspect the layers:
+#### Inspect multi-layer files (GDB, GPKG)
+
+For files with multiple layers:
 ```bash
 ogrinfo /vsicurl/<source-url>
 ```
@@ -151,6 +238,24 @@ bucket/
 
 ## Troubleshooting
 
+**Convert fails with 404 Not Found → verify source URLs:**
+The most common failure. Always verify URLs exist BEFORE generating workflows:
+```bash
+# Check if file exists
+curl -I <source-url>
+
+# List directory to find actual file names
+curl -s <directory-url> | grep '.zip'
+```
+
+**Convert fails with "Cannot mix .zip files with multiple source URLs":**
+`cng-convert-to-parquet` cannot process multiple zip URLs. Create a preprocessing job that:
+1. Downloads all zips in parallel (`curl -O ... &`)
+2. Unzips all files (`unzip -q -o "*.zip"`)
+3. Passes unzipped shapefiles to the tool (`cng-convert-to-parquet /tmp/*.shp s3://...`)
+
+See the "Preprocessing multi-file zipped datasets" section for examples.
+
 **Convert fails → check logs:**
 ```bash
 kubectl logs job/<name>-convert
@@ -216,6 +321,8 @@ Repartition automatically merges all chunks (both resolutions) from `chunks/` in
 - **Do not modify `cng_datasets/` source code** unless fixing a bug in the tool itself. User workflows only touch `catalog/` and generated YAML.
 - **Do not hardcode S3 endpoints or credentials.** The generated jobs handle S3 configuration (internal endpoints, secrets) automatically.
 - **Do not exceed 200 completions per job.** This is a hard limit to avoid overwhelming the cluster's etcd.
+- **Do not use ogr2ogr to sequentially merge shapefiles.** Use parallel downloads and pass all files to cng-convert-to-parquet — it merges efficiently.
+- **Do not try to use multiple .zip URLs with cng-datasets workflow.** Create a preprocessing job that downloads, unzips, and converts instead.
 
 ## Reference: Complete PAD-US Example
 
@@ -270,3 +377,115 @@ kubectl logs -f job/padus-extract-lookup-tables
 ```
 
 The extraction job uses DuckDB's spatial extension with `/vsis3/` paths to read the GDB from S3 with credentials, then writes each table to parquet. All 204 rows across 8 tables extracted in ~30 seconds.
+
+## Reference: Census 2024 Multi-Source Example
+
+Census TIGER/Line shapefiles are distributed as **per-state files**, not national files. Always verify URL patterns before generating workflows.
+
+**Pattern discovery:**
+```bash
+# Verify directory exists
+curl -I https://www2.census.gov/geo/tiger/TIGER2024/TRACT/
+
+# List actual files available
+curl -s https://www2.census.gov/geo/tiger/TIGER2024/TRACT/ | grep '.zip' | head -10
+# Output shows: tl_2024_01_tract.zip, tl_2024_02_tract.zip, etc.
+
+# Verify specific file
+curl -I https://www2.census.gov/geo/tiger/TIGER2024/TRACT/tl_2024_01_tract.zip
+# HTTP/2 200 ✓
+```
+
+**Creating preprocessing job for zipped multi-file datasets:**
+
+Since `cng-convert-to-parquet` cannot handle multiple zip URLs, create a preprocessing job:
+
+```bash
+# Create preprocessing job YAML (see catalog/census/k8s/tract/preprocess-tract.yaml)
+cat > preprocess-tract.yaml <<'EOF'
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-2024-tract-preprocess
+  namespace: biodiversity
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        resources:
+          requests: {memory: "32Gi", cpu: "8"}
+          limits: {memory: "32Gi", cpu: "8"}
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command: [bash, -c, |
+          set -e
+          STATE_FIPS="01 02 04 05 06 08 09 10 11 12 13 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 44 45 46 47 48 49 50 51 53 54 55 56 60 66 69 72 78"
+          
+          echo "Downloading all tract files..."
+          mkdir -p /tmp/tracts && cd /tmp/tracts
+          
+          # Parallel download
+          for fips in $STATE_FIPS; do
+            curl -sS -O "https://www2.census.gov/geo/tiger/TIGER2024/TRACT/tl_2024_${fips}_tract.zip" &
+          done
+          wait
+          
+          echo "Unzipping..."
+          unzip -q -o "*.zip"
+          
+          # Convert (tool merges all shapefiles)
+          echo "Converting to GeoParquet..."
+          cng-convert-to-parquet /tmp/tracts/*.shp s3://public-census/census-2024/tract.parquet \
+            --compression ZSTD --compression-level 15 --row-group-size 100000
+          
+          echo "✓ Complete"
+        ]
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+EOF
+
+# Apply preprocessing job
+kubectl apply -f preprocess-tract.yaml
+
+# Monitor
+kubectl logs -f census-2024-tract-preprocess
+```
+
+After preprocessing completes (~3 minutes for 56 files), generate and run the pipeline:
+
+```bash
+# Generate hex/pmtiles/repartition workflows
+cng-datasets workflow \
+  --dataset census-2024/tract \
+  --source-url s3://public-census/census-2024/tract.parquet \
+  --bucket public-census \
+  --h3-resolution 10 \
+  --parent-resolutions "9,8,0" \
+  --hex-memory 16Gi \
+  --max-completions 200 \
+  --max-parallelism 50 \
+  --output-dir catalog/census/k8s/tract
+
+# Apply hex, pmtiles, repartition jobs
+kubectl apply -f catalog/census/k8s/tract/census-2024-tract-hex.yaml
+kubectl apply -f catalog/census/k8s/tract/census-2024-tract-pmtiles.yaml
+# Wait for hex to complete, then:
+kubectl apply -f catalog/census/k8s/tract/census-2024-tract-repartition.yaml
+```
+
+**Result:** ~85,000 census tracts processed with parallel downloads completing in 3 minutes.

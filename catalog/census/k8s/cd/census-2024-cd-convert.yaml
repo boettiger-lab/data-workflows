@@ -1,0 +1,131 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-2024-cd-convert
+  labels:
+    k8s-app: census-2024-cd-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: census-2024-cd-convert
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-census
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cng-convert-to-parquet \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_01_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_02_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_04_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_05_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_06_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_08_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_09_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_10_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_11_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_12_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_13_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_15_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_16_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_17_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_18_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_19_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_20_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_21_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_22_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_23_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_24_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_25_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_26_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_27_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_28_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_29_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_30_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_31_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_32_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_33_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_34_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_35_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_36_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_37_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_38_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_39_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_40_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_41_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_42_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_44_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_45_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_46_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_47_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_48_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_49_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_50_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_51_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_53_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_54_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_55_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_56_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_60_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_66_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_69_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_72_cd119.zip \
+            /vsizip//vsicurl/https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_78_cd119.zip \
+            s3://public-census/census-2024/cd.parquet \
+            --row-group-size 100000
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
