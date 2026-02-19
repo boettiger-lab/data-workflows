@@ -368,7 +368,9 @@
             "roles": [
                 "data"
             ],
-            "pmtiles:layer": "cpad-2025b-holdings",
+            "vector:layers": [
+                "cpad-2025b-holdings"
+            ],
             "file:size": 169942580
         },
         "cpad-holdings-hex": {
@@ -398,7 +400,9 @@
             "roles": [
                 "data"
             ],
-            "pmtiles:layer": "cpad-2025b-units",
+            "vector:layers": [
+                "cpad-2025b-units"
+            ],
             "file:size": 85225336
         },
         "cpad-units-hex": {
@@ -428,7 +432,9 @@
             "roles": [
                 "data"
             ],
-            "pmtiles:layer": "cced-2025b",
+            "vector:layers": [
+                "cced-2025b"
+            ],
             "file:size": 26701097
         },
         "cced-hex": {

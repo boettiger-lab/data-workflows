@@ -118,7 +118,9 @@
       "type": "application/vnd.pmtiles",
       "title": "PMTiles — CalEnviroScreen 5.0",
       "description": "Vector tiles for web map visualization of CalEnviroScreen 5.0 results.",
-      "pmtiles:layer": "ces5",
+      "vector:layers": [
+        "ces5"
+      ],
       "roles": [
         "data",
         "visual"

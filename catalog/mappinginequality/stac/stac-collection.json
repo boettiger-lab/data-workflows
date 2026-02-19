@@ -105,7 +105,9 @@
             "roles": [
                 "visual"
             ],
-            "pmtiles:layer": "redlining"
+            "vector:layers": [
+                "redlining"
+            ]
         }
     },
     "table:columns": [

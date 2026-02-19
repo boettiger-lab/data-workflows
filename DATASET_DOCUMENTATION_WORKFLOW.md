@@ -64,7 +64,7 @@ Create `catalog/<dataset>/stac/stac-collection.json` following the STAC standard
     - `"rel": "self"` -> `https://s3-west.nrp-nautilus.io/public-<dataset>/stac-collection.json`
     - `"rel": "describedby"` -> `https://s3-west.nrp-nautilus.io/public-<dataset>/README.md`
 - **Assets**: Define the data files (parquet, pmtiles, cog, etc.).
-- **PMTiles asset description**: MUST include `source-layer: "<name>"` so users know the MapLibre layer name without inspecting the file. The name = last segment of `--dataset`.
+- **Vector layer assets**: Any asset with named layers (PMTiles, GDB, GPKG) MUST include `"vector:layers": ["<name>"]`. For PMTiles, the layer name = last segment of `--dataset`.
 - **Table Columns**: Use the `table:columns` array to formally define the schema (name, type, description).
 
 ## 5. Upload to S3

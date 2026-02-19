@@ -209,7 +209,7 @@ After processing completes, create:
 - A **DuckDB example** with the full public URL to the parquet file
 
 **REQUIRED in every stac-collection.json:**
-- The PMTiles asset MUST include a `"pmtiles:layer": "<name>"` field (a direct structured property, not buried in the description text) so clients can discover the layer name programmatically
+- Any vector asset with named layers (PMTiles, GDB, GPKG, etc.) MUST include a `"vector:layers": ["<name>"]` array field. This is format-agnostic — the same field works for PMTiles, GeoDatabase, GeoPackage, etc. For PMTiles, the layer name = last segment of `--dataset`.
 - A `table:columns` array documenting all columns
 
 Upload to the bucket:

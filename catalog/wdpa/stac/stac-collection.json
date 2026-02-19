@@ -295,7 +295,9 @@
             "roles": [
                 "visual"
             ],
-            "pmtiles:layer": "wdpa"
+            "vector:layers": [
+                "wdpa"
+            ]
         },
         "wdpa-hex-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-wdpa/hex/",

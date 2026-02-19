@@ -114,7 +114,9 @@
             "roles": [
                 "visual"
             ],
-            "pmtiles:layer": "regions"
+            "vector:layers": [
+                "regions"
+            ]
         },
         "divisions-hex": {
             "href": "https://s3-west.nrp-nautilus.io/public-overturemaps/regions/hex/",
