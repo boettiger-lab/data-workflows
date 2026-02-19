@@ -1,0 +1,223 @@
+{
+    "stac_version": "1.0.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "type": "Collection",
+    "id": "census-2024-state",
+    "title": "US Census 2024 State Boundaries with H3 Indexing",
+    "description": "2024 state and territory boundaries from the US Census Bureau's TIGER/Line shapefiles, processed into cloud-native formats with H3 hexagonal spatial indexing at resolution 10 (~0.015 km² per hex). Includes all 50 states, District of Columbia, and 5 territories (Puerto Rico, American Samoa, Guam, Northern Mariana Islands, U.S. Virgin Islands). Data includes geographic identifiers, names, land/water areas, and internal point coordinates.",
+    "license": "other",
+    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. § 105).",
+    "keywords": [
+        "census",
+        "states",
+        "boundaries",
+        "TIGER/Line",
+        "United States",
+        "geography",
+        "administrative boundaries",
+        "territories",
+        "geospatial"
+    ],
+    "providers": [
+        {
+            "name": "US Census Bureau",
+            "roles": [
+                "producer",
+                "licensor"
+            ],
+            "url": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180,
+                    14,
+                    -64,
+                    72
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2024-01-01T00:00:00Z",
+                    "2024-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/state/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/README-state.md",
+            "type": "text/markdown",
+            "title": "Detailed Data Documentation and Usage Examples"
+        },
+        {
+            "rel": "about",
+            "href": "https://www.census.gov/programs-surveys/geography/technical-documentation/complete-technical-documentation/tiger-geo-line.html",
+            "title": "TIGER/Line Technical Documentation"
+        }
+    ],
+    "summaries": {
+        "formats": [
+            "geoparquet",
+            "pmtiles",
+            "h3-parquet"
+        ],
+        "feature_count": [
+            56
+        ]
+    },
+    "assets": {
+        "geoparquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/state.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "GeoParquet file with all 56 state/territory boundaries",
+            "description": "Cloud-native GeoParquet format optimized for analytical queries. Use with DuckDB, Polars, pandas, or any GeoParquet-compatible tool. Geometries in EPSG:4326 (WGS84).",
+            "roles": [
+                "data"
+            ]
+        },
+        "pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/state.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "PMTiles for web mapping",
+            "description": "Pyramid of map tiles in PMTiles format for efficient web map rendering with MapLibre GL JS or Leaflet.",
+            "roles": [
+                "visual"
+            ]
+        },
+        "h3-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/state/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "H3 hex-indexed parquet files",
+            "description": "Parquet files partitioned by H3 resolution 0 cells. Each row contains a state with its intersecting H3 cell at resolution 10 (~0.015 km²). Includes parent resolutions 9, 8, and 0 for hierarchical analysis.",
+            "roles": [
+                "data"
+            ],
+            "table:storage_options": {
+                "partitioning": "h0"
+            }
+        }
+    },
+    "table:columns": [
+        {
+            "name": "_cng_fid",
+            "type": "int64",
+            "description": "Cloud-native geometry feature ID. Unique identifier for each state/territory. Use this for joining between GeoParquet and H3 hex formats."
+        },
+        {
+            "name": "REGION",
+            "type": "string",
+            "description": "Census region code (1-digit): 1=Northeast, 2=Midwest, 3=South, 4=West, 9=Outlying areas (territories)."
+        },
+        {
+            "name": "DIVISION",
+            "type": "string",
+            "description": "Census division code (1-digit): Subdivisions of the four census regions (e.g., 1=New England, 2=Middle Atlantic, 3=East North Central, etc.)."
+        },
+        {
+            "name": "STATEFP",
+            "type": "string",
+            "description": "State FIPS code (2 digits). Federal Information Processing Standard code uniquely identifying each state and territory (e.g., '06' for California, '72' for Puerto Rico)."
+        },
+        {
+            "name": "STATENS",
+            "type": "string",
+            "description": "State GNIS identifier (8 digits). Geographic Names Information System feature identifier for the state/territory."
+        },
+        {
+            "name": "GEOID",
+            "type": "string",
+            "description": "Geographic identifier. Complete unique identifier for the state/territory, same as STATEFP for states."
+        },
+        {
+            "name": "GEOIDFQ",
+            "type": "string",
+            "description": "Fully qualified geographic identifier. Complete hierarchical identifier including nation code prefix."
+        },
+        {
+            "name": "STUSPS",
+            "type": "string",
+            "description": "Two-letter state postal abbreviation (e.g., 'CA' for California, 'NY' for New York). Used by US Postal Service."
+        },
+        {
+            "name": "NAME",
+            "type": "string",
+            "description": "State or territory name (e.g., 'California', 'Puerto Rico')."
+        },
+        {
+            "name": "LSAD",
+            "type": "string",
+            "description": "Legal/Statistical Area Description code. Identifies the type of entity (e.g., '00' for state, '10' for Commonwealth)."
+        },
+        {
+            "name": "MTFCC",
+            "type": "string",
+            "description": "MAF/TIGER Feature Class Code. Five-character code classifying geographic features (e.g., 'G4000' for state/territory)."
+        },
+        {
+            "name": "FUNCSTAT",
+            "type": "string",
+            "description": "Functional status code. Indicates the current functioning status of the entity: A=Active, N=Nonfunctioning, F=Fictitious."
+        },
+        {
+            "name": "ALAND",
+            "type": "int64",
+            "description": "Land area in square meters. Total land area of the state/territory as calculated from Census boundaries."
+        },
+        {
+            "name": "AWATER",
+            "type": "int64",
+            "description": "Water area in square meters. Total inland, coastal, Great Lakes, and territorial water area."
+        },
+        {
+            "name": "INTPTLAT",
+            "type": "string",
+            "description": "Internal point latitude. Latitude of a point inside the state/territory (decimal degrees)."
+        },
+        {
+            "name": "INTPTLON",
+            "type": "string",
+            "description": "Internal point longitude. Longitude of a point inside the state/territory (decimal degrees)."
+        },
+        {
+            "name": "geom",
+            "type": "binary",
+            "description": "Geometry column containing the multipolygon boundary in WKB (Well-Known Binary) format, EPSG:4326 (WGS84)."
+        },
+        {
+            "name": "bbox",
+            "type": "struct",
+            "description": "Bounding box of the feature containing xmin, ymin, xmax, ymax coordinates in EPSG:4326."
+        }
+    ]
+}

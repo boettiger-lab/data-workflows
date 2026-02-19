@@ -13,9 +13,16 @@ This repo has **no source code**. Do not look for Python modules to study. The `
 
 ## Local Environment
 
-The `cng-datasets` CLI must be installed: `pip install cng-datasets`
+The `cng-datasets` CLI is used to generate k8s job YAML files (not for processing data locally).
 
-Use it to generate k8s job YAML files. Do not run processing commands (vector, raster, repartition) locally — those run inside k8s pods.
+**Setup:**
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install git+https://github.com/boettiger-lab/datasets.git
+```
+
+Do not run data processing commands (vector, raster, repartition) locally — those run inside k8s pods.
 
 ## Kubernetes
 

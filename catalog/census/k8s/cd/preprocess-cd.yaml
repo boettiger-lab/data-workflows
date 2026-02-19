@@ -1,0 +1,97 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-2024-cd-preprocess
+  namespace: biodiversity
+  labels:
+    k8s-app: census-2024-cd-preprocess
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: census-2024-cd-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "32Gi"
+            cpu: "8"
+          limits:
+            memory: "32Gi"
+            cpu: "8"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-census"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          
+          STATE_FIPS="01 02 04 05 06 08 09 10 11 12 13 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 44 45 46 47 48 49 50 51 53 54 55 56 60 66 69 72 78"
+          
+          echo "Downloading all CD files..."
+          mkdir -p /tmp/cd
+          cd /tmp/cd
+          
+          # Download all files in parallel
+          for fips in $STATE_FIPS; do
+            curl -sS -O "https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_${fips}_cd119.zip" &
+          done
+          wait
+          
+          echo "Unzipping all files..."
+          unzip -q -o "*.zip"
+          
+          # Convert all shapefiles to GeoParquet
+          echo "Converting to GeoParquet..."
+          cng-convert-to-parquet /tmp/cd/*.shp s3://public-census/census-2024/cd.parquet \
+            --compression ZSTD \
+            --compression-level 15 \
+            --row-group-size 100000
+          
+          echo "✓ Complete"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

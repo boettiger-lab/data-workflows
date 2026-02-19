@@ -1,0 +1,202 @@
+{
+    "stac_version": "1.0.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "type": "Collection",
+    "id": "census-2024-cd",
+    "title": "US Census 2024 Congressional District Boundaries with H3 Indexing",
+    "description": "2024 congressional district boundaries for the 119th Congress from the US Census Bureau's TIGER/Line shapefiles, processing approximately 435 voting districts plus at-large and delegate districts into cloud-native formats with H3 hexagonal spatial indexing at resolution 10 (~0.015 km² per hex). Includes House of Representatives districts (435 voting + 6 non-voting delegate/resident commissioner seats).",
+    "license": "other",
+    "license_other": "Public Domain (U.S. Government Work)",
+    "keywords": [
+        "census",
+        "congressional districts",
+        "boundaries",
+        "TIGER/Line",
+        "United States",
+        "119th Congress"
+    ],
+    "providers": [
+        {
+            "name": "US Census Bureau",
+            "roles": [
+                "producer",
+                "licensor"
+            ],
+            "url": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180,
+                    14,
+                    -64,
+                    72
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2024-01-01T00:00:00Z",
+                    "2024-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/cd/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/README-cd.md",
+            "type": "text/markdown"
+        },
+        {
+            "rel": "about",
+            "href": "https://www.census.gov/programs-surveys/geography/guidance/geo-areas/congressional-dist.html"
+        }
+    ],
+    "summaries": {
+        "formats": [
+            "geoparquet",
+            "pmtiles",
+            "h3-parquet"
+        ],
+        "feature_count": [
+            435
+        ]
+    },
+    "assets": {
+        "geoparquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/cd.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "GeoParquet file with all ~435 congressional district boundaries",
+            "roles": [
+                "data"
+            ]
+        },
+        "pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/cd.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "PMTiles for web mapping",
+            "roles": [
+                "visual"
+            ]
+        },
+        "h3-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/cd/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "H3 hex-indexed parquet files",
+            "roles": [
+                "data"
+            ]
+        }
+    },
+    "table:columns": [
+        {
+            "name": "_cng_fid",
+            "type": "int64",
+            "description": "Cloud-native geometry feature ID. Unique identifier for each congressional district."
+        },
+        {
+            "name": "STATEFP",
+            "type": "string",
+            "description": "State FIPS code (2 digits)."
+        },
+        {
+            "name": "CD119FP",
+            "type": "string",
+            "description": "119th Congressional District FIPS code (2 digits). '00' for at-large districts, '98' for delegate/resident commissioner."
+        },
+        {
+            "name": "GEOID",
+            "type": "string",
+            "description": "Geographic identifier (STATEFP + CD119FP, 4 digits total)."
+        },
+        {
+            "name": "GEOIDFQ",
+            "type": "string",
+            "description": "Fully qualified geographic identifier."
+        },
+        {
+            "name": "NAMELSAD",
+            "type": "string",
+            "description": "Full name with legal/statistical area description (e.g., 'Congressional District 1', 'Congressional District (at Large)')."
+        },
+        {
+            "name": "LSAD",
+            "type": "string",
+            "description": "Legal/Statistical Area Description code: C2=Congressional District, C3=Congressional District (at Large), LL=Congressional District (Delegate/Resident Commissioner)."
+        },
+        {
+            "name": "CDSESSN",
+            "type": "string",
+            "description": "Congressional session number (119 for 119th Congress, 2025-2027)."
+        },
+        {
+            "name": "MTFCC",
+            "type": "string",
+            "description": "MAF/TIGER Feature Class Code (G5200 for congressional district)."
+        },
+        {
+            "name": "FUNCSTAT",
+            "type": "string",
+            "description": "Functional status: N=Nonfunctioning legal entity (districts are for statistical purposes)."
+        },
+        {
+            "name": "ALAND",
+            "type": "int64",
+            "description": "Land area in square meters."
+        },
+        {
+            "name": "AWATER",
+            "type": "int64",
+            "description": "Water area in square meters."
+        },
+        {
+            "name": "INTPTLAT",
+            "type": "string",
+            "description": "Internal point latitude (decimal degrees)."
+        },
+        {
+            "name": "INTPTLON",
+            "type": "string",
+            "description": "Internal point longitude (decimal degrees)."
+        },
+        {
+            "name": "geom",
+            "type": "binary",
+            "description": "Geometry column (multipolygon) in WKB format, EPSG:4326."
+        },
+        {
+            "name": "bbox",
+            "type": "struct",
+            "description": "Bounding box (xmin, ymin, xmax, ymax)."
+        }
+    ]
+}
