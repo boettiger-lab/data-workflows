@@ -1,0 +1,514 @@
+{
+  "stac_version": "1.0.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+  ],
+  "type": "Collection",
+  "id": "calenviroscreen-5-0",
+  "title": "CalEnviroScreen 5.0 (Draft)",
+  "description": "Draft CalEnviroScreen 5.0 (released January 2026) is a cumulative environmental pollution and health vulnerability screening tool developed by California's Office of Environmental Health Hazard Assessment (OEHHA). It scores all 9,106 California census tracts (2020 geography) by combining 12 Pollution Burden indicators (exposure and environmental effects) with 9 Population Characteristics indicators (sensitive populations and socioeconomic factors). The CES Score = Pollution Burden Score × Population Characteristics Score. Version 5.0 adds two new indicators (Children's Lead Risk from Housing and Small Air Toxic Sites) and updates all existing indicators.",
+  "license": "other",
+  "extent": {
+    "spatial": {
+      "bbox": [
+        [
+          -124.48,
+          32.53,
+          -114.13,
+          42.01
+        ]
+      ]
+    },
+    "temporal": {
+      "interval": [
+        [
+          "2026-01-01T00:00:00Z",
+          null
+        ]
+      ]
+    }
+  },
+  "links": [
+    {
+      "rel": "self",
+      "href": "https://s3-west.nrp-nautilus.io/public-calenviroscreen/stac-collection.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "root",
+      "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "parent",
+      "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "describedby",
+      "href": "https://s3-west.nrp-nautilus.io/public-calenviroscreen/README.md",
+      "type": "text/markdown",
+      "title": "Data Documentation with Field Descriptions"
+    },
+    {
+      "rel": "describedby",
+      "href": "https://data.ca.gov/dataset/b38b4e2c-7ef0-47b3-bff0-29e0a80c8ed8/resource/428d0c6f-88cb-4209-bdd4-b1f44188cf01/download/draft-calenviroscreen-5.0-data-dictionary.pdf",
+      "type": "application/pdf",
+      "title": "Draft CalEnviroScreen 5.0 Data Dictionary (PDF)"
+    },
+    {
+      "rel": "via",
+      "href": "https://data.ca.gov/dataset/draft-calenviroscreen-5-0",
+      "type": "text/html",
+      "title": "California Open Data Portal — Draft CalEnviroScreen 5.0"
+    },
+    {
+      "rel": "via",
+      "href": "https://oehha.ca.gov/calenviroscreen/general-info/draft-calenviroscreen-50",
+      "type": "text/html",
+      "title": "OEHHA Draft CalEnviroScreen 5.0 Homepage"
+    }
+  ],
+  "providers": [
+    {
+      "name": "California Office of Environmental Health Hazard Assessment (OEHHA)",
+      "roles": [
+        "producer",
+        "licensor"
+      ],
+      "url": "https://oehha.ca.gov/calenviroscreen"
+    },
+    {
+      "name": "Boettiger Lab",
+      "roles": [
+        "processor",
+        "host"
+      ],
+      "url": "https://github.com/boettiger-lab"
+    }
+  ],
+  "summaries": {
+    "formats": [
+      "parquet",
+      "pmtiles",
+      "h3-parquet"
+    ],
+    "ces_score_range": [
+      0,
+      100
+    ],
+    "census_tracts": 9106,
+    "census_geography": "2020 Decennial Census tracts",
+    "population_data": "2023 5-year ACS estimates",
+    "spatial_coverage": "California (all census tracts)",
+    "h3_resolution": 10
+  },
+  "assets": {
+    "parquet": {
+      "href": "https://s3-west.nrp-nautilus.io/public-calenviroscreen/calenviroscreen-5-0/ces5.parquet",
+      "type": "application/x-parquet",
+      "title": "GeoParquet — CalEnviroScreen 5.0",
+      "description": "Census tract polygons (EPSG:4326) with all CES 5.0 indicators, scores, and demographic data",
+      "roles": [
+        "data"
+      ]
+    },
+    "pmtiles": {
+      "href": "https://s3-west.nrp-nautilus.io/public-calenviroscreen/calenviroscreen-5-0/ces5.pmtiles",
+      "type": "application/vnd.pmtiles",
+      "title": "PMTiles — CalEnviroScreen 5.0",
+      "description": "Vector tiles for web map visualization of CalEnviroScreen 5.0 results. MapLibre source-layer name: \"ces5\"",
+      "roles": [
+        "data",
+        "visual"
+      ]
+    },
+    "h3_parquet": {
+      "href": "https://s3-west.nrp-nautilus.io/public-calenviroscreen/calenviroscreen-5-0/ces5/hex/",
+      "type": "application/x-parquet",
+      "title": "H3 Hex Parquet — CalEnviroScreen 5.0",
+      "description": "H3 hexagon resolution 10 with parent resolutions 9, 8, 0 partitioned by h0 cell",
+      "roles": [
+        "data"
+      ]
+    },
+    "data_dictionary": {
+      "href": "https://data.ca.gov/dataset/b38b4e2c-7ef0-47b3-bff0-29e0a80c8ed8/resource/428d0c6f-88cb-4209-bdd4-b1f44188cf01/download/draft-calenviroscreen-5.0-data-dictionary.pdf",
+      "type": "application/pdf",
+      "title": "Data Dictionary (PDF)",
+      "roles": [
+        "metadata"
+      ]
+    },
+    "readme": {
+      "href": "https://s3-west.nrp-nautilus.io/public-calenviroscreen/README.md",
+      "type": "text/markdown",
+      "title": "README",
+      "roles": [
+        "metadata"
+      ]
+    }
+  },
+  "table:columns": [
+    {
+      "name": "_cng_fid",
+      "type": "int64",
+      "description": "Synthetic feature ID added during processing"
+    },
+    {
+      "name": "tract",
+      "type": "float64",
+      "description": "Census Tract ID from 2020 Decennial Census"
+    },
+    {
+      "name": "ZIP",
+      "type": "int32",
+      "description": "Postal ZIP code"
+    },
+    {
+      "name": "AppoxLoc",
+      "type": "string",
+      "description": "Approximate city or unincorporated area (reference only)"
+    },
+    {
+      "name": "county",
+      "type": "string",
+      "description": "California county"
+    },
+    {
+      "name": "region",
+      "type": "string",
+      "description": "California region"
+    },
+    {
+      "name": "Population",
+      "type": "float64",
+      "description": "2023 5-year ACS population estimate"
+    },
+    {
+      "name": "CIscore",
+      "type": "float64",
+      "description": "Draft CES 5.0 Score (Pollution Burden Score × Population Characteristics Score)"
+    },
+    {
+      "name": "CIscore_Pctl",
+      "type": "float64",
+      "description": "Percentile of the CES 5.0 Score (0–100)"
+    },
+    {
+      "name": "AirOzone",
+      "type": "float64",
+      "description": "Mean summer daily max 8-hour ozone concentration"
+    },
+    {
+      "name": "AirOzone_Pctl",
+      "type": "float64",
+      "description": "Ozone percentile"
+    },
+    {
+      "name": "AirPM25",
+      "type": "float64",
+      "description": "Annual mean PM2.5 concentration (µg/m³)"
+    },
+    {
+      "name": "AirPM25_Pctl",
+      "type": "float64",
+      "description": "PM2.5 percentile"
+    },
+    {
+      "name": "ChildLead",
+      "type": "float64",
+      "description": "Potential risk for lead exposure in children in low-income communities with older housing (new in v5.0)"
+    },
+    {
+      "name": "ChildLead_Pctl",
+      "type": "float64",
+      "description": "Children's Lead Risk from Housing percentile"
+    },
+    {
+      "name": "DieselPM",
+      "type": "float64",
+      "description": "Diesel PM emissions from on-road and non-road sources near populated blocks"
+    },
+    {
+      "name": "DieselPM_Pctl",
+      "type": "float64",
+      "description": "Diesel PM percentile"
+    },
+    {
+      "name": "DrinkingWater",
+      "type": "float64",
+      "description": "Drinking water contaminant index for selected contaminants"
+    },
+    {
+      "name": "DrinkingWater_Pctl",
+      "type": "float64",
+      "description": "Drinking Water Contaminants percentile"
+    },
+    {
+      "name": "Pesticides",
+      "type": "float64",
+      "description": "Total pounds of selected active pesticide ingredients per square mile"
+    },
+    {
+      "name": "Pesticides_Pctl",
+      "type": "float64",
+      "description": "Pesticide Use percentile"
+    },
+    {
+      "name": "ToxReleases",
+      "type": "float64",
+      "description": "Toxicity-weighted air concentrations from chemical releases by large facilities"
+    },
+    {
+      "name": "ToxReleases_Pctl",
+      "type": "float64",
+      "description": "Toxic Releases from Facilities percentile"
+    },
+    {
+      "name": "TrafficImp",
+      "type": "float64",
+      "description": "Traffic density in vehicle-km/hr per road length within 150m of census tract boundary"
+    },
+    {
+      "name": "TrafficImp_Pctl",
+      "type": "float64",
+      "description": "Traffic Impacts percentile"
+    },
+    {
+      "name": "CleanupSites",
+      "type": "float64",
+      "description": "Sum of weighted EnviroStor and NPL Superfund sites within buffered distances"
+    },
+    {
+      "name": "CleanupSites_Pctl",
+      "type": "float64",
+      "description": "Cleanup Sites percentile"
+    },
+    {
+      "name": "gwthreats",
+      "type": "float64",
+      "description": "Sum of weighted GeoTracker cleanup, UST, produced water pond, dairy/feedlot sites"
+    },
+    {
+      "name": "GWThreats_Pctl",
+      "type": "float64",
+      "description": "Groundwater Threats percentile"
+    },
+    {
+      "name": "HazWaste",
+      "type": "float64",
+      "description": "Sum of weighted hazardous waste facilities and large quantity generators"
+    },
+    {
+      "name": "HazWaste_Pctl",
+      "type": "float64",
+      "description": "Hazardous Waste percentile"
+    },
+    {
+      "name": "ImpWaters",
+      "type": "float64",
+      "description": "Sum of pollutants across impaired water bodies within buffered distances"
+    },
+    {
+      "name": "ImpWaters_Pctl",
+      "type": "float64",
+      "description": "Impaired Waters percentile"
+    },
+    {
+      "name": "SmAirToxSites",
+      "type": "float64",
+      "description": "Sum of CEIDARS emissions sites and oil/gas well sites within buffered distances (new in v5.0)"
+    },
+    {
+      "name": "SmAirToxSites_Pctl",
+      "type": "float64",
+      "description": "Small Air Toxic Sites percentile"
+    },
+    {
+      "name": "SolidWaste",
+      "type": "float64",
+      "description": "Sum of weighted solid waste sites (SWIS) within buffered distances"
+    },
+    {
+      "name": "SolidWaste_Pctl",
+      "type": "float64",
+      "description": "Solid Waste percentile"
+    },
+    {
+      "name": "Pollution",
+      "type": "float64",
+      "description": "Average of Pollution Burden percentiles (Environmental Effects weighted 0.5×)"
+    },
+    {
+      "name": "PollutionScore",
+      "type": "float64",
+      "description": "Pollution Burden scaled 0–10 (used to calculate CES Score)"
+    },
+    {
+      "name": "Pollution_Pctl",
+      "type": "float64",
+      "description": "Pollution Burden percentile"
+    },
+    {
+      "name": "asthma",
+      "type": "float64",
+      "description": "Age-adjusted rate of ED visits for asthma"
+    },
+    {
+      "name": "Asthma_Pctl",
+      "type": "float64",
+      "description": "Asthma percentile"
+    },
+    {
+      "name": "Cardiovascular",
+      "type": "float64",
+      "description": "Age-adjusted rate of ED visits for heart attacks per 10,000"
+    },
+    {
+      "name": "Cardiovascular_Pctl",
+      "type": "float64",
+      "description": "Cardiovascular Disease percentile"
+    },
+    {
+      "name": "DiabetesPrev",
+      "type": "float64",
+      "description": "Model-based prevalence of diabetes in adults ≥18"
+    },
+    {
+      "name": "DiabetesPrev_Pctl",
+      "type": "float64",
+      "description": "Diabetes Prevalence percentile"
+    },
+    {
+      "name": "LowBirthWeight",
+      "type": "float64",
+      "description": "Percent of infants weighing less than 2,500g"
+    },
+    {
+      "name": "LowBirthWeight_Pctl",
+      "type": "float64",
+      "description": "Low-Birth-Weight Infants percentile"
+    },
+    {
+      "name": "Education",
+      "type": "float64",
+      "description": "% of population over 25 with less than high school education"
+    },
+    {
+      "name": "Education_Pctl",
+      "type": "float64",
+      "description": "Educational Attainment percentile"
+    },
+    {
+      "name": "HousingBurden",
+      "type": "float64",
+      "description": "% of households that are low-income AND severely burdened by housing costs"
+    },
+    {
+      "name": "HousingBurden_Pctl",
+      "type": "float64",
+      "description": "Housing Burden percentile"
+    },
+    {
+      "name": "LinguisticIso",
+      "type": "float64",
+      "description": "% of households where no one over age 14 speaks English well"
+    },
+    {
+      "name": "LinguisticIso_Pctl",
+      "type": "float64",
+      "description": "Linguistic Isolation percentile"
+    },
+    {
+      "name": "Poverty",
+      "type": "float64",
+      "description": "% of people living below twice the federal poverty level"
+    },
+    {
+      "name": "Poverty_Pctl",
+      "type": "float64",
+      "description": "Poverty percentile"
+    },
+    {
+      "name": "Unemployment",
+      "type": "float64",
+      "description": "% of people aged 16+ who are unemployed and in the workforce"
+    },
+    {
+      "name": "Unemployment_Pctl",
+      "type": "float64",
+      "description": "Unemployment percentile"
+    },
+    {
+      "name": "PopChar",
+      "type": "float64",
+      "description": "Average of Population Characteristics percentiles"
+    },
+    {
+      "name": "PopCharScore",
+      "type": "float64",
+      "description": "Population Characteristics scaled 0–10 (used to calculate CES Score)"
+    },
+    {
+      "name": "PopChar_Pctl",
+      "type": "float64",
+      "description": "Population Characteristics percentile"
+    },
+    {
+      "name": "PopUnd_10",
+      "type": "float64",
+      "description": "% of population under 10 years old (2023 5-year ACS)"
+    },
+    {
+      "name": "Pop10_64",
+      "type": "float64",
+      "description": "% of population aged 10–64 (2023 5-year ACS)"
+    },
+    {
+      "name": "PopOver_65",
+      "type": "float64",
+      "description": "% of population 65 and older (2023 5-year ACS)"
+    },
+    {
+      "name": "White_Pct",
+      "type": "float64",
+      "description": "% non-Hispanic White"
+    },
+    {
+      "name": "Hispanic_Pct",
+      "type": "float64",
+      "description": "% Hispanic or Latino"
+    },
+    {
+      "name": "Black_Pct",
+      "type": "float64",
+      "description": "% non-Hispanic African American or Black"
+    },
+    {
+      "name": "NatAmeri_Pct",
+      "type": "float64",
+      "description": "% non-Hispanic Native American"
+    },
+    {
+      "name": "Asian_Pct",
+      "type": "float64",
+      "description": "% non-Hispanic Asian or Pacific Islander"
+    },
+    {
+      "name": "OtherMulti_Pct",
+      "type": "float64",
+      "description": "% non-Hispanic other or multiple races"
+    },
+    {
+      "name": "Shape",
+      "type": "geometry",
+      "description": "Census tract polygon geometry (EPSG:4326)"
+    },
+    {
+      "name": "bbox",
+      "type": "struct",
+      "description": "Bounding box (xmin, ymin, xmax, ymax)"
+    }
+  ]
+}
