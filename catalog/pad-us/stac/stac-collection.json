@@ -149,6 +149,7 @@
             "type": "application/vnd.pmtiles",
             "title": "PMTiles for web mapping",
             "description": "Pyramid of map tiles in PMTiles format. Supports zoom levels 0-14 for efficient web map rendering.",
+            "pmtiles:layer": "combined",
             "roles": [
                 "visual"
             ]

@@ -117,7 +117,8 @@
       "href": "https://s3-west.nrp-nautilus.io/public-calenviroscreen/calenviroscreen-5-0/ces5.pmtiles",
       "type": "application/vnd.pmtiles",
       "title": "PMTiles — CalEnviroScreen 5.0",
-      "description": "Vector tiles for web map visualization of CalEnviroScreen 5.0 results. MapLibre source-layer name: \"ces5\"",
+      "description": "Vector tiles for web map visualization of CalEnviroScreen 5.0 results.",
+      "pmtiles:layer": "ces5",
       "roles": [
         "data",
         "visual"

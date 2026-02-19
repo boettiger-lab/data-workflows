@@ -209,7 +209,7 @@ After processing completes, create:
 - A **DuckDB example** with the full public URL to the parquet file
 
 **REQUIRED in every stac-collection.json:**
-- The PMTiles asset description MUST include `source-layer: "<name>"` so users know the layer name without inspecting the file
+- The PMTiles asset MUST include a `"pmtiles:layer": "<name>"` field (a direct structured property, not buried in the description text) so clients can discover the layer name programmatically
 - A `table:columns` array documenting all columns
 
 Upload to the bucket:
