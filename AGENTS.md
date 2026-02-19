@@ -153,6 +153,18 @@ cng-datasets workflow --dataset mydata/easement --layer EasementLayer ...
 
 The `/` in `--dataset` creates hierarchical S3 paths while using `-` in k8s job names.
 
+#### How `--dataset` controls naming
+
+The `--dataset` flag determines multiple output names. The **last path segment** is particularly important:
+
+| `--dataset` value | S3 path prefix | PMTiles `source-layer` | k8s job prefix |
+|---|---|---|---|
+| `calenviroscreen-5-0/ces5` | `calenviroscreen-5-0/ces5` | `ces5` | `calenviroscreen-5-0-ces5` |
+| `padus-4-1/fee` | `padus-4-1/fee` | `fee` | `padus-4-1-fee` |
+| `census-2024/tract` | `census-2024/tract` | `tract` | `census-2024-tract` |
+
+**The PMTiles `source-layer` name = the last segment of `--dataset`.** This is what MapLibre needs in `"source-layer"` to render the tiles. It does NOT come from the GDB/source layer name — it comes from your `--dataset` choice.
+
 ### Step 3: Apply to the cluster
 
 **One-time RBAC setup** (only needed once per cluster/namespace, likely already done):
@@ -190,6 +202,15 @@ A complete run for a ~300K feature dataset typically takes 1-2 hours.
 After processing completes, create:
 - `catalog/<dataset>/stac/README.md` — data dictionary, usage examples, citation
 - `catalog/<dataset>/stac/stac-collection.json` — STAC metadata
+
+**REQUIRED in every README.md:**
+- A **MapLibre GL JS example** with the correct `source-layer` name (= last segment of `--dataset`)
+- The `source-layer` name documented prominently, not buried
+- A **DuckDB example** with the full public URL to the parquet file
+
+**REQUIRED in every stac-collection.json:**
+- Any vector asset with named layers (PMTiles, GDB, GPKG, etc.) MUST include a `"vector:layers": ["<name>"]` array field. This is format-agnostic — the same field works for PMTiles, GeoDatabase, GeoPackage, etc. For PMTiles, the layer name = last segment of `--dataset`.
+- A `table:columns` array documenting all columns
 
 Upload to the bucket:
 ```bash
@@ -278,6 +299,9 @@ kubectl logs job/<name>-convert
 Regenerate with `--hex-memory 64Gi` or `--max-completions 200`, delete failed job, reapply.
 
 **S3 throttling (503 SlowDown):** Transient. Wait a few minutes and retry.
+
+**PMTiles renders blank in MapLibre → wrong `source-layer` name:**
+The `source-layer` is the last path segment of the `--dataset` flag, NOT the GDB/source layer name. For `--dataset padus-4-1/fee`, the source-layer is `fee` (not `PADUS4_1Fee`). Never guess — derive it from `--dataset`.
 
 **Workflow stuck → check what step it's on:**
 ```bash

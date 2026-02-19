@@ -1,0 +1,73 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: calenviroscreen-5-0-preprocess
+  namespace: biodiversity
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        resources:
+          requests:
+            memory: "16Gi"
+            cpu: "4"
+          limits:
+            memory: "16Gi"
+            cpu: "4"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          
+          SOURCE_URL="https://data.ca.gov/dataset/b38b4e2c-7ef0-47b3-bff0-29e0a80c8ed8/resource/85639252-b28f-41ce-a8b2-0f03e4484fa6/download/calenviroscreen50_d_12226.gdb.zip"
+          OUTPUT="s3://public-calenviroscreen/calenviroscreen-5-0/ces5.parquet"
+          
+          echo "Downloading CalEnviroScreen 5.0 from data.ca.gov..."
+          mkdir -p /tmp/ces && cd /tmp/ces
+          curl -L -o calenviroscreen.gdb.zip "$SOURCE_URL"
+          
+          echo "Unzipping..."
+          unzip -q calenviroscreen.gdb.zip
+          
+          echo "Contents after unzip:"
+          ls -la
+          
+          echo "Converting CES5_Draft layer to GeoParquet..."
+          cng-convert-to-parquet \
+            /tmp/ces/calenviroscreen50_D_12226.gdb \
+            "$OUTPUT" \
+            --layer CES5_Draft \
+            --compression ZSTD \
+            --compression-level 15 \
+            --row-group-size 100000
+          
+          echo "✓ Complete"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

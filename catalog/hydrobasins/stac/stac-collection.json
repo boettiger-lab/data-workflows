@@ -170,7 +170,9 @@
                 "visual"
             ],
             "description": "Level 6 basins for visualization",
-            "pmtiles:layer": "hydrobasins_level_06"
+            "vector:layers": [
+                "hydrobasins_level_06"
+            ]
         },
         "level-01-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_01.parquet",
