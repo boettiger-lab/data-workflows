@@ -1,0 +1,167 @@
+# Auto-generated ConfigMap for raster workflow
+# Generation command: cng-datasets raster-workflow --dataset irrecoverable-carbon-2024 --source-url s3://public-carbon/v2/cogs/irrecoverable_c_total_2024.tif --bucket public-carbon --h3-resolution 8 --parent-resolutions "0"
+apiVersion: v1
+data:
+  irrecoverable-carbon-2024-hex.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: irrecoverable-carbon-2024-hex
+      labels:
+        k8s-app: irrecoverable-carbon-2024-hex
+    spec:
+      completions: 122
+      parallelism: 50
+      completionMode: Indexed
+      backoffLimit: 0
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - type: DisruptionTarget
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: irrecoverable-carbon-2024-hex
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: hex-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: GDAL_DATA
+              value: /usr/share/gdal
+            - name: PROJ_LIB
+              value: /usr/local/share/proj
+            - name: PYTHONPATH
+              value: /usr/lib/python3/dist-packages
+            - name: BUCKET
+              value: public-carbon
+            command:
+            - bash
+            - -c
+            - |-
+              set -e
+              cng-datasets raster --input "s3://public-carbon/v2/cogs/irrecoverable_c_total_2024.tif" --output-parquet s3://public-carbon/irrecoverable-carbon-2024/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 --value-column carbon
+            resources:
+              requests:
+                cpu: '4'
+                memory: 32Gi
+                ephemeral-storage: 250Gi
+              limits:
+                cpu: '4'
+                memory: 32Gi
+  irrecoverable-carbon-2024-setup-bucket.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: irrecoverable-carbon-2024-setup-bucket
+      labels:
+        k8s-app: irrecoverable-carbon-2024-setup-bucket
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: irrecoverable-carbon-2024-setup-bucket
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: setup-bucket-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-carbon
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              echo "Setting up bucket with public access and CORS..."
+              cng-datasets storage setup-bucket \
+                --bucket "${BUCKET}" \
+                --remote nrp \
+                --verify
+
+              echo "Bucket setup complete!"
+            resources:
+              requests:
+                cpu: '1'
+                memory: 2Gi
+              limits:
+                cpu: '1'
+                memory: 2Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+kind: ConfigMap
+metadata:
+  name: irrecoverable-carbon-2024-yamls
+  namespace: biodiversity

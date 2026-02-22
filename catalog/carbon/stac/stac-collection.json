@@ -5,9 +5,9 @@
     ],
     "type": "Collection",
     "id": "irrecoverable-carbon",
-    "title": "Irrecoverable Earth: Carbon Reserves",
-    "description": "Global carbon storage data mapping 'irrecoverable carbon' (carbon stocks that, if lost, cannot be recovered by 2050), 'manageable carbon' (stocks that can be influenced by human management), and 'vulnerable carbon' (total stocks vulnerable to release upon land conversion). Data derived from Noon et al. (2022). Available as Cloud-Optimized GeoTIFFs (2010/2018) for biomass, soil, and total carbon, plus H3 Hexagonal Tilings (Resolution 8).",
-    "license": "proprietary",
+    "title": "Irrecoverable Earth: Carbon Reserves (v1 2021 + v2 2025)",
+    "description": "Global carbon storage data mapping irrecoverable carbon (stocks that, if lost, cannot be recovered by 2050), manageable carbon, and vulnerable carbon. Contains two releases: v1 (2021, Zenodo 4091029) with biomass/soil/total for 2010 and 2018, and v2 (2025 update, Zenodo 17645053) with corrected total-only layers for 2010, 2018, 2022, 2023, and 2024. Derived from Noon et al. (2022). Global ~300m rasters available as Cloud-Optimized GeoTIFFs and H3 hexagonal parquet (resolution 8).",
+    "license": "CC-BY-NC-4.0",
     "keywords": [
         "carbon",
         "irrecoverable carbon",
@@ -33,7 +33,7 @@
             "interval": [
                 [
                     "2010-01-01T00:00:00Z",
-                    "2018-12-31T23:59:59Z"
+                    "2024-12-31T23:59:59Z"
                 ]
             ]
         }
@@ -73,7 +73,12 @@
         {
             "rel": "derived_from",
             "href": "https://doi.org/10.5281/zenodo.4091029",
-            "title": "Original Data - Zenodo"
+            "title": "v1 Source Data - Zenodo 4091029"
+        },
+        {
+            "rel": "derived_from",
+            "href": "https://doi.org/10.5281/zenodo.17645053",
+            "title": "v2 Source Data (2025 update) - Zenodo 17645053"
         }
     ],
     "providers": [
@@ -99,26 +104,42 @@
             "h3-parquet"
         ],
         "carbon_types": [
+            "irrecoverable_total",
+            "manageable_total",
+            "vulnerable_total",
             "irrecoverable_biomass",
             "irrecoverable_soil",
-            "irrecoverable_total",
             "manageable_biomass",
             "manageable_soil",
-            "manageable_total",
             "vulnerable_biomass",
-            "vulnerable_soil",
-            "vulnerable_total"
+            "vulnerable_soil"
         ],
         "years": [
             2010,
-            2018
-        ]
+            2018,
+            2022,
+            2023,
+            2024
+        ],
+        "versions": {
+            "v1": {
+                "description": "2021 release (Zenodo 4091029). Biomass, soil, and total components for 2010 and 2018.",
+                "years": [2010, 2018],
+                "components": ["biomass", "soil", "total"]
+            },
+            "v2": {
+                "description": "2025 update (Zenodo 17645053). Total only. Corrected 2018 baseline + new 2022, 2023, 2024 years.",
+                "years_irrecoverable": [2010, 2018, 2022, 2023, 2024],
+                "years_vulnerable_manageable": [2010, 2018, 2024],
+                "components": ["total"]
+            }
+        }
     },
     "table:columns": [
         {
             "name": "carbon",
             "type": "number",
-            "description": "Total carbon stock in the hex cell (Mg C). Float for Irrecoverable Carbon, Integer for Vulnerable Carbon."
+            "description": "Total carbon stock in the hex cell (Mg C, float)."
         },
         {
             "name": "h8",
@@ -132,167 +153,259 @@
         }
     ],
     "assets": {
-        "irrecoverable-carbon-hex": {
+        "v2-irrecoverable-2024-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/irrecoverable-carbon-2024/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Irrecoverable Carbon 2024 - H3 Hexagonal Tiling (res 8)",
+            "roles": ["data"],
+            "description": "H3 resolution 8, partitioned by h0. From 2025 update (Zenodo 17645053)."
+        },
+        "v2-irrecoverable-2023-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/irrecoverable-carbon-2023/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Irrecoverable Carbon 2023 - H3 Hexagonal Tiling (res 8)",
+            "roles": ["data"]
+        },
+        "v2-irrecoverable-2022-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/irrecoverable-carbon-2022/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Irrecoverable Carbon 2022 - H3 Hexagonal Tiling (res 8)",
+            "roles": ["data"]
+        },
+        "v2-irrecoverable-2018-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/irrecoverable-carbon-2018/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Irrecoverable Carbon 2018 - H3 Hexagonal Tiling (res 8, corrected baseline)",
+            "roles": ["data"]
+        },
+        "v2-irrecoverable-2010-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/irrecoverable-carbon-2010/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Irrecoverable Carbon 2010 - H3 Hexagonal Tiling (res 8, corrected)",
+            "roles": ["data"]
+        },
+        "v2-vulnerable-2024-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/vulnerable-carbon-2024/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Vulnerable Carbon 2024 - H3 Hexagonal Tiling (res 8)",
+            "roles": ["data"]
+        },
+        "v2-vulnerable-2018-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/vulnerable-carbon-2018/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Vulnerable Carbon 2018 - H3 Hexagonal Tiling (res 8)",
+            "roles": ["data"]
+        },
+        "v2-vulnerable-2010-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/vulnerable-carbon-2010/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Vulnerable Carbon 2010 - H3 Hexagonal Tiling (res 8)",
+            "roles": ["data"]
+        },
+        "v2-manageable-2024-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/manageable-carbon-2024/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Manageable Carbon 2024 - H3 Hexagonal Tiling (res 8)",
+            "roles": ["data"]
+        },
+        "v2-manageable-2018-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/manageable-carbon-2018/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Manageable Carbon 2018 - H3 Hexagonal Tiling (res 8)",
+            "roles": ["data"]
+        },
+        "v2-manageable-2010-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/manageable-carbon-2010/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "v2: Manageable Carbon 2010 - H3 Hexagonal Tiling (res 8)",
+            "roles": ["data"]
+        },
+        "v2-irrecoverable-2024-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/irrecoverable_c_total_2024.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Irrecoverable Carbon Total 2024 COG",
+            "roles": ["data"]
+        },
+        "v2-irrecoverable-2023-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/irrecoverable_c_total_2023.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Irrecoverable Carbon Total 2023 COG",
+            "roles": ["data"]
+        },
+        "v2-irrecoverable-2022-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/irrecoverable_c_total_2022.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Irrecoverable Carbon Total 2022 COG",
+            "roles": ["data"]
+        },
+        "v2-irrecoverable-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/irrecoverable_c_total_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Irrecoverable Carbon Total 2018 COG (corrected baseline)",
+            "roles": ["data"]
+        },
+        "v2-irrecoverable-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/irrecoverable_c_total_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Irrecoverable Carbon Total 2010 COG (corrected)",
+            "roles": ["data"]
+        },
+        "v2-vulnerable-2024-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/vulnerable_c_total_2024.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Vulnerable Carbon Total 2024 COG",
+            "roles": ["data"]
+        },
+        "v2-vulnerable-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/vulnerable_c_total_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Vulnerable Carbon Total 2018 COG",
+            "roles": ["data"]
+        },
+        "v2-vulnerable-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/vulnerable_c_total_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Vulnerable Carbon Total 2010 COG",
+            "roles": ["data"]
+        },
+        "v2-manageable-2024-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/manageable_c_total_2024.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Manageable Carbon Total 2024 COG",
+            "roles": ["data"]
+        },
+        "v2-manageable-2018-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/manageable_c_total_2018.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Manageable Carbon Total 2018 COG",
+            "roles": ["data"]
+        },
+        "v2-manageable-2010-cog": {
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/v2/cogs/manageable_c_total_2010.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": "v2: Manageable Carbon Total 2010 COG",
+            "roles": ["data"]
+        },
+        "v1-irrecoverable-carbon-hex": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/irrecoverable-carbon/hex//",
             "type": "application/vnd.apache.parquet",
-            "title": "Irrecoverable Carbon (Total) - H3 Hexagonal Tiling",
-            "roles": [
-                "data"
-            ],
-            "description": "Partitioned by H3 level 0 cell (h0). Path contains double slash due to key naming."
+            "title": "v1: Irrecoverable Carbon (Total 2018) - H3 Hexagonal Tiling",
+            "roles": ["data"],
+            "description": "v1 original data. Path contains double slash due to key naming."
         },
-        "vulnerable-carbon-hex": {
+        "v1-vulnerable-carbon-hex": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/vulnerable-carbon/hex/",
             "type": "application/vnd.apache.parquet",
-            "title": "Vulnerable Carbon (Total) - H3 Hexagonal Tiling",
-            "roles": [
-                "data"
-            ],
-            "description": "Partitioned by H3 level 0 cell (h0)"
+            "title": "v1: Vulnerable Carbon (Total 2018) - H3 Hexagonal Tiling",
+            "roles": ["data"]
         },
-        "irrecoverable-biomass-2010-cog": {
+        "v1-irrecoverable-biomass-2010-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_biomass_2010.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Irrecoverable Carbon - Biomass 2010",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Irrecoverable Carbon Biomass 2010",
+            "roles": ["data"]
         },
-        "irrecoverable-biomass-2018-cog": {
+        "v1-irrecoverable-biomass-2018-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_biomass_2018.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Irrecoverable Carbon - Biomass 2018",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Irrecoverable Carbon Biomass 2018",
+            "roles": ["data"]
         },
-        "irrecoverable-soil-2010-cog": {
+        "v1-irrecoverable-soil-2010-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_soil_2010.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Irrecoverable Carbon - Soil 2010",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Irrecoverable Carbon Soil 2010",
+            "roles": ["data"]
         },
-        "irrecoverable-soil-2018-cog": {
+        "v1-irrecoverable-soil-2018-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_soil_2018.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Irrecoverable Carbon - Soil 2018",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Irrecoverable Carbon Soil 2018",
+            "roles": ["data"]
         },
-        "irrecoverable-total-2010-cog": {
+        "v1-irrecoverable-total-2010-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_total_2010.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Irrecoverable Carbon - Total 2010",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Irrecoverable Carbon Total 2010",
+            "roles": ["data"]
         },
-        "irrecoverable-total-2018-cog": {
+        "v1-irrecoverable-total-2018-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_total_2018.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Irrecoverable Carbon - Total 2018",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Irrecoverable Carbon Total 2018",
+            "roles": ["data"]
         },
-        "manageable-biomass-2010-cog": {
+        "v1-manageable-biomass-2010-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_biomass_2010.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Manageable Carbon - Biomass 2010",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Manageable Carbon Biomass 2010",
+            "roles": ["data"]
         },
-        "manageable-biomass-2018-cog": {
+        "v1-manageable-biomass-2018-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_biomass_2018.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Manageable Carbon - Biomass 2018",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Manageable Carbon Biomass 2018",
+            "roles": ["data"]
         },
-        "manageable-soil-2010-cog": {
+        "v1-manageable-soil-2010-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_soil_2010.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Manageable Carbon - Soil 2010",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Manageable Carbon Soil 2010",
+            "roles": ["data"]
         },
-        "manageable-soil-2018-cog": {
+        "v1-manageable-soil-2018-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_soil_2018.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Manageable Carbon - Soil 2018",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Manageable Carbon Soil 2018",
+            "roles": ["data"]
         },
-        "manageable-total-2010-cog": {
+        "v1-manageable-total-2010-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_total_2010.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Manageable Carbon - Total 2010",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Manageable Carbon Total 2010",
+            "roles": ["data"]
         },
-        "manageable-total-2018-cog": {
+        "v1-manageable-total-2018-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/manageable_c_total_2018.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Manageable Carbon - Total 2018",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Manageable Carbon Total 2018",
+            "roles": ["data"]
         },
-        "vulnerable-biomass-2010-cog": {
+        "v1-vulnerable-biomass-2010-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_biomass_2010.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Vulnerable Carbon - Biomass 2010",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Vulnerable Carbon Biomass 2010",
+            "roles": ["data"]
         },
-        "vulnerable-biomass-2018-cog": {
+        "v1-vulnerable-biomass-2018-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_biomass_2018.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Vulnerable Carbon - Biomass 2018",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Vulnerable Carbon Biomass 2018",
+            "roles": ["data"]
         },
-        "vulnerable-soil-2010-cog": {
+        "v1-vulnerable-soil-2010-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_soil_2010.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Vulnerable Carbon - Soil 2010",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Vulnerable Carbon Soil 2010",
+            "roles": ["data"]
         },
-        "vulnerable-soil-2018-cog": {
+        "v1-vulnerable-soil-2018-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_soil_2018.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Vulnerable Carbon - Soil 2018",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Vulnerable Carbon Soil 2018",
+            "roles": ["data"]
         },
-        "vulnerable-total-2010-cog": {
+        "v1-vulnerable-total-2010-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_total_2010.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Vulnerable Carbon - Total 2010",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Vulnerable Carbon Total 2010",
+            "roles": ["data"]
         },
-        "vulnerable-total-2018-cog": {
+        "v1-vulnerable-total-2018-cog": {
             "href": "https://s3-west.nrp-nautilus.io/public-carbon/cogs/vulnerable_c_total_2018.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-            "title": "Vulnerable Carbon - Total 2018",
-            "roles": [
-                "data"
-            ]
+            "title": "v1: Vulnerable Carbon Total 2018",
+            "roles": ["data"]
         }
     }
 }

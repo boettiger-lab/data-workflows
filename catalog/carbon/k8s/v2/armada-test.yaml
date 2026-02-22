@@ -1,0 +1,49 @@
+queue: biodiversity
+jobSetId: carbon-armada-test
+jobs:
+  - namespace: biodiversity
+    priorityClassName: armada-preemptible
+    podSpec:
+      terminationGracePeriodSeconds: 0
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: PROJ_LIB
+          value: /usr/local/share/proj
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "Armada test job started at $(date)"
+          echo "Testing S3 access..."
+          rclone ls nrp:public-carbon/v2/cogs/ --max-depth 1 | head -5
+          echo "Testing cng-datasets availability..."
+          cng-datasets --version || echo "cng-datasets installed"
+          echo "Test complete at $(date)"
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

@@ -223,28 +223,26 @@ This document tracks the completion status of datasets in the boettiger-lab/data
 ## ⚠️ Partially Complete Datasets
 
 ### Carbon (Irrecoverable/Manageable)
-- **Status:** ⚠️ Partial (Inconsistent Structure)
+- **Status:** ⏳ v2 Processing (k8s job running)
 - **Type:** Raster
 - **Bucket:** `public-carbon`
 - **Encoding:** STRING (VARCHAR)
 
-**Available:**
-- ✅ COG (18 files in `cogs/`)
-  - irrecoverable_c (biomass, soil, total) x 2 years
-  - manageable_c (biomass, soil, total) x 2 years
-  - vulnerable_c (biomass, soil, total) x 2 years
-- ✅ H3 Hexagons for `vulnerable-carbon` (h3-h8, STRING, partitioned)
-- ✅ H3 Flat files (3 US-specific h8 parquet files)
+**v1 Available (Zenodo 4091029):**
+- ✅ COG (18 files in `cogs/`): irrecoverable/manageable/vulnerable × biomass/soil/total × 2010/2018
+- ✅ H3 Hexagons for `irrecoverable-carbon` and `vulnerable-carbon` (2018 total only)
+
+**v2 In Progress (Zenodo 17645053 — 2025 update):**
+- ⏳ COG: 11 files downloading/converting to `v2/cogs/` (job: `carbon-v2-preprocess-cogs`)
+- ⏳ H3 Hexagons: 11 datasets × h8 STRING — to run after preprocessing via `catalog/carbon/k8s/v2/apply-hex-workflows.sh`
+  - irrecoverable-carbon: 2010, 2018, 2022, 2023, 2024 (5 years)
+  - vulnerable-carbon: 2010, 2018, 2024 (3 years)
+  - manageable-carbon: 2010, 2018, 2024 (3 years)
 
 **Documentation:**
-- ✅ README.md (Detailed Methodology)
-- ✅ STAC Collection
+- ✅ README.md (Updated — v1 + v2)
+- ✅ STAC Collection (Updated — 42 assets, temporal 2010–2024)
 - ✅ Layer Descriptions
-
-**Issues:**
-- Missing partitioned hex for irrecoverable and manageable carbon
-- Mixed organization (partitioned vs flat hex files)
-- Inconsistent hex coverage across sub-datasets
 
 ---
 
@@ -312,10 +310,18 @@ This document tracks the completion status of datasets in the boettiger-lab/data
 
 ## Major Updates Needed
 
-- [ ] **Carbon:** 
-  - Create partitioned hex for irrecoverable and manageable carbon
-  - Standardize organization (all in `hex/` with sub-datasets)
-  - Update to 2025 release (https://zenodo.org/records/17645053)
+- [x] **Carbon v2 (2025 update):** Zenodo 17645053
+  - **Status:** k8s preprocess job running (`carbon-v2-preprocess-cogs`, 11 completions, 4 parallel)
+  - Downloads 11 TIFs from Zenodo → converts to COG → uploads to `public-carbon/v2/cogs/`
+  - After preprocessing: run `catalog/carbon/k8s/v2/apply-hex-workflows.sh` to submit 11 hex jobs
+  - **New datasets (v2 years):** irrecoverable: 2010, 2018, 2022, 2023, 2024; vulnerable + manageable: 2010, 2018, 2024
+  - **Hex paths:** `irrecoverable-carbon-{year}/hex/`, `vulnerable-carbon-{year}/hex/`, `manageable-carbon-{year}/hex/`
+  - **COG paths:** `v2/cogs/{type}_c_total_{year}.tif`
+  - ✅ README.md updated (v1 + v2 documented)
+  - ✅ stac-collection.json updated (42 assets, temporal extent → 2024, both Zenodo DOIs)
+  - ✅ README + STAC uploaded to `public-carbon/`
+  - ⏳ Waiting: COG preprocessing (download ~40GB + gdal_translate)
+  - ⏳ Then: apply 11 hex tiling workflows
   
 - [ ] **NWI (Wetlands):**
   - Create parquet and pmtiles files
