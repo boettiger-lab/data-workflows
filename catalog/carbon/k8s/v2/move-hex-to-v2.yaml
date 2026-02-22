@@ -1,0 +1,92 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: carbon-v2-move-hex-2
+  namespace: biodiversity
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 172800
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      containers:
+      - name: move
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          ENDPOINT="http://rook-ceph-rgw-nautiluss3.rook"
+          BUCKET="public-carbon"
+          DATASETS=(
+            irrecoverable-carbon-2024
+            irrecoverable-carbon-2023
+            irrecoverable-carbon-2022
+            irrecoverable-carbon-2018
+            vulnerable-carbon-2024
+            vulnerable-carbon-2018
+            vulnerable-carbon-2010
+            manageable-carbon-2024
+            manageable-carbon-2018
+            manageable-carbon-2010
+          )
+
+          for dataset in "${DATASETS[@]}"; do
+            echo "=== Moving ${dataset} ==="
+            # List all objects under this dataset prefix (handles double-slash keys)
+            aws s3api list-objects \
+              --endpoint-url "${ENDPOINT}" \
+              --bucket "${BUCKET}" \
+              --prefix "${dataset}/" \
+              --query 'Contents[].Key' \
+              --output text | tr '\t' '\n' | while read key; do
+                newkey="v2/${key}"
+                echo "  ${key} -> ${newkey}"
+                aws s3 cp \
+                  --endpoint-url "${ENDPOINT}" \
+                  "s3://${BUCKET}/${key}" \
+                  "s3://${BUCKET}/${newkey}"
+                aws s3 rm \
+                  --endpoint-url "${ENDPOINT}" \
+                  "s3://${BUCKET}/${key}"
+            done
+            echo "  Done: ${dataset}"
+          done
+
+          echo ""
+          echo "=== All moves complete. Verifying ==="
+          for dataset in "${DATASETS[@]}"; do
+            count=$(aws s3api list-objects --endpoint-url "${ENDPOINT}" --bucket "${BUCKET}" --prefix "v2/${dataset}/" --query 'length(Contents)' --output text 2>/dev/null || echo 0)
+            echo "  v2/${dataset}/: ${count} objects"
+          done

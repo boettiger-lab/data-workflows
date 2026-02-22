@@ -112,6 +112,23 @@ command: [bash, -c, |
 ]
 ```
 
+#### Step 1b: Copy raw source files to S3 /raw/ BEFORE any conversion
+
+**Always upload the original source files to `s3://<bucket>/raw/` as the very first k8s job**, before running any gdal/conversion steps. Reasons:
+- Downloads from external providers (Zenodo, Census, etc.) are slow and rate-limited; if a later conversion job fails you can restart from S3 rather than re-downloading
+- Conversion jobs (gdal, parquet) have a much higher failure rate than simple download+upload jobs
+- The raw data is archived for reproducibility
+
+```yaml
+# Example: minimal raw-upload job
+command: [bash, -c, |
+  curl -L --retry 5 -o /tmp/data.zip "$SOURCE_URL"
+  rclone copy /tmp/data.zip nrp:<bucket>/raw/
+]
+```
+
+Once raw files are in S3, subsequent conversion jobs should read from `s3://<bucket>/raw/<file>` (or `/vsicurl/https://s3-west.nrp-nautilus.io/<bucket>/raw/<file>` for GDAL), not from the original provider URL.
+
 #### Check S3 uploads
 
 If data is already uploaded to S3:
@@ -252,8 +269,30 @@ The hex generation step creates millions of H3 cells that must be unnested in me
 | `--h3-resolution` | 10 | Lower (8, 6) for coarser data OR to reduce hex count for very large areas |
 | `--hex-memory` | 8Gi | Increase to 16-64Gi based on spatial area per chunk, not feature count |
 | `--max-completions` | 200 | Keep at 200 for any US-scale dataset (states, counties, tracts) |
-| `--max-parallelism` | 50 | Reduce if cluster is already busy |
+| `--max-parallelism` | 50 | **See namespace pod quota note below** |
 | `--parent-resolutions` | "9,8,0" | Almost never change this |
+
+### Namespace Pod Quota — CRITICAL
+
+**The `biodiversity` namespace has a hard limit of 200 pods total, shared across ALL jobs running simultaneously.**
+
+With `--max-parallelism 50`, a single hex job can consume up to 50 pods. Running multiple hex workflows at the same time will rapidly exhaust the quota, causing pods to fail with:
+```
+pods "...-hex-60-..." is forbidden: exceeded quota: reached-quota,
+requested: pods=1, used: pods=200, limited: pods=200
+```
+
+**Rule: Never submit more than one hex workflow at a time.** Run them sequentially:
+```bash
+# Submit one, wait for it to fully complete, then submit the next
+for dataset in dataset-a dataset-b dataset-c; do
+  kubectl apply -f catalog/.../k8s/${dataset}/configmap.yaml \
+                -f catalog/.../k8s/${dataset}/workflow.yaml
+  kubectl wait job/${dataset}-workflow --for=condition=complete --timeout=7200s
+done
+```
+
+For a large batch of datasets, use a sequential background script rather than `apply-hex-workflows.sh` (which submits all at once).
 | `--intermediate-chunk-size` | auto | Decrease if hex pods OOM during unnest step |
 
 ## S3 Bucket Layout
@@ -307,6 +346,15 @@ The `source-layer` is the last path segment of the `--dataset` flag, NOT the GDB
 ```bash
 kubectl logs job/<name>-workflow
 kubectl get jobs | grep <name>
+```
+
+**Hex pods failing with `exceeded quota: reached-quota` → namespace pod limit hit:**
+The `biodiversity` namespace allows max 200 pods. Running multiple hex workflows simultaneously exhausts this. Fix:
+1. Delete all running hex jobs and their workflow orchestrators
+2. Rerun sequentially — one workflow at a time, waiting for each to complete before starting the next
+```bash
+kubectl get jobs | grep -E 'dataset-a|dataset-b' | awk '{print $1}' | xargs kubectl delete job
+# Then resubmit one at a time (see Namespace Pod Quota section)
 ```
 
 ### Reprocessing Failed Chunks

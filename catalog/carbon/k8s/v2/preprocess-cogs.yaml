@@ -1,0 +1,143 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: carbon-v2-preprocess-cogs
+  namespace: biodiversity
+spec:
+  completions: 11
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PROJ_LIB
+          value: /usr/share/proj
+        - name: PROJ_DATA
+          value: /usr/share/proj
+        - name: GDAL_CACHEMAX
+          value: "4096"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 100Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 100Gi
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+
+          # Map index to (zip_filename, output_stem)
+          ZIPS=(
+            "01_Irrecoverable_Carbon_Total_v1a_2024.zip:irrecoverable_c_total_2024"
+            "02_Vulnerable_Carbon_Total_v1a_300m_2024.zip:vulnerable_c_total_2024"
+            "03_Manageable_Carbon_Total_v1a_300m_2024.zip:manageable_c_total_2024"
+            "04_Irrecoverable_Carbon_Total_v1a_300m_2023.zip:irrecoverable_c_total_2023"
+            "05_Irrecoverable_Carbon_Total_v1a_300m_2022.zip:irrecoverable_c_total_2022"
+            "06_Irrecoverable_Carbon_Total_v1a_300m_2018.zip:irrecoverable_c_total_2018"
+            "07_Vulnerable_Carbon_Total_v1a_300m_2018.zip:vulnerable_c_total_2018"
+            "08_Manageable_Carbon_Total_v1a_300m_2018.zip:manageable_c_total_2018"
+            "09_Irrecoverable_Carbon_Total_v1a_300m_2010.zip:irrecoverable_c_total_2010"
+            "10_Vulnerable_Carbon_Total_v1a_300m_2010.zip:vulnerable_c_total_2010"
+            "11_Manageable_Carbon_Total_v1a_300m_2010.zip:manageable_c_total_2010"
+          )
+
+          ENTRY="${ZIPS[$JOB_COMPLETION_INDEX]}"
+          ZIP_NAME="${ENTRY%%:*}"
+          OUTPUT_STEM="${ENTRY##*:}"
+
+          ZENODO_URL="https://zenodo.org/records/17645053/files/${ZIP_NAME}?download=1"
+          WORKDIR="/tmp/carbon_${JOB_COMPLETION_INDEX}"
+          mkdir -p "${WORKDIR}"
+          cd "${WORKDIR}"
+
+          echo "=== Processing index ${JOB_COMPLETION_INDEX}: ${ZIP_NAME} ==="
+          echo "Output stem: ${OUTPUT_STEM}"
+          echo "Downloading from Zenodo..."
+          curl -L --retry 5 --retry-delay 10 -o "${ZIP_NAME}" "${ZENODO_URL}"
+          echo "Download complete: $(du -h ${ZIP_NAME})"
+
+          echo "Unzipping..."
+          unzip -q "${ZIP_NAME}"
+          rm "${ZIP_NAME}"
+
+          # Find the extracted TIF (may be nested in a subdirectory)
+          INPUT_TIF=$(find "${WORKDIR}" -name "*.tif" | head -1)
+          if [ -z "${INPUT_TIF}" ]; then
+            echo "ERROR: No .tif found after unzip!"
+            find "${WORKDIR}" -type f | head -20
+            exit 1
+          fi
+          echo "Found TIF: ${INPUT_TIF} ($(du -h ${INPUT_TIF}))"
+
+          # Locate PROJ database dynamically
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          if [ -n "${PROJ_DB}" ]; then
+            export PROJ_DATA="$(dirname ${PROJ_DB})"
+            export PROJ_LIB="$(dirname ${PROJ_DB})"
+            echo "Found PROJ database: ${PROJ_DB}"
+          else
+            echo "WARNING: proj.db not found, PROJ-dependent operations may fail"
+          fi
+
+          echo "Converting to Cloud-Optimized GeoTIFF..."
+          gdal_translate \
+            -of COG \
+            -co COMPRESS=ZSTD \
+            -co PREDICTOR=YES \
+            -co OVERVIEW_RESAMPLING=AVERAGE \
+            -co BIGTIFF=YES \
+            "${INPUT_TIF}" \
+            "${WORKDIR}/${OUTPUT_STEM}.tif"
+
+          echo "COG created: $(du -h ${WORKDIR}/${OUTPUT_STEM}.tif)"
+          echo "Removing raw TIF to free space..."
+          rm "${INPUT_TIF}"
+
+          echo "Uploading to S3 via rclone..."
+          rclone copy \
+            "${WORKDIR}/${OUTPUT_STEM}.tif" \
+            "nrp:public-carbon/v2/cogs/" \
+            --progress
+
+          echo "=== Done: nrp:public-carbon/v2/cogs/${OUTPUT_STEM}.tif ==="

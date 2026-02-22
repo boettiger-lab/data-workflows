@@ -1,0 +1,92 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: carbon-v2-cog-irrec-2022
+  namespace: biodiversity
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 172800
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 120Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 120Gi
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          ZIP_NAME="05_Irrecoverable_Carbon_Total_v1a_300m_2022.zip"
+          OUTPUT_STEM="irrecoverable_c_total_2022"
+          ZENODO_URL="https://zenodo.org/records/17645053/files/${ZIP_NAME}?download=1"
+          WORKDIR="/tmp/work"
+          mkdir -p "${WORKDIR}" && cd "${WORKDIR}"
+
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          [ -n "${PROJ_DB}" ] && export PROJ_DATA="$(dirname ${PROJ_DB})" PROJ_LIB="$(dirname ${PROJ_DB})"
+
+          echo "=== ${OUTPUT_STEM} ==="
+          curl -L --retry 5 --retry-delay 15 --retry-all-errors -o "${ZIP_NAME}" "${ZENODO_URL}"
+          echo "Downloaded: $(du -h ${ZIP_NAME})"
+
+          unzip -q "${ZIP_NAME}" && rm "${ZIP_NAME}"
+
+          INPUT_TIF=$(find "${WORKDIR}" -name "*.tif" | head -1)
+          [ -z "${INPUT_TIF}" ] && { find "${WORKDIR}" -type f; exit 1; }
+          echo "Source: ${INPUT_TIF} ($(du -h ${INPUT_TIF}))"
+
+          echo "Step 1: intermediate GTiff (strip multi-IFD)..."
+          gdal_translate -b 1 -of GTiff -co BIGTIFF=YES -co COMPRESS=NONE \
+            "${INPUT_TIF}" "${WORKDIR}/intermediate.tif"
+          rm "${INPUT_TIF}"
+
+          echo "Step 2: COG..."
+          gdal_translate -of COG -co COMPRESS=ZSTD -co PREDICTOR=YES \
+            -co OVERVIEW_RESAMPLING=AVERAGE -co BIGTIFF=YES \
+            "${WORKDIR}/intermediate.tif" "${WORKDIR}/${OUTPUT_STEM}.tif"
+          rm "${WORKDIR}/intermediate.tif"
+          echo "COG: $(du -h ${WORKDIR}/${OUTPUT_STEM}.tif)"
+
+          rclone copy "${WORKDIR}/${OUTPUT_STEM}.tif" "nrp:public-carbon/v2/cogs/" --progress
+          echo "=== Done: nrp:public-carbon/v2/cogs/${OUTPUT_STEM}.tif ==="

@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: irrecoverable-carbon-2022-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "\nset -e\n\necho \"Starting irrecoverable-carbon-2022 raster workflow...\"\
+          \n\n# Step 0: Setup bucket\necho \"Step 0: Setting up bucket...\"\nkubectl\
+          \ apply -f /yamls/irrecoverable-carbon-2022-setup-bucket.yaml -n biodiversity\n\
+          \necho \"Waiting for bucket setup...\"\nkubectl wait --for=condition=complete\
+          \ --timeout=600s job/irrecoverable-carbon-2022-setup-bucket -n biodiversity\n\
+          \n# Step 1: Hex tiling\necho \"Step 1: H3 hexagonal tiling...\"\nkubectl\
+          \ apply -f /yamls/irrecoverable-carbon-2022-hex.yaml -n biodiversity\n\n\
+          echo \"Waiting for hex tiling...\"\nkubectl wait --for=condition=complete\
+          \ --timeout=7200s job/irrecoverable-carbon-2022-hex -n biodiversity\n\n\
+          echo \"\u2713 Workflow complete!\"\necho \"\"\necho \"Clean up with:\"\n\
+          echo \"  kubectl delete jobs irrecoverable-carbon-2022-setup-bucket irrecoverable-carbon-2022-hex\
+          \ irrecoverable-carbon-2022-workflow -n biodiversity\"\necho \"  kubectl\
+          \ delete configmap irrecoverable-carbon-2022-yamls -n biodiversity\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: irrecoverable-carbon-2022-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
