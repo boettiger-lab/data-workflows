@@ -1,0 +1,168 @@
+{
+    "stac_version": "1.0.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "type": "Collection",
+    "id": "pad-us-4.1-proclamation",
+    "title": "PAD-US 4.1 Proclamation - Proclamation Boundaries",
+    "description": "Proclamation boundaries from PAD-US 4.1, containing 3,439 features representing the authorized (legislated or proclaimed) boundaries of protected areas, which often include private inholdings and areas not yet acquired. These boundaries reflect the full intended extent of protection as authorized by Presidential proclamations, Congress, or agency action — distinct from the actually owned (fee) lands within them. Common examples include National Monument outer boundaries and National Forest proclamation boundaries. Managed by USGS Gap Analysis Project (GAP). Indexed by H3 hexagons at resolution 10 (~15m² cells).",
+    "license": "other",
+    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. § 105). International rights may apply.",
+    "keywords": [
+        "protected areas",
+        "proclamation boundaries",
+        "national monuments",
+        "authorized boundaries",
+        "GAP",
+        "USGS",
+        "federal lands",
+        "United States"
+    ],
+    "providers": [
+        {
+            "name": "USGS Gap Analysis Project",
+            "roles": [
+                "producer",
+                "licensor"
+            ],
+            "url": "https://www.usgs.gov/programs/gap-analysis-project"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180,
+                    14,
+                    -64,
+                    72
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "1800-01-01T00:00:00Z",
+                    "2024-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/README.md",
+            "type": "text/markdown",
+            "title": "Detailed Data Documentation and Usage Examples"
+        },
+        {
+            "rel": "cite-as",
+            "href": "https://doi.org/10.5066/P96WBCHS",
+            "title": "PAD-US 4.1 DOI"
+        },
+        {
+            "rel": "about",
+            "href": "https://www.usgs.gov/programs/gap-analysis-project/science/pad-us-data-overview",
+            "title": "PAD-US Data Overview"
+        }
+    ],
+    "summaries": {
+        "formats": [
+            "geoparquet",
+            "pmtiles",
+            "h3-parquet"
+        ],
+        "gap_status": ["1", "2", "3", "4"],
+        "iucn_categories": ["Ia", "Ib", "II", "III", "IV", "V", "VI"],
+        "owner_types": ["FED", "STAT", "LOC", "JNT", "TRIB"],
+        "public_access": ["OA", "RA", "XA", "UK"]
+    },
+    "assets": {
+        "geoparquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "GeoParquet file with 3,439 proclamation boundaries",
+            "description": "Cloud-native GeoParquet format optimized for analytical queries. Use with DuckDB, Polars, pandas, or any GeoParquet-compatible tool. Geometries in EPSG:4326.",
+            "roles": ["data"]
+        },
+        "pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "PMTiles for web mapping",
+            "description": "Pyramid of map tiles in PMTiles format. Supports zoom levels 0-14 for efficient web map rendering.",
+            "vector:layers": ["proclamation"],
+            "roles": ["visual"]
+        },
+        "h3-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "H3 hex-indexed parquet files",
+            "description": "Parquet files partitioned by H3 cell at resolution 10 (~15m²). Partitioned by h0 for efficient spatial queries.",
+            "roles": ["data"],
+            "table:storage_options": {
+                "partitioning": "h0"
+            }
+        }
+    },
+    "table:columns": [
+        {"name": "_cng_fid", "type": "int64", "description": "Cloud-native geometry feature ID. Unique identifier for each proclamation boundary feature."},
+        {"name": "FeatClass", "type": "string", "description": "Feature class. Always 'Proclamation' for this layer."},
+        {"name": "Category", "type": "string", "description": "GAP stewardship category: 'Federal Land', 'State Land', or applicable category."},
+        {"name": "Own_Type", "type": "string", "description": "Owner type code: FED (Federal), STAT (State), LOC (Local), JNT (Joint), TRIB (Tribal)."},
+        {"name": "Own_Name", "type": "string", "description": "Owner name. Agency or entity with jurisdiction over the proclaimed area."},
+        {"name": "Loc_Own", "type": "string", "description": "Local owner name in local terminology."},
+        {"name": "Mang_Type", "type": "string", "description": "Manager type code. Indicates the type of entity responsible for management."},
+        {"name": "Mang_Name", "type": "string", "description": "Manager name. Agency managing the proclaimed area (e.g., Bureau of Land Management, National Park Service)."},
+        {"name": "Loc_Mang", "type": "string", "description": "Local manager name in local terminology."},
+        {"name": "Des_Tp", "type": "string", "description": "Designation type code (e.g., 'NM' for National Monument, 'NF' for National Forest proclamation boundary)."},
+        {"name": "Loc_Ds", "type": "string", "description": "Local designation name."},
+        {"name": "Unit_Nm", "type": "string", "description": "Unit name. Official name of the proclaimed protected area."},
+        {"name": "Loc_Nm", "type": "string", "description": "Local or alternative name."},
+        {"name": "State_Nm", "type": "string", "description": "State name. Two-letter postal abbreviation."},
+        {"name": "Agg_Src", "type": "string", "description": "Aggregator source organization."},
+        {"name": "GIS_Src", "type": "string", "description": "GIS source dataset name."},
+        {"name": "Src_Date", "type": "string", "description": "Source date in YYYYMMDD or YYYY format."},
+        {"name": "GIS_Acres", "type": "int32", "description": "GIS-calculated area in acres. Note: proclamation boundaries may include private inholdings not under protection."},
+        {"name": "Source_PAID", "type": "string", "description": "Source Protected Area ID."},
+        {"name": "WDPA_Cd", "type": "int32", "description": "World Database on Protected Areas site code."},
+        {"name": "Pub_Access", "type": "string", "description": "Public access code: OA (Open Access), RA (Restricted Access), XA (Closed), UK (Unknown)."},
+        {"name": "Access_Src", "type": "string", "description": "Source of the public access information."},
+        {"name": "Access_Dt", "type": "string", "description": "Date the public access status was determined."},
+        {"name": "GAP_Sts", "type": "string", "description": "GAP Status Code: '1'=Permanent biodiversity primary; '2'=Permanent biodiversity primary/major; '3'=Permanent multiple uses; '4'=No known biodiversity mandate."},
+        {"name": "GAPCdSrc", "type": "string", "description": "Source document used to assign the GAP Status Code."},
+        {"name": "GAPCdDt", "type": "string", "description": "Date the GAP Status Code was assigned."},
+        {"name": "IUCN_Cat", "type": "string", "description": "IUCN Protected Area Management Category: Ia, Ib, II, III, IV, V, or VI."},
+        {"name": "IUCNCtSrc", "type": "string", "description": "Source document used to assign the IUCN Category."},
+        {"name": "IUCNCtDt", "type": "string", "description": "Date the IUCN Category was assigned."},
+        {"name": "Date_Est", "type": "string", "description": "Date the proclamation was signed or boundary was formally authorized."},
+        {"name": "Comments", "type": "string", "description": "Additional information or notes."},
+        {"name": "SHAPE_Length", "type": "float64", "description": "Perimeter length in meters (original CRS)."},
+        {"name": "SHAPE_Area", "type": "float64", "description": "Area in square meters (original CRS). Use GIS_Acres for comparisons."},
+        {"name": "SHAPE", "type": "bytes", "description": "Geometry in WKB format, EPSG:4326 (WGS84). Typically MULTIPOLYGON."},
+        {"name": "bbox", "type": "struct<xmin: double, ymin: double, xmax: double, ymax: double>", "description": "Bounding box in EPSG:4326."}
+    ]
+}

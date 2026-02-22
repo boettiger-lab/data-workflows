@@ -1,0 +1,171 @@
+{
+    "stac_version": "1.0.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+    ],
+    "type": "Collection",
+    "id": "pad-us-4.1-easement",
+    "title": "PAD-US 4.1 Easement - Conservation Easements",
+    "description": "Conservation easements from PAD-US 4.1, containing 341,954 features representing legal agreements that restrict land use to protect conservation values while leaving the land in private or public ownership. Conservation easements are the most numerous protection type in PAD-US. Includes term-limited easements (see Term and Duration fields). Managed by USGS Gap Analysis Project (GAP). Indexed by H3 hexagons at resolution 10 (~15m² cells).",
+    "license": "other",
+    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. § 105). International rights may apply.",
+    "keywords": [
+        "protected areas",
+        "conservation",
+        "easements",
+        "conservation easements",
+        "land trust",
+        "GAP",
+        "USGS",
+        "private conservation",
+        "United States"
+    ],
+    "providers": [
+        {
+            "name": "USGS Gap Analysis Project",
+            "roles": [
+                "producer",
+                "licensor"
+            ],
+            "url": "https://www.usgs.gov/programs/gap-analysis-project"
+        },
+        {
+            "name": "Boettiger Lab",
+            "roles": [
+                "processor",
+                "host"
+            ],
+            "url": "https://github.com/boettiger-lab"
+        }
+    ],
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180,
+                    14,
+                    -64,
+                    72
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "1800-01-01T00:00:00Z",
+                    "2024-12-31T23:59:59Z"
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement/stac-collection.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "parent",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "describedby",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/README.md",
+            "type": "text/markdown",
+            "title": "Detailed Data Documentation and Usage Examples"
+        },
+        {
+            "rel": "cite-as",
+            "href": "https://doi.org/10.5066/P96WBCHS",
+            "title": "PAD-US 4.1 DOI"
+        },
+        {
+            "rel": "about",
+            "href": "https://www.usgs.gov/programs/gap-analysis-project/science/pad-us-data-overview",
+            "title": "PAD-US Data Overview"
+        }
+    ],
+    "summaries": {
+        "formats": [
+            "geoparquet",
+            "pmtiles",
+            "h3-parquet"
+        ],
+        "gap_status": ["1", "2", "3", "4"],
+        "iucn_categories": ["Ia", "Ib", "II", "III", "IV", "V", "VI"],
+        "owner_types": ["FED", "STAT", "LOC", "PVT", "JNT", "TRIB", "TERR", "DIST", "NGO"],
+        "public_access": ["OA", "RA", "XA", "UK"]
+    },
+    "assets": {
+        "geoparquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "GeoParquet file with 341,954 conservation easements",
+            "description": "Cloud-native GeoParquet format optimized for analytical queries. Use with DuckDB, Polars, pandas, or any GeoParquet-compatible tool. Geometries in EPSG:4326.",
+            "roles": ["data"]
+        },
+        "pmtiles": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement.pmtiles",
+            "type": "application/vnd.pmtiles",
+            "title": "PMTiles for web mapping",
+            "description": "Pyramid of map tiles in PMTiles format. Supports zoom levels 0-14 for efficient web map rendering.",
+            "vector:layers": ["easement"],
+            "roles": ["visual"]
+        },
+        "h3-parquet": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "H3 hex-indexed parquet files",
+            "description": "Parquet files partitioned by H3 cell at resolution 10 (~15m²). Partitioned by h0 for efficient spatial queries.",
+            "roles": ["data"],
+            "table:storage_options": {
+                "partitioning": "h0"
+            }
+        }
+    },
+    "table:columns": [
+        {"name": "_cng_fid", "type": "int64", "description": "Cloud-native geometry feature ID. Unique identifier for each easement feature."},
+        {"name": "FeatClass", "type": "string", "description": "Feature class. Always 'Easement' for this layer."},
+        {"name": "Category", "type": "string", "description": "GAP stewardship category: 'Federal Land', 'State Land', 'Local Land', 'Private Conservation Land', 'Joint Ownership', or 'Designation Area'."},
+        {"name": "Own_Type", "type": "string", "description": "Owner type code: FED (Federal), STAT (State), LOC (Local), PVT (Private), JNT (Joint), TRIB (Tribal), TERR (Territorial), DIST (District), NGO (Non-Governmental Organization)."},
+        {"name": "Own_Name", "type": "string", "description": "Owner name. Entity that holds title to the land (not the easement holder)."},
+        {"name": "Loc_Own", "type": "string", "description": "Local owner name in local terminology when different from Own_Name."},
+        {"name": "Mang_Type", "type": "string", "description": "Manager type code. Indicates the type of entity holding the easement and responsible for monitoring compliance."},
+        {"name": "Mang_Name", "type": "string", "description": "Manager name. Organization holding the conservation easement (e.g., land trust, agency)."},
+        {"name": "Loc_Mang", "type": "string", "description": "Local manager name in local terminology when different from Mang_Name."},
+        {"name": "Des_Tp", "type": "string", "description": "Designation type code (e.g., 'CE' for Conservation Easement, 'FLTCE' for Forest Legacy Trust CE)."},
+        {"name": "Loc_Ds", "type": "string", "description": "Local designation name in original language or local terminology."},
+        {"name": "Unit_Nm", "type": "string", "description": "Unit name. Official name of the easement or protected area."},
+        {"name": "Loc_Nm", "type": "string", "description": "Local or alternative name for the easement."},
+        {"name": "State_Nm", "type": "string", "description": "State name. Two-letter postal abbreviation of the U.S. state or territory."},
+        {"name": "Agg_Src", "type": "string", "description": "Aggregator source organization."},
+        {"name": "GIS_Src", "type": "string", "description": "GIS source. Original data provider or source dataset name."},
+        {"name": "Src_Date", "type": "string", "description": "Source date in YYYYMMDD or YYYY format."},
+        {"name": "GIS_Acres", "type": "int32", "description": "GIS-calculated area in acres."},
+        {"name": "Source_PAID", "type": "string", "description": "Source Protected Area ID from the source agency's dataset."},
+        {"name": "WDPA_Cd", "type": "int32", "description": "World Database on Protected Areas site code. Null for sites not in WDPA."},
+        {"name": "Pub_Access", "type": "string", "description": "Public access code: OA (Open Access), RA (Restricted Access), XA (Closed), UK (Unknown). Many easements are XA (restricted from public access)."},
+        {"name": "Access_Src", "type": "string", "description": "Source of the public access information."},
+        {"name": "Access_Dt", "type": "string", "description": "Date the public access status was determined."},
+        {"name": "GAP_Sts", "type": "string", "description": "GAP Status Code: '1'=Permanent biodiversity primary; '2'=Permanent biodiversity primary/major; '3'=Permanent multiple uses; '4'=No known biodiversity mandate."},
+        {"name": "GAPCdSrc", "type": "string", "description": "Source document used to assign the GAP Status Code."},
+        {"name": "GAPCdDt", "type": "string", "description": "Date the GAP Status Code was assigned."},
+        {"name": "IUCN_Cat", "type": "string", "description": "IUCN Protected Area Management Category: Ia, Ib, II, III, IV, V, or VI."},
+        {"name": "IUCNCtSrc", "type": "string", "description": "Source document used to assign the IUCN Category."},
+        {"name": "IUCNCtDt", "type": "string", "description": "Date the IUCN Category was assigned."},
+        {"name": "Date_Est", "type": "string", "description": "Date the easement was formally recorded or established."},
+        {"name": "Comments", "type": "string", "description": "Additional information or notes about the easement."},
+        {"name": "Term", "type": "int32", "description": "Term flag. 1 = temporary/term-limited easement; 0 or NULL = permanent easement. Important for understanding the permanence of protection."},
+        {"name": "Duration", "type": "string", "description": "Duration of protection for term-limited easements (e.g., '20 years', 'until 2050'). Null for permanent easements."},
+        {"name": "SHAPE_Length", "type": "float64", "description": "Perimeter length in meters (original CRS). Recalculate in appropriate CRS for analysis."},
+        {"name": "SHAPE_Area", "type": "float64", "description": "Area in square meters (original CRS). Use GIS_Acres for area comparisons."},
+        {"name": "SHAPE", "type": "bytes", "description": "Geometry in WKB format, EPSG:4326 (WGS84). Typically MULTIPOLYGON."},
+        {"name": "bbox", "type": "struct<xmin: double, ymin: double, xmax: double, ymax: double>", "description": "Bounding box in EPSG:4326."}
+    ]
+}

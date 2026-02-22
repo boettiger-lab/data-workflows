@@ -65,7 +65,7 @@ spec:
           set -e
           # Use optimized GeoParquet (has ID column) from convert job
           # GDAL can read parquet via vsicurl
-          ogr2ogr -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee.parquet -progress
+          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee.parquet -progress
 
           # Generate PMTiles from GeoJSONSeq
           tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$DATASET.geojsonl
