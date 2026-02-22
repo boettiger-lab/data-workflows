@@ -24,33 +24,12 @@ uv pip install git+https://github.com/boettiger-lab/datasets.git
 
 Do not run data processing commands (vector, raster, repartition) locally — those run inside k8s pods.
 
-## Kubernetes
+## Available Skills
 
-- `kubectl` is pre-configured for the NRP Nautilus cluster, namespace `biodiversity`
-- Secrets `aws` and `rclone-config` are already set up in the namespace
-- All jobs use `priorityClassName: opportunistic` (preemptible)
-- The generated YAML handles all k8s configuration — you just apply it
+Detailed reference guides are in `skills/`. **Do not read these proactively** — load a skill only when the task requires it:
 
-## S3 Storage
-
-This cluster uses Ceph S3 (not AWS). The `cng-datasets` tool handles all S3 configuration automatically in the generated k8s jobs.
-
-For **local read-only access** to public data:
-```
-https://s3-west.nrp-nautilus.io/<bucket>/<path>
-```
-Use path-style URLs, not virtual-hosted-style. No credentials needed for public buckets.
-
-For `rclone`, the remote name is `nrp`:
-```
-rclone ls nrp:<bucket>/
-```
-
-You do not need to know about internal S3 endpoints — the generated jobs handle this.
-
-## GDAL
-
-For inspecting remote files locally, use VSI-style paths:
-```bash
-ogrinfo /vsicurl/https://s3-west.nrp-nautilus.io/<bucket>/raw/<file>.gdb
-```
+| Skill file | When to load |
+|---|---|
+| `skills/nrp-k8s/SKILL.md` | Creating or debugging Kubernetes jobs on NRP Nautilus (priority classes, resource limits, GPU avoidance, namespace quotas) |
+| `skills/nrp-s3/SKILL.md` | S3 bucket operations: endpoints, rclone, bucket policies, CORS, DuckDB S3 access, syncing to source.coop |
+| `skills/gdal-remote/SKILL.md` | Reading remote geospatial files with GDAL/OGR virtual filesystems, DuckDB spatial, format conversions, Parquet driver availability |
