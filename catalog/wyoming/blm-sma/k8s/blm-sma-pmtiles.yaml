@@ -1,9 +1,9 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: blm-sma-repartition
+  name: blm-sma-pmtiles
   labels:
-    k8s-app: blm-sma-repartition
+    k8s-app: blm-sma-pmtiles
 spec:
   completions: 1
   parallelism: 1
@@ -12,7 +12,7 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: blm-sma-repartition
+        k8s-app: blm-sma-pmtiles
     spec:
       priorityClassName: opportunistic
       affinity:
@@ -26,7 +26,7 @@ spec:
                 - 'true'
       restartPolicy: Never
       containers:
-      - name: repartition-task
+      - name: pmtiles-task
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
@@ -48,8 +48,6 @@ spec:
           value: 'false'
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
-        - name: TMPDIR
-          value: /tmp
         - name: BUCKET
           value: public-wyoming
         volumeMounts:
@@ -61,14 +59,17 @@ spec:
         - -c
         - |
           set -e
-          cng-datasets repartition --chunks-dir s3://public-wyoming/blm-sma/chunks --output-dir s3://public-wyoming/blm-sma/hex --source-parquet s3://public-wyoming/blm-sma.parquet --cleanup
+          cng-datasets vector \
+            --input s3://public-wyoming/blm-sma.parquet \
+            --output s3://public-wyoming/blm-sma.pmtiles \
+            --format pmtiles
         resources:
           requests:
-            cpu: '4'
-            memory: 32Gi
+            cpu: '8'
+            memory: 16Gi
           limits:
-            cpu: '4'
-            memory: 32Gi
+            cpu: '8'
+            memory: 16Gi
       volumes:
       - name: rclone-config
         secret:

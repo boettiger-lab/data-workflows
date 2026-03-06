@@ -1,0 +1,428 @@
+# Auto-generated ConfigMap containing job definitions
+# Generated from: blm-sma-setup-bucket.yaml, blm-sma-convert.yaml, blm-sma-pmtiles.yaml, blm-sma-hex.yaml, blm-sma-repartition.yaml
+# Generation command: cng-datasets workflow --dataset blm-sma --source-url /vsicurl/https://s3-west.nrp-nautilus.io/public-wyoming/raw/SMA_WM.gdb.zip --bucket public-wyoming --h3-resolution 10 --parent-resolutions "9,8,0"
+#
+# This ConfigMap is equivalent to running:
+#   kubectl create configmap blm-sma-yamls \
+#     --from-file=blm-sma-setup-bucket.yaml \
+#     --from-file=blm-sma-convert.yaml \
+#     --from-file=blm-sma-pmtiles.yaml \
+#     --from-file=blm-sma-hex.yaml \
+#     --from-file=blm-sma-repartition.yaml
+#
+# To update: regenerate workflow with cng-datasets and re-apply with kubectl apply -f configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blm-sma-yamls
+  namespace: biodiversity
+data:
+  blm-sma-convert.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: blm-sma-convert
+      labels:
+        k8s-app: blm-sma-convert
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: blm-sma-convert
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: convert-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-wyoming
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              
+              # Download and extract the GDB
+              echo "Downloading GDB from S3..."
+              mkdir -p /tmp/gdb && cd /tmp/gdb
+              rclone copy nrp:public-wyoming/raw/SMA_WM.gdb.zip . -P
+              
+              echo "Unzipping..."
+              unzip -q -o SMA_WM.gdb.zip
+              
+              # Get list of all layers (excluding the aggregated SurfaceManagementAgency)
+              LAYERS=$(ogrinfo SMA_WM.gdb -summary | grep "^Layer:" | grep -v "SurfaceManagementAgency" | sed 's/Layer: //' | sed 's/ .*//' | tr '\n' ' ')
+              
+              echo "Found layers: $LAYERS"
+              
+              # Merge all agency-specific layers into one using ogr2ogr
+              echo "Merging all layers into a single dataset..."
+              ogr2ogr -f OpenFileGDB -t_srs EPSG:4326 -nln surface_management_agency /tmp/merged.gdb SMA_WM.gdb $LAYERS
+              
+              # Convert merged GDB to GeoParquet
+              echo "Converting to GeoParquet..."
+              cng-convert-to-parquet /tmp/merged.gdb s3://public-wyoming/blm-sma.parquet \
+                --compression ZSTD --compression-level 15 --row-group-size 100000
+              
+              echo "Complete"
+            resources:
+              requests:
+                cpu: '8'
+                memory: 32Gi
+              limits:
+                cpu: '8'
+                memory: 32Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+
+  blm-sma-pmtiles.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: blm-sma-pmtiles
+      labels:
+        k8s-app: blm-sma-pmtiles
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: blm-sma-pmtiles
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: pmtiles-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-wyoming
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              cng-datasets vector \
+                --input s3://public-wyoming/blm-sma.parquet \
+                --output s3://public-wyoming/blm-sma.pmtiles \
+                --format pmtiles
+            resources:
+              requests:
+                cpu: '8'
+                memory: 16Gi
+              limits:
+                cpu: '8'
+                memory: 16Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+
+  blm-sma-hex.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: blm-sma-hex
+      labels:
+        k8s-app: blm-sma-hex
+    spec:
+      completions: 200
+      parallelism: 50
+      completionMode: Indexed
+      backoffLimit: 0
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - type: DisruptionTarget
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: blm-sma-hex
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: hex-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-wyoming
+            - name: JOB_COMPLETION_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              cng-datasets vector \
+                --input s3://public-wyoming/blm-sma.parquet \
+                --output s3://public-wyoming/blm-sma/hex \
+                --resolution 10 \
+                --parent-resolutions 9,8,0
+            resources:
+              requests:
+                cpu: '2'
+                memory: 8Gi
+              limits:
+                cpu: '2'
+                memory: 8Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+
+  blm-sma-repartition.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: blm-sma-repartition
+      labels:
+        k8s-app: blm-sma-repartition
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: blm-sma-repartition
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: repartition-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-wyoming
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              cng-datasets vector \
+                --input s3://public-wyoming/blm-sma/hex \
+                --output s3://public-wyoming/blm-sma/hex \
+                --repartition
+            resources:
+              requests:
+                cpu: '4'
+                memory: 16Gi
+              limits:
+                cpu: '4'
+                memory: 16Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+
+  blm-sma-setup-bucket.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: blm-sma-setup-bucket
+      labels:
+        k8s-app: blm-sma-setup-bucket
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: blm-sma-setup-bucket
+        spec:
+          priorityClassName: opportunistic
+          restartPolicy: Never
+          containers:
+          - name: setup-bucket-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-wyoming
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              rclone mkdir nrp:public-wyoming/blm-sma
+              rclone mkdir nrp:public-wyoming/blm-sma/hex
+            resources:
+              requests:
+                cpu: '1'
+                memory: 1Gi
+              limits:
+                cpu: '1'
+                memory: 1Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config

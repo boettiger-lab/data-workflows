@@ -1,9 +1,9 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: blm-sma-convert
+  name: blm-sma-repartition
   labels:
-    k8s-app: blm-sma-convert
+    k8s-app: blm-sma-repartition
 spec:
   completions: 1
   parallelism: 1
@@ -12,7 +12,7 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: blm-sma-convert
+        k8s-app: blm-sma-repartition
     spec:
       priorityClassName: opportunistic
       affinity:
@@ -26,7 +26,7 @@ spec:
                 - 'true'
       restartPolicy: Never
       containers:
-      - name: convert-task
+      - name: repartition-task
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
@@ -59,10 +59,10 @@ spec:
         - -c
         - |
           set -e
-          cng-convert-to-parquet \
-            /vsicurl/https://s3-west.nrp-nautilus.io/public-wyoming/raw/SMA_WM.gdb.zip \
-            s3://public-wyoming/blm-sma.parquet \
-            --row-group-size 100000
+          cng-datasets vector \
+            --input s3://public-wyoming/blm-sma/hex \
+            --output s3://public-wyoming/blm-sma/hex \
+            --repartition
         resources:
           requests:
             cpu: '4'

@@ -1,9 +1,9 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: blm-sma-convert
+  name: blm-sma-setup-bucket
   labels:
-    k8s-app: blm-sma-convert
+    k8s-app: blm-sma-setup-bucket
 spec:
   completions: 1
   parallelism: 1
@@ -12,21 +12,12 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: blm-sma-convert
+        k8s-app: blm-sma-setup-bucket
     spec:
       priorityClassName: opportunistic
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
-                operator: NotIn
-                values:
-                - 'true'
       restartPolicy: Never
       containers:
-      - name: convert-task
+      - name: setup-bucket-task
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
@@ -59,17 +50,15 @@ spec:
         - -c
         - |
           set -e
-          cng-convert-to-parquet \
-            /vsicurl/https://s3-west.nrp-nautilus.io/public-wyoming/raw/SMA_WM.gdb.zip \
-            s3://public-wyoming/blm-sma.parquet \
-            --row-group-size 100000
+          rclone mkdir nrp:public-wyoming/blm-sma
+          rclone mkdir nrp:public-wyoming/blm-sma/hex
         resources:
           requests:
-            cpu: '4'
-            memory: 16Gi
+            cpu: '1'
+            memory: 1Gi
           limits:
-            cpu: '4'
-            memory: 16Gi
+            cpu: '1'
+            memory: 1Gi
       volumes:
       - name: rclone-config
         secret:

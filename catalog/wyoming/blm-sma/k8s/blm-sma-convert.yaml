@@ -59,17 +59,37 @@ spec:
         - -c
         - |
           set -e
-          cng-convert-to-parquet \
-            /vsicurl/https://s3-west.nrp-nautilus.io/public-wyoming/raw/SMA_WM.gdb.zip \
-            s3://public-wyoming/blm-sma.parquet \
-            --row-group-size 100000
+          
+          # Download and extract the GDB
+          echo "Downloading GDB from S3..."
+          mkdir -p /tmp/gdb && cd /tmp/gdb
+          rclone copy nrp:public-wyoming/raw/SMA_WM.gdb.zip . -P
+          
+          echo "Unzipping..."
+          unzip -q -o SMA_WM.gdb.zip
+          
+          # Get list of all layers (excluding the aggregated SurfaceManagementAgency)
+          LAYERS=$(ogrinfo SMA_WM.gdb -summary | grep "^Layer:" | grep -v "SurfaceManagementAgency" | sed 's/Layer: //' | sed 's/ .*//' | tr '\n' ' ')
+          
+          echo "Found layers: $LAYERS"
+          
+          # Merge all agency-specific layers into one using ogr2ogr
+          echo "Merging all layers into a single dataset..."
+          ogr2ogr -f OpenFileGDB -t_srs EPSG:4326 -nln surface_management_agency /tmp/merged.gdb SMA_WM.gdb $LAYERS
+          
+          # Convert merged GDB to GeoParquet
+          echo "Converting to GeoParquet..."
+          cng-convert-to-parquet /tmp/merged.gdb s3://public-wyoming/blm-sma.parquet \
+            --compression ZSTD --compression-level 15 --row-group-size 100000
+          
+          echo "Complete"
         resources:
           requests:
-            cpu: '4'
-            memory: 16Gi
+            cpu: '8'
+            memory: 32Gi
           limits:
-            cpu: '4'
-            memory: 16Gi
+            cpu: '8'
+            memory: 32Gi
       volumes:
       - name: rclone-config
         secret:
