@@ -54,16 +54,12 @@ spec:
           value: 'false'
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
         - name: BUCKET
           value: public-wyoming
-        - name: JOB_COMPLETION_INDEX
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
-        volumeMounts:
-        - name: rclone-config
-          mountPath: /root/.config/rclone
-          readOnly: true
+        - name: DATASET
+          value: blm-sma
         command:
         - bash
         - -c
@@ -71,17 +67,16 @@ spec:
           set -e
           cng-datasets vector \
             --input s3://public-wyoming/blm-sma.parquet \
-            --output s3://public-wyoming/blm-sma/hex \
+            --output s3://public-wyoming/blm-sma/chunks \
+            --chunk-id ${JOB_COMPLETION_INDEX} \
+            --chunk-size 1 \
+            --intermediate-chunk-size 10 \
             --resolution 10 \
             --parent-resolutions 9,8,0
         resources:
           requests:
-            cpu: '2'
-            memory: 8Gi
+            cpu: '4'
+            memory: 32Gi
           limits:
-            cpu: '2'
-            memory: 8Gi
-      volumes:
-      - name: rclone-config
-        secret:
-          secretName: rclone-config
+            cpu: '4'
+            memory: 32Gi

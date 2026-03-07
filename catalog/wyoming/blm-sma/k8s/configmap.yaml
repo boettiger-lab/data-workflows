@@ -1,22 +1,87 @@
 # Auto-generated ConfigMap containing job definitions
-# Generated from: blm-sma-setup-bucket.yaml, blm-sma-convert.yaml, blm-sma-pmtiles.yaml, blm-sma-hex.yaml, blm-sma-repartition.yaml
-# Generation command: cng-datasets workflow --dataset blm-sma --source-url /vsicurl/https://s3-west.nrp-nautilus.io/public-wyoming/raw/SMA_WM.gdb.zip --bucket public-wyoming --h3-resolution 10 --parent-resolutions "9,8,0"
-#
-# This ConfigMap is equivalent to running:
-#   kubectl create configmap blm-sma-yamls \
-#     --from-file=blm-sma-setup-bucket.yaml \
-#     --from-file=blm-sma-convert.yaml \
-#     --from-file=blm-sma-pmtiles.yaml \
-#     --from-file=blm-sma-hex.yaml \
-#     --from-file=blm-sma-repartition.yaml
-#
+# Generated for: blm-sma workflow
 # To update: regenerate workflow with cng-datasets and re-apply with kubectl apply -f configmap.yaml
 apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: blm-sma-yamls
-  namespace: biodiversity
 data:
+  blm-sma-setup-bucket.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: blm-sma-setup-bucket
+      labels:
+        k8s-app: blm-sma-setup-bucket
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: blm-sma-setup-bucket
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: setup-bucket-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-wyoming
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              echo "Setting up bucket with public access and CORS..."
+              cng-datasets storage setup-bucket \
+                --bucket "${BUCKET}" \
+                --remote nrp \
+                --verify
+              echo "Bucket setup complete!"
+            resources:
+              requests:
+                cpu: '1'
+                memory: 2Gi
+              limits:
+                cpu: '1'
+                memory: 2Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
   blm-sma-convert.yaml: |
     apiVersion: batch/v1
     kind: Job
@@ -70,6 +135,8 @@ data:
               value: 'FALSE'
             - name: BUCKET
               value: public-wyoming
+            - name: TMPDIR
+              value: /tmp
             volumeMounts:
             - name: rclone-config
               mountPath: /root/.config/rclone
@@ -79,42 +146,34 @@ data:
             - -c
             - |
               set -e
-              
-              # Download and extract the GDB
               echo "Downloading GDB from S3..."
-              mkdir -p /tmp/gdb && cd /tmp/gdb
-              rclone copy nrp:public-wyoming/raw/SMA_WM.gdb.zip . -P
-              
-              echo "Unzipping..."
-              unzip -q -o SMA_WM.gdb.zip
-              
-              # Get list of all layers (excluding the aggregated SurfaceManagementAgency)
-              LAYERS=$(ogrinfo SMA_WM.gdb -summary | grep "^Layer:" | grep -v "SurfaceManagementAgency" | sed 's/Layer: //' | sed 's/ .*//' | tr '\n' ' ')
-              
-              echo "Found layers: $LAYERS"
-              
-              # Merge all agency-specific layers into one using ogr2ogr
-              echo "Merging all layers into a single dataset..."
-              ogr2ogr -f OpenFileGDB -t_srs EPSG:4326 -nln surface_management_agency /tmp/merged.gdb SMA_WM.gdb $LAYERS
-              
-              # Convert merged GDB to GeoParquet
+              rclone copy nrp:public-wyoming/raw/SMA_WM.gdb.zip /tmp/
+              cd /tmp && unzip -q SMA_WM.gdb.zip
+              echo "Merging all layers and filtering PVT/UND parcels..."
+              ogr2ogr -f GeoJSONSeq /tmp/blm-sma-merged.geojsonl \
+                /tmp/SMA_WM.gdb \
+                -sql "SELECT * FROM SurfaceManagementAgency UNION ALL SELECT * FROM SurfaceMgtAgy_DOD UNION ALL SELECT * FROM SurfaceMgtAgy_BLM UNION ALL SELECT * FROM SurfaceMgtAgy_USFS UNION ALL SELECT * FROM SurfaceMgtAgy_FWS UNION ALL SELECT * FROM SurfaceMgtAgy_BOR UNION ALL SELECT * FROM SurfaceMgtAgy_BIA UNION ALL SELECT * FROM SurfaceMgtAgy_OTHFED UNION ALL SELECT * FROM SurfaceMgtAgy_STATE UNION ALL SELECT * FROM SurfaceMgtAgy_LOCAL UNION ALL SELECT * FROM SurfaceMgtAgy_PRIUNK UNION ALL SELECT * FROM SurfaceMgtAgy_NTVALL UNION ALL SELECT * FROM SurfaceMgtAgy_NTVPIC" \
+                -where "ADMIN_DEPT_CODE NOT IN ('PVT', 'UND')" \
+                -progress
               echo "Converting to GeoParquet..."
-              cng-convert-to-parquet /tmp/merged.gdb s3://public-wyoming/blm-sma.parquet \
-                --compression ZSTD --compression-level 15 --row-group-size 100000
-              
-              echo "Complete"
+              cng-convert-to-parquet \
+                /tmp/blm-sma-merged.geojsonl \
+                s3://public-wyoming/blm-sma.parquet \
+                --compression ZSTD \
+                --compression-level 15 \
+                --row-group-size 100000
+              echo "Convert complete!"
             resources:
               requests:
-                cpu: '8'
-                memory: 32Gi
+                cpu: '4'
+                memory: 16Gi
               limits:
-                cpu: '8'
-                memory: 32Gi
+                cpu: '4'
+                memory: 16Gi
           volumes:
           - name: rclone-config
             secret:
               secretName: rclone-config
-
   blm-sma-pmtiles.yaml: |
     apiVersion: batch/v1
     kind: Job
@@ -166,8 +225,12 @@ data:
               value: 'false'
             - name: AWS_VIRTUAL_HOSTING
               value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
             - name: BUCKET
               value: public-wyoming
+            - name: DATASET
+              value: blm-sma
             volumeMounts:
             - name: rclone-config
               mountPath: /root/.config/rclone
@@ -177,22 +240,27 @@ data:
             - -c
             - |
               set -e
-              cng-datasets vector \
-                --input s3://public-wyoming/blm-sma.parquet \
-                --output s3://public-wyoming/blm-sma.pmtiles \
-                --format pmtiles
+              echo "Converting GeoParquet to GeoJSON for PMTiles..."
+              ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/blm-sma.geojsonl \
+                /vsicurl/https://s3-west.nrp-nautilus.io/public-wyoming/blm-sma.parquet \
+                -progress
+              echo "Generating PMTiles..."
+              tippecanoe -o /tmp/blm-sma.pmtiles -l blm-sma --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/blm-sma.geojsonl
+              echo "Uploading PMTiles to S3..."
+              rclone copy /tmp/blm-sma.pmtiles nrp:public-wyoming/
+              rm /tmp/blm-sma.geojsonl /tmp/blm-sma.pmtiles
+              echo "PMTiles generation complete!"
             resources:
               requests:
-                cpu: '8'
+                cpu: '4'
                 memory: 16Gi
               limits:
-                cpu: '8'
+                cpu: '4'
                 memory: 16Gi
           volumes:
           - name: rclone-config
             secret:
               secretName: rclone-config
-
   blm-sma-hex.yaml: |
     apiVersion: batch/v1
     kind: Job
@@ -250,16 +318,12 @@ data:
               value: 'false'
             - name: AWS_VIRTUAL_HOSTING
               value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
             - name: BUCKET
               value: public-wyoming
-            - name: JOB_COMPLETION_INDEX
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
-            volumeMounts:
-            - name: rclone-config
-              mountPath: /root/.config/rclone
-              readOnly: true
+            - name: DATASET
+              value: blm-sma
             command:
             - bash
             - -c
@@ -267,21 +331,19 @@ data:
               set -e
               cng-datasets vector \
                 --input s3://public-wyoming/blm-sma.parquet \
-                --output s3://public-wyoming/blm-sma/hex \
+                --output s3://public-wyoming/blm-sma/chunks \
+                --chunk-id ${JOB_COMPLETION_INDEX} \
+                --chunk-size 1 \
+                --intermediate-chunk-size 10 \
                 --resolution 10 \
                 --parent-resolutions 9,8,0
             resources:
               requests:
-                cpu: '2'
-                memory: 8Gi
+                cpu: '4'
+                memory: 32Gi
               limits:
-                cpu: '2'
-                memory: 8Gi
-          volumes:
-          - name: rclone-config
-            secret:
-              secretName: rclone-config
-
+                cpu: '4'
+                memory: 32Gi
   blm-sma-repartition.yaml: |
     apiVersion: batch/v1
     kind: Job
@@ -333,6 +395,8 @@ data:
               value: 'false'
             - name: AWS_VIRTUAL_HOSTING
               value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
             - name: BUCKET
               value: public-wyoming
             volumeMounts:
@@ -344,85 +408,25 @@ data:
             - -c
             - |
               set -e
-              cng-datasets vector \
-                --input s3://public-wyoming/blm-sma/hex \
-                --output s3://public-wyoming/blm-sma/hex \
-                --repartition
+              echo "Repartitioning hex data by h0..."
+              cng-datasets repartition \
+                --chunks-dir s3://public-wyoming/blm-sma/chunks \
+                --output-dir s3://public-wyoming/blm-sma/hex \
+                --source-parquet s3://public-wyoming/blm-sma.parquet \
+                --cleanup
+              echo "Repartition complete!"
             resources:
               requests:
                 cpu: '4'
-                memory: 16Gi
+                memory: 32Gi
               limits:
                 cpu: '4'
-                memory: 16Gi
+                memory: 32Gi
           volumes:
           - name: rclone-config
             secret:
               secretName: rclone-config
-
-  blm-sma-setup-bucket.yaml: |
-    apiVersion: batch/v1
-    kind: Job
-    metadata:
-      name: blm-sma-setup-bucket
-      labels:
-        k8s-app: blm-sma-setup-bucket
-    spec:
-      completions: 1
-      parallelism: 1
-      backoffLimit: 1
-      ttlSecondsAfterFinished: 10800
-      template:
-        metadata:
-          labels:
-            k8s-app: blm-sma-setup-bucket
-        spec:
-          priorityClassName: opportunistic
-          restartPolicy: Never
-          containers:
-          - name: setup-bucket-task
-            image: ghcr.io/boettiger-lab/datasets:latest
-            imagePullPolicy: Always
-            env:
-            - name: AWS_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: aws
-                  key: AWS_ACCESS_KEY_ID
-            - name: AWS_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: aws
-                  key: AWS_SECRET_ACCESS_KEY
-            - name: AWS_S3_ENDPOINT
-              value: rook-ceph-rgw-nautiluss3.rook
-            - name: AWS_PUBLIC_ENDPOINT
-              value: s3-west.nrp-nautilus.io
-            - name: AWS_HTTPS
-              value: 'false'
-            - name: AWS_VIRTUAL_HOSTING
-              value: 'FALSE'
-            - name: BUCKET
-              value: public-wyoming
-            volumeMounts:
-            - name: rclone-config
-              mountPath: /root/.config/rclone
-              readOnly: true
-            command:
-            - bash
-            - -c
-            - |
-              set -e
-              rclone mkdir nrp:public-wyoming/blm-sma
-              rclone mkdir nrp:public-wyoming/blm-sma/hex
-            resources:
-              requests:
-                cpu: '1'
-                memory: 1Gi
-              limits:
-                cpu: '1'
-                memory: 1Gi
-          volumes:
-          - name: rclone-config
-            secret:
-              secretName: rclone-config
+kind: ConfigMap
+metadata:
+  name: blm-sma-yamls
+  namespace: biodiversity

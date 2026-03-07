@@ -7,7 +7,7 @@ metadata:
 spec:
   completions: 1
   parallelism: 1
-  backoffLimit: 1
+  backoffLimit: 2
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
@@ -15,6 +15,15 @@ spec:
         k8s-app: blm-sma-setup-bucket
     spec:
       priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
       restartPolicy: Never
       containers:
       - name: setup-bucket-task
@@ -50,15 +59,19 @@ spec:
         - -c
         - |
           set -e
-          rclone mkdir nrp:public-wyoming/blm-sma
-          rclone mkdir nrp:public-wyoming/blm-sma/hex
+          echo "Setting up bucket with public access and CORS..."
+          cng-datasets storage setup-bucket \
+            --bucket "${BUCKET}" \
+            --remote nrp \
+            --verify
+          echo "Bucket setup complete!"
         resources:
           requests:
             cpu: '1'
-            memory: 1Gi
+            memory: 2Gi
           limits:
             cpu: '1'
-            memory: 1Gi
+            memory: 2Gi
       volumes:
       - name: rclone-config
         secret:

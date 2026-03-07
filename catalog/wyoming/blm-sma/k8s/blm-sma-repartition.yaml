@@ -48,6 +48,8 @@ spec:
           value: 'false'
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
         - name: BUCKET
           value: public-wyoming
         volumeMounts:
@@ -59,17 +61,20 @@ spec:
         - -c
         - |
           set -e
-          cng-datasets vector \
-            --input s3://public-wyoming/blm-sma/hex \
-            --output s3://public-wyoming/blm-sma/hex \
-            --repartition
+          echo "Repartitioning hex data by h0..."
+          cng-datasets repartition \
+            --chunks-dir s3://public-wyoming/blm-sma/chunks \
+            --output-dir s3://public-wyoming/blm-sma/hex \
+            --source-parquet s3://public-wyoming/blm-sma.parquet \
+            --cleanup
+          echo "Repartition complete!"
         resources:
           requests:
             cpu: '4'
-            memory: 16Gi
+            memory: 32Gi
           limits:
             cpu: '4'
-            memory: 16Gi
+            memory: 32Gi
       volumes:
       - name: rclone-config
         secret:

@@ -48,8 +48,12 @@ spec:
           value: 'false'
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
         - name: BUCKET
           value: public-wyoming
+        - name: DATASET
+          value: blm-sma
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
@@ -59,18 +63,29 @@ spec:
         - -c
         - |
           set -e
-          cng-datasets vector \
-            --input s3://public-wyoming/blm-sma.parquet \
-            --output s3://public-wyoming/blm-sma.pmtiles \
-            --format pmtiles
+          echo "Converting GeoParquet to GeoJSON for PMTiles..."
+          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/blm-sma.geojsonl \
+            /vsicurl/https://s3-west.nrp-nautilus.io/public-wyoming/blm-sma.parquet \
+            -progress
+          
+          echo "Generating PMTiles..."
+          tippecanoe -o /tmp/blm-sma.pmtiles -l blm-sma --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/blm-sma.geojsonl
+          
+          echo "Uploading PMTiles to S3..."
+          rclone copy /tmp/blm-sma.pmtiles nrp:public-wyoming/
+          
+          echo "Cleaning up..."
+          rm /tmp/blm-sma.geojsonl /tmp/blm-sma.pmtiles
+          
+          echo "PMTiles generation complete!"
         resources:
           requests:
-            cpu: '8'
+            cpu: '4'
             memory: 16Gi
           limits:
-            cpu: '8'
+            cpu: '4'
             memory: 16Gi
       volumes:
-      - name: rclone-config
+      - name name: rclone-config
         secret:
           secretName: rclone-config
