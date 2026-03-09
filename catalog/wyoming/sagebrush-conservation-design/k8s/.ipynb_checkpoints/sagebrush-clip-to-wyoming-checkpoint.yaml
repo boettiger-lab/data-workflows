@@ -1,0 +1,106 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sagebrush-clip-to-wyoming
+  labels:
+    k8s-app: sagebrush-clip-to-wyoming
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: sagebrush-clip-to-wyoming
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: clip-to-wyoming
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-wyoming
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          
+          # Create temp directory
+          mkdir -p /tmp/sagebrush
+          cd /tmp/sagebrush
+          
+          # Download the COG from S3
+          echo "Downloading COG from S3..."
+          rclone copy nrp:public-wyoming/sagebrush-cog.tif /tmp/sagebrush/ -P
+          
+          # Wyoming bounding box (WGS84 / EPSG:4326)
+          # West: -111.05°, East: -104.05°, South: 41.00°, North: 45.00°
+          WEST=-111.05
+          EAST=-104.05
+          SOUTH=41.00
+          NORTH=45.00
+          
+          echo "Clipping to Wyoming bounding box: $WEST $SOUTH $EAST $NORTH"
+          
+          # Clip to Wyoming bounding box using gdalwarp
+          gdalwarp \
+            -t_srs EPSG:4326 \
+            -te $WEST $SOUTH $EAST $NORTH \
+            -co COMPRESS=DEFLATE \
+            -co PREDICTOR=2 \
+            -co BLOCKSIZE=512 \
+            -co OVERVIEWS=IGNORE_EXISTING \
+            /tmp/sagebrush/sagebrush-cog.tif \
+            /tmp/sagebrush-wyoming-cog.tif
+          
+          # Upload to S3
+          echo "Uploading clipped COG to S3..."
+          rclone copy /tmp/sagebrush-wyoming-cog.tif nrp:public-wyoming/sagebrush-wyoming-cog.tif -P
+          
+          echo "✓ Clipping complete"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

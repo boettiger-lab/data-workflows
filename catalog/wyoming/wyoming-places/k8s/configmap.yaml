@@ -1,0 +1,415 @@
+# Auto-generated ConfigMap containing job definitions
+# Generated from: wyoming-places-setup-bucket.yaml, wyoming-places-convert.yaml, wyoming-places-pmtiles.yaml, wyoming-places-hex.yaml, wyoming-places-repartition.yaml
+# Generation command: cng-datasets workflow --dataset wyoming-places --source-url s3://public-wyoming/raw/Wyoming_-_Incorporated_Places.geojson --bucket public-wyoming --h3-resolution 10 --parent-resolutions "9,8,0"
+#
+# This ConfigMap is equivalent to running:
+#   kubectl create configmap wyoming-places-yamls \
+#     --from-file=wyoming-places-setup-bucket.yaml \
+#     --from-file=wyoming-places-convert.yaml \
+#     --from-file=wyoming-places-pmtiles.yaml \
+#     --from-file=wyoming-places-hex.yaml \
+#     --from-file=wyoming-places-repartition.yaml
+#
+# To update: regenerate workflow with cng-datasets and re-apply with kubectl apply -f configmap.yaml
+apiVersion: v1
+data:
+  wyoming-places-convert.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: wyoming-places-convert
+      labels:
+        k8s-app: wyoming-places-convert
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: wyoming-places-convert
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: convert-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-wyoming
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              cng-convert-to-parquet \
+                https://s3-west.nrp-nautilus.io/public-wyoming/raw/Wyoming_-_Incorporated_Places.geojson \
+                s3://public-wyoming/wyoming-places.parquet \
+                --row-group-size 100000
+            resources:
+              requests:
+                cpu: '4'
+                memory: 8Gi
+              limits:
+                cpu: '4'
+                memory: 8Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+  wyoming-places-hex.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: wyoming-places-hex
+      labels:
+        k8s-app: wyoming-places-hex
+    spec:
+      completions: 99
+      parallelism: 50
+      completionMode: Indexed
+      backoffLimit: 0
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - type: DisruptionTarget
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: wyoming-places-hex
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: hex-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
+            - name: BUCKET
+              value: public-wyoming
+            - name: DATASET
+              value: wyoming-places
+            command:
+            - bash
+            - -c
+            - |-
+              set -e
+              cng-datasets vector --input s3://public-wyoming/wyoming-places.parquet --output s3://public-wyoming/wyoming-places/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+            resources:
+              requests:
+                cpu: '4'
+                memory: 8Gi
+              limits:
+                cpu: '4'
+                memory: 8Gi
+  wyoming-places-pmtiles.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: wyoming-places-pmtiles
+      labels:
+        k8s-app: wyoming-places-pmtiles
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: wyoming-places-pmtiles
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: pmtiles-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
+            - name: BUCKET
+              value: public-wyoming
+            - name: DATASET
+              value: wyoming-places
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              # Use optimized GeoParquet (has ID column) from convert job
+              # GDAL can read parquet via vsicurl
+              ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-wyoming/wyoming-places.parquet -progress
+
+              # Generate PMTiles from GeoJSONSeq
+              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$DATASET.geojsonl
+
+              # Upload to S3 using rclone
+              rclone copy /tmp/$DATASET.pmtiles nrp:public-wyoming/
+              rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles
+            resources:
+              requests:
+                cpu: '4'
+                memory: 8Gi
+              limits:
+                cpu: '4'
+                memory: 8Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+  wyoming-places-repartition.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: wyoming-places-repartition
+      labels:
+        k8s-app: wyoming-places-repartition
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: wyoming-places-repartition
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: repartition-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
+            - name: BUCKET
+              value: public-wyoming
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              cng-datasets repartition --chunks-dir s3://public-wyoming/wyoming-places/chunks --output-dir s3://public-wyoming/wyoming-places/hex --source-parquet s3://public-wyoming/wyoming-places.parquet --cleanup
+            resources:
+              requests:
+                cpu: '4'
+                memory: 32Gi
+              limits:
+                cpu: '4'
+                memory: 32Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+  wyoming-places-setup-bucket.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: wyoming-places-setup-bucket
+      labels:
+        k8s-app: wyoming-places-setup-bucket
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: wyoming-places-setup-bucket
+        spec:
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+          restartPolicy: Never
+          containers:
+          - name: setup-bucket-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-wyoming
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              echo "Setting up bucket with public access and CORS..."
+              cng-datasets storage setup-bucket \
+                --bucket "${BUCKET}" \
+                --remote nrp \
+                --verify
+
+              echo "Bucket setup complete!"
+            resources:
+              requests:
+                cpu: '1'
+                memory: 2Gi
+              limits:
+                cpu: '1'
+                memory: 2Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+kind: ConfigMap
+metadata:
+  name: wyoming-places-yamls
+  namespace: biodiversity

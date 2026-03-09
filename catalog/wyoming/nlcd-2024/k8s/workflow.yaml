@@ -1,0 +1,67 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nlcd-2024-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - |
+          set -e
+          
+          echo "Starting NLCD 2024 workflow..."
+          
+          # Step 1: Download and unzip raw data
+          echo "Step 1: Downloading and unzipping raw NLCD 2024 data..."
+          kubectl apply -f /yamls/nlcd-2024-download-unzip.yaml -n biodiversity
+          
+          echo "Waiting for download/unzip to complete..."
+          kubectl wait --for=condition=complete --timeout=600s job/nlcd-2024-download-unzip -n biodiversity
+          
+          # Step 2: Convert to COG
+          echo "Step 2: Converting to COG..."
+          kubectl apply -f /yamls/nlcd-2024-convert-to-cog.yaml -n biodiversity
+          
+          echo "Waiting for COG conversion to complete..."
+          kubectl wait --for=condition=complete --timeout=3600s job/nlcd-2024-convert-to-cog -n biodiversity
+          
+          # Step 3: Clip to Wyoming bounding box
+          echo "Step 3: Clipping to Wyoming bounding box..."
+          kubectl apply -f /yamls/nlcd-2024-clip-to-wyoming.yaml -n biodiversity
+          
+          echo "Waiting for clipping to complete..."
+          kubectl wait --for=condition=complete --timeout=3600s job/nlcd-2024-clip-to-wyoming -n biodiversity
+          
+          echo "✓ Workflow complete!"
+          echo ""
+          echo "Output files:"
+          echo "  - s3://public-wyoming/nlcd-2024-cog.tif (full COG)"
+          echo "  - s3://public-wyoming/nlcd-2024-wyoming-cog.tif (Wyoming clipped)"
+          echo ""
+          echo "Clean up with:"
+          echo "  kubectl delete jobs nlcd-2024-download-unzip nlcd-2024-convert-to-cog nlcd-2024-clip-to-wyoming nlcd-2024-workflow -n biodiversity"
+          echo "  kubectl delete configmap nlcd-2024-yamls -n biodiversity"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: nlcd-2024-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800

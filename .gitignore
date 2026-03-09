@@ -13,3 +13,11 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+**/*.min..css
+**/*.min..js
+.ipynb_checkpoints/.gitignore-checkpoint
+**/*.css
+**/*.js
+**/*.woff
+**/*.zip
+kubectl

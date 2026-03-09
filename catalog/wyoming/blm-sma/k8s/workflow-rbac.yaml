@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cng-datasets-workflow
+  namespace: biodiversity
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cng-datasets-workflow-role
+  namespace: biodiversity
+rules:
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: [""]
+  resources: ["configmaps", "pods", "pods/log"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cng-datasets-workflow-binding
+  namespace: biodiversity
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cng-datasets-workflow-role
+subjects:
+- kind: ServiceAccount
+  name: cng-datasets-workflow
+  namespace: biodiversity

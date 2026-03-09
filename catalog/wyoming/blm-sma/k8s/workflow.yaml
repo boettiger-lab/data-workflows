@@ -1,0 +1,71 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: blm-sma-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - |
+          set -e
+          echo "Starting blm-sma workflow..."
+          
+          # Step 0: Setup bucket with public access and CORS
+          echo "Step 0: Setting up bucket..."
+          kubectl apply -f /yamls/blm-sma-setup-bucket.yaml -n biodiversity
+          
+          echo "Waiting for bucket setup to complete..."
+          kubectl wait --for=condition=complete --timeout=600s job/blm-sma-setup-bucket -n biodiversity
+          
+          # Step 1: Convert to optimized GeoParquet (needed by both pmtiles and hex jobs)
+          echo "Step 1: Converting to optimized GeoParquet..."
+          kubectl apply -f /yamls/blm-sma-convert.yaml -n biodiversity
+          
+          echo "Waiting for GeoParquet conversion to complete..."
+          kubectl wait --for=condition=complete --timeout=7200s job/blm-sma-convert -n biodiversity
+          
+          # Step 2: Run pmtiles and hex tiling in parallel (both use the converted geoparquet)
+          echo "Step 2: H3 hexagonal tiling and PMTiles generation (parallel)..."
+          kubectl apply -f /yamls/blm-sma-pmtiles.yaml -n biodiversity
+          kubectl apply -f /yamls/blm-sma-hex.yaml -n biodiversity
+          
+          echo "Waiting for hex tiling to complete (PMTiles continues in background)..."
+          echo "Timeout set to 48 hours (172800s)..."
+          kubectl wait --for=condition=complete --timeout=172800s job/blm-sma-hex -n biodiversity
+          
+          echo "Step 3: Repartitioning by h0..."
+          kubectl apply -f /yamls/blm-sma-repartition.yaml -n biodiversity
+          
+          echo "Waiting for repartition to complete..."
+          kubectl wait --for=condition=complete --timeout=3600s job/blm-sma-repartition -n biodiversity
+          
+          echo "✓ Workflow complete!"
+          echo "Note: PMTiles job may still be running in the background"
+          echo ""
+          echo "Clean up with:"
+          echo "  kubectl delete jobs blm-sma-setup-bucket blm-sma-convert blm-sma-pmtiles blm-sma-hex blm-sma-repartition blm-sma-workflow -n biodiversity"
+          echo "  kubectl delete configmap blm-sma-yamls -n biodiversity"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: blm-sma-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
