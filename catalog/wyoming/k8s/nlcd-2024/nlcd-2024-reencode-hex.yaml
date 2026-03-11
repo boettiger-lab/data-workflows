@@ -1,0 +1,132 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nlcd-2024-reencode-hex
+  namespace: biodiversity
+  labels:
+    k8s-app: nlcd-2024-reencode-hex
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: nlcd-2024-reencode-hex
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: reencode
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '4'
+            memory: 8Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 8Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+
+          echo "=== Re-encoding nlcd-2024 hex: VARCHAR H3 → UBIGINT ==="
+
+          # Step 1: Convert to integer encoding, write to temp path
+          echo "Step 1: DuckDB conversion to hex-new/ ..."
+          python3 - <<'PYEOF'
+          import duckdb
+          import os
+
+          con = duckdb.connect()
+          con.execute("INSTALL h3 FROM community; LOAD h3")
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10")
+          con.execute("SET http_retry_wait_ms=3000")
+
+          # Internal S3 endpoint for reads and writes
+          endpoint = os.environ.get("AWS_S3_ENDPOINT", "rook-ceph-rgw-nautiluss3.rook")
+          key = os.environ["AWS_ACCESS_KEY_ID"]
+          secret = os.environ["AWS_SECRET_ACCESS_KEY"]
+          use_ssl = os.environ.get("AWS_HTTPS", "false").lower() != "false"
+
+          con.execute(f"""
+              CREATE SECRET s3_secret (
+                  TYPE S3,
+                  KEY_ID '{key}',
+                  SECRET '{secret}',
+                  ENDPOINT '{endpoint}',
+                  URL_STYLE 'path',
+                  USE_SSL {str(use_ssl).lower()}
+              )
+          """)
+
+          print("Running conversion query...")
+          con.execute("""
+              COPY (
+                  SELECT
+                      nlcd,
+                      h3_string_to_h3(h8) AS h8,
+                      h3_string_to_h3(h0) AS h0
+                  FROM read_parquet('s3://public-wyoming/nlcd-2024/hex/**/*.parquet')
+              ) TO 's3://public-wyoming/nlcd-2024/hex-new/'
+              (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (h0))
+          """)
+          print("✓ Conversion complete")
+          PYEOF
+
+          # Step 2: Verify output has data
+          echo "Step 2: Verifying output..."
+          N=$(rclone ls nrp:public-wyoming/nlcd-2024/hex-new/ | wc -l)
+          echo "  hex-new/ contains $N files"
+          if [ "$N" -lt 5 ]; then
+            echo "ERROR: too few output files ($N), aborting swap"
+            exit 1
+          fi
+
+          # Step 3: Swap hex-new/ → hex/
+          echo "Step 3: Deleting old STRING-encoded hex/ ..."
+          rclone delete nrp:public-wyoming/nlcd-2024/hex/
+          echo "Step 4: Moving hex-new/ → hex/ ..."
+          rclone move nrp:public-wyoming/nlcd-2024/hex-new/ nrp:public-wyoming/nlcd-2024/hex/
+
+          echo "=== Done. nlcd-2024/hex/ is now INTEGER-encoded ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
