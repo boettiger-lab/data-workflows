@@ -1,9 +1,9 @@
 {
     "type": "Collection",
     "stac_version": "1.0.0",
-    "id": "us-census-2022",
-    "title": "US Census 2022 - Spatial Index",
-    "description": "Spatial crosswalk (H3 resolution 10) for US Census Tracts (2022).",
+    "id": "us-census",
+    "title": "US Census Geographic Boundaries",
+    "description": "US Census geographic boundary datasets in cloud-native formats. Includes: (1) 2022 H3 spatial crosswalk — H3 resolution 10 index of Census Tract FIPS codes for fast spatial joins; (2) 2024 TIGER/Line boundaries — state, county, census tract, and congressional district polygons as GeoParquet, PMTiles, and H3 hex parquet.",
     "license": "public-domain",
     "stac_extensions": [
         "https://stac-extensions.github.io/table/v1.2.0/schema.json"
@@ -48,7 +48,7 @@
             "interval": [
                 [
                     "2022-01-01T00:00:00Z",
-                    "2022-12-31T23:59:59Z"
+                    "2024-12-31T23:59:59Z"
                 ]
             ]
         }
@@ -80,6 +80,30 @@
             "href": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
             "type": "text/html",
             "title": "US Census TIGER/Line Shapefiles"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/state/stac-collection.json",
+            "type": "application/json",
+            "title": "US Census 2024 State Boundaries"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/county/stac-collection.json",
+            "type": "application/json",
+            "title": "US Census 2024 County Boundaries"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/tract/stac-collection.json",
+            "type": "application/json",
+            "title": "US Census 2024 Census Tract Boundaries"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/cd/stac-collection.json",
+            "type": "application/json",
+            "title": "US Census 2024 Congressional District Boundaries"
         }
     ],
     "assets": {

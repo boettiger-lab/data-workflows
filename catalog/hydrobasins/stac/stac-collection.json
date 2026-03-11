@@ -193,13 +193,16 @@
             "file:size": 33146900
         },
         "level-03-hex": {
-            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_03/hexes/",
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/L3/",
             "type": "application/vnd.apache.parquet",
             "title": "Level 03 Basins - H3 Hexagonal Tiling",
             "roles": [
                 "data"
             ],
-            "description": "Partitioned by H3 level 0 cell (h0)"
+            "description": "H3 hex parquet for level-3 basins, partitioned by H3 resolution-0 cell (h0). Only level 3 hex is currently available.",
+            "table:storage_options": {
+                "partitioning": "h0"
+            }
         },
         "level-04-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_04.parquet",
@@ -209,31 +212,6 @@
                 "data"
             ],
             "file:size": 53976582
-        },
-        "level-04-hex": {
-            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_04/hexes/",
-            "type": "application/vnd.apache.parquet",
-            "title": "Level 04 Basins - H3 Hexagonal Tiling",
-            "roles": [
-                "data"
-            ],
-            "description": "Partitioned by H3 level 0 cell (h0)"
-        },
-        "level-05-hex": {
-            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_05/hexes/",
-            "type": "application/vnd.apache.parquet",
-            "title": "Level 05 Basins - H3 Hexagonal Tiling",
-            "roles": [
-                "data"
-            ]
-        },
-        "level-06-hex": {
-            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/level_06/hexes/",
-            "type": "application/vnd.apache.parquet",
-            "title": "Level 06 Basins - H3 Hexagonal Tiling",
-            "roles": [
-                "data"
-            ]
         }
     }
 }
