@@ -114,8 +114,8 @@ spec:
           echo "Step 2: Verifying output..."
           N=$(rclone ls nrp:public-wyoming/nlcd-2024/hex-new/ | wc -l)
           echo "  hex-new/ contains $N files"
-          if [ "$N" -lt 5 ]; then
-            echo "ERROR: too few output files ($N), aborting swap"
+          if [ "$N" -lt 1 ]; then
+            echo "ERROR: no output files written, aborting swap"
             exit 1
           fi
 

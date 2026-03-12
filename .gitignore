@@ -13,3 +13,6 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+
+# Private datasets — keep off public GitHub
+catalog/wyoming/

@@ -6,7 +6,7 @@
     "type": "Collection",
     "id": "census-2024-cd",
     "title": "US Census 2024 Congressional District Boundaries with H3 Indexing",
-    "description": "2024 congressional district boundaries for the 119th Congress from the US Census Bureau's TIGER/Line shapefiles, processing approximately 435 voting districts plus at-large and delegate districts into cloud-native formats with H3 hexagonal spatial indexing at resolution 10 (~0.015 km² per hex). Includes House of Representatives districts (435 voting + 6 non-voting delegate/resident commissioner seats).",
+    "description": "2024 congressional district boundaries for the 119th Congress from the US Census Bureau's TIGER/Line shapefiles, processing approximately 435 voting districts plus at-large and delegate districts into cloud-native formats with H3 hexagonal spatial indexing at resolution 10 (~0.015 km\u00b2 per hex). Includes House of Representatives districts (435 voting + 6 non-voting delegate/resident commissioner seats).",
     "license": "other",
     "license_other": "Public Domain (U.S. Government Work)",
     "keywords": [
@@ -68,7 +68,7 @@
         },
         {
             "rel": "parent",
-            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/stac-collection.json",
             "type": "application/json"
         },
         {

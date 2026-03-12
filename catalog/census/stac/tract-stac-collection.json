@@ -6,7 +6,7 @@
     "type": "Collection",
     "id": "census-2024-tract",
     "title": "US Census 2024 Census Tract Boundaries with H3 Indexing",
-    "description": "2024 census tract boundaries from the US Census Bureau's TIGER/Line shapefiles, processing approximately 85,000 census tracts across all 50 states, DC, Puerto Rico, and territories into cloud-native formats with H3 hexagonal spatial indexing at resolution 10 (~0.015 km² per hex). Census tracts are small statistical subdivisions of counties designed for 1,200-8,000 people.",
+    "description": "2024 census tract boundaries from the US Census Bureau's TIGER/Line shapefiles, processing approximately 85,000 census tracts across all 50 states, DC, Puerto Rico, and territories into cloud-native formats with H3 hexagonal spatial indexing at resolution 10 (~0.015 km\u00b2 per hex). Census tracts are small statistical subdivisions of counties designed for 1,200-8,000 people.",
     "license": "other",
     "license_other": "Public Domain (U.S. Government Work)",
     "keywords": [
@@ -68,7 +68,7 @@
         },
         {
             "rel": "parent",
-            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/stac-collection.json",
             "type": "application/json"
         },
         {

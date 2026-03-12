@@ -93,6 +93,36 @@
             "rel": "about",
             "href": "https://www.usgs.gov/programs/gap-analysis-project/science/pad-us-data-overview",
             "title": "PAD-US Data Overview"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined/stac-collection.json",
+            "type": "application/json",
+            "title": "PAD-US 4.1 Combined - All Protection Types"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee/stac-collection.json",
+            "type": "application/json",
+            "title": "PAD-US 4.1 Fee - Fee-Owned Protected Areas"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement/stac-collection.json",
+            "type": "application/json",
+            "title": "PAD-US 4.1 Easement - Conservation Easements"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/marine/stac-collection.json",
+            "type": "application/json",
+            "title": "PAD-US 4.1 Marine - Marine Protected Areas"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation/stac-collection.json",
+            "type": "application/json",
+            "title": "PAD-US 4.1 Proclamation - Proclamation Boundaries"
         }
     ],
     "summaries": {
