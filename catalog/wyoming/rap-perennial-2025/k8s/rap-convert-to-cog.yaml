@@ -1,0 +1,98 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-convert-to-cog
+  labels:
+    k8s-app: rap-convert-to-cog
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: rap-convert-to-cog
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: convert-to-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-wyoming
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          
+          # Create temp directory
+          mkdir -p /tmp/rap
+          cd /tmp/rap
+          
+          # Download the vegetation-cover-v3-2025.tif from S3 raw folder
+          echo "Downloading vegetation-cover-v3-2025.tif from S3..."
+          rclone copy nrp:public-wyoming/raw/vegetation-cover-v3-2025.tif /tmp/rap/ -P
+          
+          # Extract band 4 (perennial forbs and grasses) using gdal_translate
+          echo "Extracting band 4 (perennial forbs and grasses)..."
+          gdal_translate \
+            -b 4 \
+            -of COG \
+            -co COMPRESS=DEFLATE \
+            -co PREDICTOR=2 \
+            -co BLOCKSIZE=512 \
+            -co OVERVIEWS=IGNORE_EXISTING \
+            vegetation-cover-v3-2025.tif \
+            /tmp/rap-v3-2025-band4-perennial-forb-grass-cog.tif
+          
+          # Upload to S3 (root folder, not raw)
+          echo "Uploading COG to S3..."
+          rclone copy /tmp/rap-v3-2025-band4-perennial-forb-grass-cog.tif nrp:public-wyoming/rap-v3-2025-band4-perennial-forb-grass-cog.tif -P
+          
+          echo "✓ COG conversion complete"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

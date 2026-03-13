@@ -13,6 +13,13 @@ Thumbs.db
 *~
 .idea/
 .vscode/
-
 # Private datasets — keep off public GitHub
 catalog/wyoming/
+**/*.min..css
+**/*.min..js
+.ipynb_checkpoints/.gitignore-checkpoint
+**/*.css
+**/*.js
+**/*.woff
+**/*.zip
+kubectl

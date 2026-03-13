@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sagebrush-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - |
+          set -e
+          
+          echo "Starting sagebrush workflow..."
+          
+          # Step 1: Convert to COG
+          echo "Step 1: Converting to COG..."
+          kubectl apply -f /yamls/sagebrush-convert-to-cog.yaml -n biodiversity
+          
+          echo "Waiting for COG conversion to complete..."
+          kubectl wait --for=condition=complete --timeout=3600s job/sagebrush-convert-to-cog -n biodiversity
+          
+          # Step 2: Clip to Wyoming bounding box
+          echo "Step 2: Clipping to Wyoming bounding box..."
+          kubectl apply -f /yamls/sagebrush-clip-to-wyoming.yaml -n biodiversity
+          
+          echo "Waiting for clipping to complete..."
+          kubectl wait --for=condition=complete --timeout=3600s job/sagebrush-clip-to-wyoming -n biodiversity
+          
+          echo "✓ Workflow complete!"
+          echo ""
+          echo "Output files:"
+          echo "  - s3://public-wyoming/sagebrush-cog.tif (full COG)"
+          echo "  - s3://public-wyoming/sagebrush-wyoming-cog.tif (Wyoming clipped)"
+          echo ""
+          echo "Clean up with:"
+          echo "  kubectl delete jobs sagebrush-convert-to-cog sagebrush-clip-to-wyoming sagebrush-workflow -n biodiversity"
+          echo "  kubectl delete configmap sagebrush-yamls -n biodiversity"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: sagebrush-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
