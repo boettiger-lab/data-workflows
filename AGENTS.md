@@ -2,6 +2,20 @@
 
 You are working in a repository that uses `cng-datasets` to process geospatial data into cloud-native formats on a Kubernetes cluster. This document tells you everything you need to know.
 
+## ⛔ HARD BOUNDARY: Do NOT Touch the `cng-datasets` Tool Repo
+
+**You work exclusively in this repository (`data-workflows`). You do NOT:**
+- Edit, commit, push, or PR to `boettiger-lab/datasets` (the `cng-datasets` tool)
+- Check out, modify, or hotfix code in any other repository
+- Attempt workarounds in the tool code when workflows fail
+
+**If `cng-datasets` has a bug or missing feature:**
+1. File a GitHub Issue on `boettiger-lab/datasets` describing the problem clearly (include error messages, reproduction steps, and what behavior you expected)
+2. Tell the user what you filed and wait for the fix
+3. Do NOT attempt to fix it yourself — previous hotfixes have introduced breaking regressions
+
+**Why:** The tool has automated tests and a build/deploy pipeline. Unreviewed hotfixes bypass these safeguards and have caused production failures. Issue reports are the correct escalation path.
+
 ## What You Are Doing
 
 You are taking source geospatial data and producing cloud-native outputs. The outputs depend on whether the dataset is **vector** or **raster**:
