@@ -6,9 +6,9 @@
     "type": "Collection",
     "id": "census-2024-state",
     "title": "US Census 2024 State Boundaries with H3 Indexing",
-    "description": "2024 state and territory boundaries from the US Census Bureau's TIGER/Line shapefiles, processed into cloud-native formats with H3 hexagonal spatial indexing at resolution 10 (~0.015 km² per hex). Includes all 50 states, District of Columbia, and 5 territories (Puerto Rico, American Samoa, Guam, Northern Mariana Islands, U.S. Virgin Islands). Data includes geographic identifiers, names, land/water areas, and internal point coordinates.",
+    "description": "2024 state and territory boundaries from the US Census Bureau's TIGER/Line shapefiles, processed into cloud-native formats with H3 hexagonal spatial indexing at resolution 10 (~0.015 km\u00b2 per hex). Includes all 50 states, District of Columbia, and 5 territories (Puerto Rico, American Samoa, Guam, Northern Mariana Islands, U.S. Virgin Islands). Data includes geographic identifiers, names, land/water areas, and internal point coordinates.",
     "license": "other",
-    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. § 105).",
+    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. \u00a7 105).",
     "keywords": [
         "census",
         "states",
@@ -71,7 +71,7 @@
         },
         {
             "rel": "parent",
-            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/stac-collection.json",
             "type": "application/json"
         },
         {
@@ -119,7 +119,7 @@
             "href": "https://s3-west.nrp-nautilus.io/public-census/census-2024/state/hex/",
             "type": "application/vnd.apache.parquet",
             "title": "H3 hex-indexed parquet files",
-            "description": "Parquet files partitioned by H3 resolution 0 cells. Each row contains a state with its intersecting H3 cell at resolution 10 (~0.015 km²). Includes parent resolutions 9, 8, and 0 for hierarchical analysis.",
+            "description": "Parquet files partitioned by H3 resolution 0 cells. Each row contains a state with its intersecting H3 cell at resolution 10 (~0.015 km\u00b2). Includes parent resolutions 9, 8, and 0 for hierarchical analysis.",
             "roles": [
                 "data"
             ],

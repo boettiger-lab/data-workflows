@@ -1,0 +1,112 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fix-h0-grid-integer
+  namespace: biodiversity
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: [fiona.hpc.okstate.edu]
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      containers:
+      - name: fix-grid
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+
+          python3 - <<'EOF'
+          import duckdb
+          import os
+
+          con = duckdb.connect()
+          con.execute("INSTALL h3 FROM community; LOAD h3;")
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute(f"""
+            CREATE SECRET nrp (
+              TYPE s3,
+              KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}',
+              ENDPOINT 'rook-ceph-rgw-nautiluss3.rook',
+              USE_SSL false,
+              URL_STYLE 'path',
+              REGION 'us-east-1'
+            )
+          """)
+
+          # h0.parquet has columns: h0, geom
+          for name, cols in [('h0.parquet', 'h3_string_to_h3(h0)::UBIGINT AS h0, geom'),
+                              ('h0-valid.parquet', 'h3_string_to_h3(h0)::UBIGINT AS h0, geom, i')]:
+              src = f's3://public-grids/hex/{name}'
+              dst = f'/tmp/{name}'
+              print(f'Rebuilding {name} with integer h0...')
+
+              result = con.execute(f"SELECT typeof(h0) FROM read_parquet('{src}') LIMIT 1").fetchone()
+              print(f'  Current h0 type: {result[0]}')
+
+              con.execute(f"""
+                COPY (
+                  SELECT {cols}
+                  FROM read_parquet('{src}')
+                ) TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD)
+              """)
+
+              result = con.execute(f"SELECT typeof(h0), COUNT(*) FROM read_parquet('{dst}') GROUP BY 1").fetchone()
+              print(f'  New type: {result[0]}, rows: {result[1]}')
+
+              print(f'  Uploading to nrp:public-grids/hex/{name}...')
+          EOF
+
+          # Upload both files
+          rclone copyto /tmp/h0.parquet nrp:public-grids/hex/h0.parquet --progress
+          rclone copyto /tmp/h0-valid.parquet nrp:public-grids/hex/h0-valid.parquet --progress
+
+          echo "=== Done: h0 grid files rebuilt with UBIGINT h0 ==="

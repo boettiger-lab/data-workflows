@@ -2,15 +2,46 @@
 
 You are working in a repository that uses `cng-datasets` to process geospatial data into cloud-native formats on a Kubernetes cluster. This document tells you everything you need to know.
 
+## ⛔ HARD BOUNDARY: Do NOT Touch the `cng-datasets` Tool Repo
+
+**You work exclusively in this repository (`data-workflows`). You do NOT:**
+- Edit, commit, push, or PR to `boettiger-lab/datasets` (the `cng-datasets` tool)
+- Check out, modify, or hotfix code in any other repository
+- Attempt workarounds in the tool code when workflows fail
+
+**If `cng-datasets` has a bug or missing feature:**
+1. File a GitHub Issue on `boettiger-lab/datasets` describing the problem clearly (include error messages, reproduction steps, and what behavior you expected)
+2. Tell the user what you filed and wait for the fix
+3. Do NOT attempt to fix it yourself — previous hotfixes have introduced breaking regressions
+
+**Why:** The tool has automated tests and a build/deploy pipeline. Unreviewed hotfixes bypass these safeguards and have caused production failures. Issue reports are the correct escalation path.
+
 ## What You Are Doing
 
-You are taking source geospatial data and producing three outputs per dataset:
+You are taking source geospatial data and producing cloud-native outputs. The outputs depend on whether the dataset is **vector** or **raster**:
+
+### Vector datasets (GDB, Shapefile, GeoPackage, GeoParquet)
 
 | Format | File | Use |
 |--------|------|-----|
 | GeoParquet | `dataset.parquet` | Analytical queries with DuckDB/Polars |
 | PMTiles | `dataset.pmtiles` | Web map visualization |
 | H3 Hex Parquet | `dataset/hex/h0={cell}/data_0.parquet` | Spatial joins and aggregation |
+
+### Raster datasets (GeoTIFF, COG)
+
+| Format | File | Use |
+|--------|------|-----|
+| COG | `dataset-cog.tif` | Cloud-optimized raster visualization (titiler etc.) |
+| H3 Hex Parquet | `dataset/hex/h0={cell}/data_0.parquet` | Spatial aggregation and joins |
+
+Rasters do **not** produce GeoParquet or PMTiles, but they **do** produce H3 hex parquet. The COG is often already available as the source; the main processing step is hex tiling.
+
+**IMPORTANT: H3 hex is only supported for polygon geometries.** The `cng-datasets vector` hex tiling uses `h3_polygon_wkt_to_cells` internally, which **requires polygon geometries**. Line (LineString/MultiLineString) and point (Point/MultiPoint) geometry datasets **cannot be hexed** with the current tooling — attempting to do so produces empty chunk files with no errors or warnings. Do not attempt to hex line or point geometry datasets; skip the hex step and note the limitation. Always check geometry type before submitting a hex job:
+```python
+# Quick check (run locally with spatial extension)
+SELECT ST_GeometryType(geom), COUNT(*) FROM read_parquet('s3://...') GROUP BY 1
+```
 
 
 **ALWAYS use the k8s workflow for data processing. The local environment does not have all required tools and permissions.**
@@ -145,6 +176,8 @@ ogrinfo /vsicurl/<source-url>
 
 ### Step 2: Generate the pipeline
 
+#### For vector datasets
+
 Run `cng-datasets workflow` locally — this only generates YAML files, it does not process data:
 
 ```bash
@@ -169,6 +202,54 @@ cng-datasets workflow --dataset mydata/easement --layer EasementLayer ...
 ```
 
 The `/` in `--dataset` creates hierarchical S3 paths while using `-` in k8s job names.
+
+#### For raster datasets
+
+Run `cng-datasets raster-workflow` locally:
+
+```bash
+cng-datasets raster-workflow \
+  --dataset <name> \
+  --source-url <cog-url> \
+  --bucket <bucket> \
+  --h3-resolution 8 \
+  --parent-resolutions "0" \
+  --value-column <band_name> \
+  --hex-memory 32Gi \
+  --max-parallelism 61 \
+  --output-dir catalog/<dataset>/k8s/<name>
+```
+
+Key differences from the vector workflow:
+- **Command:** `raster-workflow` not `workflow`
+- **No `--max-completions`**: always 122 completions (one per h0 cell globally)
+- **Default resolution:** 8 (not 10) — auto-detected from pixel size if omitted
+- **Default parent-resolutions:** `"0"` (not `"9,8,0"`)
+- **Default hex-memory:** 32Gi (not 8Gi)
+- **Default max-parallelism:** 61 (not 50)
+- **`--value-column`:** name for the raster band value in the output parquet (default: `value`)
+- **`--nodata`:** NoData value to exclude (auto-detected from raster metadata if omitted)
+- **No COG step:** the source COG must already exist; this workflow only does hex tiling
+
+**For multi-tile rasters** (e.g., multiple UTM zones), repeat `--source-url` for each tile. The workflow adds a `preprocess-cog` step that mosaics them into a single WGS84 COG before hex tiling:
+
+```bash
+cng-datasets raster-workflow \
+  --dataset wyoming/rap-arte \
+  --source-url s3://public-wyoming/raw/rap_arte_zone12.tif \
+  --source-url s3://public-wyoming/raw/rap_arte_zone13.tif \
+  --bucket public-wyoming \
+  --target-extent "-111.1,40.9,-104.0,45.0" \
+  --band 1 \
+  --value-column arte \
+  --output-dir catalog/wyoming/k8s/rap-arte
+```
+
+Additional multi-tile options:
+- `--target-extent "xmin,ymin,xmax,ymax"` — clip to bounding box in EPSG:4326
+- `--target-resolution <degrees>` — output pixel size (default: derived from finest source)
+- `--band <n>` — extract single band from multi-band source (1-indexed)
+- `--output-cog-name <key>` — S3 key for intermediate COG (default: `{dataset}-cog.tif`)
 
 #### How `--dataset` controls naming
 
@@ -195,12 +276,15 @@ kubectl apply -f catalog/<dataset>/k8s/<name>/configmap.yaml \
               -f catalog/<dataset>/k8s/<name>/workflow.yaml
 ```
 
-The workflow orchestrator automatically creates all jobs: setup-bucket → convert → pmtiles + hex (parallel) → repartition.
+**Vector** workflow orchestrator jobs: setup-bucket → convert → pmtiles + hex (parallel) → repartition.
+
+**Raster** workflow orchestrator jobs: setup-bucket → hex (or setup-bucket → preprocess-cog → hex for multi-tile).
 
 **Alternative:** You can manually apply individual job YAMLs for step-by-step control:
 ```bash
 kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-setup-bucket.yaml
-kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-convert.yaml
+kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-convert.yaml   # vector only
+kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-hex.yaml
 # ... etc
 ```
 
@@ -264,6 +348,8 @@ The hex generation step creates millions of H3 cells that must be unnested in me
 - Small feature count does NOT mean low memory - 50 US states need chunking just as much as 85K census tracts
 - If hex pods OOM, increase `--hex-memory` (not decrease completions)
 
+#### Vector workflow parameters
+
 | Parameter | Default | When to change |
 |-----------|---------|----------------|
 | `--h3-resolution` | 10 | Lower (8, 6) for coarser data OR to reduce hex count for very large areas |
@@ -271,6 +357,20 @@ The hex generation step creates millions of H3 cells that must be unnested in me
 | `--max-completions` | 200 | Keep at 200 for any US-scale dataset (states, counties, tracts) |
 | `--max-parallelism` | 50 | **See namespace pod quota note below** |
 | `--parent-resolutions` | "9,8,0" | Almost never change this |
+| `--intermediate-chunk-size` | 10 | Decrease if hex pods OOM during unnest step |
+
+#### Raster workflow parameters
+
+| Parameter | Default | When to change |
+|-----------|---------|----------------|
+| `--h3-resolution` | auto (from pixel size) | Override if auto-detect gives wrong resolution |
+| `--hex-memory` | 32Gi | Increase if pods OOM; rasters can be memory-intensive at fine resolutions |
+| `--max-parallelism` | 61 | Reduce if hitting namespace pod quota; never exceeds 122 |
+| `--parent-resolutions` | "0" | Add intermediate resolutions (e.g., `"7,0"`) if needed |
+| `--value-column` | "value" | Set to a meaningful band name (e.g., `carbon`, `arte`, `nlcd`) |
+| `--nodata` | auto (from raster metadata) | Override if metadata nodata is wrong or missing |
+
+Raster completions are always **122** (one per h0 cell) — this is not configurable.
 
 ### Namespace Pod Quota — CRITICAL
 
@@ -293,15 +393,27 @@ done
 ```
 
 For a large batch of datasets, use a sequential background script rather than `apply-hex-workflows.sh` (which submits all at once).
-| `--intermediate-chunk-size` | auto | Decrease if hex pods OOM during unnest step |
 
 ## S3 Bucket Layout
 
+**Vector datasets:**
 ```
 bucket/
 ├── raw/                         # Source data
 ├── dataset.parquet              # GeoParquet
 ├── dataset.pmtiles              # PMTiles
+├── dataset/
+│   └── hex/
+│       └── h0={cell}/data_0.parquet
+├── README.md
+└── stac-collection.json
+```
+
+**Raster datasets:**
+```
+bucket/
+├── raw/                         # Source raster(s)
+├── dataset-cog.tif              # Cloud-optimized GeoTIFF (may be in raw/ or root)
 ├── dataset/
 │   └── hex/
 │       └── h0={cell}/data_0.parquet
@@ -574,3 +686,49 @@ kubectl apply -f catalog/census/k8s/tract/census-2024-tract-repartition.yaml
 ```
 
 **Result:** ~85,000 census tracts processed with parallel downloads completing in 3 minutes.
+
+## Reference: Raster Hex Workflow (Carbon Example)
+
+Raster datasets (COGs) are hexed using `cng-datasets raster-workflow`. The carbon irrecoverable carbon maps are a canonical example — each year is a separate COG already in S3.
+
+```bash
+# Generate raster workflow YAML (single-tile COG already on S3)
+cng-datasets raster-workflow \
+  --dataset irrecoverable-carbon-2022 \
+  --source-url s3://public-carbon/v2/cogs/irrecoverable_c_total_2022.tif \
+  --bucket public-carbon \
+  --h3-resolution 8 \
+  --parent-resolutions "0" \
+  --value-column carbon \
+  --hex-memory 32Gi \
+  --max-parallelism 61 \
+  --output-dir catalog/carbon/k8s/v2/irrecoverable-carbon-2022
+
+# Apply (one-time RBAC setup if not done)
+kubectl apply -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/workflow-rbac.yaml
+
+# Apply workflow
+kubectl apply \
+  -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/configmap.yaml \
+  -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/workflow.yaml
+```
+
+The generated hex job runs `cng-datasets raster` once per h0 cell:
+```bash
+cng-datasets raster \
+  --input s3://public-carbon/v2/cogs/irrecoverable_c_total_2022.tif \
+  --output-parquet s3://public-carbon/irrecoverable-carbon-2022/hex/ \
+  --h0-index ${JOB_COMPLETION_INDEX} \
+  --resolution 8 \
+  --parent-resolutions 0 \
+  --value-column carbon
+```
+
+This creates 122 indexed pods (one per h0 cell), each writing `hex/h0={cell}/data_0.parquet`. Cells with no raster data are skipped silently. There is no repartition step for rasters — each h0 writes directly to its final partition.
+
+**Key differences from vector hex:**
+- Input is a COG (not a parquet), read via GDAL with `/vsicurl/` internally
+- Uses `--h0-index` (not `--chunk-id`)
+- No `chunks/` intermediate directory — output goes directly to `hex/`
+- No repartition step needed
+- 122 completions always (not configurable)

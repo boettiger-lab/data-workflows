@@ -5,7 +5,7 @@
     ],
     "type": "Collection",
     "id": "pad-us-4.1-combined",
-    "title": "PAD-US 4.1 Combined - Protected Areas Database of the United States",
+    "title": "PAD-US 4.1 Combined - All Protection Types",
     "description": "The Protected Areas Database of the United States (PAD-US) 4.1 Combined layer integrates all protection types (fee ownership, easements, proclamation boundaries, marine areas, and designations) into a comprehensive national inventory of 656,986 protected areas. Managed by USGS Gap Analysis Project (GAP), this authoritative dataset combines federal, state, local, and private conservation lands indexed by H3 hexagons. Most features are at resolution 10 (~15m² cells), with 20 extremely complex geometries at resolution 8 (~0.74 km² cells). IMPORTANT: Features may overlap - a single location can have multiple protection types.",
     "license": "other",
     "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. § 105). International rights may apply.",
@@ -65,7 +65,7 @@
     "links": [
         {
             "rel": "self",
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/stac-collection.json",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined/stac-collection.json",
             "type": "application/json"
         },
         {
@@ -75,7 +75,7 @@
         },
         {
             "rel": "parent",
-            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/stac-collection.json",
             "type": "application/json"
         },
         {
@@ -93,36 +93,6 @@
             "rel": "about",
             "href": "https://www.usgs.gov/programs/gap-analysis-project/science/pad-us-data-overview",
             "title": "PAD-US Data Overview"
-        },
-        {
-            "rel": "child",
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined/stac-collection.json",
-            "type": "application/json",
-            "title": "PAD-US 4.1 Combined - All Protection Types"
-        },
-        {
-            "rel": "child",
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee/stac-collection.json",
-            "type": "application/json",
-            "title": "PAD-US 4.1 Fee - Fee-Owned Protected Areas"
-        },
-        {
-            "rel": "child",
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement/stac-collection.json",
-            "type": "application/json",
-            "title": "PAD-US 4.1 Easement - Conservation Easements"
-        },
-        {
-            "rel": "child",
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/marine/stac-collection.json",
-            "type": "application/json",
-            "title": "PAD-US 4.1 Marine - Marine Protected Areas"
-        },
-        {
-            "rel": "child",
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation/stac-collection.json",
-            "type": "application/json",
-            "title": "PAD-US 4.1 Proclamation - Proclamation Boundaries"
         }
     ],
     "summaries": {

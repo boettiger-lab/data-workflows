@@ -17,10 +17,44 @@ For Parquet files, use DuckDB to inspect the schema and understand the columns/f
 
 ```bash
 # Install duckdb and httpfs extension if needed
-duckdb -c "INSTALL httpfs; LOAD httpfs; DESCRIBE SELECT * FROM 'https://s3-west.nrp-nautilus.io/public-<dataset>/<file>.parquet' LIMIT 1;"
+duckdb -c "
+INSTALL httpfs; LOAD httpfs;
+SET s3_endpoint='s3-west.nrp-nautilus.io';
+SET s3_url_style='path';
+DESCRIBE SELECT * FROM read_parquet('s3://public-<dataset>/<file>.parquet') LIMIT 1;
+"
 ```
 
+**REQUIRED: Query categorical columns for unique values.** The `table:columns` in the STAC and data dictionary in the README must document all distinct values for categorical/coded columns — do not guess or omit them. Use DuckDB to discover them:
+
+```bash
+duckdb -c "
+INSTALL httpfs; LOAD httpfs;
+SET s3_endpoint='s3-west.nrp-nautilus.io';
+SET s3_url_style='path';
+-- Get row count + distinct counts for key categorical fields
+SELECT
+  COUNT(*) as total,
+  COUNT(DISTINCT my_category_col) as n_categories
+FROM read_parquet('s3://public-<dataset>/<file>.parquet');
+
+-- Get all unique values with counts for a categorical column
+SELECT my_category_col, COUNT(*) as n
+FROM read_parquet('s3://public-<dataset>/<file>.parquet')
+GROUP BY 1 ORDER BY n DESC;
+"
+```
+
+Include the actual unique values in both the README data dictionary and the `summaries` block of `stac-collection.json`.
+
 For PMTiles, confirm the `source-layer` name. This is always the **last path segment** of the `--dataset` flag used during processing (e.g., `--dataset padus-4-1/fee` → source-layer is `fee`). You do NOT need to inspect the file — derive it from the `--dataset` flag.
+
+For COG rasters, inspect band count, data type, and nodata value:
+
+```bash
+# Inspect raster metadata (band count, type, nodata, spatial info)
+gdalinfo /vsicurl/https://s3-west.nrp-nautilus.io/public-<dataset>/<file>-cog.tif
+```
 
 ## 3. Research Metadata & Citations
 
@@ -57,15 +91,36 @@ Create `catalog/<dataset>/stac/README.md` with:
 ### B. Create `stac-collection.json`
 
 Create `catalog/<dataset>/stac/stac-collection.json` following the STAC standard.
-- **Extensions**: Use `https://stac-extensions.github.io/table/v1.2.0/schema.json` for tabular data.
-- **Links**:
-    - `"rel": "root"` -> `https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json`
-    - `"rel": "parent"` -> `https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json`
-    - `"rel": "self"` -> `https://s3-west.nrp-nautilus.io/public-<dataset>/stac-collection.json`
-    - `"rel": "describedby"` -> `https://s3-west.nrp-nautilus.io/public-<dataset>/README.md`
-- **Assets**: Define the data files (parquet, pmtiles, cog, etc.).
+
+**Extensions** — choose based on dataset type:
+- **Vector/Tabular** (GeoParquet, hex parquet): `https://stac-extensions.github.io/table/v1.2.0/schema.json`
+- **Raster COG**: also add `https://stac-extensions.github.io/eo/v1.1.0/schema.json` and document bands in `summaries.eo:bands`
+
+**Links**:
+- `"rel": "root"` -> `https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json`
+- `"rel": "parent"` -> `https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json`
+- `"rel": "self"` -> `https://s3-west.nrp-nautilus.io/public-<dataset>/stac-collection.json`
+- `"rel": "describedby"` -> `https://s3-west.nrp-nautilus.io/public-<dataset>/README.md`
+
+**Assets**: Define the data files (parquet, pmtiles, cog, etc.).
 - **Vector layer assets**: Any asset with named layers (PMTiles, GDB, GPKG) MUST include `"vector:layers": ["<name>"]`. For PMTiles, the layer name = last segment of `--dataset`.
-- **Table Columns**: Use the `table:columns` array to formally define the schema (name, type, description).
+- **COG assets**: Use `"type": "image/tiff; application=geotiff; profile=cloud-optimized"` and list `"roles": ["data", "visual"]`.
+
+**Table Columns**: Use the `table:columns` array to formally define the schema (name, type, description). **Always query the actual data** for types and categorical values — do not guess.
+
+**Summaries**: Document key categorical column values (from real queries) and, for rasters, band metadata:
+```json
+"summaries": {
+  "eo:bands": [
+    {
+      "name": "band_name",
+      "description": "Human-readable description of what the band measures",
+      "data_type": "uint8",
+      "nodata": 255
+    }
+  ]
+}
+```
 
 ## 5. Upload to S3
 

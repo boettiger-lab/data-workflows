@@ -2,6 +2,14 @@
 
 Processing workflows for producing cloud-native geospatial datasets on the [NRP Nautilus](https://nrp.ai) Kubernetes cluster.
 
+## Published Datasets
+
+Browse the full catalog in STAC Browser:
+
+**[radiantearth.github.io/stac-browser → Boettiger Lab Datasets](https://radiantearth.github.io/stac-browser/#/external/s3-west.nrp-nautilus.io/public-data/stac/catalog.json)**
+
+Datasets are hosted on [NRP Nautilus](https://nrp.ai) S3 storage (`s3-west.nrp-nautilus.io`).
+
 This repo contains **no code** — just configuration (k8s YAML), documentation (STAC metadata), and instructions. All processing is done by the [`cng-datasets`](https://github.com/boettiger-lab/datasets) CLI tool running inside Kubernetes pods.
 
 ## How It Works

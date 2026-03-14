@@ -2,8 +2,8 @@
     "type": "Collection",
     "stac_version": "1.0.0",
     "id": "gbif-derived",
-    "title": "GBIF Derived Products (Redlining & Taxonomy)",
-    "description": "Processed GBIF occurrence data, including a subset joined with historical redlining maps and global taxonomic aggregations.",
+    "title": "GBIF Occurrence Data & Derived Products",
+    "description": "Processed GBIF occurrence data hexed at H3 resolutions 0-10, plus derived products including redlining spatial joins and taxonomic aggregations. The current release is 2025-06; releases are versioned by year-month to track GBIF snapshot updates.",
     "license": "various",
     "stac_extensions": [
         "https://stac-extensions.github.io/table/v1.2.0/schema.json"
@@ -11,6 +11,8 @@
     "keywords": [
         "biodiversity",
         "GBIF",
+        "occurrences",
+        "H3",
         "redlining",
         "taxonomy",
         "environmental justice"
@@ -47,7 +49,7 @@
             "interval": [
                 [
                     "1900-01-01T00:00:00Z",
-                    "2024-12-31T23:59:59Z"
+                    null
                 ]
             ]
         }
@@ -82,70 +84,70 @@
         }
     ],
     "assets": {
+        "gbif-hex-2025-06": {
+            "href": "https://s3-west.nrp-nautilus.io/public-gbif/2025-06/hex/",
+            "type": "application/vnd.apache.parquet",
+            "title": "GBIF Occurrences H3 Hex (2025-06, current)",
+            "roles": ["data"],
+            "description": "Global GBIF occurrences partitioned by H3 resolution 0 cell (h0), with hex columns h1-h10 as UBIGINT. 94 non-empty h0 partitions. Release 2025-06.",
+            "table:columns": [
+                {"name": "gbifid", "type": "string", "description": "GBIF Occurrence ID"},
+                {"name": "datasetkey", "type": "string", "description": "GBIF Dataset key"},
+                {"name": "occurrenceid", "type": "string", "description": "Occurrence ID"},
+                {"name": "kingdom", "type": "string", "description": "Taxonomic kingdom"},
+                {"name": "phylum", "type": "string", "description": "Taxonomic phylum"},
+                {"name": "class", "type": "string", "description": "Taxonomic class"},
+                {"name": "order", "type": "string", "description": "Taxonomic order"},
+                {"name": "family", "type": "string", "description": "Taxonomic family"},
+                {"name": "genus", "type": "string", "description": "Taxonomic genus"},
+                {"name": "species", "type": "string", "description": "Taxonomic species"},
+                {"name": "scientificname", "type": "string", "description": "Scientific name"},
+                {"name": "countrycode", "type": "string", "description": "ISO country code"},
+                {"name": "stateprovince", "type": "string", "description": "State or province"},
+                {"name": "occurrencestatus", "type": "string", "description": "Occurrence status"},
+                {"name": "h0", "type": "string", "description": "H3 resolution 0 cell (VARCHAR, partition key)"},
+                {"name": "h1", "type": "uint64", "description": "H3 resolution 1 cell (UBIGINT)"},
+                {"name": "h2", "type": "uint64", "description": "H3 resolution 2 cell (UBIGINT)"},
+                {"name": "h3", "type": "uint64", "description": "H3 resolution 3 cell (UBIGINT)"},
+                {"name": "h4", "type": "uint64", "description": "H3 resolution 4 cell (UBIGINT)"},
+                {"name": "h5", "type": "uint64", "description": "H3 resolution 5 cell (UBIGINT)"},
+                {"name": "h6", "type": "uint64", "description": "H3 resolution 6 cell (UBIGINT)"},
+                {"name": "h7", "type": "uint64", "description": "H3 resolution 7 cell (UBIGINT)"},
+                {"name": "h8", "type": "uint64", "description": "H3 resolution 8 cell (UBIGINT)"},
+                {"name": "h9", "type": "uint64", "description": "H3 resolution 9 cell (UBIGINT)"},
+                {"name": "h10", "type": "uint64", "description": "H3 resolution 10 cell (UBIGINT)"}
+            ]
+        },
         "redlined-cities-gbif": {
             "href": "https://s3-west.nrp-nautilus.io/public-gbif/redlined_cities_gbif.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "GBIF Occurrences in Redlined Cities",
-            "roles": [
-                "data"
-            ],
+            "roles": ["data"],
             "description": "GBIF data joined with HOLC grades (Mapping Inequality)",
             "table:columns": [
-                {
-                    "name": "gbifid",
-                    "type": "string",
-                    "description": "GBIF Occurrence ID"
-                },
-                {
-                    "name": "scientificname",
-                    "type": "string",
-                    "description": "Scientific Name"
-                },
-                {
-                    "name": "grade",
-                    "type": "string",
-                    "description": "HOLC Grade (A-D)"
-                },
-                {
-                    "name": "city",
-                    "type": "string",
-                    "description": "City Name"
-                }
+                {"name": "gbifid", "type": "string", "description": "GBIF Occurrence ID"},
+                {"name": "scientificname", "type": "string", "description": "Scientific Name"},
+                {"name": "grade", "type": "string", "description": "HOLC Grade (A-D)"},
+                {"name": "city", "type": "string", "description": "City Name"}
             ]
         },
         "taxonomic-aggregations": {
             "href": "https://s3-west.nrp-nautilus.io/public-gbif/taxonomy/",
             "type": "application/vnd.apache.parquet",
             "title": "Taxonomic Counts by Hexagon",
-            "roles": [
-                "data"
-            ],
-            "description": "Partitioned by h0",
+            "roles": ["data"],
+            "description": "Aggregated counts of taxa within H3 resolution 0 hexagons. Partitioned by h0.",
             "table:columns": [
-                {
-                    "name": "scientificname",
-                    "type": "string",
-                    "description": "Scientific Name"
-                },
-                {
-                    "name": "n",
-                    "type": "integer",
-                    "description": "Count of occurrences"
-                },
-                {
-                    "name": "h0",
-                    "type": "string",
-                    "description": "H3 resolution 0 cell ID"
-                }
+                {"name": "scientificname", "type": "string", "description": "Scientific Name"},
+                {"name": "n", "type": "integer", "description": "Count of occurrences"},
+                {"name": "h0", "type": "string", "description": "H3 resolution 0 cell ID"}
             ]
         },
         "taxa-list": {
             "href": "https://s3-west.nrp-nautilus.io/public-gbif/taxa.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "Taxa List",
-            "roles": [
-                "metadata"
-            ]
+            "roles": ["metadata"]
         }
     }
 }
