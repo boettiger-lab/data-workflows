@@ -310,6 +310,7 @@ After processing completes, create:
 - A **DuckDB example** with the full public URL to the parquet file
 
 **REQUIRED in every stac-collection.json:**
+- **Asset key naming**: The JSON key for each asset MUST be the dataset name (last segment of `--dataset`), not the format name. **Never use generic keys like `"pmtiles"`, `"geoparquet"`, or `"h3-parquet"`** — they break downstream apps when a collection has multiple assets of the same format, and make layer IDs meaningless. Use `"cd"`, `"cd-parquet"`, `"cd-hex"` not `"pmtiles"`, `"geoparquet"`, `"h3-parquet"`.
 - Any vector asset with named layers (PMTiles, GDB, GPKG, etc.) MUST include a `"vector:layers": ["<name>"]` array field. This is format-agnostic — the same field works for PMTiles, GeoDatabase, GeoPackage, etc. For PMTiles, the layer name = last segment of `--dataset`.
 - A `table:columns` array documenting all columns
 

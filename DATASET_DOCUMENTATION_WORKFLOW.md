@@ -103,6 +103,32 @@ Create `catalog/<dataset>/stac/stac-collection.json` following the STAC standard
 - `"rel": "describedby"` -> `https://s3-west.nrp-nautilus.io/public-<dataset>/README.md`
 
 **Assets**: Define the data files (parquet, pmtiles, cog, etc.).
+
+**Asset key naming — CRITICAL**: The JSON key for each asset MUST be the **dataset name** (last segment of `--dataset`), not the format name. Do NOT use generic keys like `"pmtiles"`, `"geoparquet"`, or `"h3-parquet"`. Use descriptive, dataset-specific keys:
+
+```json
+"assets": {
+    "cd": {                          ← dataset name, NOT "pmtiles"
+        "href": "...cd.pmtiles",
+        "type": "application/vnd.pmtiles",
+        "vector:layers": ["cd"],
+        "roles": ["visual"]
+    },
+    "cd-parquet": {                  ← dataset name + format suffix, NOT "geoparquet"
+        "href": "...cd.parquet",
+        "type": "application/vnd.apache.parquet",
+        "roles": ["data"]
+    },
+    "cd-hex": {                      ← dataset name + suffix, NOT "h3-parquet"
+        "href": ".../cd/hex/",
+        "type": "application/vnd.apache.parquet",
+        "roles": ["data"]
+    }
+}
+```
+
+Generic keys like `"pmtiles"` are unusable when a collection has multiple PMTiles assets, and cause layer ID collisions in downstream apps. Always use the dataset name.
+
 - **Vector layer assets**: Any asset with named layers (PMTiles, GDB, GPKG) MUST include `"vector:layers": ["<name>"]`. For PMTiles, the layer name = last segment of `--dataset`.
 - **COG assets**: Use `"type": "image/tiff; application=geotiff; profile=cloud-optimized"` and list `"roles": ["data", "visual"]`.
 
