@@ -84,9 +84,9 @@
         }
     ],
     "assets": {
-        "parquet": {
+        "mappinginequality-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-mappinginequality/mappinginequality.parquet",
-            "type": "application/x-parquet",
+            "type": "application/vnd.apache.parquet",
             "title": "Full Dataset (GeoParquet)",
             "roles": [
                 "data"
@@ -98,7 +98,7 @@
                 }
             }
         },
-        "pmtiles": {
+        "mappinginequality-pmtiles": {
             "href": "https://s3-west.nrp-nautilus.io/public-mappinginequality/mappinginequality.pmtiles",
             "type": "application/vnd.pmtiles",
             "title": "Web Map Tiles (PMTiles)",
@@ -108,6 +108,15 @@
             "vector:layers": [
                 "redlining"
             ]
+        },
+        "mappinginequality-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-mappinginequality/hex/h0=*/data_0.parquet",
+            "type": "application/vnd.apache.parquet",
+            "title": "H3 Hex Parquet (resolution 10)",
+            "roles": [
+                "data"
+            ],
+            "description": "H3 hexagonal aggregation at resolution 10, partitioned by h0 cell"
         }
     },
     "table:columns": [
@@ -132,6 +141,16 @@
             "description": "Two-letter state abbreviation"
         },
         {
+            "name": "city_survey",
+            "type": "boolean",
+            "description": "Whether the city was included in the HOLC survey"
+        },
+        {
+            "name": "category",
+            "type": "string",
+            "description": "HOLC grade category (A, B, C, D) \u2014 duplicates grade"
+        },
+        {
             "name": "grade",
             "type": "string",
             "description": "HOLC Grade: A (Best), B (Still Desirable), C (Definitely Declining), D (Hazardous)"
@@ -142,9 +161,29 @@
             "description": "Full area label (e.g., A1, B2)"
         },
         {
+            "name": "residential",
+            "type": "boolean",
+            "description": "Classified as residential area"
+        },
+        {
+            "name": "commercial",
+            "type": "boolean",
+            "description": "Classified as commercial area"
+        },
+        {
+            "name": "industrial",
+            "type": "boolean",
+            "description": "Classified as industrial area"
+        },
+        {
             "name": "fill",
             "type": "string",
-            "description": "Hex color code used in original maps"
+            "description": "Hex color code used in original HOLC maps"
+        },
+        {
+            "name": "geom_bbox",
+            "type": "binary",
+            "description": "Bounding box of the geometry (WKB)"
         }
     ]
 }

@@ -6,9 +6,9 @@
     "type": "Collection",
     "id": "pad-us-4.1-marine",
     "title": "PAD-US 4.1 Marine - Marine Protected Areas",
-    "description": "Marine protected areas from PAD-US 4.1, containing 1,739 features representing coastal and offshore waters under some degree of protection. Includes National Marine Sanctuaries, Marine National Monuments, and other federal and state marine protected areas around the U.S. coastline and territories. Managed by USGS Gap Analysis Project (GAP). Indexed by H3 hexagons at resolution 10 (~15m² cells).",
+    "description": "Marine protected areas from PAD-US 4.1, containing 1,739 features representing coastal and offshore waters under some degree of protection. Includes National Marine Sanctuaries, Marine National Monuments, and other federal and state marine protected areas around the U.S. coastline and territories. Managed by USGS Gap Analysis Project (GAP). Indexed by H3 hexagons at resolution 10 (~15m\u00b2 cells).",
     "license": "other",
-    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. § 105). International rights may apply.",
+    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. \u00a7 105). International rights may apply.",
     "keywords": [
         "protected areas",
         "marine protected areas",
@@ -128,7 +128,7 @@
         ]
     },
     "assets": {
-        "geoparquet": {
+        "marine-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/marine.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "GeoParquet file with 1,739 marine protected areas",
@@ -137,7 +137,7 @@
                 "data"
             ]
         },
-        "pmtiles": {
+        "marine-pmtiles": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/marine.pmtiles",
             "type": "application/vnd.pmtiles",
             "title": "PMTiles for web mapping",
@@ -149,11 +149,11 @@
                 "visual"
             ]
         },
-        "h3-parquet": {
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/marine/hex/",
+        "marine-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/marine/hex/h0=*/data_0.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "H3 hex-indexed parquet files",
-            "description": "Parquet files partitioned by H3 cell at resolution 10 (~15m²). Partitioned by h0 for efficient spatial queries.",
+            "description": "Parquet files partitioned by H3 cell at resolution 10 (~15m\u00b2). Partitioned by h0 for efficient spatial queries.",
             "roles": [
                 "data"
             ],

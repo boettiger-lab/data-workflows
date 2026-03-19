@@ -6,9 +6,9 @@
     "type": "Collection",
     "id": "pad-us-4.1-easement",
     "title": "PAD-US 4.1 Easement - Conservation Easements",
-    "description": "Conservation easements from PAD-US 4.1, containing 341,954 features representing legal agreements that restrict land use to protect conservation values while leaving the land in private or public ownership. Conservation easements are the most numerous protection type in PAD-US. Includes term-limited easements (see Term and Duration fields). Managed by USGS Gap Analysis Project (GAP). Indexed by H3 hexagons at resolution 10 (~15m² cells).",
+    "description": "Conservation easements from PAD-US 4.1, containing 341,954 features representing legal agreements that restrict land use to protect conservation values while leaving the land in private or public ownership. Conservation easements are the most numerous protection type in PAD-US. Includes term-limited easements (see Term and Duration fields). Managed by USGS Gap Analysis Project (GAP). Indexed by H3 hexagons at resolution 10 (~15m\u00b2 cells).",
     "license": "other",
-    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. § 105). International rights may apply.",
+    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. \u00a7 105). International rights may apply.",
     "keywords": [
         "protected areas",
         "conservation",
@@ -131,7 +131,7 @@
         ]
     },
     "assets": {
-        "geoparquet": {
+        "easement-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "GeoParquet file with 341,954 conservation easements",
@@ -140,7 +140,7 @@
                 "data"
             ]
         },
-        "pmtiles": {
+        "easement-pmtiles": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement.pmtiles",
             "type": "application/vnd.pmtiles",
             "title": "PMTiles for web mapping",
@@ -152,11 +152,11 @@
                 "visual"
             ]
         },
-        "h3-parquet": {
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement/hex/",
+        "easement-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement/hex/h0=*/data_0.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "H3 hex-indexed parquet files",
-            "description": "Parquet files partitioned by H3 cell at resolution 10 (~15m²). Partitioned by h0 for efficient spatial queries.",
+            "description": "Parquet files partitioned by H3 cell at resolution 10 (~15m\u00b2). Partitioned by h0 for efficient spatial queries.",
             "roles": [
                 "data"
             ],

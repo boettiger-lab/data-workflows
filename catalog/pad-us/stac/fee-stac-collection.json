@@ -6,9 +6,9 @@
     "type": "Collection",
     "id": "pad-us-4.1-fee",
     "title": "PAD-US 4.1 Fee - Fee-Owned Protected Areas",
-    "description": "Fee-owned protected areas from PAD-US 4.1, containing 296,456 features where land is directly owned (fee simple title) by federal, state, local, tribal, or private conservation entities. This is the largest and most commonly used PAD-US layer, covering lands such as National Parks, National Forests, state parks, and private conservation lands. Managed by USGS Gap Analysis Project (GAP). Indexed by H3 hexagons at resolution 10 (~15m² cells).",
+    "description": "Fee-owned protected areas from PAD-US 4.1, containing 296,456 features where land is directly owned (fee simple title) by federal, state, local, tribal, or private conservation entities. This is the largest and most commonly used PAD-US layer, covering lands such as National Parks, National Forests, state parks, and private conservation lands. Managed by USGS Gap Analysis Project (GAP). Indexed by H3 hexagons at resolution 10 (~15m\u00b2 cells).",
     "license": "other",
-    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. § 105). International rights may apply.",
+    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. \u00a7 105). International rights may apply.",
     "keywords": [
         "protected areas",
         "conservation",
@@ -133,7 +133,7 @@
         ]
     },
     "assets": {
-        "geoparquet": {
+        "fee-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "GeoParquet file with 296,456 fee-owned protected areas",
@@ -142,7 +142,7 @@
                 "data"
             ]
         },
-        "pmtiles": {
+        "fee-pmtiles": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee.pmtiles",
             "type": "application/vnd.pmtiles",
             "title": "PMTiles for web mapping",
@@ -154,11 +154,11 @@
                 "visual"
             ]
         },
-        "h3-parquet": {
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee/hex/",
+        "fee-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee/hex/h0=*/data_0.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "H3 hex-indexed parquet files",
-            "description": "Parquet files partitioned by H3 cell at resolution 10 (~15m²). Partitioned by h0 for efficient spatial queries. Each row contains a protected area feature with its intersecting H3 cell.",
+            "description": "Parquet files partitioned by H3 cell at resolution 10 (~15m\u00b2). Partitioned by h0 for efficient spatial queries. Each row contains a protected area feature with its intersecting H3 cell.",
             "roles": [
                 "data"
             ],

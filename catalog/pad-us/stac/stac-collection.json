@@ -6,9 +6,9 @@
     "type": "Collection",
     "id": "pad-us-4.1-combined",
     "title": "PAD-US 4.1 Combined - Protected Areas Database of the United States",
-    "description": "The Protected Areas Database of the United States (PAD-US) 4.1 Combined layer integrates all protection types (fee ownership, easements, proclamation boundaries, marine areas, and designations) into a comprehensive national inventory of 656,986 protected areas. Managed by USGS Gap Analysis Project (GAP), this authoritative dataset combines federal, state, local, and private conservation lands indexed by H3 hexagons. Most features are at resolution 10 (~15m² cells), with 20 extremely complex geometries at resolution 8 (~0.74 km² cells). IMPORTANT: Features may overlap - a single location can have multiple protection types.",
+    "description": "The Protected Areas Database of the United States (PAD-US) 4.1 Combined layer integrates all protection types (fee ownership, easements, proclamation boundaries, marine areas, and designations) into a comprehensive national inventory of 656,986 protected areas. Managed by USGS Gap Analysis Project (GAP), this authoritative dataset combines federal, state, local, and private conservation lands indexed by H3 hexagons. Most features are at resolution 10 (~15m\u00b2 cells), with 20 extremely complex geometries at resolution 8 (~0.74 km\u00b2 cells). IMPORTANT: Features may overlap - a single location can have multiple protection types.",
     "license": "other",
-    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. § 105). International rights may apply.",
+    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. \u00a7 105). International rights may apply.",
     "keywords": [
         "protected areas",
         "conservation",
@@ -165,7 +165,7 @@
         ]
     },
     "assets": {
-        "geoparquet": {
+        "combined-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "GeoParquet file with all 656,986 protected areas",
@@ -174,7 +174,7 @@
                 "data"
             ]
         },
-        "pmtiles": {
+        "combined-pmtiles": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined.pmtiles",
             "type": "application/vnd.pmtiles",
             "title": "PMTiles for web mapping",
@@ -186,11 +186,11 @@
                 "visual"
             ]
         },
-        "h3-parquet": {
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined/hex/",
+        "combined-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined/hex/h0=*/data_0.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "H3 hex-indexed parquet files",
-            "description": "Parquet files partitioned by H3 cell at resolution 10 (15m²) and resolution 8 (0.74 km²) for 20 complex features. Partitioned by h0 for efficient spatial queries. Each row contains a protected area feature with its intersecting H3 cell.",
+            "description": "Parquet files partitioned by H3 cell at resolution 10 (15m\u00b2) and resolution 8 (0.74 km\u00b2) for 20 complex features. Partitioned by h0 for efficient spatial queries. Each row contains a protected area feature with its intersecting H3 cell.",
             "roles": [
                 "data"
             ],
@@ -253,7 +253,7 @@
         {
             "name": "Loc_Ds",
             "type": "string",
-            "description": "Local designation. Official designation name in original language or local terminology. Examples: 'Parque Nacional', 'Área Natural Protegida'."
+            "description": "Local designation. Official designation name in original language or local terminology. Examples: 'Parque Nacional', '\u00c1rea Natural Protegida'."
         },
         {
             "name": "Unit_Nm",

@@ -6,9 +6,9 @@
     "type": "Collection",
     "id": "pad-us-4.1-proclamation",
     "title": "PAD-US 4.1 Proclamation - Proclamation Boundaries",
-    "description": "Proclamation boundaries from PAD-US 4.1, containing 3,439 features representing the authorized (legislated or proclaimed) boundaries of protected areas, which often include private inholdings and areas not yet acquired. These boundaries reflect the full intended extent of protection as authorized by Presidential proclamations, Congress, or agency action — distinct from the actually owned (fee) lands within them. Common examples include National Monument outer boundaries and National Forest proclamation boundaries. Managed by USGS Gap Analysis Project (GAP). Indexed by H3 hexagons at resolution 10 (~15m² cells).",
+    "description": "Proclamation boundaries from PAD-US 4.1, containing 3,439 features representing the authorized (legislated or proclaimed) boundaries of protected areas, which often include private inholdings and areas not yet acquired. These boundaries reflect the full intended extent of protection as authorized by Presidential proclamations, Congress, or agency action \u2014 distinct from the actually owned (fee) lands within them. Common examples include National Monument outer boundaries and National Forest proclamation boundaries. Managed by USGS Gap Analysis Project (GAP). Indexed by H3 hexagons at resolution 10 (~15m\u00b2 cells).",
     "license": "other",
-    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. § 105). International rights may apply.",
+    "license_other": "Public Domain (U.S. Government Work) - Not subject to copyright protection within the United States (17 U.S.C. \u00a7 105). International rights may apply.",
     "keywords": [
         "protected areas",
         "proclamation boundaries",
@@ -126,7 +126,7 @@
         ]
     },
     "assets": {
-        "geoparquet": {
+        "proclamation-parquet": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "GeoParquet file with 3,439 proclamation boundaries",
@@ -135,7 +135,7 @@
                 "data"
             ]
         },
-        "pmtiles": {
+        "proclamation-pmtiles": {
             "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation.pmtiles",
             "type": "application/vnd.pmtiles",
             "title": "PMTiles for web mapping",
@@ -147,11 +147,11 @@
                 "visual"
             ]
         },
-        "h3-parquet": {
-            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation/hex/",
+        "proclamation-hex": {
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation/hex/h0=*/data_0.parquet",
             "type": "application/vnd.apache.parquet",
             "title": "H3 hex-indexed parquet files",
-            "description": "Parquet files partitioned by H3 cell at resolution 10 (~15m²). Partitioned by h0 for efficient spatial queries.",
+            "description": "Parquet files partitioned by H3 cell at resolution 10 (~15m\u00b2). Partitioned by h0 for efficient spatial queries.",
             "roles": [
                 "data"
             ],
