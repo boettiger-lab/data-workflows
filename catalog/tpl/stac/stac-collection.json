@@ -74,14 +74,14 @@
     }
   },
   "table:columns": [
-    {"name": "fid", "type": "int64", "description": "Row identifier from source data. Not guaranteed unique — use tpl_id to identify distinct conservation sites."},
-    {"name": "tpl_id", "type": "int32", "description": "TPL site identifier. Uniquely identifies a conservation area. A single site can have multiple rows (one per funding program/sponsor), all sharing the same tpl_id. Use COUNT(DISTINCT tpl_id) to count conservation sites; use COUNT(*) to count funding transactions."},
+    {"name": "fid", "type": "int64", "description": "Feature (geometry) identifier. Uniquely identifies a conservation site geometry. Multiple rows may share the same fid when a site was funded by multiple programs — each row is one funding transaction for the same physical area."},
+    {"name": "tpl_id", "type": "int32", "description": "TPL site identifier. Uniquely identifies a conservation area. Multiple rows share the same tpl_id when a site received funding from multiple programs/sponsors. Use COUNT(DISTINCT tpl_id) to count distinct conservation sites."},
     {"name": "state_id", "type": "string", "description": "State FIPS code"},
     {"name": "state", "type": "string", "description": "State name"},
     {"name": "county", "type": "string", "description": "County name"},
     {"name": "municipality", "type": "string", "description": "Municipality name"},
     {"name": "site", "type": "string", "description": "Site name"},
-    {"name": "acres", "type": "float64", "description": "Area in acres of the conservation site. Repeated across all funding rows for the same site — use with DISTINCT tpl_id to avoid double-counting."},
+    {"name": "acres", "type": "float64", "description": "Area in acres of the conservation site. The same value is repeated across all funding rows for the same site — to sum total protected area, use MAX(acres) per tpl_id before summing across sites."},
     {"name": "year", "type": "int32", "description": "Year of protection"},
     {"name": "date", "type": "timestamp", "description": "Date of protection"},
     {"name": "owner", "type": "string", "description": "Owner name"},
