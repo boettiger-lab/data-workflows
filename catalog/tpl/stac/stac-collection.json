@@ -1,0 +1,110 @@
+{
+  "type": "Collection",
+  "id": "conservation-almanac-2024",
+  "stac_version": "1.0.0",
+  "description": "Protected and conserved lands in the United States compiled by The Trust for Public Land (TPL) Conservation Almanac. Includes fee-owned lands, conservation easements, and other protected areas with ownership, management, access, and funding program attributes.",
+  "links": [
+    {
+      "rel": "root",
+      "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "self",
+      "href": "https://s3-west.nrp-nautilus.io/public-tpl/stac-collection.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "about",
+      "href": "https://conservationalmanac.org/about/",
+      "type": "text/html",
+      "title": "TPL Conservation Almanac"
+    }
+  ],
+  "title": "TPL Conservation Almanac 2024",
+  "extent": {
+    "spatial": {
+      "bbox": [[-179.15, 17.88, -65.74, 71.39]]
+    },
+    "temporal": {
+      "interval": [["1780-01-01T00:00:00Z", null]]
+    }
+  },
+  "license": "proprietary",
+  "providers": [
+    {
+      "name": "Trust for Public Land",
+      "roles": ["producer", "licensor"],
+      "url": "https://www.tpl.org/"
+    },
+    {
+      "name": "Boettiger Lab, UC Berkeley",
+      "roles": ["processor", "host"],
+      "url": "https://s3-west.nrp-nautilus.io/public-tpl/"
+    }
+  ],
+  "assets": {
+    "almanac-parquet": {
+      "href": "https://s3-west.nrp-nautilus.io/public-tpl/conservation-almanac-2024.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "GeoParquet",
+      "roles": ["data"],
+      "description": "Cloud-optimized GeoParquet with MULTIPOLYGON geometries, 90,068 features"
+    },
+    "almanac-pmtiles": {
+      "href": "https://s3-west.nrp-nautilus.io/public-tpl/conservation-almanac-2024.pmtiles",
+      "type": "application/vnd.pmtiles",
+      "title": "PMTiles",
+      "roles": ["data"],
+      "vector:layers": ["conservation-almanac-2024"],
+      "description": "Vector tiles for web map visualization"
+    },
+    "almanac-hex": {
+      "href": "https://s3-west.nrp-nautilus.io/public-tpl/conservation-almanac-2024/hex/h0=*/data_0.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "H3 Hex Parquet",
+      "roles": ["data"],
+      "description": "H3 hexagonal tiling at resolution 10 with parent resolutions 9, 8, 0. Hive-partitioned by h0 cell."
+    },
+    "readme": {
+      "href": "https://s3-west.nrp-nautilus.io/public-tpl/README.md",
+      "type": "text/markdown",
+      "title": "README",
+      "roles": ["metadata"]
+    }
+  },
+  "table:columns": [
+    {"name": "fid", "type": "int64", "description": "Row identifier from source data. Not guaranteed unique — use tpl_id to identify distinct conservation sites."},
+    {"name": "tpl_id", "type": "int32", "description": "TPL site identifier. Uniquely identifies a conservation area. A single site can have multiple rows (one per funding program/sponsor), all sharing the same tpl_id. Use COUNT(DISTINCT tpl_id) to count conservation sites; use COUNT(*) to count funding transactions."},
+    {"name": "state_id", "type": "string", "description": "State FIPS code"},
+    {"name": "state", "type": "string", "description": "State name"},
+    {"name": "county", "type": "string", "description": "County name"},
+    {"name": "municipality", "type": "string", "description": "Municipality name"},
+    {"name": "site", "type": "string", "description": "Site name"},
+    {"name": "acres", "type": "float64", "description": "Area in acres of the conservation site. Repeated across all funding rows for the same site — use with DISTINCT tpl_id to avoid double-counting."},
+    {"name": "year", "type": "int32", "description": "Year of protection"},
+    {"name": "date", "type": "timestamp", "description": "Date of protection"},
+    {"name": "owner", "type": "string", "description": "Owner name"},
+    {"name": "owner_type", "type": "string", "description": "Owner type (Federal, State, Local, Non-profit, Private, etc.)"},
+    {"name": "manager", "type": "string", "description": "Manager name"},
+    {"name": "manager_type", "type": "string", "description": "Manager type"},
+    {"name": "purchase_type", "type": "string", "description": "Acquisition method (Fee, Easement, etc.)"},
+    {"name": "easement", "type": "string", "description": "Easement holder name"},
+    {"name": "easement_type", "type": "string", "description": "Easement type"},
+    {"name": "access_type", "type": "string", "description": "Public access level"},
+    {"name": "purpose_type", "type": "string", "description": "Conservation purpose"},
+    {"name": "duration_type", "type": "string", "description": "Permanent or temporary protection"},
+    {"name": "data_provider", "type": "string", "description": "Organization providing the data record"},
+    {"name": "data_source", "type": "string", "description": "Source dataset name"},
+    {"name": "source_date", "type": "timestamp", "description": "Date of source data"},
+    {"name": "data_aggregator", "type": "string", "description": "Organization aggregating the data"},
+    {"name": "comments", "type": "string", "description": "Notes"},
+    {"name": "amount", "type": "float64", "description": "Funding amount in dollars for this transaction (one row = one funder). SUM(amount) across all rows for a site gives total funding from all sources."},
+    {"name": "program_id", "type": "int32", "description": "Funding program ID"},
+    {"name": "program", "type": "string", "description": "Funding program name (e.g. 'State Bonds - Proposition 50', 'Land and Water Conservation Fund'). One site may have multiple programs."},
+    {"name": "sponsor_id", "type": "int32", "description": "Sponsor organization ID"},
+    {"name": "sponsor", "type": "string", "description": "Sponsor organization name"},
+    {"name": "sponsor_type", "type": "string", "description": "Sponsor organization type"},
+    {"name": "geom", "type": "geometry", "description": "MULTIPOLYGON in WGS84 (EPSG:4326)"}
+  ]
+}
