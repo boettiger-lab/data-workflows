@@ -1,0 +1,119 @@
+{
+    "stac_version": "1.0.0",
+    "type": "Catalog",
+    "id": "boettiger-lab-datasets",
+    "title": "Boettiger Lab Geospatial Datasets",
+    "description": "A catalog of cloud-optimized geospatial datasets published by the Boettiger Lab, hosted on National Research Platform S3 storage. Datasets include biodiversity, conservation, census, environmental, and infrastructure data in formats optimized for cloud-native analysis.",
+    "links": [
+        {
+            "rel": "self",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json",
+            "title": "Boettiger Lab Datasets Catalog"
+        },
+        {
+            "rel": "root",
+            "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+            "type": "application/json"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-cpad/stac-collection.json",
+            "type": "application/json",
+            "title": "California Protected Areas Database (CPAD) 2025b"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-iucn/stac-collection.json",
+            "type": "application/json",
+            "title": "IUCN Species Richness 2025"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-wdpa/stac-collection.json",
+            "type": "application/json",
+            "title": "World Database of Protected Areas (WDPA)"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-mappinginequality/stac-collection.json",
+            "type": "application/json",
+            "title": "Mapping Inequality (Historical Redlining)"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-hydrobasins/stac-collection.json",
+            "type": "application/json",
+            "title": "HydroBasins Global Watershed Boundaries"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-ncp/stac-collection.json",
+            "type": "application/json",
+            "title": "Nature's Contributions to People (NCP)"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-gbif/stac-collection.json",
+            "type": "application/json",
+            "title": "GBIF Derived Products (Redlining & Taxonomy)"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-census/stac-collection.json",
+            "type": "application/json",
+            "title": "US Census Data"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-carbon/stac-collection.json",
+            "type": "application/json",
+            "title": "Irrecoverable and Manageable Carbon"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-social-vulnerability/stac-collection.json",
+            "type": "application/json",
+            "title": "CDC Social Vulnerability Index"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-wetlands/stac-collection.json",
+            "type": "application/json",
+            "title": "Global Wetlands Data (Ramsar, GLWD, NWI)"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-inat/stac-collection.json",
+            "type": "application/json",
+            "title": "iNaturalist Species Ranges & Taxonomy"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-overturemaps/stac-collection.json",
+            "type": "application/json",
+            "title": "Overture Maps Divisions (Administrative Boundaries)"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-calenviroscreen/stac-collection.json",
+            "type": "application/json",
+            "title": "CalEnviroScreen 5.0 (Draft)"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-padus/stac-collection.json",
+            "type": "application/json",
+            "title": "PAD-US 4.1 Protected Areas Database of the United States"
+        },
+        {
+            "rel": "child",
+            "href": "https://s3-west.nrp-nautilus.io/public-wyoming/stac-collection.json",
+            "type": "application/json",
+            "title": "Wyoming Wildlife & Land Cover Datasets"
+        }
+    ],
+    "conformsTo": [
+        "https://api.stacspec.org/v1.0.0/core"
+    ]
+}

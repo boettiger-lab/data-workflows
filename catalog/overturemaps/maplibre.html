@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Overture Maps 2026-02-18.0 — Countries, Regions, Counties</title>
+  <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/pmtiles@3/dist/pmtiles.js"></script>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+    #controls {
+      position: absolute;
+      top: 10px; right: 10px;
+      background: rgba(255,255,255,0.95);
+      padding: 12px 16px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      font-size: 13px;
+    }
+    #controls h4 { margin: 0 0 10px; font-size: 14px; }
+    #controls label { display: block; margin-bottom: 6px; cursor: pointer; }
+    #controls input { margin-right: 6px; }
+    .dot { display: inline-block; width: 12px; height: 12px;
+           border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="controls">
+    <h4>Overture Maps 2026-02-18.0</h4>
+    <label><input type="checkbox" id="tog-countries" checked>
+      <span class="dot" style="background:#e74c3c;"></span>Countries</label>
+    <label><input type="checkbox" id="tog-regions" checked>
+      <span class="dot" style="background:#3498db;"></span>Regions</label>
+    <label><input type="checkbox" id="tog-counties" checked>
+      <span class="dot" style="background:#2ecc71;"></span>Counties</label>
+  </div>
+
+  <script>
+    console.log('pmtiles version:', pmtiles.version ?? 'unknown');
+    console.log('maplibregl version:', maplibregl.version);
+    const protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol('pmtiles', protocol.tile.bind(protocol));
+    console.log('Protocol registered');
+
+    const BASE = 'https://s3-west.nrp-nautilus.io/public-overturemaps/2026-02-18.0';
+
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: {
+        version: 8,
+        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources: {
+          carto: {
+            type: 'raster',
+            tiles: ['https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'],
+            tileSize: 256,
+            attribution: '© OpenStreetMap contributors © CARTO'
+          }
+        },
+        layers: [{ id: 'carto', type: 'raster', source: 'carto' }]
+      },
+      center: [0, 20],
+      zoom: 2
+    });
+
+    map.addControl(new maplibregl.NavigationControl(), 'top-left');
+
+    map.on('error', e => console.error('Map error:', e.error));
+
+    map.on('load', () => {
+      console.log('Map loaded');
+      // --- Sources ---
+      map.addSource('countries', {
+        type: 'vector',
+        url: `pmtiles://${BASE}/countries.pmtiles`
+      });
+      map.addSource('regions', {
+        type: 'vector',
+        url: `pmtiles://${BASE}/regions.pmtiles`
+      });
+      map.addSource('counties', {
+        type: 'vector',
+        url: `pmtiles://${BASE}/counties.pmtiles`
+      });
+
+      console.log('Sources added');
+
+      // --- Counties ---
+      map.addLayer({
+        id: 'counties-fill',
+        type: 'fill',
+        source: 'counties',
+        'source-layer': 'counties',
+        paint: { 'fill-color': '#2ecc71', 'fill-opacity': 0.15 }
+      });
+      map.addLayer({
+        id: 'counties-line',
+        type: 'line',
+        source: 'counties',
+        'source-layer': 'counties',
+        paint: { 'line-color': '#27ae60', 'line-width': 0.5, 'line-opacity': 0.6 }
+      });
+
+      // --- Regions ---
+      map.addLayer({
+        id: 'regions-fill',
+        type: 'fill',
+        source: 'regions',
+        'source-layer': 'regions',
+        paint: { 'fill-color': '#3498db', 'fill-opacity': 0.15 }
+      });
+      map.addLayer({
+        id: 'regions-line',
+        type: 'line',
+        source: 'regions',
+        'source-layer': 'regions',
+        paint: { 'line-color': '#2980b9', 'line-width': 1, 'line-opacity': 0.7 }
+      });
+
+      // --- Countries ---
+      map.addLayer({
+        id: 'countries-fill',
+        type: 'fill',
+        source: 'countries',
+        'source-layer': 'countries',
+        paint: { 'fill-color': '#e74c3c', 'fill-opacity': 0.1 }
+      });
+      map.addLayer({
+        id: 'countries-line',
+        type: 'line',
+        source: 'countries',
+        'source-layer': 'countries',
+        paint: { 'line-color': '#c0392b', 'line-width': 1.5, 'line-opacity': 0.8 }
+      });
+
+      console.log('Layers added:', map.getStyle().layers.map(l => l.id));
+
+      // Verify tiles load after a moment
+      setTimeout(() => {
+        const f = map.querySourceFeatures('countries', {'sourceLayer': 'countries'});
+        console.log('countries features at current view:', f.length);
+      }, 3000);
+
+      // --- Toggles ---
+      const toggles = {
+        'tog-countries': ['countries-fill', 'countries-line'],
+        'tog-regions':   ['regions-fill',   'regions-line'],
+        'tog-counties':  ['counties-fill',  'counties-line'],
+      };
+      for (const [id, layers] of Object.entries(toggles)) {
+        document.getElementById(id).addEventListener('change', e => {
+          const vis = e.target.checked ? 'visible' : 'none';
+          layers.forEach(l => map.setLayoutProperty(l, 'visibility', vis));
+        });
+      }
+
+      // --- Popup on click ---
+      const popup = new maplibregl.Popup({ closeButton: true });
+      const clickLayers = [
+        { fill: 'countries-fill', label: 'Country' },
+        { fill: 'regions-fill',   label: 'Region' },
+        { fill: 'counties-fill',  label: 'County/District' },
+      ];
+
+      clickLayers.forEach(({ fill, label }) => {
+        map.on('click', fill, e => {
+          const p = e.features[0].properties;
+          const name = p.name_en || p['names.primary'] || '(unnamed)';
+          popup.setLngLat(e.lngLat)
+            .setHTML(`<strong>${name}</strong><br><small>${label}</small>`)
+            .addTo(map);
+        });
+        map.on('mouseenter', fill, () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', fill, () => map.getCanvas().style.cursor = '');
+      });
+    });
+  </script>
+</body>
+</html>

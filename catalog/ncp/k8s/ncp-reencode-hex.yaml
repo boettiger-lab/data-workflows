@@ -1,0 +1,115 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ncp-reencode-hex
+  namespace: biodiversity
+  labels:
+    k8s-app: ncp-reencode-hex
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ncp-reencode-hex
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: reencode
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          echo "=== Re-encoding ncp-reencode-hex: VARCHAR H3 -> UBIGINT ==="
+
+          python3 - <<'PYEOF'
+          import duckdb, os
+          
+          con = duckdb.connect()
+          con.execute("INSTALL h3 FROM community; LOAD h3")
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          
+          endpoint = os.environ.get("AWS_S3_ENDPOINT", "rook-ceph-rgw-nautiluss3.rook")
+          key = os.environ["AWS_ACCESS_KEY_ID"]
+          secret = os.environ["AWS_SECRET_ACCESS_KEY"]
+          
+          con.execute(f"""
+              CREATE SECRET s3_secret (
+                  TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                  ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false
+              )
+          """)
+          
+          for sub in ["ncp_biod_nathab", "ncp_only"]:
+              src = f's3://public-ncp/hex/{sub}/**/*.parquet'
+              dst = f's3://public-ncp/hex-new/{sub}/'
+              print(f"Converting {sub}...")
+              con.execute(f"""
+                  COPY (
+                      SELECT ncp, h3_string_to_h3(h8) AS h8, h3_string_to_h3(h0) AS h0
+                      FROM read_parquet('{src}', hive_partitioning=true)
+                  ) TO '{dst}'
+                  (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (h0))
+              """)
+              print(f"  done {sub}")
+          print("All done.")
+          PYEOF
+
+          for sub in ncp_biod_nathab ncp_only; do
+            N=$(rclone ls nrp:public-ncp/hex-new/${sub}/ | wc -l)
+            echo "  ${sub}: ${N} files in output"
+            if [ "$N" -lt 1 ]; then echo "ERROR: no output for ${sub}"; exit 1; fi
+            rclone delete nrp:public-ncp/hex/${sub}/
+            rclone move nrp:public-ncp/hex-new/${sub}/ nrp:public-ncp/hex/${sub}/
+            echo "  Swapped ${sub}"
+          done
+          echo "=== Complete ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

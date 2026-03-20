@@ -1,0 +1,126 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inat-range-maps-reencode
+  namespace: biodiversity
+  labels:
+    k8s-app: inat-range-maps-reencode
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: inat-range-maps-reencode
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: reencode
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '4'
+            memory: 8Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 8Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          echo "=== Re-encoding public-inat/range-maps/hex: VARCHAR H3 -> UBIGINT ==="
+
+          python3 - <<'PYEOF'
+          import duckdb, os, subprocess
+
+          con = duckdb.connect()
+          con.execute("INSTALL h3 FROM community; LOAD h3")
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+
+          endpoint = os.environ.get("AWS_S3_ENDPOINT", "rook-ceph-rgw-nautiluss3.rook")
+          key = os.environ["AWS_ACCESS_KEY_ID"]
+          secret = os.environ["AWS_SECRET_ACCESS_KEY"]
+
+          con.execute(f"""
+              CREATE SECRET s3_secret (
+                  TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                  ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false
+              )
+          """)
+
+          result = subprocess.run(['rclone', 'lsd', 'nrp:public-inat/range-maps/hex/'],
+                                  capture_output=True, text=True)
+          h0_dirs = [line.split()[-1] for line in result.stdout.strip().splitlines()
+                     if 'h0=' in line]
+          print(f"Found {len(h0_dirs)} h0 partitions")
+
+          for h0_dir in h0_dirs:
+              h0_str = h0_dir.replace('h0=', '')
+              h0_int = con.execute(f"SELECT h3_string_to_h3('{h0_str}')").fetchone()[0]
+              src = f's3://public-inat/range-maps/hex/{h0_dir}/data_0.parquet'
+              dst = f's3://public-inat/range-maps/hex-new/h0={h0_int}/data_0.parquet'
+              print(f"  {h0_dir} -> h0={h0_int} ...", flush=True)
+              con.execute(f"""
+                  COPY (
+                      SELECT taxon_id, parent_taxon_id, name, rank,
+                          iconic_taxon_id, iconic_taxon_name,
+                          h3_string_to_h3(h4) AS h4,
+                          h3_string_to_h3(h1) AS h1,
+                          h3_string_to_h3(h2) AS h2,
+                          h3_string_to_h3(h3) AS h3,
+                          h3_string_to_h3(h0) AS h0
+                      FROM read_parquet('{src}')
+                  ) TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD, OVERWRITE_OR_IGNORE true)
+              """)
+          print("All partitions processed.")
+          PYEOF
+
+          N=$(rclone ls nrp:public-inat/range-maps/hex-new/ | wc -l)
+          echo "  ${N} files in output"
+          if [ "$N" -lt 1 ]; then echo "ERROR: no output files"; exit 1; fi
+
+          echo "Swapping hex/ -> hex-new/ ..."
+          rclone delete nrp:public-inat/range-maps/hex/
+          rclone move nrp:public-inat/range-maps/hex-new/ nrp:public-inat/range-maps/hex/
+          echo "=== Complete ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

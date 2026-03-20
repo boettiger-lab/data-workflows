@@ -1,0 +1,147 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: carbon-vulnerable-reencode-hex
+  namespace: biodiversity
+  labels:
+    k8s-app: carbon-vulnerable-reencode-hex
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: carbon-vulnerable-reencode-hex
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: reencode
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          echo "=== Re-encoding carbon-vulnerable-reencode-hex: VARCHAR H3 -> UBIGINT ==="
+
+          python3 - <<'PYEOF'
+          import duckdb, os, subprocess
+          
+          con = duckdb.connect()
+          con.execute("INSTALL h3 FROM community; LOAD h3")
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          
+          endpoint = os.environ.get("AWS_S3_ENDPOINT", "rook-ceph-rgw-nautiluss3.rook")
+          key = os.environ["AWS_ACCESS_KEY_ID"]
+          secret = os.environ["AWS_SECRET_ACCESS_KEY"]
+          
+          con.execute(f"""
+              CREATE SECRET s3_secret (
+                  TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                  ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false
+              )
+          """)
+          
+          print("Converting...")
+          # Process per-h0-cell to avoid empty placeholder file schema issues
+          import re
+          result = subprocess.run(['rclone', 'lsd', 'nrp:public-carbon/vulnerable-carbon/hex/'],
+                                  capture_output=True, text=True)
+          h0_dirs = [line.split()[-1] for line in result.stdout.strip().splitlines()
+                     if 'h0=' in line]
+
+          # Split into string-encoded (contain a-f hex chars) vs already-integer
+          string_dirs = [d for d in h0_dirs if re.search(r'[a-f]', d)]
+          int_dirs = [d for d in h0_dirs if not re.search(r'[a-f]', d)]
+          print(f"Found {len(string_dirs)} string-encoded + {len(int_dirs)} already-integer partitions")
+
+          # Only convert string-encoded partitions
+          for h0_dir in string_dirs:
+              h0_str = h0_dir.replace('h0=', '')
+              h0_int = con.execute(f"SELECT h3_string_to_h3('{h0_str}')").fetchone()[0]
+              src = f's3://public-carbon/vulnerable-carbon/hex/{h0_dir}/**/*.parquet'
+              dst = f's3://public-carbon/vulnerable-carbon/hex-new/h0={h0_int}/'
+              print(f"  {h0_dir} -> h0={h0_int} ...", flush=True)
+              try:
+                  con.execute(f"""
+                      COPY (
+                          WITH s AS (SELECT * FROM read_parquet('{src}', hive_partitioning=false))
+                          SELECT s.carbon,
+                              h3_string_to_h3(s.h3) AS h3, h3_string_to_h3(s.h4) AS h4,
+                              h3_string_to_h3(s.h5) AS h5, h3_string_to_h3(s.h6) AS h6,
+                              h3_string_to_h3(s.h7) AS h7, h3_string_to_h3(s.h8) AS h8,
+                              h3_string_to_h3(s.h0) AS h0
+                          FROM s
+                      ) TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD, OVERWRITE_OR_IGNORE true)
+                  """)
+              except Exception as e:
+                  print(f"    skipping (placeholder/error): {e}")
+                  continue
+
+          # Copy already-integer partitions as-is
+          for h0_dir in int_dirs:
+              print(f"  keeping {h0_dir} (already integer)", flush=True)
+              subprocess.run(['rclone', 'copy',
+                  f'nrp:public-carbon/vulnerable-carbon/hex/{h0_dir}/',
+                  f'nrp:public-carbon/vulnerable-carbon/hex-new/{h0_dir}/'],
+                  check=True)
+
+          print("All partitions processed.")
+          print("Done.")
+          PYEOF
+
+          N=$(rclone ls nrp:public-carbon/vulnerable-carbon/hex-new/ | wc -l)
+          echo "  ${N} files in output"
+          if [ "$N" -lt 1 ]; then echo "ERROR: no output files"; exit 1; fi
+
+          echo "Swapping hex/ -> hex-new/ ..."
+          rclone delete nrp:public-carbon/vulnerable-carbon/hex/
+          rclone move nrp:public-carbon/vulnerable-carbon/hex-new/ nrp:public-carbon/vulnerable-carbon/hex/
+          echo "=== Complete ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

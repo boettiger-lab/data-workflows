@@ -1,0 +1,138 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2025-reencode-h0
+  namespace: biodiversity
+  labels:
+    k8s-app: gbif-2025-reencode-h0
+spec:
+  completions: 94
+  parallelism: 20
+  completionMode: Indexed
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2025-reencode-h0
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: reencode
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 4Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 4Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+
+          # 94 VARCHAR h0 partition keys from s3://public-gbif/2025-06/hex/
+          H0_LIST=(
+            8009fffffffffff 8019fffffffffff 801ffffffffffff 8027fffffffffff
+            8029fffffffffff 802bfffffffffff 8039fffffffffff 8045fffffffffff
+            8047fffffffffff 8049fffffffffff 804dfffffffffff 804ffffffffffff
+            8051fffffffffff 8053fffffffffff 8055fffffffffff 8057fffffffffff
+            8059fffffffffff 805bfffffffffff 805dfffffffffff 805ffffffffffff
+            8061fffffffffff 8063fffffffffff 8065fffffffffff 8067fffffffffff
+            8069fffffffffff 806bfffffffffff 806dfffffffffff 806ffffffffffff
+            8071fffffffffff 8073fffffffffff 8075fffffffffff 8077fffffffffff
+            8079fffffffffff 807bfffffffffff 807dfffffffffff 807ffffffffffff
+            8081fffffffffff 8083fffffffffff 8085fffffffffff 8087fffffffffff
+            8089fffffffffff 808bfffffffffff 808dfffffffffff 808ffffffffffff
+            8091fffffffffff 8093fffffffffff 8095fffffffffff 8097fffffffffff
+            8099fffffffffff 809bfffffffffff 809dfffffffffff 809ffffffffffff
+            80a1fffffffffff 80a3fffffffffff 80a5fffffffffff 80a7fffffffffff
+            80a9fffffffffff 80abfffffffffff 80adfffffffffff 80affffffffffff
+            80b1fffffffffff 80b3fffffffffff 80b5fffffffffff 80b7fffffffffff
+            80b9fffffffffff 80bbfffffffffff 80bdfffffffffff 80bffffffffffff
+            80c1fffffffffff 80c3fffffffffff 80c5fffffffffff 80c7fffffffffff
+            80c9fffffffffff 80cbfffffffffff 80cdfffffffffff 80cffffffffffff
+            80d1fffffffffff 80d3fffffffffff 80d5fffffffffff 80d7fffffffffff
+            80d9fffffffffff 80dbfffffffffff 80ddfffffffffff 80dffffffffffff
+            80e1fffffffffff 80e3fffffffffff 80e5fffffffffff 80e7fffffffffff
+            80e9fffffffffff 80ebfffffffffff 80edfffffffffff 80effffffffffff
+            80f1fffffffffff 80f3fffffffffff
+          )
+
+          SRC_H0="${H0_LIST[$JOB_COMPLETION_INDEX]}"
+          DST_H0=$(python3 -c "print(int('${SRC_H0}', 16))")
+
+          echo "=== Pod $JOB_COMPLETION_INDEX: h0=${SRC_H0} -> ${DST_H0} ==="
+
+          mkdir -p /tmp/in /tmp/out
+
+          # Write the per-file DuckDB script (base64-encoded to avoid YAML quoting issues)
+          echo aW1wb3J0IHN5cywgZHVja2RiCnNyYywgZHN0LCBoMCA9IHN5cy5hcmd2WzFdLCBzeXMuYXJndlsyXSwgc3lzLmFyZ3ZbM10KY29uID0gZHVja2RiLmNvbm5lY3QoKQpzcWwgPSAoCiAgICAiQ09QWSAoU0VMRUNUICogUkVQTEFDRSAoIiArIGgwICsgIjo6VUJJR0lOVCBBUyBoMCkgIgogICAgIkZST00gcmVhZF9wYXJxdWV0KCciICsgc3JjICsgIicpKSAiCiAgICAiVE8gJyIgKyBkc3QgKyAiJyAiCiAgICAiKEZPUk1BVCBQQVJRVUVULCBDT01QUkVTU0lPTiBaU1RELCBST1dfR1JPVVBfU0laRSAxMDAxNDcyKSIKKQpjb24uZXhlY3V0ZShzcWwpCmNvbi5jbG9zZSgpCg== \
+            | base64 -d > /tmp/reencode.py
+
+          # List files in this partition
+          FILES=$(rclone lsf nrp:public-gbif/2025-06/hex/h0=${SRC_H0}/part/)
+          N=$(echo "$FILES" | wc -l)
+          echo "Found ${N} files"
+
+          i=0
+          for fname in $FILES; do
+            i=$((i+1))
+            echo "  [${i}/${N}] ${fname} ..."
+
+            # Download
+            rclone copy nrp:public-gbif/2025-06/hex/h0=${SRC_H0}/part/${fname} /tmp/in/
+
+            # Re-encode h0 with DuckDB (local files only, no httpfs)
+            python3 /tmp/reencode.py /tmp/in/${fname} /tmp/out/${fname} ${DST_H0}
+            # Upload
+            rclone copy /tmp/out/${fname} nrp:public-gbif/2025-06/hex-new/h0=${DST_H0}/
+
+            # Clean up immediately to stay within ephemeral-storage limit
+            rm /tmp/in/${fname} /tmp/out/${fname}
+
+            echo "  [${i}/${N}] ${fname} done"
+          done
+
+          echo "=== complete: ${N} files written to h0=${DST_H0} ==="
+
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

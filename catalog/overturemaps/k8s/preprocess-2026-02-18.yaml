@@ -1,0 +1,108 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: overturemaps-preprocess-2026-02-18
+  namespace: biodiversity
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        resources:
+          requests:
+            cpu: "8"
+            memory: "32Gi"
+          limits:
+            cpu: "8"
+            memory: "32Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+
+          python3 - <<'PYEOF'
+          import duckdb, os
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial;")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000;")
+          con.execute("SET memory_limit='28GB';")
+
+          endpoint = os.environ["AWS_S3_ENDPOINT"]
+          key      = os.environ["AWS_ACCESS_KEY_ID"]
+          secret   = os.environ["AWS_SECRET_ACCESS_KEY"]
+
+          con.execute(f"""
+              CREATE SECRET nrp (
+                  TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                  ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false
+              )
+          """)
+
+          RELEASE = "2026-02-18.0"
+          UUID    = "eea7ea79-d854-4d7e-99d6-464819ccd257"
+          BASE    = (
+              "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com"
+              f"/release/{RELEASE}/theme=divisions/type=division_area"
+          )
+          # division_area has polygon geometries; type=division has only point centroids
+          # List all 4 part files explicitly (HTTP glob not supported in DuckDB)
+          SOURCE  = [f"{BASE}/part-{i:05d}-{UUID}-c000.zstd.parquet" for i in range(4)]
+          BUCKET  = "public-overturemaps"
+
+          PLURAL  = {"country": "countries", "region": "regions", "county": "counties"}
+          for subtype in ["country", "region", "county"]:
+              plural = PLURAL[subtype]
+              dst = f"s3://{BUCKET}/{RELEASE}/{plural}.parquet"
+              print(f"Writing {subtype} -> {dst} ...", flush=True)
+
+              con.execute(f"""
+                  COPY (
+                      SELECT *,
+                          COALESCE(names.common['en'], names.primary) AS name_en
+                      FROM read_parquet({SOURCE})
+                      WHERE subtype = '{subtype}'
+                  ) TO '{dst}'
+                  (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+              """)
+
+              n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{dst}')").fetchone()[0]
+              print(f"  {n:,} rows written", flush=True)
+
+          print("=== Preprocessing complete ===", flush=True)
+          PYEOF
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
