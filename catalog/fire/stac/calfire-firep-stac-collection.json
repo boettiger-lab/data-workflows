@@ -16,7 +16,7 @@
   "links": [
     {
       "rel": "self",
-      "href": "https://s3-west.nrp-nautilus.io/public-fire/calfire-2024-firep/stac-collection.json"
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/firep/stac-collection.json"
     },
     {
       "rel": "root",

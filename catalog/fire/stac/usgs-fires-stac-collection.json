@@ -16,7 +16,7 @@
   "links": [
     {
       "rel": "self",
-      "href": "https://s3-west.nrp-nautilus.io/public-fire/usgs-fires-2021-combined/stac-collection.json"
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/usgs-fires-2021/combined/stac-collection.json"
     },
     {
       "rel": "root",
