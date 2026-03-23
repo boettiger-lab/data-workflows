@@ -429,7 +429,20 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
   ✅ Correct: `https://s3-west.nrp-nautilus.io/public-census/census-2025/sldl/hex/h0=*/data_0.parquet`
 
 - Any vector asset with named layers (PMTiles, GDB, GPKG, etc.) MUST include a `"vector:layers": ["<name>"]` array field. This is format-agnostic — the same field works for PMTiles, GeoDatabase, GeoPackage, etc. For PMTiles, the layer name = last segment of `--dataset`.
-- A `table:columns` array documenting all columns
+- A `table:columns` array documenting all columns. **For columns with coded categorical values** (short codes like `FED`, `OA`, `PERM`), the description MUST list all valid values and their definitions in the format `CODE=Definition, CODE=Definition, ...`. Run a DuckDB query to discover the actual values in the data before writing descriptions — do not rely on documentation alone:
+  ```sql
+  SELECT column_name, COUNT(*) as n
+  FROM read_parquet('s3://...') GROUP BY column_name ORDER BY n DESC
+  ```
+  Example:
+  ```json
+  {
+    "name": "owner_type",
+    "type": "string",
+    "description": "Owner type code. Values: FED=Federal government, STAT=State government, LOC=Local government, NGO=Non-governmental organization/non-profit, TRIB=Tribal/Indigenous nation, PVT=Private, UNK=Unknown"
+  }
+  ```
+  This is critical — the STAC metadata is the only reference available to LLM agents querying the data. Missing value definitions cause agents to guess filter values (e.g., `WHERE owner_type = 'Federal'` instead of `WHERE owner_type = 'FED'`), returning empty results.
 - **Point geometry datasets**: The `description` field (or a `"processing:notes"` field) MUST state that each point was resolved to a single H3 cell at the processing resolution, and note the resolution used. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 
 Upload from `/tmp/` to the bucket (see upload commands above — files live in `/tmp/`, not in the repo).
