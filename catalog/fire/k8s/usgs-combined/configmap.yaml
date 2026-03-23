@@ -149,7 +149,7 @@ data:
             - -c
             - |-
               set -e
-              cng-datasets vector --input s3://public-fire/usgs-fires-2021/combined.parquet --output s3://public-fire/usgs-fires-2021/combined/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 50 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
+              cng-datasets vector --input s3://public-fire/usgs-fires-2021/combined.parquet --output s3://public-fire/usgs-fires-2021/combined/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 676 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
             resources:
               requests:
                 cpu: '4'
