@@ -252,12 +252,20 @@ cng-datasets workflow \
   --output-dir catalog/<dataset>/k8s/<name>
 ```
 
-To submit the generated armada hex YAML:
+With `--backend armada`, the CLI generates armada YAML files for **all steps** (setup-bucket, convert, pmtiles, hex, repartition) alongside the standard k8s manifests. Submit each step in order manually — there is no orchestrator when using Armada:
+
 ```bash
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-setup-bucket.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-convert.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-pmtiles.yaml
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml
+# Wait for hex to complete, then:
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-repartition.yaml
 ```
 
-Or generate an armada YAML from an existing k8s hex YAML without regenerating the whole workflow:
+Monitor jobs at: **https://armada-lookout.nrp-nautilus.io**
+
+To convert an existing k8s hex YAML to Armada without regenerating the full workflow (e.g. for rechunking):
 ```python
 from cng_datasets.k8s.armada import k8s_indexed_job_to_armada, save_armada_yaml
 import yaml
