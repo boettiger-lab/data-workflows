@@ -80,11 +80,15 @@ You are taking source geospatial data and producing cloud-native outputs. The ou
 
 Rasters do **not** produce GeoParquet or PMTiles, but they **do** produce H3 hex parquet. The COG is often already available as the source; the main processing step is hex tiling.
 
-**IMPORTANT: H3 hex is only supported for polygon geometries.** The `cng-datasets vector` hex tiling uses `h3_polygon_wkt_to_cells` internally, which **requires polygon geometries**. Line (LineString/MultiLineString) and point (Point/MultiPoint) geometry datasets **cannot be hexed** with the current tooling — attempting to do so produces empty chunk files with no errors or warnings. Do not attempt to hex line or point geometry datasets; skip the hex step and note the limitation. Always check geometry type before submitting a hex job:
+**H3 hex is supported for polygon and point geometries; line geometries are not supported.** Always check geometry type before submitting a hex job:
 ```python
 # Quick check (run locally with spatial extension)
 SELECT ST_GeometryType(geom), COUNT(*) FROM read_parquet('s3://...') GROUP BY 1
 ```
+
+**Point geometry note:** Point and MultiPoint datasets are supported — each point resolves to a single H3 cell at the requested resolution. This means point data loses no spatial precision at fine resolutions (e.g., 10), but at coarse resolutions (e.g., 6–8) many points may map to the same cell. A warning is emitted during hex processing when point geometries are detected. Document this behavior in the STAC metadata (see STAC documentation guidance below).
+
+**Line geometry:** Line (LineString/MultiLineString) datasets **cannot be hexed** — skip the hex step for line datasets and note the limitation.
 
 
 **ALWAYS use the k8s workflow for data processing. The local environment does not have all required tools and permissions.**
@@ -410,6 +414,7 @@ After processing completes, create:
 
 - Any vector asset with named layers (PMTiles, GDB, GPKG, etc.) MUST include a `"vector:layers": ["<name>"]` array field. This is format-agnostic — the same field works for PMTiles, GeoDatabase, GeoPackage, etc. For PMTiles, the layer name = last segment of `--dataset`.
 - A `table:columns` array documenting all columns
+- **Point geometry datasets**: The `description` field (or a `"processing:notes"` field) MUST state that each point was resolved to a single H3 cell at the processing resolution, and note the resolution used. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 
 Upload to the bucket:
 ```bash
@@ -465,7 +470,8 @@ This has a counterintuitive implication: **a global dataset of 10,000 small, sim
 | States, provinces, large regions | 8 | Many are still very large polygons |
 | Counties, districts | 8–10 | Mostly manageable at 10; watch for outliers |
 | Census tracts, parcels | 10 | Small features, fine resolution appropriate |
-| Points, lines | N/A | Hex only works for polygons |
+| Points | 10 | Each point → single H3 cell; coarser resolutions aggregate nearby points |
+| Lines | N/A | Hex not supported for line geometries |
 
 #### Vector workflow parameters
 
