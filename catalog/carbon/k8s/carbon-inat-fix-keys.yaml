@@ -1,0 +1,84 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: carbon-inat-fix-keys
+  namespace: biodiversity
+  labels:
+    k8s-app: carbon-inat-fix-keys
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        k8s-app: carbon-inat-fix-keys
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        resources:
+          requests:
+            cpu: '2'
+            memory: 2Gi
+          limits:
+            cpu: '2'
+            memory: 2Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        command:
+        - python3
+        - -c
+        - |
+          import boto3, os
+
+          endpoint = 'http://rook-ceph-rgw-nautiluss3.rook'
+          key = os.environ['AWS_ACCESS_KEY_ID']
+          secret = os.environ['AWS_SECRET_ACCESS_KEY']
+
+          def fix_bucket(bucket, datasets):
+              s3 = boto3.client('s3', endpoint_url=endpoint,
+                                aws_access_key_id=key, aws_secret_access_key=secret)
+              for src_prefix, dst_prefix in datasets:
+                  print(f"\n{bucket}: {src_prefix} -> {dst_prefix}", flush=True)
+                  paginator = s3.get_paginator('list_objects_v2')
+                  count = 0
+                  for page in paginator.paginate(Bucket=bucket, Prefix=src_prefix):
+                      for obj in page.get('Contents', []):
+                          old_key = obj['Key']
+                          rel = old_key[len(src_prefix):]
+                          new_key = dst_prefix + rel.rstrip('/') + '/data_0.parquet'
+                          print(f"  {old_key} -> {new_key}", flush=True)
+                          s3.copy_object(Bucket=bucket, Key=new_key,
+                                         CopySource={'Bucket': bucket, 'Key': old_key})
+                          s3.delete_object(Bucket=bucket, Key=old_key)
+                          count += 1
+                  print(f"  Moved {count} files")
+
+              print(f"\nVerifying {bucket}...")
+              for _, dst_prefix in datasets:
+                  pages = s3.get_paginator('list_objects_v2').paginate(Bucket=bucket, Prefix=dst_prefix)
+                  n = sum(len(p.get('Contents', [])) for p in pages)
+                  print(f"  {dst_prefix}: {n} files")
+                  if n < 1:
+                      raise RuntimeError(f"ERROR: {dst_prefix} is empty!")
+
+          fix_bucket('public-carbon', [
+              ('hex/vulnerable-carbon-new/', 'hex/vulnerable-carbon/'),
+          ])
+
+          fix_bucket('public-inat', [
+              ('range-maps/hex-new/', 'range-maps/hex/'),
+          ])
+
+          print("=== Complete ===")

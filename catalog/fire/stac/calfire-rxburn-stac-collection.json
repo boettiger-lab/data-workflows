@@ -1,0 +1,73 @@
+{
+  "type": "Collection",
+  "id": "calfire-2024-rxburn",
+  "stac_version": "1.0.0",
+  "title": "CAL FIRE Prescribed Burns 2024",
+  "description": "Historical prescribed burn treatment boundaries maintained by the California Department of Forestry and Fire Protection (CAL FIRE) Forest and Range Assessment Program (FRAP). Covers all recorded prescribed burn treatments in California through 2024. Each polygon represents a treated area with attributes including treatment name, agency, dates, treated acreage, and fuel consumption class.",
+  "license": "proprietary",
+  "extent": {
+    "spatial": {
+      "bbox": [[-124.45, 32.53, -114.12, 42.01]]
+    },
+    "temporal": {
+      "interval": [["1980-01-01T00:00:00Z", null]]
+    }
+  },
+  "links": [
+    {
+      "rel": "self",
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/rxburn/stac-collection.json"
+    },
+    {
+      "rel": "root",
+      "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
+    }
+  ],
+  "assets": {
+    "rxburn-parquet": {
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/rxburn.parquet",
+      "type": "application/x-parquet",
+      "title": "CAL FIRE Prescribed Burns GeoParquet",
+      "roles": ["data"]
+    },
+    "rxburn-pmtiles": {
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/rxburn.pmtiles",
+      "type": "application/vnd.pmtiles",
+      "title": "CAL FIRE Prescribed Burns PMTiles",
+      "roles": ["data"],
+      "vector:layers": ["rxburn"]
+    },
+    "rxburn-hex": {
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/rxburn/hex/h0=*/data_0.parquet",
+      "type": "application/x-parquet",
+      "title": "CAL FIRE Prescribed Burns H3 Hex Parquet (resolution 10)",
+      "roles": ["data"]
+    }
+  },
+  "providers": [
+    {
+      "name": "California Department of Forestry and Fire Protection (CAL FIRE) FRAP",
+      "roles": ["producer", "licensor"],
+      "url": "https://www.fire.ca.gov/what-we-do/fire-resource-assessment-program"
+    }
+  ],
+  "keywords": ["fire", "prescribed burn", "rx burn", "California", "CAL FIRE", "FRAP", "treatment"],
+  "table:columns": [
+    {"name": "YEAR_", "type": "int16", "description": "Calendar year of treatment"},
+    {"name": "STATE", "type": "string", "description": "State abbreviation (always 'CA')"},
+    {"name": "AGENCY", "type": "string", "description": "Responding agency code"},
+    {"name": "UNIT_ID", "type": "string", "description": "CAL FIRE unit identifier"},
+    {"name": "TREATMENT_ID", "type": "string", "description": "Unique treatment identifier"},
+    {"name": "TREATMENT_NAME", "type": "string", "description": "Name of the treatment"},
+    {"name": "TREATMENT_TYPE", "type": "int16", "description": "Treatment type code"},
+    {"name": "START_DATE", "type": "datetime", "description": "Treatment start date"},
+    {"name": "END_DATE", "type": "datetime", "description": "Treatment end date"},
+    {"name": "TREATED_AC", "type": "float64", "description": "Reported treated area in acres"},
+    {"name": "GIS_ACRES", "type": "float32", "description": "GIS-calculated area in acres"},
+    {"name": "RX_CONSUM", "type": "int16", "description": "Fuel consumption class code"},
+    {"name": "PRE_CON_CLASS", "type": "int16", "description": "Pre-treatment condition class code"},
+    {"name": "POST_CON_CLASS", "type": "int16", "description": "Post-treatment condition class code"},
+    {"name": "Shape_Length", "type": "float64", "description": "Perimeter length in meters (projected CRS)"},
+    {"name": "Shape_Area", "type": "float64", "description": "Area in square meters (projected CRS)"}
+  ]
+}

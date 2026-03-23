@@ -1,0 +1,92 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hydrobasins-fix-keys
+  namespace: biodiversity
+  labels:
+    k8s-app: hydrobasins-fix-keys
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        k8s-app: hydrobasins-fix-keys
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        resources:
+          requests:
+            cpu: '2'
+            memory: 2Gi
+          limits:
+            cpu: '2'
+            memory: 2Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        command:
+        - python3
+        - -c
+        - |
+          import boto3, os
+
+          s3 = boto3.client(
+              's3',
+              endpoint_url='http://rook-ceph-rgw-nautiluss3.rook',
+              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
+          )
+          bucket = 'public-hydrobasins'
+
+          datasets = [
+              ('L4-new/',          'L4/'),
+              ('L5-new/',          'L5/'),
+              ('L6-new/',          'L6/'),
+              ('level_03/hexes-new/', 'level_03/hexes/'),
+              ('level_04/hexes-new/', 'level_04/hexes/'),
+              ('level_05/hexes-new/', 'level_05/hexes/'),
+              ('level_06/hexes-new/', 'level_06/hexes/'),
+          ]
+
+          for src_prefix, dst_prefix in datasets:
+              print(f"\nProcessing {src_prefix} -> {dst_prefix}", flush=True)
+              paginator = s3.get_paginator('list_objects_v2')
+              pages = paginator.paginate(Bucket=bucket, Prefix=src_prefix)
+              count = 0
+              for page in pages:
+                  for obj in page.get('Contents', []):
+                      old_key = obj['Key']
+                      # Key looks like: L4-new/h0=576.../
+                      # We want:        L4/h0=576.../data_0.parquet
+                      rel = old_key[len(src_prefix):]          # h0=576.../
+                      new_key = dst_prefix + rel.rstrip('/') + '/data_0.parquet'
+                      print(f"  {old_key} -> {new_key}", flush=True)
+                      s3.copy_object(
+                          Bucket=bucket,
+                          Key=new_key,
+                          CopySource={'Bucket': bucket, 'Key': old_key},
+                      )
+                      s3.delete_object(Bucket=bucket, Key=old_key)
+                      count += 1
+              print(f"  Moved {count} files from {src_prefix}")
+
+          print("\nVerifying...")
+          for _, dst_prefix in datasets:
+              pages = s3.get_paginator('list_objects_v2').paginate(Bucket=bucket, Prefix=dst_prefix)
+              n = sum(len(p.get('Contents', [])) for p in pages)
+              print(f"  {dst_prefix}: {n} files")
+              if n < 1:
+                  raise RuntimeError(f"ERROR: {dst_prefix} is empty!")
+          print("=== Complete ===")

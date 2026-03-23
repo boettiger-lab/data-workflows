@@ -1,0 +1,74 @@
+# S3 Bucket Audit Job
+#
+# The ConfigMap is generated from catalog/audit/audit.py (single source of truth).
+# Apply with:
+#
+#   kubectl create configmap s3-audit-script \
+#     --from-file=audit.py=catalog/audit/audit.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl delete job s3-audit --ignore-not-found
+#   kubectl apply -f catalog/audit/k8s/s3-audit-job.yaml
+#
+# Monitor:   kubectl logs -f job/s3-audit
+# Results:   https://s3-west.nrp-nautilus.io/public-data/stac/audit-report.md
+#            https://s3-west.nrp-nautilus.io/public-data/stac/audit-report.json
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: s3-audit
+  namespace: biodiversity
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+        - name: audit
+          image: ghcr.io/boettiger-lab/datasets:latest
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: S3_ENDPOINT
+              value: "http://rook-ceph-rgw-nautiluss3.rook"
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              pip install boto3 --quiet
+              python /scripts/audit.py
+              rclone copyto audit-report.json nrp:public-data/stac/audit-report.json
+              rclone copyto audit-report.md   nrp:public-data/stac/audit-report.md
+              echo "Done. Results at:"
+              echo "  https://s3-west.nrp-nautilus.io/public-data/stac/audit-report.json"
+              echo "  https://s3-west.nrp-nautilus.io/public-data/stac/audit-report.md"
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: s3-audit-script
+        - name: rclone-config
+          secret:
+            secretName: rclone-config

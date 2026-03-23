@@ -2,6 +2,17 @@
 
 You are working in a repository that uses `cng-datasets` to process geospatial data into cloud-native formats on a Kubernetes cluster. This document tells you everything you need to know.
 
+## ⛔ HARD BOUNDARY: NRP S3 is the Canonical Source for STAC and Data
+
+**The canonical versions of all datasets and STAC metadata live on NRP S3 buckets** (e.g. `s3://public-census/`, `s3://public-wetlands/`). The public URLs are `https://s3-west.nrp-nautilus.io/<bucket>/...`.
+
+**This git repo does NOT contain copies of STAC JSON or README files.** There are no `catalog/*/stac/` directories. When you need to read, update, or create STAC metadata:
+
+- **Read**: `curl https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json`
+- **Write**: edit locally in `/tmp/`, then `rclone copyto /tmp/stac-collection.json nrp:<bucket>/stac-collection.json`
+
+Never read a local `catalog/*/stac/*.json` file as if it were canonical — it does not exist and would be stale if it did. Never write STAC files into the git repo.
+
 ## ⛔ HARD BOUNDARY: Do NOT Touch the `cng-datasets` Tool Repo
 
 **You work exclusively in this repository (`data-workflows`). You do NOT:**
@@ -10,11 +21,43 @@ You are working in a repository that uses `cng-datasets` to process geospatial d
 - Attempt workarounds in the tool code when workflows fail
 
 **If `cng-datasets` has a bug or missing feature:**
-1. File a GitHub Issue on `boettiger-lab/datasets` describing the problem clearly (include error messages, reproduction steps, and what behavior you expected)
+1. File a GitHub Issue on `boettiger-lab/datasets` with a **minimal reproducible example (MRE)** — see requirements below
 2. Tell the user what you filed and wait for the fix
 3. Do NOT attempt to fix it yourself — previous hotfixes have introduced breaking regressions
 
 **Why:** The tool has automated tests and a build/deploy pipeline. Unreviewed hotfixes bypass these safeguards and have caused production failures. Issue reports are the correct escalation path.
+
+### Bug Report Requirements: Minimal Reproducible Example
+
+Every bug report MUST include code you have **actually run** that **reproduces the error**. Do not assert a cause without running code to confirm it.
+
+**The MRE must:**
+1. **Isolate the bug to the tool** — verify the upstream input is correct before blaming the tool. E.g., for a coordinate ordering bug: run `ogrinfo` or `ST_Read` on the raw source and confirm coordinates are correct *before* conversion.
+2. **Run the tool locally and capture the bad output** — actually execute `cng-convert-to-parquet` or `cng-datasets` and show the wrong result. Do not infer the tool is broken from downstream artifacts (e.g., bad S3 parquet) without running the tool yourself.
+3. **Show expected vs actual** with concrete values.
+4. **Be minimal** — one feature, one file, not a full dataset.
+
+**Template:**
+```bash
+# Step 1: show the input is correct
+ogrinfo /vsizip/source.zip -al -where "NAME='X'" | grep 'POLYGON\|Extent'
+# → correct (lon, lat) coordinates
+
+# Step 2: run the tool
+cng-convert-to-parquet source.zip /tmp/output.parquet
+
+# Step 3: show the bug in the output
+python3 -c "
+import duckdb; conn = duckdb.connect(); conn.execute('LOAD spatial;')
+print(conn.execute(\"\"\"
+  SELECT ST_AsText(ST_Envelope(geom)), bbox.xmin, bbox.ymin
+  FROM read_parquet('/tmp/output.parquet') WHERE NAME='X'
+\"\"\").fetchdf())
+"
+# → wrong output: xmin=38.32 (latitude) instead of -120.07 (longitude)
+```
+
+**Do not file a bug report without running these steps.** Circumstantial evidence ("the S3 parquet has bad coordinates therefore the tool is broken") is not an MRE — the S3 data could be stale from an old tool version.
 
 ## What You Are Doing
 
@@ -37,11 +80,15 @@ You are taking source geospatial data and producing cloud-native outputs. The ou
 
 Rasters do **not** produce GeoParquet or PMTiles, but they **do** produce H3 hex parquet. The COG is often already available as the source; the main processing step is hex tiling.
 
-**IMPORTANT: H3 hex is only supported for polygon geometries.** The `cng-datasets vector` hex tiling uses `h3_polygon_wkt_to_cells` internally, which **requires polygon geometries**. Line (LineString/MultiLineString) and point (Point/MultiPoint) geometry datasets **cannot be hexed** with the current tooling — attempting to do so produces empty chunk files with no errors or warnings. Do not attempt to hex line or point geometry datasets; skip the hex step and note the limitation. Always check geometry type before submitting a hex job:
+**H3 hex is supported for polygon and point geometries; line geometries are not supported.** Always check geometry type before submitting a hex job:
 ```python
 # Quick check (run locally with spatial extension)
 SELECT ST_GeometryType(geom), COUNT(*) FROM read_parquet('s3://...') GROUP BY 1
 ```
+
+**Point geometry note:** Point and MultiPoint datasets are supported — each point resolves to a single H3 cell at the requested resolution. This means point data loses no spatial precision at fine resolutions (e.g., 10), but at coarse resolutions (e.g., 6–8) many points may map to the same cell. A warning is emitted during hex processing when point geometries are detected. Document this behavior in the STAC metadata (see STAC documentation guidance below).
+
+**Line geometry:** Line (LineString/MultiLineString) datasets **cannot be hexed** — skip the hex step for line datasets and note the limitation.
 
 
 **ALWAYS use the k8s workflow for data processing. The local environment does not have all required tools and permissions.**
@@ -193,6 +240,39 @@ cng-datasets workflow \
   --output-dir catalog/<dataset>/k8s/<name>
 ```
 
+**Prefer `--backend armada` for hex-heavy workflows.** The default k8s backend is limited to 200 indexed job completions and 200 pods namespace-wide. Armada removes both constraints, allowing thousands of small jobs in the queue simultaneously. This is especially important for datasets with highly variable polygon sizes (e.g., countries, states) where a single chunk containing Russia or China can run for hours while 199 other chunks finish in minutes. With Armada you can use `--chunk-size 1` (one feature per job) to fully parallelise across features:
+
+```bash
+cng-datasets workflow \
+  --dataset <name> \
+  --source-url <url> \
+  --bucket <bucket> \
+  --h3-resolution 8 \
+  --parent-resolutions "0" \
+  --hex-memory 32Gi \
+  --max-completions <N-features> \
+  --max-parallelism 200 \
+  --backend armada \
+  --output-dir catalog/<dataset>/k8s/<name>
+```
+
+To submit the generated armada hex YAML:
+```bash
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml
+```
+
+Or generate an armada YAML from an existing k8s hex YAML without regenerating the whole workflow:
+```python
+from cng_datasets.k8s.armada import k8s_indexed_job_to_armada, save_armada_yaml
+import yaml
+
+with open('catalog/<dataset>/k8s/<name>/<name>-hex.yaml') as f:
+    job_spec = yaml.safe_load(f)
+
+armada_spec = k8s_indexed_job_to_armada(job_spec, queue='biodiversity', job_set_id='<name>-hex')
+save_armada_yaml(armada_spec, 'catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml')
+```
+
 Add `--layer <LayerName>` for multi-layer sources.
 
 **For multi-layer sources**, run one workflow command per spatial layer:
@@ -263,6 +343,8 @@ The `--dataset` flag determines multiple output names. The **last path segment**
 
 **The PMTiles `source-layer` name = the last segment of `--dataset`.** This is what MapLibre needs in `"source-layer"` to render the tiles. It does NOT come from the GDB/source layer name — it comes from your `--dataset` choice.
 
+**⚠️ Dataset names must not contain dots.** Kubernetes job names (and pod names for indexed jobs) must match `[a-z0-9][a-z0-9-]*[a-z0-9]` — dots are invalid. `cng-datasets` converts `/` to `-` and rejects names with dots at workflow-generation time. Version strings like `2026-02-18.0` must be encoded without dots (e.g., `overture-2026-02-18` or `om-2026`). If you ever work with pre-existing YAMLs that contain dotted names (generated before this validation existed), the k8s indexed jobs will fail with pod scheduling errors — rename the job before applying.
+
 ### Step 3: Apply to the cluster
 
 **One-time RBAC setup** (only needed once per cluster/namespace, likely already done):
@@ -310,9 +392,29 @@ After processing completes, create:
 - A **DuckDB example** with the full public URL to the parquet file
 
 **REQUIRED in every stac-collection.json:**
-- **Asset key naming**: The JSON key for each asset MUST be the dataset name (last segment of `--dataset`), not the format name. **Never use generic keys like `"pmtiles"`, `"geoparquet"`, or `"h3-parquet"`** — they break downstream apps when a collection has multiple assets of the same format, and make layer IDs meaningless. Use `"cd"`, `"cd-parquet"`, `"cd-hex"` not `"pmtiles"`, `"geoparquet"`, `"h3-parquet"`.
+- **Asset key naming**: The JSON key for each asset MUST encode the dataset name, not the format. **Never use generic keys like `"pmtiles"`, `"geoparquet"`, `"h3-parquet"`, `"parquet"`, or `"hex"`** — they break downstream apps when a collection has multiple assets of the same format, and make layer IDs meaningless.
+
+  Use the last segment of `--dataset` as the base name, with a format suffix:
+
+  | Asset type | Key pattern | Example (`--dataset census-2025/sldl`) |
+  |---|---|---|
+  | GeoParquet | `{name}-parquet` | `sldl-parquet` |
+  | PMTiles | `{name}-pmtiles` | `sldl-pmtiles` |
+  | H3 hex parquet | `{name}-hex` | `sldl-hex` |
+  | COG (raster) | `{name}-cog` | `sldl-cog` |
+
+  For multi-layer collections, prefix with the collection context: `cpad-holdings-parquet`, `cpad-units-hex`, etc.
+
+- **Hex asset `href`**: MUST use the full Hive-partitioned glob pattern — never a bare directory URL. The bare directory URL (`/hex/`) causes downstream tooling to produce mangled paths. Use:
+  ```
+  https://s3-west.nrp-nautilus.io/<bucket>/<dataset>/hex/h0=*/data_0.parquet
+  ```
+  ❌ Wrong: `https://s3-west.nrp-nautilus.io/public-census/census-2025/sldl/hex/`
+  ✅ Correct: `https://s3-west.nrp-nautilus.io/public-census/census-2025/sldl/hex/h0=*/data_0.parquet`
+
 - Any vector asset with named layers (PMTiles, GDB, GPKG, etc.) MUST include a `"vector:layers": ["<name>"]` array field. This is format-agnostic — the same field works for PMTiles, GeoDatabase, GeoPackage, etc. For PMTiles, the layer name = last segment of `--dataset`.
 - A `table:columns` array documenting all columns
+- **Point geometry datasets**: The `description` field (or a `"processing:notes"` field) MUST state that each point was resolved to a single H3 cell at the processing resolution, and note the resolution used. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 
 Upload to the bucket:
 ```bash
@@ -337,28 +439,50 @@ The child link should point to your dataset's `stac-collection.json` URL.
 
 ### Memory and Chunking Mental Model
 
-**Memory usage is driven by SPATIAL AREA, not geometry complexity:**
+**Memory usage is driven by the H3 cell count of the single largest feature in a chunk, not by dataset size or total spatial area.**
 
-The hex generation step creates millions of H3 cells that must be unnested in memory. At resolution 10:
-- Each hex covers ~0.015 km²
-- Large spatial areas → many hexes → high memory usage
-- A US state like Alaska (~1.7M km²) → ~113M hexes → requires 64Gi+ memory per chunk
+The hex generation step works by:
+1. Pass 1: For each feature polygon, compute all H3 cells that cover it → produces a large array per feature
+2. Pass 2 (unnest): Explode those arrays row-by-row into the output table → peak RAM is the size of the largest single feature's cell array
 
-**For US-scale datasets at resolution 10:**
-- **Always use max-completions 200 and max-parallelism 50** (not 1!)
-- Small feature count does NOT mean low memory - 50 US states need chunking just as much as 85K census tracts
-- If hex pods OOM, increase `--hex-memory` (not decrease completions)
+This has a counterintuitive implication: **a global dataset of 10,000 small, simple features may use far less memory than a dataset with a single feature that is a large, complex polygon** (e.g., Russia, Alaska, a national forest boundary). A large dataset with many small polygons can be fine at 8Gi; a small dataset with one continent-scale polygon can OOM at 32Gi.
+
+**What actually drives RAM per chunk:**
+- H3 resolution (exponential: res 8 → ~1/170th the cells of res 10 for the same area)
+- The area of the *largest single feature* in the chunk at that resolution
+- Geometry complexity affects Pass 1 runtime but not RAM much; area dominates Pass 2
+
+**You cannot reliably estimate memory from feature count or dataset bounding box.** The right approach is:
+
+1. **Start with the default** (8Gi for vector) and a chunk size that isolates suspect features
+2. **Use Armada with chunk-size 1** for datasets with highly variable feature sizes — this ensures each feature gets its own pod, so one large feature doesn't OOM a chunk containing 49 small ones
+3. **When a pod OOMs:** look at which features were in that chunk (check parquet rows by chunk-id offset), identify the large polygon(s), and either:
+   - Reduce resolution for that dataset
+   - Increase `--hex-memory` for that specific job
+   - Re-run that chunk alone with higher memory (see Reprocessing Failed Chunks)
+4. **OOMs are expected occasionally** — they are a signal to tune, not a sign of failure. The workflow is designed to retry individual chunks.
+
+**Resolution guidance by dataset type:**
+
+| Dataset type | Recommended resolution | Rationale |
+|---|---|---|
+| Countries, continents | 8 | Single features can be continent-scale |
+| States, provinces, large regions | 8 | Many are still very large polygons |
+| Counties, districts | 8–10 | Mostly manageable at 10; watch for outliers |
+| Census tracts, parcels | 10 | Small features, fine resolution appropriate |
+| Points | 10 | Each point → single H3 cell; coarser resolutions aggregate nearby points |
+| Lines | N/A | Hex not supported for line geometries |
 
 #### Vector workflow parameters
 
 | Parameter | Default | When to change |
 |-----------|---------|----------------|
-| `--h3-resolution` | 10 | Lower (8, 6) for coarser data OR to reduce hex count for very large areas |
-| `--hex-memory` | 8Gi | Increase to 16-64Gi based on spatial area per chunk, not feature count |
-| `--max-completions` | 200 | Keep at 200 for any US-scale dataset (states, counties, tracts) |
-| `--max-parallelism` | 50 | **See namespace pod quota note below** |
-| `--parent-resolutions` | "9,8,0" | Almost never change this |
-| `--intermediate-chunk-size` | 10 | Decrease if hex pods OOM during unnest step |
+| `--h3-resolution` | 10 | Lower (8, 6) for large-polygon datasets. Halving resolution reduces cell count ~6x. |
+| `--hex-memory` | 8Gi | Tune based on OOM signals, not upfront estimates. Start low; increase for specific failing chunks. |
+| `--max-completions` | 200 | With `--backend k8s`: hard limit of 200. With `--backend armada`: set to feature count for chunk-size 1. |
+| `--max-parallelism` | 50 | k8s: capped by namespace quota (see below). Armada: set to 200+ freely. |
+| `--parent-resolutions` | "9,8,0" | Use `"0"` when `--h3-resolution` is 8 (intermediate resolutions 9, 8 would duplicate the target). |
+| `--intermediate-chunk-size` | 10 | Decrease if hex pods OOM during unnest (Pass 2). This is the first knob to turn before increasing memory. |
 
 #### Raster workflow parameters
 
@@ -373,9 +497,13 @@ The hex generation step creates millions of H3 cells that must be unnested in me
 
 Raster completions are always **122** (one per h0 cell) — this is not configurable.
 
-### Namespace Pod Quota — CRITICAL
+### Namespace Pod Quota — CRITICAL for k8s backend
 
 **The `biodiversity` namespace has a hard limit of 200 pods total, shared across ALL jobs running simultaneously.**
+
+This constraint applies only to the **k8s backend**. With `--backend armada`, jobs are queued externally and scheduled onto the cluster as capacity allows — the 200-pod namespace quota does not apply.
+
+#### k8s backend: sequential submission required
 
 With `--max-parallelism 50`, a single hex job can consume up to 50 pods. Running multiple hex workflows at the same time will rapidly exhaust the quota, causing pods to fail with:
 ```
@@ -383,9 +511,8 @@ pods "...-hex-60-..." is forbidden: exceeded quota: reached-quota,
 requested: pods=1, used: pods=200, limited: pods=200
 ```
 
-**Rule: Never submit more than one hex workflow at a time.** Run them sequentially:
+**Rule: Never submit more than one k8s hex workflow at a time.** Run them sequentially:
 ```bash
-# Submit one, wait for it to fully complete, then submit the next
 for dataset in dataset-a dataset-b dataset-c; do
   kubectl apply -f catalog/.../k8s/${dataset}/configmap.yaml \
                 -f catalog/.../k8s/${dataset}/workflow.yaml
@@ -393,7 +520,9 @@ for dataset in dataset-a dataset-b dataset-c; do
 done
 ```
 
-For a large batch of datasets, use a sequential background script rather than `apply-hex-workflows.sh` (which submits all at once).
+#### Armada backend: submit freely
+
+With Armada you can submit all datasets at once — the scheduler handles queuing. You can also use far more completions than 200, enabling chunk-size 1 (one pod per feature) which eliminates the "one slow pod blocks everything" problem:
 
 ## S3 Bucket Layout
 

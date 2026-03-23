@@ -1,0 +1,85 @@
+{
+  "type": "Collection",
+  "id": "usgs-fires-2021-combined",
+  "stac_version": "1.0.0",
+  "title": "USGS Wildland Fire Combined Dataset 2021",
+  "description": "A combined, de-duplicated national database of wildland fire perimeters for the United States, compiled by the USGS from dozens of federal, state, and local data sources. The combined dataset merges overlapping records by assigning a canonical polygon from the highest-quality available source, while recording all original source attributes. Covers fire events from 1878 through 2021 across the continental US, Alaska, Hawaii, and US territories.",
+  "license": "proprietary",
+  "extent": {
+    "spatial": {
+      "bbox": [[-180.0, 17.0, 180.0, 72.0]]
+    },
+    "temporal": {
+      "interval": [["1878-01-01T00:00:00Z", "2021-12-31T23:59:59Z"]]
+    }
+  },
+  "links": [
+    {
+      "rel": "self",
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/usgs-fires-2021/combined/stac-collection.json"
+    },
+    {
+      "rel": "root",
+      "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
+    }
+  ],
+  "assets": {
+    "combined-parquet": {
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/usgs-fires-2021/combined.parquet",
+      "type": "application/x-parquet",
+      "title": "USGS Wildland Fire Combined Dataset GeoParquet",
+      "roles": ["data"]
+    },
+    "combined-pmtiles": {
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/usgs-fires-2021/combined.pmtiles",
+      "type": "application/vnd.pmtiles",
+      "title": "USGS Wildland Fire Combined Dataset PMTiles",
+      "roles": ["data"],
+      "vector:layers": ["combined"]
+    },
+    "combined-hex": {
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/usgs-fires-2021/combined/hex/h0=*/data_0.parquet",
+      "type": "application/x-parquet",
+      "title": "USGS Wildland Fire Combined Dataset H3 Hex Parquet (resolution 8)",
+      "roles": ["data"]
+    }
+  },
+  "providers": [
+    {
+      "name": "U.S. Geological Survey (USGS)",
+      "roles": ["producer"],
+      "url": "https://www.sciencebase.gov/catalog/item/61aa537dd34eb622f699df81"
+    }
+  ],
+  "keywords": ["fire", "wildfire", "wildland fire", "USGS", "national", "perimeters", "historical"],
+  "table:columns": [
+    {"name": "USGS_Assigned_ID", "type": "int32", "description": "Unique USGS identifier for each fire polygon"},
+    {"name": "Assigned_Fire_Type", "type": "string", "description": "Fire type as assigned by USGS (e.g., Wildfire, Prescribed Fire)"},
+    {"name": "Fire_Year", "type": "int16", "description": "Year the fire occurred"},
+    {"name": "Fire_Polygon_Tier", "type": "int16", "description": "Quality tier of the source polygon (1 = highest quality)"},
+    {"name": "Fire_Attribute_Tiers", "type": "string", "description": "Tiers for each attribute field from source datasets"},
+    {"name": "GIS_Acres", "type": "float64", "description": "GIS-calculated area in acres"},
+    {"name": "GIS_Hectares", "type": "float64", "description": "GIS-calculated area in hectares"},
+    {"name": "Source_Datasets", "type": "string", "description": "Source dataset(s) contributing to this record"},
+    {"name": "Listed_Fire_Types", "type": "string", "description": "All fire types listed across contributing sources"},
+    {"name": "Listed_Fire_Names", "type": "string", "description": "All fire names listed across contributing sources"},
+    {"name": "Listed_Fire_Codes", "type": "string", "description": "All fire codes listed across contributing sources"},
+    {"name": "Listed_Fire_IDs", "type": "string", "description": "All fire IDs listed across contributing sources"},
+    {"name": "Listed_Fire_IRWIN_IDs", "type": "string", "description": "All IRWIN IDs listed across contributing sources"},
+    {"name": "Listed_Fire_Dates", "type": "string", "description": "All fire dates listed across contributing sources"},
+    {"name": "Listed_Fire_Causes", "type": "string", "description": "All fire causes listed across contributing sources"},
+    {"name": "Listed_Fire_Cause_Class", "type": "string", "description": "Cause classification across contributing sources"},
+    {"name": "Listed_Rx_Reported_Acres", "type": "string", "description": "Reported prescribed fire acres from contributing sources"},
+    {"name": "Listed_Map_Digitize_Methods", "type": "string", "description": "Digitization methods from contributing sources"},
+    {"name": "Listed_Notes", "type": "string", "description": "Notes from contributing source datasets"},
+    {"name": "Processing_Notes", "type": "string", "description": "USGS processing and QA notes"},
+    {"name": "Wildfire_Notice", "type": "string", "description": "Data quality notice for wildfire attribution"},
+    {"name": "Prescribed_Burn_Notice", "type": "string", "description": "Data quality notice for prescribed burn attribution"},
+    {"name": "Wildfire_and_Rx_Flag", "type": "string", "description": "Flag indicating overlap between wildfire and Rx records"},
+    {"name": "Overlap_Within_1_or_2_Flag", "type": "string", "description": "Flag for fire overlaps within 1 or 2 years"},
+    {"name": "Circleness_Scale", "type": "float64", "description": "Shape circularity metric (1.0 = perfect circle); low values may indicate digitization artifacts"},
+    {"name": "Circle_Flag", "type": "int16", "description": "Flag indicating suspiciously circular geometry"},
+    {"name": "Exclude_From_Summary_Rasters", "type": "string", "description": "Whether to exclude this record from summary raster products"},
+    {"name": "Shape_Length", "type": "float64", "description": "Perimeter length in meters (projected CRS)"}
+  ]
+}

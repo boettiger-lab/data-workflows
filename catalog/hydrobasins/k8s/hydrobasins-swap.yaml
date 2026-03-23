@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hydrobasins-swap
+  namespace: biodiversity
+  labels:
+    k8s-app: hydrobasins-swap
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        k8s-app: hydrobasins-swap
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: swap
+        image: ghcr.io/boettiger-lab/datasets:latest
+        resources:
+          requests:
+            cpu: '2'
+            memory: 2Gi
+          limits:
+            cpu: '2'
+            memory: 2Gi
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          for d in L4 L5 L6; do
+            echo "Moving ${d}-new -> ${d} ..."
+            rclone move nrp:public-hydrobasins/${d}-new/ nrp:public-hydrobasins/${d}/
+            echo "  Done ${d}"
+          done
+          for d in level_03 level_04 level_05 level_06; do
+            echo "Moving ${d}/hexes-new -> ${d}/hexes ..."
+            rclone move "nrp:public-hydrobasins/${d}/hexes-new/" "nrp:public-hydrobasins/${d}/hexes/"
+            echo "  Done ${d}"
+          done
+          echo "=== Verifying ==="
+          for d in L4 L5 L6; do
+            N=$(rclone ls nrp:public-hydrobasins/${d}/ | wc -l)
+            echo "  ${d}: ${N} files"
+            if [ "$N" -lt 1 ]; then echo "ERROR: $d empty"; exit 1; fi
+          done
+          for d in level_03 level_04 level_05 level_06; do
+            N=$(rclone ls "nrp:public-hydrobasins/${d}/hexes/" | wc -l)
+            echo "  ${d}/hexes: ${N} files"
+            if [ "$N" -lt 1 ]; then echo "ERROR: $d/hexes empty"; exit 1; fi
+          done
+          echo "=== Complete ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

@@ -1,0 +1,114 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: om-2026-countries-repartition-batched
+  namespace: biodiversity
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: repartition-batched
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: "4"
+            memory: "32Gi"
+          limits:
+            cpu: "4"
+            memory: "32Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          python3 - <<'PYEOF'
+          import duckdb, os
+
+          key    = os.environ["AWS_ACCESS_KEY_ID"]
+          secret = os.environ["AWS_SECRET_ACCESS_KEY"]
+          endpoint = os.environ["AWS_S3_ENDPOINT"]
+
+          CHUNKS  = "s3://public-overturemaps/2026-02-18.0/countries/chunks/*.parquet"
+          SOURCE  = "s3://public-overturemaps/2026-02-18.0/countries.parquet"
+          OUT     = "s3://public-overturemaps/2026-02-18.0/countries/hex"
+
+          def connect():
+              con = duckdb.connect()
+              con.execute("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial;")
+              con.execute(f"""
+                  CREATE SECRET nrp (
+                      TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                      ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false
+                  )
+              """)
+              con.execute("SET memory_limit='28GB'")
+              con.execute("SET preserve_insertion_order=false")
+              con.execute("SET http_retries=10; SET http_retry_wait_ms=3000;")
+              return con
+
+          con = connect()
+
+          # Find all distinct h0 values present in chunks
+          h0_vals = con.execute(f"""
+              SELECT DISTINCT h0 FROM read_parquet('{CHUNKS}') ORDER BY h0
+          """).fetchall()
+          h0_vals = [r[0] for r in h0_vals]
+          print(f"Found {len(h0_vals)} h0 partitions to write", flush=True)
+
+          # Get attribute columns from source (excluding geometry)
+          desc = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{SOURCE}')").fetchdf()
+          attr_cols = [r for r in desc['column_name'] if r != 'geometry']
+          attr_select = ', '.join(f's."{c}"' for c in attr_cols)
+
+          for i, h0 in enumerate(h0_vals):
+              dst = f"{OUT}/h0={h0}/data_0.parquet"
+              print(f"  [{i+1}/{len(h0_vals)}] Writing h0={h0} -> {dst}", flush=True)
+              con.execute(f"""
+                  COPY (
+                      SELECT {attr_select}, c.h8, c.h0
+                      FROM read_parquet('{CHUNKS}') c
+                      INNER JOIN (
+                          SELECT {', '.join(f'"{c}"' for c in attr_cols)}
+                          FROM read_parquet('{SOURCE}')
+                      ) s ON c.id = s.id
+                      WHERE c.h0 = {h0}
+                  ) TO '{dst}'
+                  (FORMAT PARQUET, COMPRESSION ZSTD)
+              """)
+
+          print(f"=== Repartition complete: {len(h0_vals)} h0 partitions written ===", flush=True)
+          PYEOF
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

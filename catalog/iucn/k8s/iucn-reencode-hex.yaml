@@ -1,0 +1,127 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-reencode-hex
+  namespace: biodiversity
+  labels:
+    k8s-app: iucn-reencode-hex
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-reencode-hex
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: reencode
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          echo "=== Re-encoding iucn-reencode-hex: VARCHAR H3 -> UBIGINT ==="
+
+          python3 - <<'PYEOF'
+          import duckdb, os
+          
+          con = duckdb.connect()
+          con.execute("INSTALL h3 FROM community; LOAD h3")
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          
+          endpoint = os.environ.get("AWS_S3_ENDPOINT", "rook-ceph-rgw-nautiluss3.rook")
+          key = os.environ["AWS_ACCESS_KEY_ID"]
+          secret = os.environ["AWS_SECRET_ACCESS_KEY"]
+          
+          con.execute(f"""
+              CREATE SECRET s3_secret (
+                  TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                  ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false
+              )
+          """)
+          
+          layers = [
+              "amphibians_sr", "amphibians_thr_sr", "birds_sr", "birds_thr_sr",
+              "combined_rwr", "combined_sr", "combined_thr_rwr", "combined_thr_sr",
+              "fw_fish_sr", "fw_fish_thr_sr", "mammals_sr", "mammals_thr_sr",
+              "reptiles_sr", "reptiles_thr_sr",
+          ]
+          for layer in layers:
+              src = f's3://public-iucn/hex/{layer}/**/*.parquet'
+              dst = f's3://public-iucn/hex-new/{layer}/'
+              print(f"Converting {layer}...")
+              # h0 IS stored in the file (VARCHAR) for all IUCN layers
+              con.execute(f"""
+                  COPY (
+                      SELECT * EXCLUDE (h8, h0),
+                          h3_string_to_h3(h8) AS h8,
+                          h3_string_to_h3(h0) AS h0
+                      FROM read_parquet('{src}', hive_partitioning=false)
+                  ) TO '{dst}'
+                  (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (h0))
+              """)
+              print(f"  done {layer}")
+          print("All layers complete.")
+          PYEOF
+
+          for layer in amphibians_sr amphibians_thr_sr birds_sr birds_thr_sr \
+                       combined_rwr combined_sr combined_thr_rwr combined_thr_sr \
+                       fw_fish_sr fw_fish_thr_sr mammals_sr mammals_thr_sr \
+                       reptiles_sr reptiles_thr_sr; do
+            N=$(rclone ls nrp:public-iucn/hex-new/${layer}/ | wc -l)
+            echo "  ${layer}: ${N} files"
+            if [ "$N" -lt 1 ]; then echo "ERROR: no output for ${layer}"; exit 1; fi
+            rclone delete nrp:public-iucn/hex/${layer}/
+            rclone move nrp:public-iucn/hex-new/${layer}/ nrp:public-iucn/hex/${layer}/
+            echo "  Swapped ${layer}"
+          done
+          echo "=== Complete ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

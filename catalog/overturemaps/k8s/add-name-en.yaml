@@ -1,0 +1,104 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: overturemaps-add-name-en
+  namespace: biodiversity
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: enrich
+        image: ghcr.io/boettiger-lab/datasets:latest
+        resources:
+          requests:
+            cpu: "4"
+            memory: "16Gi"
+          limits:
+            cpu: "4"
+            memory: "16Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+
+          python3 - <<'PYEOF'
+          import duckdb, os
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial;")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000;")
+
+          endpoint = os.environ["AWS_S3_ENDPOINT"]
+          key      = os.environ["AWS_ACCESS_KEY_ID"]
+          secret   = os.environ["AWS_SECRET_ACCESS_KEY"]
+
+          con.execute(f"""
+              CREATE SECRET nrp (
+                  TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                  ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false
+              )
+          """)
+
+          for dataset in ["countries", "regions", "counties"]:
+              src = f"s3://public-overturemaps/{dataset}.parquet"
+              tmp = f"s3://public-overturemaps/{dataset}-name-en-tmp.parquet"
+              print(f"Processing {dataset}...", flush=True)
+
+              con.execute(f"""
+                  COPY (
+                      SELECT *,
+                          COALESCE(names.common['en'], names.primary) AS name_en
+                      FROM read_parquet('{src}')
+                  ) TO '{tmp}'
+                  (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+              """)
+
+              n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{tmp}')").fetchone()[0]
+              print(f"  {n:,} rows written to {tmp}", flush=True)
+
+          print("All done.", flush=True)
+          PYEOF
+
+          # Swap each temp file into place
+          for dataset in countries regions counties; do
+            echo "Swapping ${dataset}..."
+            rclone moveto \
+              "nrp:public-overturemaps/${dataset}-name-en-tmp.parquet" \
+              "nrp:public-overturemaps/${dataset}.parquet"
+          done
+
+          echo "=== Complete ==="
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
