@@ -1,0 +1,76 @@
+{
+  "type": "Collection",
+  "id": "calfire-2024-firep",
+  "stac_version": "1.0.0",
+  "title": "CAL FIRE Wildfire Perimeters 2024",
+  "description": "Historical wildfire perimeter boundaries maintained by the California Department of Forestry and Fire Protection (CAL FIRE) Forest and Range Assessment Program (FRAP). Covers all recorded fire incidents in California through 2024. Each polygon represents the final perimeter of a distinct fire event with attributes including fire name, year, agency, cause, and area in acres.",
+  "license": "proprietary",
+  "extent": {
+    "spatial": {
+      "bbox": [[-124.45, 32.53, -114.12, 42.01]]
+    },
+    "temporal": {
+      "interval": [["1878-01-01T00:00:00Z", null]]
+    }
+  },
+  "links": [
+    {
+      "rel": "self",
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/calfire-2024-firep/stac-collection.json"
+    },
+    {
+      "rel": "root",
+      "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
+    }
+  ],
+  "assets": {
+    "firep-parquet": {
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/firep.parquet",
+      "type": "application/x-parquet",
+      "title": "CAL FIRE Wildfire Perimeters GeoParquet",
+      "roles": ["data"]
+    },
+    "firep-pmtiles": {
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/firep.pmtiles",
+      "type": "application/vnd.pmtiles",
+      "title": "CAL FIRE Wildfire Perimeters PMTiles",
+      "roles": ["data"],
+      "vector:layers": ["firep"]
+    },
+    "firep-hex": {
+      "href": "https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/firep/hex/h0=*/data_0.parquet",
+      "type": "application/x-parquet",
+      "title": "CAL FIRE Wildfire Perimeters H3 Hex Parquet (resolution 10)",
+      "roles": ["data"]
+    }
+  },
+  "providers": [
+    {
+      "name": "California Department of Forestry and Fire Protection (CAL FIRE) FRAP",
+      "roles": ["producer", "licensor"],
+      "url": "https://www.fire.ca.gov/what-we-do/fire-resource-assessment-program"
+    }
+  ],
+  "keywords": ["fire", "wildfire", "California", "CAL FIRE", "FRAP", "perimeters"],
+  "table:columns": [
+    {"name": "YEAR_", "type": "int16", "description": "Calendar year the fire was recorded"},
+    {"name": "STATE", "type": "string", "description": "State abbreviation (always 'CA')"},
+    {"name": "AGENCY", "type": "string", "description": "Responding agency code"},
+    {"name": "UNIT_ID", "type": "string", "description": "CAL FIRE unit identifier"},
+    {"name": "FIRE_NAME", "type": "string", "description": "Name of the fire"},
+    {"name": "INC_NUM", "type": "string", "description": "Local incident number"},
+    {"name": "IRWINID", "type": "string", "description": "IRWIN system incident ID"},
+    {"name": "ALARM_DATE", "type": "datetime", "description": "Date the fire was reported"},
+    {"name": "CONT_DATE", "type": "datetime", "description": "Date the fire was contained"},
+    {"name": "C_METHOD", "type": "int16", "description": "Collection method code"},
+    {"name": "CAUSE", "type": "int16", "description": "Fire cause code"},
+    {"name": "COMPLEX_NAME", "type": "string", "description": "Complex fire name (if applicable)"},
+    {"name": "COMPLEX_ID", "type": "string", "description": "Complex fire ID"},
+    {"name": "OBJECTIVE", "type": "int16", "description": "Management objective code"},
+    {"name": "GIS_ACRES", "type": "float32", "description": "GIS-calculated area in acres"},
+    {"name": "COMMENTS", "type": "string", "description": "Additional comments"},
+    {"name": "FIRE_NUM", "type": "string", "description": "Historical fire number"},
+    {"name": "Shape_Length", "type": "float64", "description": "Perimeter length in meters (projected CRS)"},
+    {"name": "Shape_Area", "type": "float64", "description": "Area in square meters (projected CRS)"}
+  ]
+}
