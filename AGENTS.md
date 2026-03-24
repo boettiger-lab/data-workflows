@@ -6,12 +6,12 @@ You are working in a repository that uses `cng-datasets` to process geospatial d
 
 **The canonical versions of all datasets and STAC metadata live on NRP S3 buckets** (e.g. `s3://public-census/`, `s3://public-wetlands/`). The public URLs are `https://s3-west.nrp-nautilus.io/<bucket>/...`.
 
-**This git repo does NOT contain copies of STAC JSON or README files.** There are no `catalog/*/stac/` directories. When you need to read, update, or create STAC metadata:
+**This git repo does NOT contain copies of STAC JSON or README files.** The `catalog/*/stac/` directory must never be created. When you need to read, update, or create STAC metadata:
 
 - **Read**: `curl https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json`
-- **Write**: edit locally in `/tmp/`, then `rclone copyto /tmp/stac-collection.json nrp:<bucket>/stac-collection.json`
+- **Write**: edit in `/tmp/`, then `rclone copyto /tmp/stac-collection.json nrp:<bucket>/stac-collection.json`
 
-Never read a local `catalog/*/stac/*.json` file as if it were canonical — it does not exist and would be stale if it did. Never write STAC files into the git repo.
+Never create `catalog/<anything>/stac/`. Never `git add` any STAC JSON or README file. Never read a local stac file as canonical — it does not exist and would be stale if it did.
 
 ## ⛔ HARD BOUNDARY: Do NOT Touch the `cng-datasets` Tool Repo
 
@@ -256,12 +256,20 @@ cng-datasets workflow \
   --output-dir catalog/<dataset>/k8s/<name>
 ```
 
-To submit the generated armada hex YAML:
+With `--backend armada`, the CLI generates armada YAML files for **all steps** (setup-bucket, convert, pmtiles, hex, repartition) alongside the standard k8s manifests. Submit each step in order manually — there is no orchestrator when using Armada:
+
 ```bash
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-setup-bucket.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-convert.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-pmtiles.yaml
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml
+# Wait for hex to complete, then:
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-repartition.yaml
 ```
 
-Or generate an armada YAML from an existing k8s hex YAML without regenerating the whole workflow:
+Monitor jobs at: **https://armada-lookout.nrp-nautilus.io**
+
+To convert an existing k8s hex YAML to Armada without regenerating the full workflow (e.g. for rechunking):
 ```python
 from cng_datasets.k8s.armada import k8s_indexed_job_to_armada, save_armada_yaml
 import yaml
@@ -382,9 +390,17 @@ A complete run for a ~300K feature dataset typically takes 1-2 hours.
 
 ### Step 5: Document
 
-After processing completes, create:
-- `catalog/<dataset>/stac/README.md` — data dictionary, usage examples, citation
-- `catalog/<dataset>/stac/stac-collection.json` — STAC metadata
+**Write STAC files to `/tmp/` only — never to `catalog/<dataset>/stac/`.** The `catalog/*/stac/` path must not exist in this repo. Writing there produces stale local copies that diverge from S3 and get accidentally committed. Work entirely in `/tmp/` and upload directly:
+
+```bash
+# Write here
+$EDITOR /tmp/stac-collection.json
+$EDITOR /tmp/README.md
+
+# Upload directly to S3 — do not copy into catalog/
+rclone copyto /tmp/README.md nrp:<bucket>/README.md
+rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.json
+```
 
 **REQUIRED in every README.md:**
 - A **MapLibre GL JS example** with the correct `source-layer` name (= last segment of `--dataset`)
@@ -413,14 +429,23 @@ After processing completes, create:
   ✅ Correct: `https://s3-west.nrp-nautilus.io/public-census/census-2025/sldl/hex/h0=*/data_0.parquet`
 
 - Any vector asset with named layers (PMTiles, GDB, GPKG, etc.) MUST include a `"vector:layers": ["<name>"]` array field. This is format-agnostic — the same field works for PMTiles, GeoDatabase, GeoPackage, etc. For PMTiles, the layer name = last segment of `--dataset`.
-- A `table:columns` array documenting all columns
+- A `table:columns` array documenting all columns. **For columns with coded categorical values** (short codes like `FED`, `OA`, `PERM`), the description MUST list all valid values and their definitions in the format `CODE=Definition, CODE=Definition, ...`. Run a DuckDB query to discover the actual values in the data before writing descriptions — do not rely on documentation alone:
+  ```sql
+  SELECT column_name, COUNT(*) as n
+  FROM read_parquet('s3://...') GROUP BY column_name ORDER BY n DESC
+  ```
+  Example:
+  ```json
+  {
+    "name": "owner_type",
+    "type": "string",
+    "description": "Owner type code. Values: FED=Federal government, STAT=State government, LOC=Local government, NGO=Non-governmental organization/non-profit, TRIB=Tribal/Indigenous nation, PVT=Private, UNK=Unknown"
+  }
+  ```
+  This is critical — the STAC metadata is the only reference available to LLM agents querying the data. Missing value definitions cause agents to guess filter values (e.g., `WHERE owner_type = 'Federal'` instead of `WHERE owner_type = 'FED'`), returning empty results.
 - **Point geometry datasets**: The `description` field (or a `"processing:notes"` field) MUST state that each point was resolved to a single H3 cell at the processing resolution, and note the resolution used. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 
-Upload to the bucket:
-```bash
-rclone copy catalog/<dataset>/stac/README.md nrp:<bucket>/
-rclone copy catalog/<dataset>/stac/stac-collection.json nrp:<bucket>/
-```
+Upload from `/tmp/` to the bucket (see upload commands above — files live in `/tmp/`, not in the repo).
 
 ### Step 6: Update Main Catalog
 
