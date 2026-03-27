@@ -78,7 +78,7 @@ You are taking source geospatial data and producing cloud-native outputs. The ou
 | COG | `dataset-cog.tif` | Cloud-optimized raster visualization (titiler etc.) |
 | H3 Hex Parquet | `dataset/hex/h0={cell}/data_0.parquet` | Spatial aggregation and joins |
 
-Rasters do **not** produce GeoParquet or PMTiles, but they **do** produce H3 hex parquet. The COG is often already available as the source; the main processing step is hex tiling.
+Rasters do **not** produce GeoParquet or PMTiles, but they **do** produce both a COG and H3 hex parquet. The workflow always creates the COG first (reprojecting to WGS84 if needed), then hexes from the NRP S3 COG. The hex step reads from the COG on NRP S3, not from the original source URL.
 
 **H3 hex is supported for polygon and point geometries; line geometries are not supported.** Always check geometry type before submitting a hex job:
 ```python
@@ -316,7 +316,7 @@ Key differences from the vector workflow:
 - **Default max-parallelism:** 61 (not 50)
 - **`--value-column`:** name for the raster band value in the output parquet (default: `value`)
 - **`--nodata`:** NoData value to exclude (auto-detected from raster metadata if omitted)
-- **No COG step:** the source COG must already exist; this workflow only does hex tiling
+- **Always creates a COG:** the workflow produces a WGS84 COG on NRP S3, then hexes from it. The hex `--source-url` should point to the NRP S3 COG, not the original source.
 
 **For multi-tile rasters** (e.g., multiple UTM zones), repeat `--source-url` for each tile. The workflow adds a `preprocess-cog` step that mosaics them into a single WGS84 COG before hex tiling:
 
