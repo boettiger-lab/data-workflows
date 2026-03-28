@@ -78,7 +78,7 @@ You are taking source geospatial data and producing cloud-native outputs. The ou
 | COG | `dataset-cog.tif` | Cloud-optimized raster visualization (titiler etc.) |
 | H3 Hex Parquet | `dataset/hex/h0={cell}/data_0.parquet` | Spatial aggregation and joins |
 
-Rasters do **not** produce GeoParquet or PMTiles, but they **do** produce H3 hex parquet. The COG is often already available as the source; the main processing step is hex tiling.
+Rasters do **not** produce GeoParquet or PMTiles, but they **do** produce both a COG and H3 hex parquet. The workflow always creates the COG first (reprojecting to WGS84 if needed), then hexes from the NRP S3 COG. The hex step reads from the COG on NRP S3, not from the original source URL.
 
 **H3 hex is supported for polygon and point geometries; line geometries are not supported.** Always check geometry type before submitting a hex job:
 ```python
@@ -251,7 +251,6 @@ cng-datasets workflow \
   --parent-resolutions "0" \
   --hex-memory 32Gi \
   --max-completions <N-features> \
-  --max-parallelism 200 \
   --backend armada \
   --output-dir catalog/<dataset>/k8s/<name>
 ```
@@ -317,7 +316,7 @@ Key differences from the vector workflow:
 - **Default max-parallelism:** 61 (not 50)
 - **`--value-column`:** name for the raster band value in the output parquet (default: `value`)
 - **`--nodata`:** NoData value to exclude (auto-detected from raster metadata if omitted)
-- **No COG step:** the source COG must already exist; this workflow only does hex tiling
+- **Always creates a COG:** the workflow produces a WGS84 COG on NRP S3, then hexes from it. The hex `--source-url` should point to the NRP S3 COG, not the original source.
 
 **For multi-tile rasters** (e.g., multiple UTM zones), repeat `--source-url` for each tile. The workflow adds a `preprocess-cog` step that mosaics them into a single WGS84 COG before hex tiling:
 
@@ -505,7 +504,7 @@ This has a counterintuitive implication: **a global dataset of 10,000 small, sim
 | `--h3-resolution` | 10 | Lower (8, 6) for large-polygon datasets. Halving resolution reduces cell count ~6x. |
 | `--hex-memory` | 8Gi | Tune based on OOM signals, not upfront estimates. Start low; increase for specific failing chunks. |
 | `--max-completions` | 200 | With `--backend k8s`: hard limit of 200. With `--backend armada`: set to feature count for chunk-size 1. |
-| `--max-parallelism` | 50 | k8s: capped by namespace quota (see below). Armada: set to 200+ freely. |
+| `--max-parallelism` | 50 | **k8s backend only** — capped by namespace pod quota (see below). Not used with `--backend armada`. |
 | `--parent-resolutions` | "9,8,0" | Use `"0"` when `--h3-resolution` is 8 (intermediate resolutions 9, 8 would duplicate the target). |
 | `--intermediate-chunk-size` | 10 | Decrease if hex pods OOM during unnest (Pass 2). This is the first knob to turn before increasing memory. |
 
@@ -515,7 +514,7 @@ This has a counterintuitive implication: **a global dataset of 10,000 small, sim
 |-----------|---------|----------------|
 | `--h3-resolution` | auto (from pixel size) | Override if auto-detect gives wrong resolution |
 | `--hex-memory` | 32Gi | Increase if pods OOM; rasters can be memory-intensive at fine resolutions |
-| `--max-parallelism` | 61 | Reduce if hitting namespace pod quota; never exceeds 122 |
+| `--max-parallelism` | 61 | **k8s backend only** — reduce if hitting namespace pod quota; never exceeds 122. Not used with `--backend armada`. |
 | `--parent-resolutions` | "0" | Add intermediate resolutions (e.g., `"7,0"`) if needed |
 | `--value-column` | "value" | Set to a meaningful band name (e.g., `carbon`, `arte`, `nlcd`) |
 | `--nodata` | auto (from raster metadata) | Override if metadata nodata is wrong or missing |
@@ -673,6 +672,7 @@ Repartition automatically merges all chunks (both resolutions) from `chunks/` in
 - **Do not modify `cng_datasets/` source code** unless fixing a bug in the tool itself. User workflows only touch `catalog/` and generated YAML.
 - **Do not hardcode S3 endpoints or credentials.** The generated jobs handle S3 configuration (internal endpoints, secrets) automatically.
 - **Do not exceed 200 completions per job.** This is a hard limit to avoid overwhelming the cluster's etcd.
+- **Do not request more than 50Gi ephemeral-storage per pod.** The `biodiversity` namespace has a LimitRange that caps ephemeral-storage at 50Gi (this is namespace-specific, not a cluster-wide NRP policy). Generated YAMLs from `cng-datasets` default to 250Gi — always reduce to 50Gi and add a matching `limits.ephemeral-storage: 50Gi` before applying.
 - **Do not use ogr2ogr to sequentially merge shapefiles.** Use parallel downloads and pass all files to cng-convert-to-parquet — it merges efficiently.
 - **Do not try to use multiple .zip URLs with cng-datasets workflow.** Create a preprocessing job that downloads, unzips, and converts instead.
 

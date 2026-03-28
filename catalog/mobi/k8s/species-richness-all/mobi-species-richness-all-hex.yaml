@@ -1,0 +1,85 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mobi-species-richness-all-hex
+  labels:
+    k8s-app: mobi-species-richness-all-hex
+spec:
+  completions: 122
+  parallelism: 61
+  completionMode: Indexed
+  backoffLimit: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: mobi-species-richness-all-hex
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: BUCKET
+          value: public-mobi
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+
+          # Locate PROJ database dynamically to avoid version mismatches
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          if [ -n "$PROJ_DB" ]; then
+            export PROJ_DATA="$(dirname $PROJ_DB)"
+            export PROJ_LIB="$PROJ_DATA"
+          fi
+
+          cng-datasets raster --input "https://minio.carlboettiger.info/public-biodiversity/mobi/species-richness-all/SpeciesRichness_All.tif" --output-parquet s3://public-mobi/mobi-species-richness-all/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 --value-column species_richness --nodata -128.0
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
