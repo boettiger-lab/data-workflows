@@ -1,0 +1,116 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-2024-county-derive-hex
+  namespace: biodiversity
+  labels:
+    k8s-app: census-2024-county-derive-hex
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: census-2024-county-derive-hex
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: derive-hex
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          python3 << 'PYEOF'
+          import duckdb, os
+
+          conn = duckdb.connect()
+          conn.execute("INSTALL httpfs; LOAD httpfs;")
+          conn.execute(f"""
+            SET s3_access_key_id='{os.environ["AWS_ACCESS_KEY_ID"]}';
+            SET s3_secret_access_key='{os.environ["AWS_SECRET_ACCESS_KEY"]}';
+            SET s3_endpoint='{os.environ["AWS_S3_ENDPOINT"]}';
+            SET s3_use_ssl=false;
+            SET s3_url_style='path';
+          """)
+
+          # Load county attributes (3,235 rows — trivial)
+          county = conn.execute("""
+            SELECT STATEFP, COUNTYFP, COUNTYNS, GEOID, GEOIDFQ,
+                   NAME, NAMELSAD, LSAD, CLASSFP, MTFCC,
+                   CSAFP, CBSAFP, METDIVFP, FUNCSTAT,
+                   ALAND, AWATER, INTPTLAT, INTPTLON
+            FROM read_parquet('s3://public-census/census-2024/county.parquet')
+          """).fetchdf()
+          conn.register("county", county)
+
+          # Discover h0 partitions from tract hex
+          h0_dirs = conn.execute("""
+            SELECT DISTINCT h0
+            FROM read_parquet('s3://public-census/census-2024/tract/hex/h0=*/data_0.parquet',
+                              hive_partitioning=true, hive_types={'h0': BIGINT})
+          """).fetchall()
+          h0_values = sorted([r[0] for r in h0_dirs])
+          print(f"Found {len(h0_values)} h0 partitions")
+
+          total_rows = 0
+          for h0 in h0_values:
+              result = conn.execute(f"""
+                COPY (
+                  SELECT DISTINCT
+                    t.h8,
+                    c.STATEFP, c.COUNTYFP, c.COUNTYNS, c.GEOID, c.GEOIDFQ,
+                    c.NAME, c.NAMELSAD, c.LSAD, c.CLASSFP, c.MTFCC,
+                    c.CSAFP, c.CBSAFP, c.METDIVFP, c.FUNCSTAT,
+                    c.ALAND, c.AWATER, c.INTPTLAT, c.INTPTLON
+                  FROM read_parquet('s3://public-census/census-2024/tract/hex/h0={h0}/data_0.parquet') t
+                  JOIN county c ON t.STATEFP = c.STATEFP AND t.COUNTYFP = c.COUNTYFP
+                ) TO 's3://public-census/census-2024/county/hex/h0={h0}/data_0.parquet'
+                (FORMAT PARQUET, COMPRESSION ZSTD)
+              """)
+              n = conn.execute(f"""
+                SELECT COUNT(DISTINCT h8)
+                FROM read_parquet('s3://public-census/census-2024/tract/hex/h0={h0}/data_0.parquet')
+              """).fetchone()[0]
+              total_rows += n
+              print(f"  h0={h0}: ~{n:,} distinct h8 cells")
+
+          print(f"✓ County hex complete — {total_rows:,} total h8 cells across {len(h0_values)} partitions")
+          PYEOF
+        resources:
+          requests:
+            cpu: '8'
+            memory: 64Gi
+          limits:
+            cpu: '8'
+            memory: 64Gi
+            ephemeral-storage: 50Gi
