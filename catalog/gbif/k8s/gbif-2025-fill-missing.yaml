@@ -1,0 +1,147 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2025-fill-missing
+  namespace: biodiversity
+  labels:
+    k8s-app: gbif-2025-fill-missing
+spec:
+  completions: 28
+  parallelism: 28
+  completionMode: Indexed
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2025-fill-missing
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: fill-missing
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '4'
+            memory: 64Gi
+            ephemeral-storage: 4Gi
+          limits:
+            cpu: '4'
+            memory: 64Gi
+            ephemeral-storage: 4Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+
+          # 28 missing h0 cells: (lowercase_hex, int64) pairs
+          # Lowercase hex = partition key in chunks/; INT64 = final partition key in hex/
+          SRC_LIST=(
+            8001fffffffffff 8003fffffffffff 8005fffffffffff 8007fffffffffff
+            800bfffffffffff 800dfffffffffff 800ffffffffffff 8011fffffffffff
+            8013fffffffffff 8015fffffffffff 8017fffffffffff 801bfffffffffff
+            801dfffffffffff 8021fffffffffff 8023fffffffffff 8025fffffffffff
+            802dfffffffffff 802ffffffffffff 8031fffffffffff 8033fffffffffff
+            8035fffffffffff 8037fffffffffff 803bfffffffffff 803dfffffffffff
+            803ffffffffffff 8041fffffffffff 8043fffffffffff 804bfffffffffff
+          )
+          DST_LIST=(
+            576495936675512319 576531121047601151 576566305419689983 576601489791778815
+            576671858535956479 576707042908045311 576742227280134143 576777411652222975
+            576812596024311807 576847780396400639 576882964768489471 576953333512667135
+            576988517884755967 577058886628933631 577094071001022463 577129255373111295
+            577269992861466623 577305177233555455 577340361605644287 577375545977733119
+            577410730349821951 577445914721910783 577516283466088447 577551467838177279
+            577586652210266111 577621836582354943 577657020954443775 577797758442799103
+          )
+
+          SRC="${SRC_LIST[$JOB_COMPLETION_INDEX]}"
+          DST="${DST_LIST[$JOB_COMPLETION_INDEX]}"
+
+          echo "=== Pod $JOB_COMPLETION_INDEX: chunks/h0=${SRC} -> hex/h0=${DST} ==="
+
+          python3 - <<PYEOF
+          import duckdb, os, subprocess, sys
+
+          src_h0 = "${SRC}"
+          dst_h0 = "${DST}"
+          endpoint = os.environ["AWS_S3_ENDPOINT"]
+          key = os.environ["AWS_ACCESS_KEY_ID"]
+          secret = os.environ["AWS_SECRET_ACCESS_KEY"]
+
+          con = duckdb.connect()
+          con.execute(f"""
+              CREATE SECRET s3_secret (
+                  TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                  ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false,
+                  REGION 'us-east-1'
+              )
+          """)
+
+          src = f"s3://public-gbif/2025-06/chunks/h0={src_h0}/**"
+          dst = f"s3://public-gbif/2025-06/hex/h0={dst_h0}/"
+
+          # Verify source exists
+          result = subprocess.run(
+              ['rclone', 'lsf', f'nrp:public-gbif/2025-06/chunks/h0={src_h0}/'],
+              capture_output=True, text=True
+          )
+          if not result.stdout.strip():
+              print(f"ERROR: No files found in chunks/h0={src_h0}/", flush=True)
+              sys.exit(1)
+          n_files = len(result.stdout.strip().splitlines())
+          print(f"  Found {n_files} chunk files in h0={src_h0}", flush=True)
+
+          print(f"  Consolidating and writing to {dst} ...", flush=True)
+          con.execute(f"""
+              COPY (
+                  SELECT *
+                  FROM read_parquet('{src}', hive_partitioning=false)
+                  ORDER BY h1, h2, h3, h4, h5
+              ) TO '{dst}'
+              (FORMAT PARQUET, COMPRESSION ZSTD,
+               ROW_GROUP_SIZE 1000000, FILE_SIZE_BYTES 268435456,
+               OVERWRITE_OR_IGNORE true)
+          """)
+          print(f"  Done: hex/h0={dst_h0}/", flush=True)
+          PYEOF
+
+          echo "=== Pod $JOB_COMPLETION_INDEX complete ==="
+
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
