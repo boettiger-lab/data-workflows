@@ -5,7 +5,7 @@ metadata:
   labels:
     k8s-app: iho-eez-hex
 spec:
-  completions: 200
+  completions: 143
   parallelism: 50
   completionMode: Indexed
   backoffLimit: 0
@@ -55,7 +55,7 @@ spec:
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-high-seas/iho/eez.parquet --output s3://public-high-seas/iho/eez/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
+          cng-datasets vector --input s3://public-high-seas/iho/eez.parquet --output s3://public-high-seas/iho/eez/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 2 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
         resources:
           requests:
             cpu: '4'
