@@ -140,78 +140,27 @@ curl -I https://www2.census.gov/geo/tiger/TIGER2024/TRACT/tl_2024_01_tract.zip
 
 For datasets distributed as multiple zipped files (e.g., per-state shapefiles):
 
-**✅ CORRECT: Download, unzip, pass shapefiles**
+**✅ CORRECT: Download in parallel, unzip, pass shapefiles**
 ```bash
-# Download all in parallel
 for id in 01 02 03; do
   curl -sS -O "https://example.com/data_${id}.zip" &
 done
 wait
-
-# Unzip all
 unzip -q -o "*.zip"
-
-# Let the tool merge them (that's what it does!)
 cng-convert-to-parquet /tmp/data/*.shp s3://bucket/output.parquet
 ```
 
-**❌ WRONG: Sequential merging with ogr2ogr**
-```bash
-# Don't do this - you're reimplementing what the tool already does
-ogr2ogr -f Shapefile merged.shp file1.shp
-ogr2ogr -update -append merged.shp file2.shp  # Slow!
-ogr2ogr -update -append merged.shp file3.shp  # Very slow!
-cng-convert-to-parquet merged.shp output.parquet
-```
-
-**Why parallel download + direct tool usage is better:**
-- Parallel downloads complete in seconds vs sequential minutes
-- `cng-convert-to-parquet` already merges multiple shapefiles efficiently
-- Don't re-implement what the tool does — let it handle the merge
-- Census tracts: 3 minutes total (vs 30+ minutes with sequential ogr2ogr)
-
-**Example: Census TIGER preprocessing job**
-```yaml
-command: [bash, -c, |
-  STATE_FIPS="01 02 04 05 ..."
-  mkdir -p /tmp/data && cd /tmp/data
-  
-  # Parallel download
-  for fips in $STATE_FIPS; do
-    curl -sS -O "https://example.com/tl_2024_${fips}_tract.zip" &
-  done
-  wait
-  
-  # Unzip
-  unzip -q -o "*.zip"
-  
-  # Convert (tool handles merging)
-  cng-convert-to-parquet /tmp/data/*.shp s3://bucket/output.parquet
-]
-```
+See the Census 2024 Reference example for a complete preprocessing job YAML.
 
 #### Step 1b: Copy raw source files to S3 /raw/ BEFORE any conversion
 
-**Always upload the original source files to `s3://<bucket>/raw/` as the very first k8s job**, before running any gdal/conversion steps. Reasons:
-- Downloads from external providers (Zenodo, Census, etc.) are slow and rate-limited; if a later conversion job fails you can restart from S3 rather than re-downloading
-- Conversion jobs (gdal, parquet) have a much higher failure rate than simple download+upload jobs
-- The raw data is archived for reproducibility
+**Always upload original source files to `s3://<bucket>/raw/` as the very first k8s job.** External downloads are slow and rate-limited; if conversion fails you can restart from S3. Subsequent jobs should read from `s3://<bucket>/raw/<file>` (or `/vsicurl/https://s3-west.nrp-nautilus.io/<bucket>/raw/<file>` for GDAL).
 
 ```yaml
-# Example: minimal raw-upload job
 command: [bash, -c, |
   curl -L --retry 5 -o /tmp/data.zip "$SOURCE_URL"
   rclone copy /tmp/data.zip nrp:<bucket>/raw/
 ]
-```
-
-Once raw files are in S3, subsequent conversion jobs should read from `s3://<bucket>/raw/<file>` (or `/vsicurl/https://s3-west.nrp-nautilus.io/<bucket>/raw/<file>` for GDAL), not from the original provider URL.
-
-#### Check S3 uploads
-
-If data is already uploaded to S3:
-```
-https://s3-west.nrp-nautilus.io/<bucket>/raw/<filename>
 ```
 
 #### Inspect multi-layer files (GDB, GPKG)
@@ -600,6 +549,43 @@ See the "Preprocessing multi-file zipped datasets" section for examples.
 kubectl logs job/<name>-convert
 ```
 
+**Repeated preemptions on shared nodes → pin to Berkeley node:**
+
+`stratus1.nrp-espm.berkeley.edu` is our dedicated node. Use it when jobs are getting preempted on the shared cluster. It currently carries a `nautilus.io/issue` taint — tolerate it with `operator: Exists`:
+
+```yaml
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: stratus1.nrp-espm.berkeley.edu
+      tolerations:
+      - key: "nautilus.io/issue"
+        operator: Exists
+        effect: NoSchedule
+```
+
+**Pod keeps getting evicted (ContainerStatusUnknown) → diagnose BEFORE resubmitting:**
+
+**NEVER resubmit a failing job without first running `kubectl describe pod <pod-name>` to read the eviction reason.** Resubmitting with the same resources will produce the same failure repeatedly.
+
+```bash
+kubectl -n biodiversity describe pod <pod-name> | grep -A5 "Reason:\|Message:\|Events:"
+```
+
+Common eviction causes and fixes:
+
+| Message | Cause | Fix |
+|---|---|---|
+| `ephemeral local storage usage exceeds the total limit` | DuckDB sort spilling to disk | Increase both memory AND ephemeral-storage |
+| `OOMKilled` | Insufficient RAM | Increase memory request |
+| `ContainerStatusUnknown` (on shared nodes) | Node preemption | Pin to Berkeley node (see below) |
+
+**DuckDB sort jobs need both large RAM and large ephemeral-storage.** When a job does `ORDER BY` over large data, DuckDB spills temp files to local disk. If RAM is insufficient it spills more. Always size both together:
+- If data partition is ~1-2 GB compressed → request 120Gi RAM, 50Gi ephemeral-storage
+- If data partition is ~10-15 GB compressed → request 120Gi RAM, 50Gi ephemeral-storage
+- The namespace max for ephemeral-storage is **50Gi** — always request the max for sort-heavy jobs
+
 **Hex pods OOM → increase memory or chunks:**
 Regenerate with `--hex-memory 64Gi` or `--max-completions 200`, delete failed job, reapply.
 
@@ -669,12 +655,9 @@ Repartition automatically merges all chunks (both resolutions) from `chunks/` in
 ## What NOT To Do
 
 - **Do not process data locally.** The CLI generates k8s jobs. You apply them. The cluster does the work.
-- **Do not modify `cng_datasets/` source code** unless fixing a bug in the tool itself. User workflows only touch `catalog/` and generated YAML.
-- **Do not hardcode S3 endpoints or credentials.** The generated jobs handle S3 configuration (internal endpoints, secrets) automatically.
-- **Do not exceed 200 completions per job.** This is a hard limit to avoid overwhelming the cluster's etcd.
-- **Do not request more than 50Gi ephemeral-storage per pod.** The `biodiversity` namespace has a LimitRange that caps ephemeral-storage at 50Gi (this is namespace-specific, not a cluster-wide NRP policy). Generated YAMLs from `cng-datasets` default to 250Gi — always reduce to 50Gi and add a matching `limits.ephemeral-storage: 50Gi` before applying.
-- **Do not use ogr2ogr to sequentially merge shapefiles.** Use parallel downloads and pass all files to cng-convert-to-parquet — it merges efficiently.
-- **Do not try to use multiple .zip URLs with cng-datasets workflow.** Create a preprocessing job that downloads, unzips, and converts instead.
+- **Do not modify `cng_datasets/` source code.** File an issue instead (see Hard Boundary above).
+- **Do not request more than 50Gi ephemeral-storage per pod.** The `biodiversity` namespace caps it at 50Gi. Generated YAMLs default to 250Gi — always reduce to 50Gi and add `limits.ephemeral-storage: 50Gi` before applying.
+- **Do not use multiple .zip URLs with `cng-datasets workflow`.** Create a preprocessing job that downloads, unzips, and converts instead (see Step 1).
 
 ## Reference: Complete PAD-US Example
 
@@ -715,20 +698,7 @@ done
 
 ### Lookup Tables
 
-Non-spatial lookup tables (8 tables: Public_Access, Category, Designation_Type, GAP_Status, IUCN_Category, Agency_Name, Agency_Type, State_Name) were extracted using a k8s job with DuckDB:
-
-```bash
-# Extract all lookup tables - see catalog/pad-us/k8s/extract-lookup-tables.yaml
-kubectl apply -f catalog/pad-us/k8s/extract-lookup-tables.yaml
-
-# Monitor extraction
-kubectl logs -f job/padus-extract-lookup-tables
-
-# Files written to: s3://public-padus/padus-4-1/lookup/*.parquet
-# Documentation: catalog/pad-us/lookup-tables.md
-```
-
-The extraction job uses DuckDB's spatial extension with `/vsis3/` paths to read the GDB from S3 with credentials, then writes each table to parquet. All 204 rows across 8 tables extracted in ~30 seconds.
+Non-spatial lookup tables were extracted via a k8s DuckDB job reading the GDB with `/vsis3/` paths. See `catalog/pad-us/k8s/extract-lookup-tables.yaml` and `catalog/pad-us/lookup-tables.md`.
 
 ## Reference: Census 2024 Multi-Source Example
 
@@ -750,71 +720,10 @@ curl -I https://www2.census.gov/geo/tiger/TIGER2024/TRACT/tl_2024_01_tract.zip
 
 **Creating preprocessing job for zipped multi-file datasets:**
 
-Since `cng-convert-to-parquet` cannot handle multiple zip URLs, create a preprocessing job:
+See `catalog/census/k8s/tract/preprocess-tract.yaml` for a complete example. The job downloads all state ZIPs in parallel, unzips them, and calls `cng-convert-to-parquet /tmp/tracts/*.shp s3://...` (the tool merges shapefiles automatically). Apply and monitor with:
 
 ```bash
-# Create preprocessing job YAML (see catalog/census/k8s/tract/preprocess-tract.yaml)
-cat > preprocess-tract.yaml <<'EOF'
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: census-2024-tract-preprocess
-  namespace: biodiversity
-spec:
-  backoffLimit: 1
-  template:
-    spec:
-      restartPolicy: Never
-      priorityClassName: opportunistic
-      containers:
-      - name: preprocess
-        image: ghcr.io/boettiger-lab/datasets:latest
-        resources:
-          requests: {memory: "32Gi", cpu: "8"}
-          limits: {memory: "32Gi", cpu: "8"}
-        env:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
-        - name: AWS_S3_ENDPOINT
-          value: "rook-ceph-rgw-nautiluss3.rook"
-        - name: AWS_VIRTUAL_HOSTING
-          value: "FALSE"
-        volumeMounts:
-        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
-        command: [bash, -c, |
-          set -e
-          STATE_FIPS="01 02 04 05 06 08 09 10 11 12 13 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 44 45 46 47 48 49 50 51 53 54 55 56 60 66 69 72 78"
-          
-          echo "Downloading all tract files..."
-          mkdir -p /tmp/tracts && cd /tmp/tracts
-          
-          # Parallel download
-          for fips in $STATE_FIPS; do
-            curl -sS -O "https://www2.census.gov/geo/tiger/TIGER2024/TRACT/tl_2024_${fips}_tract.zip" &
-          done
-          wait
-          
-          echo "Unzipping..."
-          unzip -q -o "*.zip"
-          
-          # Convert (tool merges all shapefiles)
-          echo "Converting to GeoParquet..."
-          cng-convert-to-parquet /tmp/tracts/*.shp s3://public-census/census-2024/tract.parquet \
-            --compression ZSTD --compression-level 15 --row-group-size 100000
-          
-          echo "✓ Complete"
-        ]
-      volumes:
-      - name: rclone-config
-        secret: {secretName: rclone-config}
-EOF
-
-# Apply preprocessing job
 kubectl apply -f preprocess-tract.yaml
-
-# Monitor
 kubectl logs -f census-2024-tract-preprocess
 ```
 
@@ -879,11 +788,4 @@ cng-datasets raster \
   --value-column carbon
 ```
 
-This creates 122 indexed pods (one per h0 cell), each writing `hex/h0={cell}/data_0.parquet`. Cells with no raster data are skipped silently. There is no repartition step for rasters — each h0 writes directly to its final partition.
-
-**Key differences from vector hex:**
-- Input is a COG (not a parquet), read via GDAL with `/vsicurl/` internally
-- Uses `--h0-index` (not `--chunk-id`)
-- No `chunks/` intermediate directory — output goes directly to `hex/`
-- No repartition step needed
-- 122 completions always (not configurable)
+This creates 122 indexed pods (one per h0 cell), each writing `hex/h0={cell}/data_0.parquet`. Cells with no raster data are skipped silently. There is no repartition step — output goes directly to its final partition.
