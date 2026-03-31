@@ -1,0 +1,170 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gfw-cog
+  namespace: biodiversity
+  labels:
+    k8s-app: gfw-cog
+spec:
+  # One completion per year: index 0 = 2012, index 12 = 2024
+  completions: 13
+  parallelism: 13
+  completionMode: Indexed
+  backoffLimit: 1
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: gfw-cog
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: cog-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+
+          YEAR=$((2012 + JOB_COMPLETION_INDEX))
+          echo "Generating COG for GFW fishing effort year ${YEAR}"
+
+          # Read raw zip from S3 (uploaded by gfw-aggregate job)
+          rclone copyto nrp:public-gfw/raw/fleet-monthly-csvs-10-v3-${YEAR}.zip /tmp/fleet-${YEAR}.zip
+          mkdir -p /tmp/fleet-${YEAR}
+          unzip -q /tmp/fleet-${YEAR}.zip -d /tmp/fleet-${YEAR}/
+          echo "Unzipped: $(ls /tmp/fleet-${YEAR}/*.csv | wc -l) monthly files"
+
+          # Step 1: Aggregate monthly CSVs to annual total per 0.1° cell using DuckDB.
+          # Outputs a simple lon_center,lat_center,fishing_hours CSV for gdal_rasterize.
+          python3 - << 'PYEOF'
+          import duckdb, os
+          year = 2012 + int(os.environ['JOB_COMPLETION_INDEX'])
+          csv_glob = f'/tmp/fleet-{year}/*.csv'
+          out_csv  = f'/tmp/gfw_{year}.csv'
+          conn = duckdb.connect()
+          conn.execute(f"""
+            COPY (
+              SELECT
+                (cell_ll_lon + 0.05)::FLOAT AS lon_center,
+                (cell_ll_lat + 0.05)::FLOAT AS lat_center,
+                SUM(fishing_hours)::FLOAT    AS fishing_hours
+              FROM read_csv(
+                '{csv_glob}',
+                columns = {{
+                  'date':         'DATE',
+                  'year':         'INTEGER',
+                  'month':        'INTEGER',
+                  'cell_ll_lat':  'FLOAT',
+                  'cell_ll_lon':  'FLOAT',
+                  'flag':         'VARCHAR',
+                  'geartype':     'VARCHAR',
+                  'hours':        'FLOAT',
+                  'fishing_hours':'FLOAT',
+                  'mmsi_present': 'INTEGER'
+                }},
+                ignore_errors = true
+              )
+              WHERE fishing_hours > 0
+              GROUP BY lon_center, lat_center
+            )
+            TO '{out_csv}' (FORMAT CSV, HEADER true)
+          """)
+          print(f"Written: {out_csv}")
+          PYEOF
+
+          # Step 2: Write an OGR VRT so gdal_rasterize can read the CSV as a point layer.
+          cat > /tmp/gfw_${YEAR}.vrt << VRTEOF
+          <OGRVRTDataSource>
+            <OGRVRTLayer name="gfw_${YEAR}">
+              <SrcDataSource>/tmp/gfw_${YEAR}.csv</SrcDataSource>
+              <GeometryType>wkbPoint</GeometryType>
+              <LayerSRS>EPSG:4326</LayerSRS>
+              <GeometryField encoding="PointFromColumns" x="lon_center" y="lat_center"/>
+            </OGRVRTLayer>
+          </OGRVRTDataSource>
+          VRTEOF
+
+          # Step 3: Rasterize to a 0.1° global GeoTIFF.
+          # -tr 0.1 0.1  : pixel size matches source grid
+          # -te           : full global extent
+          # -a_nodata     : nodata for ocean cells with no fishing activity
+          gdal_rasterize \
+            -l gfw_${YEAR} \
+            -a fishing_hours \
+            -tr 0.1 0.1 \
+            -te -180 -90 180 90 \
+            -ot Float32 \
+            -a_nodata -9999 \
+            /tmp/gfw_${YEAR}.vrt \
+            /tmp/gfw_${YEAR}.tif
+
+          # Step 4: Convert to COG.
+          gdal_translate \
+            -of COG \
+            -co COMPRESS=DEFLATE \
+            -co PREDICTOR=2 \
+            -co RESAMPLING=AVERAGE \
+            /tmp/gfw_${YEAR}.tif \
+            /tmp/gfw_${YEAR}-cog.tif
+
+          # Upload COG to S3
+          rclone copyto /tmp/gfw_${YEAR}-cog.tif \
+            nrp:public-gfw/gfw-fishing-effort-${YEAR}-cog.tif
+          echo "Uploaded: s3://public-gfw/gfw-fishing-effort-${YEAR}-cog.tif"
+
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 10Gi
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

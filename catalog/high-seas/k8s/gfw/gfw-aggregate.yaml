@@ -8,7 +8,7 @@ metadata:
 spec:
   # One completion per year: index 0 = 2012, index 12 = 2024
   completions: 13
-  parallelism: 4
+  parallelism: 13
   completionMode: Indexed
   backoffLimit: 1
   podFailurePolicy:
@@ -68,18 +68,22 @@ spec:
           unzip -q /tmp/fleet-${YEAR}.zip -d /tmp/fleet-${YEAR}/
           echo "Unzipped: $(ls /tmp/fleet-${YEAR}/*.csv | wc -l) monthly files"
 
-          # Also upload raw zip to S3 for reproducibility
+          # Archive raw zip to S3 for reproducibility
           rclone copyto /tmp/fleet-${YEAR}.zip nrp:public-gfw/raw/fleet-monthly-csvs-10-v3-${YEAR}.zip
           echo "Raw zip uploaded to S3"
 
-          # Aggregate to H3 resolution 5 using DuckDB + H3 community extension
-          # H3 res 5 (~252 km²) is appropriate for 0.1° source data (~121 km² cells)
-          # Each source cell center is assigned to its containing H3 res-5 cell.
-          # Multiple source cells may map to the same H3 cell — their values are summed.
+          # Aggregate to H3 resolution 6 using DuckDB + H3 community extension.
+          # H3 res-6 (~36 km²) is the closest match to the 0.1° source grid (~123 km²):
+          # each source cell maps to ~3 H3 res-6 cells, preserving spatial detail.
+          # (res-5 ~252 km² over-aggregates 2 source cells into one; res-7 ~5 km²
+          # would artificially inflate each source cell into ~24 identical hexes.)
+          #
+          # Output is Hive-partitioned by h0 (res-0 parent cell) to match the
+          # standard cng-datasets hex layout: hex/h0={cell}/data_0.parquet
+          # year is kept as a column so all years can be queried together.
           python3 << 'PYEOF'
           import duckdb
           import os
-          import sys
 
           year = 2012 + int(os.environ['JOB_COMPLETION_INDEX'])
           endpoint = os.environ['AWS_S3_ENDPOINT']
@@ -88,11 +92,9 @@ spec:
 
           conn = duckdb.connect()
 
-          # Install extensions
           conn.execute("INSTALL h3 FROM community; LOAD h3;")
           conn.execute("INSTALL httpfs; LOAD httpfs;")
 
-          # Configure S3 (internal NRP endpoint)
           conn.execute(f"""
             CREATE SECRET nrp_secret (
               TYPE S3,
@@ -105,18 +107,21 @@ spec:
           """)
 
           csv_glob = f'/tmp/fleet-{year}/*.csv'
-          output_path = f's3://public-gfw/gfw-fishing-effort/year={year}/data.parquet'
+          output_dir = 's3://public-gfw/gfw-fishing-effort/hex'
 
-          print(f"Aggregating {year} CSVs to H3 res-5 hex parquet...")
+          print(f"Aggregating {year} CSVs to H3 res-6 hex parquet (h0-partitioned)...")
           conn.execute(f"""
             COPY (
               SELECT
-                h3_latlng_to_cell(cell_ll_lat + 0.05, cell_ll_lon + 0.05, 5)::BIGINT AS h5,
+                h3_latlng_to_cell(cell_ll_lat + 0.05, cell_ll_lon + 0.05, 6)::BIGINT AS h6,
+                h3_cell_to_parent(
+                  h3_latlng_to_cell(cell_ll_lat + 0.05, cell_ll_lon + 0.05, 6), 0
+                )::BIGINT AS h0,
                 {year}::INTEGER AS year,
                 geartype,
                 SUM(fishing_hours)::FLOAT  AS fishing_hours,
-                SUM(hours)::FLOAT          AS hours,
-                SUM(mmsi_present)::INTEGER AS vessel_count
+                SUM(hours)::FLOAT          AS ais_hours,
+                SUM(mmsi_present)::INTEGER AS vessel_month_count
               FROM read_csv(
                 '{csv_glob}',
                 columns = {{
@@ -134,12 +139,18 @@ spec:
                 ignore_errors = true
               )
               GROUP BY ALL
-              ORDER BY h5, geartype
             )
-            TO '{output_path}'
-            WITH (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+            TO '{output_dir}'
+            WITH (
+              FORMAT PARQUET,
+              COMPRESSION ZSTD,
+              ROW_GROUP_SIZE 100000,
+              PARTITION_BY (h0),
+              FILENAME_PATTERN 'year={year}_data',
+              OVERWRITE_OR_IGNORE true
+            )
           """)
-          print(f"Done: {output_path}")
+          print(f"Done: {output_dir}/h0=*/year={year}_data.parquet")
           PYEOF
 
           echo "Year ${YEAR} complete."
