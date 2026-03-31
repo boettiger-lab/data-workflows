@@ -1,9 +1,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: rfmo-rfb-pmtiles
+  name: rfmo-vme-fix-encoding
+  namespace: biodiversity
   labels:
-    k8s-app: rfmo-rfb-pmtiles
+    k8s-app: rfmo-vme-fix-encoding
 spec:
   completions: 1
   parallelism: 1
@@ -12,11 +13,12 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: rfmo-rfb-pmtiles
+        k8s-app: rfmo-vme-fix-encoding
     spec:
       restartPolicy: Never
+      priorityClassName: opportunistic
       containers:
-      - name: pmtiles-task
+      - name: fix-encoding
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
@@ -38,12 +40,6 @@ spec:
           value: 'false'
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
-        - name: TMPDIR
-          value: /tmp
-        - name: BUCKET
-          value: public-high-seas
-        - name: DATASET
-          value: rfb
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
@@ -53,33 +49,37 @@ spec:
         - -c
         - |
           set -e
-          # Use optimized GeoParquet (has ID column) from convert job
-          # GDAL can read parquet via vsicurl
-          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-high-seas/rfmo/rfb.parquet -progress
+          # Download raw VME zip
+          curl -L --retry 5 -o /tmp/vme.zip \
+            https://s3-west.nrp-nautilus.io/public-high-seas/raw/rfmo-vme-closures.zip
 
-          # Generate PMTiles from GeoJSONSeq
-          # TIPPECANOE_MAX_THREADS must be a power of 2; Kubernetes nodes can expose
-          # non-power-of-2 logical CPU counts which triggers an internal assertion
-          # failure "N shards not a power of 2" (felt/tippecanoe#216).
-          # Round detected CPU count down to nearest power of 2 to preserve I/O parallelism.
-          TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
-          tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --minimum-zoom 0 --maximum-zoom 8 --force /tmp/$DATASET.geojsonl
+          # Re-convert with explicit latin-1 source encoding -> UTF-8 output
+          mkdir -p /tmp/vme-fixed
+          ogr2ogr \
+            -f "ESRI Shapefile" \
+            /tmp/vme-fixed/closures.shp \
+            /vsizip//tmp/vme.zip \
+            -oo ENCODING=ISO-8859-1 \
+            -lco ENCODING=UTF-8
 
-          # Upload to S3 using rclone
-          rclone copy /tmp/$DATASET.pmtiles nrp:public-high-seas/rfmo/
-          rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles
+          # Convert fixed shapefile to parquet, overwriting the bad one
+          cng-convert-to-parquet \
+            /tmp/vme-fixed/closures.shp \
+            s3://public-high-seas/rfmo/vme.parquet \
+            --row-group-size 100000
+
+          echo "Re-encoded parquet written successfully"
         resources:
           requests:
-            cpu: '4'
-            memory: 32Gi
+            cpu: '2'
+            memory: 8Gi
           limits:
-            cpu: '4'
-            memory: 32Gi
+            cpu: '2'
+            memory: 8Gi
       volumes:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
