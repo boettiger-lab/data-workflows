@@ -1,12 +1,12 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: iho-high-seas-hex
+  name: rfmo-vme-hex
   labels:
-    k8s-app: iho-high-seas-hex
+    k8s-app: rfmo-vme-hex
 spec:
-  completions: 1
-  parallelism: 1
+  completions: 139
+  parallelism: 50
   completionMode: Indexed
   backoffLimit: 0
   podFailurePolicy:
@@ -18,7 +18,7 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: iho-high-seas-hex
+        k8s-app: rfmo-vme-hex
     spec:
       restartPolicy: Never
       containers:
@@ -49,20 +49,20 @@ spec:
         - name: BUCKET
           value: public-high-seas
         - name: DATASET
-          value: iho-high-seas
+          value: rfmo-vme
         command:
         - bash
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-high-seas/iho/high-seas.parquet --output s3://public-high-seas/iho/high-seas/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1 --intermediate-chunk-size 10 --resolution 4 --parent-resolutions 0
+          cng-datasets vector --input s3://public-high-seas/rfmo/vme.parquet --output s3://public-high-seas/rfmo/vme/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 2 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 16Gi
           limits:
             cpu: '4'
-            memory: 32Gi
+            memory: 16Gi
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:

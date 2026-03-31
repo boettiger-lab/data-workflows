@@ -1,28 +1,22 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: iho-high-seas-hex
+  name: rfmo-rfb-setup-bucket
   labels:
-    k8s-app: iho-high-seas-hex
+    k8s-app: rfmo-rfb-setup-bucket
 spec:
   completions: 1
   parallelism: 1
-  completionMode: Indexed
-  backoffLimit: 0
-  podFailurePolicy:
-    rules:
-    - action: Ignore
-      onPodConditions:
-      - type: DisruptionTarget
+  backoffLimit: 2
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
       labels:
-        k8s-app: iho-high-seas-hex
+        k8s-app: rfmo-rfb-setup-bucket
     spec:
       restartPolicy: Never
       containers:
-      - name: hex-task
+      - name: setup-bucket-task
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
@@ -44,25 +38,35 @@ spec:
           value: 'false'
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
-        - name: TMPDIR
-          value: /tmp
         - name: BUCKET
           value: public-high-seas
-        - name: DATASET
-          value: iho-high-seas
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
         command:
         - bash
         - -c
-        - |-
+        - |
           set -e
-          cng-datasets vector --input s3://public-high-seas/iho/high-seas.parquet --output s3://public-high-seas/iho/high-seas/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1 --intermediate-chunk-size 10 --resolution 4 --parent-resolutions 0
+          echo "Setting up bucket with public access and CORS..."
+          cng-datasets storage setup-bucket \
+            --bucket "${BUCKET}" \
+            --remote nrp \
+            --verify
+
+          echo "Bucket setup complete!"
         resources:
           requests:
-            cpu: '4'
-            memory: 32Gi
+            cpu: '1'
+            memory: 2Gi
           limits:
-            cpu: '4'
-            memory: 32Gi
+            cpu: '1'
+            memory: 2Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:

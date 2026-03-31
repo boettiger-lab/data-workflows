@@ -1,28 +1,22 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: iho-high-seas-hex
+  name: meow-ecoregions-pmtiles
   labels:
-    k8s-app: iho-high-seas-hex
+    k8s-app: meow-ecoregions-pmtiles
 spec:
   completions: 1
   parallelism: 1
-  completionMode: Indexed
-  backoffLimit: 0
-  podFailurePolicy:
-    rules:
-    - action: Ignore
-      onPodConditions:
-      - type: DisruptionTarget
+  backoffLimit: 1
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
       labels:
-        k8s-app: iho-high-seas-hex
+        k8s-app: meow-ecoregions-pmtiles
     spec:
       restartPolicy: Never
       containers:
-      - name: hex-task
+      - name: pmtiles-task
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
@@ -49,13 +43,31 @@ spec:
         - name: BUCKET
           value: public-high-seas
         - name: DATASET
-          value: iho-high-seas
+          value: ecoregions
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
         command:
         - bash
         - -c
-        - |-
+        - |
           set -e
-          cng-datasets vector --input s3://public-high-seas/iho/high-seas.parquet --output s3://public-high-seas/iho/high-seas/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1 --intermediate-chunk-size 10 --resolution 4 --parent-resolutions 0
+          # Use optimized GeoParquet (has ID column) from convert job
+          # GDAL can read parquet via vsicurl
+          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-high-seas/meow/ecoregions.parquet -progress
+
+          # Generate PMTiles from GeoJSONSeq
+          # TIPPECANOE_MAX_THREADS must be a power of 2; Kubernetes nodes can expose
+          # non-power-of-2 logical CPU counts which triggers an internal assertion
+          # failure "N shards not a power of 2" (felt/tippecanoe#216).
+          # Round detected CPU count down to nearest power of 2 to preserve I/O parallelism.
+          TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$DATASET.geojsonl
+
+          # Upload to S3 using rclone
+          rclone copy /tmp/$DATASET.pmtiles nrp:public-high-seas/meow/
+          rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles
         resources:
           requests:
             cpu: '4'
@@ -63,6 +75,10 @@ spec:
           limits:
             cpu: '4'
             memory: 32Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:
