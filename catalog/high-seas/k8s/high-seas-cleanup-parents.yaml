@@ -1,0 +1,162 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: high-seas-cleanup-parents
+  namespace: biodiversity
+  labels:
+    k8s-app: high-seas-cleanup-parents
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: high-seas-cleanup-parents
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: cleanup-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          python3 << 'PYEOF'
+          import duckdb
+          import os
+          import subprocess
+
+          endpoint = os.environ['AWS_S3_ENDPOINT']
+          key = os.environ['AWS_ACCESS_KEY_ID']
+          secret = os.environ['AWS_SECRET_ACCESS_KEY']
+
+          conn = duckdb.connect()
+          conn.execute("INSTALL h3 FROM community; LOAD h3;")
+          conn.execute("INSTALL httpfs; LOAD httpfs;")
+          conn.execute("SET threads=1;")  # prevent multi-file fragmentation per h0
+          conn.execute(f"""
+            CREATE SECRET nrp_secret (
+              TYPE S3,
+              KEY_ID '{key}',
+              SECRET '{secret}',
+              ENDPOINT '{endpoint}',
+              URL_STYLE 'path',
+              USE_SSL false
+            );
+          """)
+
+          # Each tuple: (input_glob for data_00 files, output_dir_clean, final_hex_dir)
+          # data_00.parquet = augmented files with parent-resolution columns
+          datasets = [
+            (
+              's3://public-high-seas/iho/eez/hex/h0=*/data_00.parquet',
+              's3://public-high-seas/iho/eez/hex-clean',
+              'nrp:public-high-seas/iho/eez/hex',
+              'nrp:public-high-seas/iho/eez/hex-clean',
+            ),
+            (
+              's3://public-high-seas/meow/ecoregions/hex/h0=*/data_00.parquet',
+              's3://public-high-seas/meow/ecoregions/hex-clean',
+              'nrp:public-high-seas/meow/ecoregions/hex',
+              'nrp:public-high-seas/meow/ecoregions/hex-clean',
+            ),
+            (
+              's3://public-high-seas/rfmo/rfb/hex/h0=*/data_00.parquet',
+              's3://public-high-seas/rfmo/rfb/hex-clean',
+              'nrp:public-high-seas/rfmo/rfb/hex',
+              'nrp:public-high-seas/rfmo/rfb/hex-clean',
+            ),
+            (
+              's3://public-high-seas/rfmo/vme/hex/h0=*/data_00.parquet',
+              's3://public-high-seas/rfmo/vme/hex-clean',
+              'nrp:public-high-seas/rfmo/vme/hex',
+              'nrp:public-high-seas/rfmo/vme/hex-clean',
+            ),
+            (
+              's3://public-high-seas/iho/high-seas/hex/h0=*/data_00.parquet',
+              's3://public-high-seas/iho/high-seas/hex-clean',
+              'nrp:public-high-seas/iho/high-seas/hex',
+              'nrp:public-high-seas/iho/high-seas/hex-clean',
+            ),
+          ]
+
+          for input_glob, output_s3, hex_rclone, clean_rclone in datasets:
+            print(f"\n=== Consolidating {input_glob} ===")
+            conn.execute(f"""
+              COPY (
+                SELECT *
+                FROM read_parquet('{input_glob}')
+                ORDER BY h0
+              )
+              TO '{output_s3}'
+              WITH (
+                FORMAT PARQUET,
+                COMPRESSION ZSTD,
+                ROW_GROUP_SIZE 100000,
+                PARTITION_BY (h0),
+                FILENAME_PATTERN 'data_0',
+                OVERWRITE_OR_IGNORE true
+              )
+            """)
+            print(f"  Written to {output_s3}")
+
+            print(f"  Swapping {hex_rclone} -> purge, then move {clean_rclone}")
+            subprocess.run(['rclone', 'purge', hex_rclone], check=True)
+            subprocess.run(['rclone', 'move', clean_rclone, hex_rclone], check=True)
+            print(f"  Done: {hex_rclone}")
+
+          print("\nAll datasets consolidated.")
+          PYEOF
+
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

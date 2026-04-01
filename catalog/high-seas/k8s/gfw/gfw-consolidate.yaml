@@ -65,6 +65,7 @@ spec:
           conn = duckdb.connect()
           conn.execute("INSTALL httpfs; LOAD httpfs;")
           conn.execute("INSTALL h3 FROM community; LOAD h3;")
+          conn.execute("SET threads=1;")  # prevent multi-file fragmentation per h0
 
           conn.execute(f"""
             CREATE SECRET nrp_secret (
@@ -89,8 +90,8 @@ spec:
                 year,
                 geartype,
                 fishing_hours,
-                hours,
-                vessel_count
+                ais_hours,
+                vessel_month_count
               FROM read_parquet('{input_glob}', hive_partitioning = true)
               ORDER BY h0, year, geartype
             )
