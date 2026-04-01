@@ -1,5 +1,5 @@
 # Auto-generated ConfigMap for raster workflow
-# Generation command: cng-datasets raster-workflow --dataset gebco-2025 --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w-180.0_e-90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w-90.0_e0.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w0.0_e90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w90.0_e180.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w-180.0_e-90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w-90.0_e0.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w0.0_e90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w90.0_e180.0.tif" --bucket public-high-seas --h3-resolution 8 --parent-resolutions "0"
+# Generation command: cng-datasets raster-workflow --dataset gebco-2025 --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w-180.0_e-90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w-90.0_e0.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w0.0_e90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w90.0_e180.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w-180.0_e-90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w-90.0_e0.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w0.0_e90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w90.0_e180.0.tif" --bucket public-high-seas --h3-resolution 8 --parent-resolutions "5,6,7,0"
 apiVersion: v1
 data:
   gebco-2025-hex.yaml: |
@@ -68,16 +68,16 @@ data:
                 export PROJ_LIB="$PROJ_DATA"
               fi
 
-              cng-datasets raster --input "s3://public-high-seas/gebco-2025-cog.tif" --output-parquet s3://public-high-seas/gebco-2025/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 --value-column elevation
+              cng-datasets raster --input "s3://public-high-seas/gebco-2025-cog.tif" --output-parquet s3://public-high-seas/gebco-2025/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 5,6,7,0 --value-column elevation
             resources:
               requests:
                 cpu: '4'
                 memory: 32Gi
-                ephemeral-storage: 20Gi
+                ephemeral-storage: 50Gi
               limits:
                 cpu: '4'
                 memory: 32Gi
-                ephemeral-storage: 20Gi
+                ephemeral-storage: 50Gi
           priorityClassName: opportunistic
           affinity:
             nodeAffinity:
