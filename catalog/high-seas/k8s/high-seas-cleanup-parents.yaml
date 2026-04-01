@@ -112,7 +112,6 @@ spec:
               COPY (
                 SELECT *
                 FROM read_parquet('{input_glob}')
-                ORDER BY h0
               )
               TO '{output_s3}'
               WITH (

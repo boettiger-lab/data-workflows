@@ -93,7 +93,6 @@ spec:
                 ais_hours,
                 vessel_month_count
               FROM read_parquet('{input_glob}', hive_partitioning = true)
-              ORDER BY h0, year, geartype
             )
             TO '{output_dir}'
             WITH (
