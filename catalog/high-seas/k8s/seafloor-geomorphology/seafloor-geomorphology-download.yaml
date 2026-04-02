@@ -1,0 +1,79 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seafloor-geomorphology-download
+  labels:
+    k8s-app: seafloor-geomorphology-download
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: seafloor-geomorphology-download
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: download-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          URL="https://www.dropbox.com/scl/fi/mm01uhaa0ohyfitckmru7/global-seafloor-geomorphic-features-map.zip?rlkey=so36tzk2mfq6344xioq4v92y0&dl=1"
+          echo "Downloading global seafloor geomorphic features map (~405 MB)..."
+          curl -L --retry 5 -o /tmp/global-seafloor-geomorphic-features-map.zip "$URL"
+          echo "Uploading to S3 raw..."
+          rclone copyto /tmp/global-seafloor-geomorphic-features-map.zip \
+            nrp:public-high-seas/raw/global-seafloor-geomorphic-features-map.zip
+          echo "Done."
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

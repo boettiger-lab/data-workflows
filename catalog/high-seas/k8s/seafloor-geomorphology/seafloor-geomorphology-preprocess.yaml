@@ -1,0 +1,120 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seafloor-geomorphology-preprocess
+  labels:
+    k8s-app: seafloor-geomorphology-preprocess
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: seafloor-geomorphology-preprocess
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: preprocess-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "Downloading zip from S3 raw..."
+          rclone copyto nrp:public-high-seas/raw/global-seafloor-geomorphic-features-map.zip \
+            /tmp/global-seafloor-geomorphic-features-map.zip
+          echo "Unzipping..."
+          unzip -q -o /tmp/global-seafloor-geomorphic-features-map.zip -d /tmp/geo/
+          echo "Contents:"
+          ls /tmp/geo/*.shp | xargs -I{} basename {} .shp
+
+          echo "Merging all shapefiles with feature_type column..."
+          # Process each shapefile, adding feature_type from filename, appending to merged GeoPackage
+          for shp in /tmp/geo/*.shp; do
+            layer=$(basename "$shp" .shp)
+            echo "  Adding $layer..."
+            if [ ! -f /tmp/merged.gpkg ]; then
+              ogr2ogr -f GPKG /tmp/merged.gpkg "$shp" \
+                -sql "SELECT *, '${layer}' AS feature_type FROM \"${layer}\"" \
+                -nln seafloor_geomorphology \
+                -wrapdateline -datelineoffset 15
+            else
+              ogr2ogr -f GPKG -append /tmp/merged.gpkg "$shp" \
+                -sql "SELECT *, '${layer}' AS feature_type FROM \"${layer}\"" \
+                -nln seafloor_geomorphology \
+                -wrapdateline -datelineoffset 15
+            fi
+          done
+
+          echo "Converting merged GeoPackage to GeoParquet..."
+          # Use ogr2ogr directly — handles mixed Polygon/MultiPolygon cleanly
+          ogr2ogr -f Parquet /tmp/seafloor-geomorphology.parquet /tmp/merged.gpkg \
+            -nlt MULTIPOLYGON \
+            -lco COMPRESSION=ZSTD \
+            -lco ROW_GROUP_SIZE=100000 \
+            -lco GEOMETRY_NAME=geometry
+
+          echo "Uploading GeoParquet to S3..."
+          rclone copyto /tmp/seafloor-geomorphology.parquet \
+            nrp:public-high-seas/seafloor-geomorphology.parquet
+
+          echo "Done. Verifying..."
+          python3 -c "
+          import duckdb
+          conn = duckdb.connect()
+          conn.execute('INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;')
+          conn.execute(\"SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'; SET s3_use_ssl=false;\")
+          r = conn.execute(\"SELECT feature_type, COUNT(*) as n FROM read_parquet('s3://public-high-seas/seafloor-geomorphology.parquet') GROUP BY feature_type ORDER BY n DESC\").fetchdf()
+          print(r.to_string())
+          print('Total features:', r['n'].sum())
+          "
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
