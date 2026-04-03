@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Request a Dataset</title>
+    <title>Request Data</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -189,6 +189,36 @@
             line-height: 1.4;
         }
 
+        details.dataset-details {
+            margin-top: 4px;
+            margin-bottom: 18px;
+        }
+
+        details.dataset-details summary {
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            cursor: pointer;
+            padding: 8px 0;
+            list-style: none;
+        }
+
+        details.dataset-details summary::-webkit-details-marker { display: none; }
+
+        details.dataset-details summary::before {
+            content: '+ ';
+            color: #86C274;
+            font-weight: 600;
+        }
+
+        details.dataset-details[open] summary::before {
+            content: '- ';
+        }
+
+        details.dataset-details .details-inner {
+            padding-top: 12px;
+        }
+
         .btn-submit {
             width: 100%;
             padding: 11px;
@@ -248,113 +278,110 @@
 <body>
 <div class="card">
     <div class="header">
-        <div class="wordmark">Boettiger Lab · Data Platform</div>
-        <h1>Request a Dataset</h1>
+        <div class="wordmark">Boettiger Lab &middot; Data Platform</div>
+        <h1>Request Data</h1>
         <p class="subtitle">
-            Suggest a geospatial dataset to add to the platform. Providing direct links
-            to downloadable files helps us get started quickly.
+            Have a research question that needs geospatial data? Tell us what you're trying
+            to learn &mdash; whether or not you already have a specific dataset in mind.
         </p>
     </div>
 
     <form id="form" novalidate>
         <div class="form-group">
-            <label>Dataset Name <span class="required">*</span></label>
-            <input type="text" name="name" required
-                   placeholder="e.g. NLCD 2021 Land Cover, GBIF Occurrence Records">
+            <label>What question are you trying to answer? <span class="required">*</span></label>
+            <textarea name="question" required
+                      placeholder="e.g. Which census tracts in California have the highest wildfire risk and lowest tree canopy cover?"></textarea>
+            <p class="hint">Describe the problem you're working on. We can help identify the right data even if you're not sure what exists.</p>
         </div>
 
         <div class="form-group">
-            <label>Description <span class="required">*</span></label>
-            <textarea name="description" required
-                      placeholder="What is this dataset and why would it be useful on the platform? Include any relevant context about coverage, temporal range, or use case."></textarea>
+            <label>Geographic Area of Interest <span class="optional">optional</span></label>
+            <input type="text" name="area_of_interest"
+                   placeholder="e.g. California, US Gulf Coast, Global tropics">
         </div>
 
         <hr class="divider">
 
-        <div class="form-group">
-            <label>Source URL(s) <span class="optional">optional</span></label>
-            <div class="url-row">
-                <input type="url" id="url-input" placeholder="https://example.gov/data/file.zip">
-                <button type="button" class="btn-add-url" onclick="addUrl()" title="Add URL">+</button>
-            </div>
-            <div class="url-list" id="url-list"></div>
-            <p class="hint">Link directly to downloadable files (.zip, .tif, .shp, .gpkg, etc.) or a data access page.</p>
-        </div>
+        <details class="dataset-details">
+            <summary>I already have a specific dataset in mind</summary>
+            <div class="details-inner">
+                <div class="form-group">
+                    <label>Dataset Name <span class="optional">optional</span></label>
+                    <input type="text" name="name"
+                           placeholder="e.g. NLCD 2021 Land Cover, GBIF Occurrence Records">
+                </div>
 
-        <div class="two-col">
-            <div class="form-group">
-                <label>File Format <span class="optional">optional</span></label>
-                <select name="format">
-                    <option value="">— Unknown / Not sure</option>
-                    <option value="geotiff">GeoTIFF / COG</option>
-                    <option value="shapefile">Shapefile (.shp)</option>
-                    <option value="geopackage">GeoPackage (.gpkg)</option>
-                    <option value="gdb">File Geodatabase (.gdb)</option>
-                    <option value="geojson">GeoJSON</option>
-                    <option value="geoparquet">GeoParquet</option>
-                    <option value="netcdf">NetCDF / HDF5 (.nc, .h5)</option>
-                    <option value="csv">CSV with coordinates</option>
-                    <option value="other">Other</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Geographic Scope <span class="optional">optional</span></label>
-                <select name="scope">
-                    <option value="">— Unknown</option>
-                    <option value="global">Global</option>
-                    <option value="national-us">National (US)</option>
-                    <option value="regional">State / Regional</option>
-                    <option value="local">Local / Site-scale</option>
-                    <option value="other">Other</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Resolution Needed <span class="optional">optional</span></label>
-                <select name="resolution">
-                    <option value="">— Not sure</option>
-                    <option value="1m">~1 m (sub-meter to 1 m)</option>
-                    <option value="10m">~10 m (1–30 m)</option>
-                    <option value="100m">~100 m (30–300 m)</option>
-                    <option value="1km">~1 km (300 m–3 km)</option>
-                    <option value="10km">~10 km (3–30 km)</option>
-                    <option value="coarser">Coarser than 10 km</option>
-                </select>
-                <p class="hint">For rasters: finest pixel size needed. For vectors: smaller than the smallest feature to resolve.</p>
-            </div>
-        </div>
+                <div class="form-group">
+                    <label>Source URL(s) <span class="optional">optional</span></label>
+                    <div class="url-row">
+                        <input type="url" id="url-input" placeholder="https://example.gov/data/file.zip">
+                        <button type="button" class="btn-add-url" onclick="addUrl()" title="Add URL">+</button>
+                    </div>
+                    <div class="url-list" id="url-list"></div>
+                    <p class="hint">Link directly to downloadable files (.zip, .tif, .shp, .gpkg, etc.) or a data access page.</p>
+                </div>
 
-        <hr class="divider">
+                <div class="two-col">
+                    <div class="form-group">
+                        <label>File Format <span class="optional">optional</span></label>
+                        <select name="format">
+                            <option value="">-- Not sure</option>
+                            <option value="geotiff">GeoTIFF / COG</option>
+                            <option value="shapefile">Shapefile (.shp)</option>
+                            <option value="geopackage">GeoPackage (.gpkg)</option>
+                            <option value="gdb">File Geodatabase (.gdb)</option>
+                            <option value="geojson">GeoJSON</option>
+                            <option value="geoparquet">GeoParquet</option>
+                            <option value="netcdf">NetCDF / HDF5 (.nc, .h5)</option>
+                            <option value="csv">CSV with coordinates</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Geographic Scope <span class="optional">optional</span></label>
+                        <select name="scope">
+                            <option value="">-- Not sure</option>
+                            <option value="global">Global</option>
+                            <option value="national-us">National (US)</option>
+                            <option value="regional">State / Regional</option>
+                            <option value="local">Local / Site-scale</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                </div>
 
-        <div class="two-col">
-            <div class="form-group">
-                <label>License <span class="optional">optional</span></label>
-                <select name="license">
-                    <option value="">— Unknown</option>
-                    <option value="public-domain">Public domain / CC0</option>
-                    <option value="cc-by">CC BY</option>
-                    <option value="cc-by-sa">CC BY-SA</option>
-                    <option value="restricted">Restricted / requires registration</option>
-                    <option value="private">Private data — do not redistribute</option>
-                    <option value="other">Other / unsure</option>
-                </select>
+                <div class="two-col">
+                    <div class="form-group">
+                        <label>License <span class="optional">optional</span></label>
+                        <select name="license">
+                            <option value="">-- Not sure</option>
+                            <option value="public-domain">Public domain / CC0</option>
+                            <option value="cc-by">CC BY</option>
+                            <option value="cc-by-sa">CC BY-SA</option>
+                            <option value="restricted">Restricted / requires registration</option>
+                            <option value="private">Private data -- do not redistribute</option>
+                            <option value="other">Other / unsure</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Metadata / Documentation URL <span class="optional">optional</span></label>
+                        <input type="url" name="metadata_url" placeholder="https://...">
+                        <p class="hint">Link to documentation, codebook, or technical metadata.</p>
+                    </div>
+                </div>
             </div>
-            <div class="form-group">
-                <label>Metadata / Data Dictionary URL <span class="optional">optional</span></label>
-                <input type="url" name="metadata_url" placeholder="https://…">
-                <p class="hint">Link to documentation describing the data fields, codebook, or technical metadata.</p>
-            </div>
-        </div>
+        </details>
 
         <div class="form-group">
-            <label>Additional Notes <span class="optional">optional</span></label>
+            <label>Anything else? <span class="optional">optional</span></label>
             <textarea name="notes"
-                      placeholder="Specific layers of interest, update frequency, related datasets, or anything else that would help us prioritize or process this request…"></textarea>
+                      placeholder="Additional context, related datasets you already use, preferred timeline, etc."></textarea>
         </div>
 
         <div class="form-group">
             <label>Contact Email <span class="optional">optional</span></label>
             <input type="email" name="email" placeholder="you@example.com">
-            <p class="hint">Used only to notify you when the dataset is added. Not shared publicly.</p>
+            <p class="hint">So we can follow up. Not shared publicly.</p>
         </div>
 
         <button type="submit" class="btn-submit" id="submit-btn">Submit Request</button>
@@ -388,12 +415,11 @@
         document.getElementById('url-list').innerHTML = urls.map((u, i) => `
             <div class="url-item">
                 <input type="text" value="${escHtml(u)}" readonly title="${escHtml(u)}">
-                <button type="button" class="btn-remove-url" onclick="removeUrl(${i})" title="Remove">✕</button>
+                <button type="button" class="btn-remove-url" onclick="removeUrl(${i})" title="Remove">&#10005;</button>
             </div>
         `).join('');
     }
 
-    // Allow pressing Enter in the URL field to add
     document.getElementById('url-input').addEventListener('keydown', e => {
         if (e.key === 'Enter') { e.preventDefault(); addUrl(); }
     });
@@ -403,17 +429,16 @@
         const btn = document.getElementById('submit-btn');
         const toast = document.getElementById('toast');
 
-        const name = e.target.name.value.trim();
-        const description = e.target.description.value.trim();
-        if (!name || !description) {
+        const question = e.target.question.value.trim();
+        if (!question) {
             toast.className = 'toast error';
-            toast.textContent = 'Please fill in the required fields (name and description).';
+            toast.textContent = 'Please describe what you are trying to learn.';
             toast.style.display = 'block';
             return;
         }
 
         btn.disabled = true;
-        btn.textContent = 'Submitting…';
+        btn.textContent = 'Submitting...';
         toast.style.display = 'none';
 
         const fd = new FormData(e.target);
@@ -429,14 +454,14 @@
             if (!res.ok) throw new Error(await res.text());
 
             toast.className = 'toast success';
-            toast.textContent = '✓ Request submitted — thank you! We\'ll review it and reach out if we have questions.';
+            toast.innerHTML = '&#10003; Request submitted &mdash; thank you! We\'ll review it and reach out if we have questions.';
             toast.style.display = 'block';
             e.target.reset();
             urls.length = 0;
             renderUrls();
         } catch (err) {
             toast.className = 'toast error';
-            toast.textContent = '✗ Submission failed. Please try again, or email us directly.';
+            toast.innerHTML = '&#10007; Submission failed. Please try again, or email us directly.';
             toast.style.display = 'block';
         }
 
