@@ -8,12 +8,26 @@ from typing import Optional
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 BUCKET = "public-requests"
 PREFIX = "dataset-requests/"
 ENDPOINT = "https://s3-west.nrp-nautilus.io"
+
+APPS = {
+    "tpl": {
+        "title": "TPL California Climate Hub",
+        "subtitle": (
+            "Help us improve the "
+            '<a href="https://tpl-ca.nrp-nautilus.io/" '
+            'style="color:#3a7a2a">TPL California Climate Hub</a>. '
+            "Share your feedback or tell us what data you need."
+        ),
+    },
+}
+
+TEMPLATE = (Path(__file__).parent / "index.html").read_text()
 
 app = FastAPI()
 
@@ -29,8 +43,9 @@ def s3_client():
 
 
 class DatasetRequest(BaseModel):
-    question: str
-    area_of_interest: Optional[str] = None
+    app: Optional[str] = None
+    feedback: Optional[str] = None
+    question: Optional[str] = None
     name: Optional[str] = None
     source_urls: list[str] = []
     format: Optional[str] = None
@@ -41,13 +56,43 @@ class DatasetRequest(BaseModel):
     email: Optional[str] = None
 
 
+def render(app_id: str = ""):
+    if app_id:
+        cfg = APPS.get(app_id)
+        if not cfg:
+            raise HTTPException(status_code=404, detail="Unknown app")
+        return TEMPLATE.format(
+            title=cfg["title"],
+            subtitle=cfg["subtitle"],
+            app_id=app_id,
+            show_feedback="block",
+            show_question="none",
+        )
+    return TEMPLATE.format(
+        title="Boettiger Lab Data Platform",
+        subtitle=(
+            "Have a research question that needs geospatial data? Tell us what "
+            "you need &mdash; whether or not you already have a specific dataset in mind."
+        ),
+        app_id="",
+        show_feedback="none",
+        show_question="block",
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
-async def form():
-    return (Path(__file__).parent / "index.html").read_text()
+async def form_root():
+    return render()
 
 
 @app.post("/submit")
 async def submit(request: DatasetRequest):
+    if not request.feedback and not request.question:
+        raise HTTPException(
+            status_code=422,
+            detail="Please fill in at least one of the feedback or data question fields.",
+        )
+
     record = request.model_dump()
     record["id"] = str(uuid.uuid4())
     record["submitted_at"] = datetime.now(timezone.utc).isoformat()
@@ -67,7 +112,7 @@ async def submit(request: DatasetRequest):
     return {"id": record["id"]}
 
 
-@app.get("/requests")
+@app.get("/api/requests")
 async def list_requests():
     s3 = s3_client()
     try:
@@ -84,6 +129,11 @@ async def list_requests():
     return items
 
 
-@app.get("/health")
+@app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/{app_id}", response_class=HTMLResponse)
+async def form_app(app_id: str):
+    return render(app_id)

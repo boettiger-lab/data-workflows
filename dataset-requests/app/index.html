@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Request Data</title>
+    <title>{title} &mdash; Feedback &amp; Data Requests</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
-        body {
+        body {{
             font-family: 'Open Sans', sans-serif;
             background: #eef2ee;
             min-height: 100vh;
@@ -18,9 +18,9 @@
             align-items: center;
             justify-content: center;
             padding: 32px 16px;
-        }
+        }}
 
-        .card {
+        .card {{
             background: rgba(255, 255, 255, 0.92);
             -webkit-backdrop-filter: blur(10px);
             backdrop-filter: blur(10px);
@@ -30,41 +30,50 @@
             max-width: 640px;
             width: 100%;
             padding: 36px 40px;
-        }
+        }}
 
-        .header { margin-bottom: 28px; }
+        .header {{ margin-bottom: 28px; }}
 
-        .wordmark {
+        .wordmark {{
             font-size: 11px;
             font-weight: 600;
             color: #86C274;
             text-transform: uppercase;
             letter-spacing: 0.1em;
             margin-bottom: 10px;
-        }
+        }}
 
-        h1 {
+        h1 {{
             font-size: 22px;
             font-weight: 600;
             color: #1a1a1a;
             margin-bottom: 8px;
-        }
+        }}
 
-        .subtitle {
+        .subtitle {{
             font-size: 13px;
             color: #666;
             line-height: 1.6;
-        }
+        }}
 
-        hr.divider {
+        .subtitle a {{
+            text-decoration: none;
+            font-weight: 600;
+        }}
+
+        .subtitle a:hover {{
+            text-decoration: underline;
+        }}
+
+        hr.divider {{
             border: none;
             border-top: 1px solid rgba(0, 0, 0, 0.08);
             margin: 22px 0;
-        }
+        }}
 
-        .form-group { margin-bottom: 18px; }
+        .form-group {{ margin-bottom: 18px; }}
 
-        label {
+        label {{
             display: block;
             font-size: 11px;
             font-weight: 600;
@@ -72,15 +81,15 @@
             text-transform: uppercase;
             letter-spacing: 0.05em;
             margin-bottom: 6px;
-        }
+        }}
 
-        .required { color: #86C274; }
+        .required {{ color: #86C274; }}
 
         input[type="text"],
         input[type="email"],
         input[type="url"],
         textarea,
-        select {
+        select {{
             width: 100%;
             padding: 9px 12px;
             font-family: 'Open Sans', sans-serif;
@@ -92,31 +101,31 @@
             transition: border-color 0.15s, box-shadow 0.15s;
             outline: none;
             appearance: none;
-        }
+        }}
 
-        input:focus, textarea:focus, select:focus {
+        input:focus, textarea:focus, select:focus {{
             border-color: #86C274;
             box-shadow: 0 0 0 3px rgba(134, 194, 116, 0.18);
-        }
+        }}
 
-        textarea { resize: vertical; min-height: 80px; }
+        textarea {{ resize: vertical; min-height: 80px; }}
 
-        select {
+        select {{
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23666' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 12px center;
             padding-right: 32px;
-        }
+        }}
 
-        .url-row {
+        .url-row {{
             display: flex;
             gap: 8px;
             align-items: center;
-        }
+        }}
 
-        .url-row input { flex: 1; }
+        .url-row input {{ flex: 1; }}
 
-        .btn-add-url {
+        .btn-add-url {{
             flex-shrink: 0;
             width: 34px;
             height: 34px;
@@ -131,26 +140,26 @@
             color: #3a7a2a;
             cursor: pointer;
             transition: background 0.15s;
-        }
+        }}
 
-        .btn-add-url:hover { background: rgba(134, 194, 116, 0.28); }
+        .btn-add-url:hover {{ background: rgba(134, 194, 116, 0.28); }}
 
-        .url-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+        .url-list {{ margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }}
 
-        .url-item {
+        .url-item {{
             display: flex;
             gap: 8px;
             align-items: center;
-        }
+        }}
 
-        .url-item input {
+        .url-item input {{
             flex: 1;
             background: rgba(134, 194, 116, 0.06);
             border-color: rgba(134, 194, 116, 0.3);
             color: #555;
-        }
+        }}
 
-        .btn-remove-url {
+        .btn-remove-url {{
             flex-shrink: 0;
             width: 28px;
             height: 28px;
@@ -164,62 +173,62 @@
             color: #b04040;
             cursor: pointer;
             transition: background 0.15s;
-        }
+        }}
 
-        .btn-remove-url:hover { background: rgba(200, 60, 60, 0.16); }
+        .btn-remove-url:hover {{ background: rgba(200, 60, 60, 0.16); }}
 
-        .optional {
+        .optional {{
             font-weight: 400;
             color: #aaa;
             text-transform: none;
             letter-spacing: 0;
             font-size: 10px;
-        }
+        }}
 
-        .two-col {
+        .two-col {{
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 16px;
-        }
+        }}
 
-        .hint {
+        .hint {{
             font-size: 11px;
             color: #999;
             margin-top: 5px;
             line-height: 1.4;
-        }
+        }}
 
-        details.dataset-details {
+        details.dataset-details {{
             margin-top: 4px;
             margin-bottom: 18px;
-        }
+        }}
 
-        details.dataset-details summary {
+        details.dataset-details summary {{
             font-size: 12px;
             font-weight: 600;
             color: #666;
             cursor: pointer;
             padding: 8px 0;
             list-style: none;
-        }
+        }}
 
-        details.dataset-details summary::-webkit-details-marker { display: none; }
+        details.dataset-details summary::-webkit-details-marker {{ display: none; }}
 
-        details.dataset-details summary::before {
+        details.dataset-details summary::before {{
             content: '+ ';
             color: #86C274;
             font-weight: 600;
-        }
+        }}
 
-        details.dataset-details[open] summary::before {
+        details.dataset-details[open] summary::before {{
             content: '- ';
-        }
+        }}
 
-        details.dataset-details .details-inner {
+        details.dataset-details .details-inner {{
             padding-top: 12px;
-        }
+        }}
 
-        .btn-submit {
+        .btn-submit {{
             width: 100%;
             padding: 11px;
             font-family: 'Open Sans', sans-serif;
@@ -232,22 +241,22 @@
             cursor: pointer;
             transition: background 0.15s, transform 0.1s;
             margin-top: 6px;
-        }
+        }}
 
-        .btn-submit:hover:not(:disabled) {
+        .btn-submit:hover:not(:disabled) {{
             background: rgba(134, 194, 116, 1);
-        }
+        }}
 
-        .btn-submit:active:not(:disabled) {
+        .btn-submit:active:not(:disabled) {{
             transform: translateY(1px);
-        }
+        }}
 
-        .btn-submit:disabled {
+        .btn-submit:disabled {{
             opacity: 0.55;
             cursor: not-allowed;
-        }
+        }}
 
-        .toast {
+        .toast {{
             display: none;
             padding: 12px 16px;
             border-radius: 6px;
@@ -255,55 +264,66 @@
             text-align: center;
             margin-top: 14px;
             line-height: 1.5;
-        }
+        }}
 
-        .toast.success {
+        .toast.success {{
             background: rgba(134, 194, 116, 0.18);
             border: 1px solid rgba(134, 194, 116, 0.6);
             color: #2a6a1a;
-        }
+        }}
 
-        .toast.error {
+        .toast.error {{
             background: rgba(200, 60, 60, 0.09);
             border: 1px solid rgba(200, 60, 60, 0.35);
             color: #8a2020;
-        }
+        }}
 
-        @media (max-width: 560px) {
-            .card { padding: 28px 20px; }
-            .two-col { grid-template-columns: 1fr; }
-        }
+        @media (max-width: 560px) {{
+            .card {{ padding: 28px 20px; }}
+            .two-col {{ grid-template-columns: 1fr; }}
+        }}
     </style>
 </head>
 <body>
 <div class="card">
     <div class="header">
         <div class="wordmark">Boettiger Lab &middot; Data Platform</div>
-        <h1>Request Data</h1>
-        <p class="subtitle">
-            Have a research question that needs geospatial data? Tell us what you're trying
-            to learn &mdash; whether or not you already have a specific dataset in mind.
-        </p>
+        <h1>Feedback &amp; Data Requests</h1>
+        <p class="subtitle">{subtitle}</p>
     </div>
 
     <form id="form" novalidate>
-        <div class="form-group">
-            <label>What question are you trying to answer? <span class="required">*</span></label>
-            <textarea name="question" required
-                      placeholder="e.g. Which census tracts in California have the highest wildfire risk and lowest tree canopy cover?"></textarea>
-            <p class="hint">Describe the problem you're working on. We can help identify the right data even if you're not sure what exists.</p>
+        <input type="hidden" name="app" value="{app_id}">
+
+        <!-- App feedback section (app-specific forms only) -->
+        <div id="feedback-section" style="display:{show_feedback}">
+            <div class="form-group">
+                <label>What do you think of the app? What's working well or what could be improved?</label>
+                <textarea name="feedback"
+                          placeholder="Any impressions, things you liked, frustrations, or suggestions..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>What questions do you wish the app could answer that it can't today?</label>
+                <textarea name="question"
+                          placeholder="e.g. I wanted to find which neighborhoods have the least tree canopy AND highest heat risk, but I couldn't combine those layers."></textarea>
+            </div>
+
+            <hr class="divider">
         </div>
 
-        <div class="form-group">
-            <label>Geographic Area of Interest <span class="optional">optional</span></label>
-            <input type="text" name="area_of_interest"
-                   placeholder="e.g. California, US Gulf Coast, Global tropics">
+        <!-- Standalone question (generic form only) -->
+        <div id="question-section" style="display:{show_question}">
+            <div class="form-group">
+                <label>What are you trying to learn? <span class="required">*</span></label>
+                <textarea id="standalone-question"
+                          placeholder="e.g. Which census tracts in California have the highest wildfire risk and lowest tree canopy cover?"></textarea>
+                <p class="hint">Describe the problem you're working on. We can help identify the right data even if you're not sure what exists.</p>
+            </div>
         </div>
-
-        <hr class="divider">
 
         <details class="dataset-details">
-            <summary>I already have a specific dataset in mind</summary>
+            <summary>I have a specific dataset in mind</summary>
             <div class="details-inner">
                 <div class="form-group">
                     <label>Dataset Name <span class="optional">optional</span></label>
@@ -318,7 +338,7 @@
                         <button type="button" class="btn-add-url" onclick="addUrl()" title="Add URL">+</button>
                     </div>
                     <div class="url-list" id="url-list"></div>
-                    <p class="hint">Link directly to downloadable files (.zip, .tif, .shp, .gpkg, etc.) or a data access page.</p>
+                    <p class="hint">Link directly to downloadable files or a data access page.</p>
                 </div>
 
                 <div class="two-col">
@@ -338,20 +358,6 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Geographic Scope <span class="optional">optional</span></label>
-                        <select name="scope">
-                            <option value="">-- Not sure</option>
-                            <option value="global">Global</option>
-                            <option value="national-us">National (US)</option>
-                            <option value="regional">State / Regional</option>
-                            <option value="local">Local / Site-scale</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="two-col">
-                    <div class="form-group">
                         <label>License <span class="optional">optional</span></label>
                         <select name="license">
                             <option value="">-- Not sure</option>
@@ -363,11 +369,12 @@
                             <option value="other">Other / unsure</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label>Metadata / Documentation URL <span class="optional">optional</span></label>
-                        <input type="url" name="metadata_url" placeholder="https://...">
-                        <p class="hint">Link to documentation, codebook, or technical metadata.</p>
-                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Metadata / Documentation URL <span class="optional">optional</span></label>
+                    <input type="url" name="metadata_url" placeholder="https://...">
+                    <p class="hint">Link to documentation, codebook, or technical metadata.</p>
                 </div>
             </div>
         </details>
@@ -375,7 +382,7 @@
         <div class="form-group">
             <label>Anything else? <span class="optional">optional</span></label>
             <textarea name="notes"
-                      placeholder="Additional context, related datasets you already use, preferred timeline, etc."></textarea>
+                      placeholder="Additional context, related datasets you already use, etc."></textarea>
         </div>
 
         <div class="form-group">
@@ -384,7 +391,7 @@
             <p class="hint">So we can follow up. Not shared publicly.</p>
         </div>
 
-        <button type="submit" class="btn-submit" id="submit-btn">Submit Request</button>
+        <button type="submit" class="btn-submit" id="submit-btn">Submit</button>
         <div class="toast" id="toast"></div>
     </form>
 </div>
@@ -392,11 +399,11 @@
 <script>
     const urls = [];
 
-    function escHtml(s) {
+    function escHtml(s) {{
         return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
+    }}
 
-    function addUrl() {
+    function addUrl() {{
         const input = document.getElementById('url-input');
         const val = input.value.trim();
         if (!val) return;
@@ -404,70 +411,80 @@
         renderUrls();
         input.value = '';
         input.focus();
-    }
+    }}
 
-    function removeUrl(i) {
+    function removeUrl(i) {{
         urls.splice(i, 1);
         renderUrls();
-    }
+    }}
 
-    function renderUrls() {
+    function renderUrls() {{
         document.getElementById('url-list').innerHTML = urls.map((u, i) => `
             <div class="url-item">
-                <input type="text" value="${escHtml(u)}" readonly title="${escHtml(u)}">
-                <button type="button" class="btn-remove-url" onclick="removeUrl(${i})" title="Remove">&#10005;</button>
+                <input type="text" value="${{escHtml(u)}}" readonly title="${{escHtml(u)}}">
+                <button type="button" class="btn-remove-url" onclick="removeUrl(${{i}})" title="Remove">&#10005;</button>
             </div>
         `).join('');
-    }
+    }}
 
-    document.getElementById('url-input').addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); addUrl(); }
-    });
+    document.getElementById('url-input').addEventListener('keydown', e => {{
+        if (e.key === 'Enter') {{ e.preventDefault(); addUrl(); }}
+    }});
 
-    document.getElementById('form').addEventListener('submit', async e => {
+    document.getElementById('form').addEventListener('submit', async e => {{
         e.preventDefault();
         const btn = document.getElementById('submit-btn');
         const toast = document.getElementById('toast');
-
-        const question = e.target.question.value.trim();
-        if (!question) {
-            toast.className = 'toast error';
-            toast.textContent = 'Please describe what you are trying to learn.';
-            toast.style.display = 'block';
-            return;
-        }
-
-        btn.disabled = true;
-        btn.textContent = 'Submitting...';
-        toast.style.display = 'none';
 
         const fd = new FormData(e.target);
         const data = Object.fromEntries(fd.entries());
         data.source_urls = [...urls];
 
-        try {
-            const res = await fetch('/submit', {
+        // The standalone question textarea is not a named form field —
+        // merge it into the question key so the backend sees it.
+        const sq = document.getElementById('standalone-question');
+        if (sq && sq.value.trim()) {{
+            data.question = sq.value.trim();
+        }}
+
+        const hasFeedback = (data.feedback || '').trim();
+        const hasQuestion = (data.question || '').trim();
+
+        if (!hasFeedback && !hasQuestion) {{
+            toast.className = 'toast error';
+            toast.textContent = 'Please fill in at least one of the text fields above.';
+            toast.style.display = 'block';
+            return;
+        }}
+
+        btn.disabled = true;
+        btn.textContent = 'Submitting...';
+        toast.style.display = 'none';
+
+        try {{
+            const res = await fetch('/submit', {{
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {{ 'Content-Type': 'application/json' }},
                 body: JSON.stringify(data),
-            });
+            }});
             if (!res.ok) throw new Error(await res.text());
 
             toast.className = 'toast success';
-            toast.innerHTML = '&#10003; Request submitted &mdash; thank you! We\'ll review it and reach out if we have questions.';
+            toast.innerHTML = '&#10003; Submitted &mdash; thank you! We\'ll review it and follow up if needed.';
             toast.style.display = 'block';
             e.target.reset();
+            if (sq) sq.value = '';
             urls.length = 0;
             renderUrls();
-        } catch (err) {
+        }} catch (err) {{
             toast.className = 'toast error';
             toast.innerHTML = '&#10007; Submission failed. Please try again, or email us directly.';
             toast.style.display = 'block';
-        }
+        }}
 
         btn.disabled = false;
-        btn.textContent = 'Submit Request';
-    });
+        btn.textContent = 'Submit';
+    }});
 </script>
 </body>
 </html>

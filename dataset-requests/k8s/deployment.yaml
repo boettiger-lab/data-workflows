@@ -72,7 +72,7 @@ spec:
               mountPath: /app
           livenessProbe:
             httpGet:
-              path: /health
+              path: /api/health
               port: 8080
             initialDelaySeconds: 15
             periodSeconds: 30
@@ -80,7 +80,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /health
+              path: /api/health
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -88,7 +88,7 @@ spec:
             failureThreshold: 3
           startupProbe:
             httpGet:
-              path: /health
+              path: /api/health
               port: 8080
             initialDelaySeconds: 0
             periodSeconds: 5
