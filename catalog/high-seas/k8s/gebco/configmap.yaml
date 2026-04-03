@@ -1,0 +1,268 @@
+# Auto-generated ConfigMap for raster workflow
+# Generation command: cng-datasets raster-workflow --dataset gebco-2025 --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w-180.0_e-90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w-90.0_e0.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w0.0_e90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w90.0_e180.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w-180.0_e-90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w-90.0_e0.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w0.0_e90.0.tif" --source-url "s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w90.0_e180.0.tif" --bucket public-high-seas --h3-resolution 8 --parent-resolutions "5,6,7,0"
+apiVersion: v1
+data:
+  gebco-2025-hex.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: gebco-2025-hex
+      labels:
+        k8s-app: gebco-2025-hex
+    spec:
+      completions: 122
+      parallelism: 61
+      completionMode: Indexed
+      backoffLimit: 0
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - type: DisruptionTarget
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: gebco-2025-hex
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: hex-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: GDAL_DATA
+              value: /usr/share/gdal
+            - name: PYTHONPATH
+              value: /usr/lib/python3/dist-packages
+            - name: BUCKET
+              value: public-high-seas
+            command:
+            - bash
+            - -c
+            - |-
+              set -e
+
+              # Locate PROJ database dynamically to avoid version mismatches
+              PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+              if [ -n "$PROJ_DB" ]; then
+                export PROJ_DATA="$(dirname $PROJ_DB)"
+                export PROJ_LIB="$PROJ_DATA"
+              fi
+
+              cng-datasets raster --input "s3://public-high-seas/gebco-2025-cog.tif" --output-parquet s3://public-high-seas/gebco-2025/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 5,6,7,0 --value-column elevation
+            resources:
+              requests:
+                cpu: '4'
+                memory: 32Gi
+                ephemeral-storage: 50Gi
+              limits:
+                cpu: '4'
+                memory: 32Gi
+                ephemeral-storage: 50Gi
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  gebco-2025-preprocess-cog.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: gebco-2025-preprocess-cog
+      labels:
+        k8s-app: gebco-2025-preprocess-cog
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            k8s-app: gebco-2025-preprocess-cog
+        spec:
+          restartPolicy: Never
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+          containers:
+          - name: preprocess-cog
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: GDAL_CACHEMAX
+              value: '4096'
+            - name: GDAL_HTTP_TIMEOUT
+              value: '60'
+            - name: GDAL_HTTP_MAX_RETRY
+              value: '5'
+            - name: CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE
+              value: 'YES'
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - "set -e\n\n# Locate PROJ database\nPROJ_DB=$(find /usr /opt -name \"proj.db\"\
+              \ 2>/dev/null | head -1)\nif [ -n \"$PROJ_DB\" ]; then\n  export PROJ_DATA=\"\
+              $(dirname $PROJ_DB)\"\n  export PROJ_LIB=\"$PROJ_DATA\"\nfi\n\necho \"Mosaicking\
+              \ 8 tiles \u2192 s3://public-high-seas/gebco-2025-cog.tif\"\n\ncng-datasets\
+              \ raster \\\n  --input \"s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w-180.0_e-90.0.tif\"\
+              \ \\\n  --input \"s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w-90.0_e0.0.tif\"\
+              \ \\\n  --input \"s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w0.0_e90.0.tif\"\
+              \ \\\n  --input \"s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n0.0_s-90.0_w90.0_e180.0.tif\"\
+              \ \\\n  --input \"s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w-180.0_e-90.0.tif\"\
+              \ \\\n  --input \"s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w-90.0_e0.0.tif\"\
+              \ \\\n  --input \"s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w0.0_e90.0.tif\"\
+              \ \\\n  --input \"s3://public-high-seas/raw/gebco-2025/gebco_2025_sub_ice_n90.0_s0.0_w90.0_e180.0.tif\"\
+              \ \\\n  --output-cog \"s3://public-high-seas/gebco-2025-cog.tif\" \\\n \
+              \ --target-crs EPSG:4326 \\\n  --resampling bilinear\n\necho \"\u2713 Preprocess\
+              \ COG complete: s3://public-high-seas/gebco-2025-cog.tif\"\n"
+            resources:
+              requests:
+                cpu: '8'
+                memory: 32Gi
+                ephemeral-storage: 50Gi
+              limits:
+                cpu: '8'
+                memory: 32Gi
+                ephemeral-storage: 50Gi
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  gebco-2025-setup-bucket.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: gebco-2025-setup-bucket
+      labels:
+        k8s-app: gebco-2025-setup-bucket
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: gebco-2025-setup-bucket
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: setup-bucket-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-high-seas
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              echo "Setting up bucket with public access and CORS..."
+              cng-datasets storage setup-bucket \
+                --bucket "${BUCKET}" \
+                --remote nrp \
+                --verify
+
+              echo "Bucket setup complete!"
+            resources:
+              requests:
+                cpu: '1'
+                memory: 2Gi
+              limits:
+                cpu: '1'
+                memory: 2Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+kind: ConfigMap
+metadata:
+  name: gebco-2025-yamls
+  namespace: biodiversity

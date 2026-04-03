@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dataset-requests-ingress
+  namespace: biodiversity
+  annotations:
+    haproxy-ingress.github.io/cors-enable: "true"
+    haproxy-ingress.github.io/cors-allow-origin: "*"
+    haproxy-ingress.github.io/cors-allow-methods: "GET, POST, OPTIONS"
+    haproxy-ingress.github.io/cors-allow-headers: "Content-Type,Accept"
+    haproxy-ingress.github.io/cors-max-age: "86400"
+    haproxy-ingress.github.io/timeout-server: "30s"
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - dataset-requests.nrp-nautilus.io
+  rules:
+    - host: dataset-requests.nrp-nautilus.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dataset-requests
+                port:
+                  number: 80

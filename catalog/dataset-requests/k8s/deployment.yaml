@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dataset-requests
+  namespace: biodiversity
+  labels:
+    app: dataset-requests
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: dataset-requests
+  template:
+    metadata:
+      labels:
+        app: dataset-requests
+    spec:
+      initContainers:
+        - name: git-sync
+          image: alpine/git:latest
+          command:
+            - sh
+            - -c
+            - |
+              git clone --depth 1 https://github.com/boettiger-lab/data-workflows.git /tmp/repo
+              cp -r /tmp/repo/catalog/dataset-requests/app/. /app/
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+      containers:
+        - name: dataset-requests
+          image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+          command:
+            - uvx
+            - --from=uvicorn[standard]
+            - --with=fastapi
+            - --with=boto3
+            - --with=pydantic
+            - uvicorn
+            - app:app
+            - --host=0.0.0.0
+            - --port=8080
+            - --workers=2
+          workingDir: /app
+          ports:
+            - containerPort: 8080
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: app-code
+          emptyDir: {}

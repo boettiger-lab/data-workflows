@@ -1,0 +1,114 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seafloor-geomorphology-fix-geom
+  labels:
+    k8s-app: seafloor-geomorphology-fix-geom
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: seafloor-geomorphology-fix-geom
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: fix-geom-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "Downloading parquet from S3..."
+          rclone copyto nrp:public-high-seas/seafloor-geomorphology.parquet \
+            /tmp/seafloor-geomorphology.parquet
+
+          echo "Renaming _ogr_geometry_ → geometry..."
+          python3 -c "
+          import pyarrow.parquet as pq
+          import pyarrow as pa
+
+          tbl = pq.read_table('/tmp/seafloor-geomorphology.parquet')
+          # Rename _ogr_geometry_ to geometry
+          idx = tbl.schema.get_field_index('_ogr_geometry_')
+          names = tbl.schema.names
+          names[idx] = 'geometry'
+          tbl = tbl.rename_columns(names)
+
+          # Update GeoParquet metadata
+          import json
+          meta = tbl.schema.metadata or {}
+          geo = json.loads(meta.get(b'geo', b'{}'))
+          if 'columns' in geo and '_ogr_geometry_' in geo['columns']:
+              geo['columns']['geometry'] = geo['columns'].pop('_ogr_geometry_')
+          if geo.get('primary_column') == '_ogr_geometry_':
+              geo['primary_column'] = 'geometry'
+          meta[b'geo'] = json.dumps(geo).encode()
+          tbl = tbl.replace_schema_metadata(meta)
+
+          pq.write_table(tbl, '/tmp/seafloor-geomorphology-fixed.parquet',
+                         compression='zstd', row_group_size=100000)
+          print('Done. Columns:', tbl.schema.names)
+          "
+
+          echo "Uploading fixed parquet..."
+          rclone copyto /tmp/seafloor-geomorphology-fixed.parquet \
+            nrp:public-high-seas/seafloor-geomorphology.parquet
+
+          echo "Verifying geometry column..."
+          python3 -c "
+          import pyarrow.parquet as pq
+          s = pq.read_schema('/tmp/seafloor-geomorphology-fixed.parquet')
+          print('Columns:', s.names)
+          "
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
