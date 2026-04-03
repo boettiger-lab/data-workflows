@@ -35,6 +35,8 @@ class DatasetRequest(BaseModel):
     format: Optional[str] = None
     scope: Optional[str] = None
     resolution: Optional[str] = None
+    license: Optional[str] = None
+    metadata_url: Optional[str] = None
     notes: Optional[str] = None
     email: Optional[str] = None
 

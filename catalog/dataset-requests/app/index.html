@@ -325,10 +325,32 @@
 
         <hr class="divider">
 
+        <div class="two-col">
+            <div class="form-group">
+                <label>License <span class="optional">optional</span></label>
+                <select name="license">
+                    <option value="">— Unknown</option>
+                    <option value="public-domain">Public domain / CC0</option>
+                    <option value="cc-by">CC BY</option>
+                    <option value="cc-by-sa">CC BY-SA</option>
+                    <option value="open-government">Open Government License</option>
+                    <option value="us-government">US Government Work (public domain)</option>
+                    <option value="restricted">Restricted / requires registration</option>
+                    <option value="private">Private data — do not redistribute</option>
+                    <option value="other">Other / unsure</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Metadata / Data Dictionary URL <span class="optional">optional</span></label>
+                <input type="url" name="metadata_url" placeholder="https://…">
+                <p class="hint">Link to documentation describing the data fields, codebook, or technical metadata.</p>
+            </div>
+        </div>
+
         <div class="form-group">
             <label>Additional Notes <span class="optional">optional</span></label>
             <textarea name="notes"
-                      placeholder="Licensing info, specific layers of interest, update frequency, related datasets, or anything else that would help us prioritize or process this request…"></textarea>
+                      placeholder="Specific layers of interest, update frequency, related datasets, or anything else that would help us prioritize or process this request…"></textarea>
         </div>
 
         <div class="form-group">
