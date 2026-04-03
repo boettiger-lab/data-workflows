@@ -17,11 +17,11 @@ ENDPOINT = "https://s3-west.nrp-nautilus.io"
 
 APPS = {
     "tpl": {
-        "title": "TPL California Climate Hub",
+        "title": "TPL California Explorer",
         "subtitle": (
             "Help us improve the "
             '<a href="https://tpl-ca.nrp-nautilus.io/" '
-            'style="color:#3a7a2a">TPL California Climate Hub</a>. '
+            'style="color:#3a7a2a">TPL California Explorer</a>. '
             "Share your feedback or tell us what data you need."
         ),
     },
