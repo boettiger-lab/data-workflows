@@ -204,20 +204,27 @@
         }}
 
         details.dataset-details summary {{
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 600;
-            color: #666;
+            color: #3a7a2a;
             cursor: pointer;
-            padding: 8px 0;
+            padding: 10px 14px;
             list-style: none;
+            background: rgba(134, 194, 116, 0.10);
+            border: 1px solid rgba(134, 194, 116, 0.35);
+            border-radius: 6px;
+            transition: background 0.15s;
+        }}
+
+        details.dataset-details summary:hover {{
+            background: rgba(134, 194, 116, 0.20);
         }}
 
         details.dataset-details summary::-webkit-details-marker {{ display: none; }}
 
         details.dataset-details summary::before {{
             content: '+ ';
-            color: #86C274;
-            font-weight: 600;
+            font-weight: 700;
         }}
 
         details.dataset-details[open] summary::before {{
@@ -309,7 +316,6 @@
                           placeholder="e.g. I wanted to find which neighborhoods have the least tree canopy AND highest heat risk, but I couldn't combine those layers."></textarea>
             </div>
 
-            <hr class="divider">
         </div>
 
         <!-- Standalone question (generic form only) -->
