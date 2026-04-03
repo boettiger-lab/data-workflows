@@ -28,7 +28,7 @@ spec:
             - -c
             - |
               git clone --depth 1 https://github.com/boettiger-lab/data-workflows.git /tmp/repo
-              cp -r /tmp/repo/catalog/dataset-requests/app/. /app/
+              cp -r /tmp/repo/dataset-requests/app/. /app/
           volumeMounts:
             - name: app-code
               mountPath: /app

@@ -29,12 +29,12 @@ def s3_client():
 
 
 class DatasetRequest(BaseModel):
-    name: str
-    description: str
+    question: str
+    area_of_interest: Optional[str] = None
+    name: Optional[str] = None
     source_urls: list[str] = []
     format: Optional[str] = None
     scope: Optional[str] = None
-    resolution: Optional[str] = None
     license: Optional[str] = None
     metadata_url: Optional[str] = None
     notes: Optional[str] = None
