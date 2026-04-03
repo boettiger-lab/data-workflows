@@ -168,6 +168,14 @@
 
         .btn-remove-url:hover { background: rgba(200, 60, 60, 0.16); }
 
+        .optional {
+            font-weight: 400;
+            color: #aaa;
+            text-transform: none;
+            letter-spacing: 0;
+            font-size: 10px;
+        }
+
         .two-col {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -231,7 +239,7 @@
             color: #8a2020;
         }
 
-        @media (max-width: 520px) {
+        @media (max-width: 560px) {
             .card { padding: 28px 20px; }
             .two-col { grid-template-columns: 1fr; }
         }
@@ -264,7 +272,7 @@
         <hr class="divider">
 
         <div class="form-group">
-            <label>Source URL(s)</label>
+            <label>Source URL(s) <span class="optional">optional</span></label>
             <div class="url-row">
                 <input type="url" id="url-input" placeholder="https://example.gov/data/file.zip">
                 <button type="button" class="btn-add-url" onclick="addUrl()" title="Add URL">+</button>
@@ -275,7 +283,7 @@
 
         <div class="two-col">
             <div class="form-group">
-                <label>File Format</label>
+                <label>File Format <span class="optional">optional</span></label>
                 <select name="format">
                     <option value="">— Unknown / Not sure</option>
                     <option value="geotiff">GeoTIFF / COG</option>
@@ -290,7 +298,7 @@
                 </select>
             </div>
             <div class="form-group">
-                <label>Geographic Scope</label>
+                <label>Geographic Scope <span class="optional">optional</span></label>
                 <select name="scope">
                     <option value="">— Unknown</option>
                     <option value="global">Global</option>
@@ -300,18 +308,31 @@
                     <option value="other">Other</option>
                 </select>
             </div>
+            <div class="form-group">
+                <label>Resolution Needed <span class="optional">optional</span></label>
+                <select name="resolution">
+                    <option value="">— Not sure</option>
+                    <option value="1m">~1 m (sub-meter to 1 m)</option>
+                    <option value="10m">~10 m (1–30 m)</option>
+                    <option value="100m">~100 m (30–300 m)</option>
+                    <option value="1km">~1 km (300 m–3 km)</option>
+                    <option value="10km">~10 km (3–30 km)</option>
+                    <option value="coarser">Coarser than 10 km</option>
+                </select>
+                <p class="hint">For rasters: finest pixel size needed. For vectors: smaller than the smallest feature to resolve.</p>
+            </div>
         </div>
 
         <hr class="divider">
 
         <div class="form-group">
-            <label>Additional Notes</label>
+            <label>Additional Notes <span class="optional">optional</span></label>
             <textarea name="notes"
                       placeholder="Licensing info, specific layers of interest, update frequency, related datasets, or anything else that would help us prioritize or process this request…"></textarea>
         </div>
 
         <div class="form-group">
-            <label>Contact Email <span style="font-weight:400;color:#aaa;text-transform:none;letter-spacing:0">(optional)</span></label>
+            <label>Contact Email <span class="optional">optional</span></label>
             <input type="email" name="email" placeholder="you@example.com">
             <p class="hint">Used only to notify you when the dataset is added. Not shared publicly.</p>
         </div>
