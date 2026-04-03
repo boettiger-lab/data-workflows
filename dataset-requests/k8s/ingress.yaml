@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: dataset-requests-ingress
+  name: data-requests-ingress
   namespace: biodiversity
   annotations:
     haproxy-ingress.github.io/cors-enable: "true"
@@ -14,9 +14,9 @@ spec:
   ingressClassName: haproxy
   tls:
     - hosts:
-        - dataset-requests.nrp-nautilus.io
+        - data-requests.nrp-nautilus.io
   rules:
-    - host: dataset-requests.nrp-nautilus.io
+    - host: data-requests.nrp-nautilus.io
       http:
         paths:
           - path: /
