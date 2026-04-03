@@ -34,6 +34,7 @@ class DatasetRequest(BaseModel):
     source_urls: list[str] = []
     format: Optional[str] = None
     scope: Optional[str] = None
+    resolution: Optional[str] = None
     notes: Optional[str] = None
     email: Optional[str] = None
 
