@@ -24,6 +24,26 @@ APPS = {
             'style="color:#3a7a2a">TPL California Explorer</a>. '
             "Share your feedback or tell us what data you need."
         ),
+        "intro": (
+            "The TPL California Explorer is an interactive mapping tool built by the "
+            "Boettiger Lab at UC Berkeley in partnership with Trust for Public Land. "
+            "It brings together environmental, demographic, and land-use data layers "
+            "to help TPL teams identify and prioritize conservation opportunities "
+            "across California. This form is how you can share feedback with the data "
+            "team &mdash; whether that&rsquo;s a reaction to something in the tool, a "
+            "question you wish it could answer, or a dataset you think should be added. "
+            "All responses go directly to the team and will be used to guide improvements."
+        ),
+        "feedback_hint": (
+            "You don\u2019t need to be a GIS expert to answer this &mdash; plain language "
+            "is great. What did you find useful? What was confusing or missing? "
+            "Even a one-sentence impression helps."
+        ),
+        "question_hint": (
+            "Think about a decision or analysis you were trying to do. "
+            "What information would have made it easier? You can describe it "
+            "in everyday terms &mdash; no need to know the technical dataset names."
+        ),
     },
 }
 
@@ -61,12 +81,21 @@ def render(app_id: str = ""):
         cfg = APPS.get(app_id)
         if not cfg:
             raise HTTPException(status_code=404, detail="Unknown app")
+        intro = cfg.get("intro", "")
+        intro_block = f'<p class="intro-para">{intro}</p>' if intro else ""
+        feedback_hint = cfg.get("feedback_hint", "")
+        feedback_hint_block = f'<p class="hint">{feedback_hint}</p>' if feedback_hint else ""
+        question_hint = cfg.get("question_hint", "")
+        question_hint_block = f'<p class="hint">{question_hint}</p>' if question_hint else ""
         return TEMPLATE.format(
             title=cfg["title"],
             subtitle=cfg["subtitle"],
+            intro_block=intro_block,
             app_id=app_id,
             show_feedback="block",
             show_question="none",
+            feedback_hint_block=feedback_hint_block,
+            question_hint_block=question_hint_block,
         )
     return TEMPLATE.format(
         title="Boettiger Lab Data Platform",
@@ -74,9 +103,12 @@ def render(app_id: str = ""):
             "Have a research question that needs geospatial data? Tell us what "
             "you need &mdash; whether or not you already have a specific dataset in mind."
         ),
+        intro_block="",
         app_id="",
         show_feedback="none",
         show_question="block",
+        feedback_hint_block="",
+        question_hint_block="",
     )
 
 
