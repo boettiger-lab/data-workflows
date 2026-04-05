@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ghs-pop-2020-download
+  labels:
+    k8s-app: ghs-pop-2020-download
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ghs-pop-2020-download
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: download-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          URL="https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/GHSL/GHS_POP_GLOBE_R2023A/GHS_POP_E2020_GLOBE_R2023A_4326_3ss/V1-0/GHS_POP_E2020_GLOBE_R2023A_4326_3ss_V1_0.zip"
+          echo "Downloading GHS-POP 2020 WGS84 3 arc-second (~12.5 GB)..."
+          curl -L --retry 5 -o /tmp/ghs-pop-2020.zip "$URL"
+          echo "Unzipping..."
+          unzip -q -o /tmp/ghs-pop-2020.zip -d /tmp/ghs-pop/ GHS_POP_E2020_GLOBE_R2023A_4326_3ss_V1_0.tif
+          echo "Uploading GeoTIFF to S3 raw..."
+          rclone copyto /tmp/ghs-pop/GHS_POP_E2020_GLOBE_R2023A_4326_3ss_V1_0.tif \
+            nrp:public-high-seas/raw/GHS_POP_E2020_GLOBE_R2023A_4326_3ss_V1_0.tif
+          echo "Done."
+        resources:
+          requests:
+            cpu: '4'
+            memory: 8Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 8Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
