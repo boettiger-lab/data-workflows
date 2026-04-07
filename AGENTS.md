@@ -80,7 +80,7 @@ You are taking source geospatial data and producing cloud-native outputs. The ou
 
 Rasters do **not** produce GeoParquet or PMTiles, but they **do** produce both a COG and H3 hex parquet. The workflow always creates the COG first (reprojecting to WGS84 if needed), then hexes from the NRP S3 COG. The hex step reads from the COG on NRP S3, not from the original source URL.
 
-**H3 hex is supported for polygon and point geometries; line geometries are not supported.** Always check geometry type before submitting a hex job:
+**H3 hex is supported for polygon, point, and line geometries.** Always check geometry type before submitting a hex job:
 ```python
 # Quick check (run locally with spatial extension)
 SELECT ST_GeometryType(geom), COUNT(*) FROM read_parquet('s3://...') GROUP BY 1
@@ -88,7 +88,7 @@ SELECT ST_GeometryType(geom), COUNT(*) FROM read_parquet('s3://...') GROUP BY 1
 
 **Point geometry note:** Point and MultiPoint datasets are supported — each point resolves to a single H3 cell at the requested resolution. This means point data loses no spatial precision at fine resolutions (e.g., 10), but at coarse resolutions (e.g., 6–8) many points may map to the same cell. A warning is emitted during hex processing when point geometries are detected. Document this behavior in the STAC metadata (see STAC documentation guidance below).
 
-**Line geometry:** Line (LineString/MultiLineString) datasets **cannot be hexed** — skip the hex step for line datasets and note the limitation.
+**Line geometry:** LineString and MultiLineString datasets are supported as of `cng-datasets` PR #69. Each line is buffered by the H3 circumradius at the target resolution before polyfill, ensuring no gaps in coverage along the line. Default resolution for line datasets is **8** (auto-detected by the CLI). Document the buffer-based approach in STAC metadata: *"Line features were hexed to H3 resolution 8 by buffering each segment by the H3 cell circumradius before polyfill."*
 
 
 **ALWAYS use the k8s workflow for data processing. The local environment does not have all required tools and permissions.**
@@ -444,7 +444,7 @@ This has a counterintuitive implication: **a global dataset of 10,000 small, sim
 | Counties, districts | 8–10 | Mostly manageable at 10; watch for outliers |
 | Census tracts, parcels | 10 | Small features, fine resolution appropriate |
 | Points | 10 | Each point → single H3 cell; coarser resolutions aggregate nearby points |
-| Lines | N/A | Hex not supported for line geometries |
+| Lines | 8 | Buffered by H3 circumradius before polyfill; default resolution 8 (auto-detected) |
 
 #### Vector workflow parameters
 
@@ -789,3 +789,26 @@ cng-datasets raster \
 ```
 
 This creates 122 indexed pods (one per h0 cell), each writing `hex/h0={cell}/data_0.parquet`. Cells with no raster data are skipped silently. There is no repartition step — output goes directly to its final partition.
+
+## Checking for User Dataset Requests
+
+A public-facing request form lives at **https://data-requests.nrp-nautilus.io/**. Each app gets its own route (e.g. `/tpl` for the TPL California Explorer). Submissions are stored as JSON in `s3://public-requests/dataset-requests/`.
+
+**Check for new requests before starting a work session:**
+
+```bash
+# Via the API (returns JSON array of all submissions)
+curl -s https://data-requests.nrp-nautilus.io/api/requests | python3 -m json.tool
+
+# Or directly from S3
+rclone ls nrp:public-requests/dataset-requests/
+```
+
+Each submission is a JSON object with fields: `app` (which form it came from, e.g. `"tpl"`), `timestamp`, and user-provided fields (dataset name, description, contact, etc.).
+
+**Triage process:**
+1. Review new requests and decide whether the dataset is in scope
+2. If yes, file a GitHub issue in `boettiger-lab/data-workflows` using the standard dataset import template (source URL, deliverables, bucket)
+3. If the request came from a specific app form (e.g. `"app": "tpl"`), tag the issue accordingly
+
+The form deployment lives in `dataset-requests/` in this repo. See `dataset-requests/README.md` for how to add new app routes or redeploy.

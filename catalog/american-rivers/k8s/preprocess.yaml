@@ -1,0 +1,182 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: american-rivers-preprocess
+  namespace: biodiversity
+  labels:
+    k8s-app: american-rivers-preprocess
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: american-rivers-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "16Gi"
+            cpu: "4"
+          limits:
+            memory: "16Gi"
+            cpu: "4"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-rivers"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+
+          # ── Dam Removal Database (CSV → points) ──────────────────────────────
+          echo "=== Dam Removal Database ==="
+          curl -sL --retry 5 -o /tmp/dam-removal.csv \
+            "https://ndownloader.figshare.com/files/62712199"
+          rclone copyto /tmp/dam-removal.csv nrp:public-rivers/american-rivers/raw/dam-removal.csv
+
+          python3 - <<'PYEOF'
+          import duckdb
+          conn = duckdb.connect()
+          conn.execute("INSTALL spatial; LOAD spatial;")
+          conn.execute("""
+            COPY (
+              SELECT
+                * EXCLUDE (Latitude, Longitude),
+                ST_Point(CAST(Longitude AS DOUBLE), CAST(Latitude AS DOUBLE)) AS geom
+              FROM read_csv('/tmp/dam-removal.csv',
+                nullstr=['', 'NA'],
+                types={'Latitude': 'VARCHAR', 'Longitude': 'VARCHAR'})
+              WHERE Latitude IS NOT NULL AND Longitude IS NOT NULL
+                AND TRY_CAST(Latitude AS DOUBLE) IS NOT NULL
+                AND TRY_CAST(Longitude AS DOUBLE) IS NOT NULL
+            )
+            TO '/tmp/dam-removal.parquet'
+            (FORMAT PARQUET, COMPRESSION ZSTD, COMPRESSION_LEVEL 15)
+          """)
+          print(f"Dam removal rows: {conn.execute('SELECT COUNT(*) FROM read_parquet(\'/tmp/dam-removal.parquet\')').fetchone()[0]}")
+          PYEOF
+          rclone copyto /tmp/dam-removal.parquet nrp:public-rivers/american-rivers/dam-removal.parquet
+          echo "✓ Dam removal done"
+
+          # ── NRI 2016 (LineString) ─────────────────────────────────────────────
+          echo "=== NRI 2016 ==="
+          ogr2ogr -f GPKG /tmp/nri-2016.gpkg \
+            "ESRIJSON:https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/NRV_web/FeatureServer/0/query?where=1=1&outFields=*&returnGeometry=true&f=json" \
+            -nln nri_2016 -progress
+          rclone copyto /tmp/nri-2016.gpkg nrp:public-rivers/american-rivers/raw/nri-2016.gpkg
+          cng-convert-to-parquet /tmp/nri-2016.gpkg \
+            s3://public-rivers/american-rivers/nri-2016.parquet \
+            --compression ZSTD --compression-level 15
+          echo "✓ NRI 2016 done"
+
+          # ── NRI 2024 (LineString) ─────────────────────────────────────────────
+          echo "=== NRI 2024 ==="
+          ogr2ogr -f GPKG /tmp/nri-2024.gpkg \
+            "ESRIJSON:https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/HYDRO_NationwideRive_Project/FeatureServer/0/query?where=1=1&outFields=*&returnGeometry=true&f=json" \
+            -nln nri_2024 -progress
+          rclone copyto /tmp/nri-2024.gpkg nrp:public-rivers/american-rivers/raw/nri-2024.gpkg
+          cng-convert-to-parquet /tmp/nri-2024.gpkg \
+            s3://public-rivers/american-rivers/nri-2024.parquet \
+            --compression ZSTD --compression-level 15
+          echo "✓ NRI 2024 done"
+
+          # ── River Protection Campaigns (LineString) ───────────────────────────
+          echo "=== River Protection Campaigns ==="
+          ogr2ogr -f GPKG /tmp/campaigns.gpkg \
+            "ESRIJSON:https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/River_Protection_Map_WFL1/FeatureServer/0/query?where=1=1&outFields=*&returnGeometry=true&f=json" \
+            -nln campaigns -progress
+          rclone copyto /tmp/campaigns.gpkg nrp:public-rivers/american-rivers/raw/campaigns.gpkg
+          cng-convert-to-parquet /tmp/campaigns.gpkg \
+            s3://public-rivers/american-rivers/campaigns.parquet \
+            --compression ZSTD --compression-level 15
+          echo "✓ Campaigns done"
+
+          # ── Wild & Scenic Eligible (LineString) ───────────────────────────────
+          echo "=== Wild & Scenic Eligible ==="
+          ogr2ogr -f GPKG /tmp/wild-scenic-eligible.gpkg \
+            "ESRIJSON:https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/River_Protection_Map_WFL1/FeatureServer/1/query?where=1=1&outFields=*&returnGeometry=true&f=json" \
+            -nln wild_scenic_eligible -progress
+          rclone copyto /tmp/wild-scenic-eligible.gpkg nrp:public-rivers/american-rivers/raw/wild-scenic-eligible.gpkg
+          cng-convert-to-parquet /tmp/wild-scenic-eligible.gpkg \
+            s3://public-rivers/american-rivers/wild-scenic-eligible.parquet \
+            --compression ZSTD --compression-level 15
+          echo "✓ Wild & Scenic Eligible done"
+
+          # ── Wild & Scenic Designated (LineString) ─────────────────────────────
+          echo "=== Wild & Scenic Designated ==="
+          ogr2ogr -f GPKG /tmp/wild-scenic-designated.gpkg \
+            "ESRIJSON:https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/River_Protection_Map_WFL1/FeatureServer/2/query?where=1=1&outFields=*&returnGeometry=true&f=json" \
+            -nln wild_scenic_designated -progress
+          rclone copyto /tmp/wild-scenic-designated.gpkg nrp:public-rivers/american-rivers/raw/wild-scenic-designated.gpkg
+          cng-convert-to-parquet /tmp/wild-scenic-designated.gpkg \
+            s3://public-rivers/american-rivers/wild-scenic-designated.parquet \
+            --compression ZSTD --compression-level 15
+          echo "✓ Wild & Scenic Designated done"
+
+          # ── IRA Drinking Water Watersheds (Polygon) ───────────────────────────
+          echo "=== IRA Drinking Water Watersheds ==="
+          ogr2ogr -f GPKG /tmp/ira-watersheds.gpkg \
+            "ESRIJSON:https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/IRA_influenced_drinking_water/FeatureServer/0/query?where=1=1&outFields=*&returnGeometry=true&f=json" \
+            -nln ira_watersheds -progress
+          rclone copyto /tmp/ira-watersheds.gpkg nrp:public-rivers/american-rivers/raw/ira-watersheds.gpkg
+          cng-convert-to-parquet /tmp/ira-watersheds.gpkg \
+            s3://public-rivers/american-rivers/ira-watersheds.parquet \
+            --compression ZSTD --compression-level 15
+          echo "✓ IRA watersheds done"
+
+          # ── ROO/CJEST Tracts (Polygon) ────────────────────────────────────────
+          echo "=== ROO/CJEST Tracts ==="
+          ogr2ogr -f GPKG /tmp/roo-cjest.gpkg \
+            "ESRIJSON:https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/ROO_CJEST_rev/FeatureServer/0/query?where=1=1&outFields=*&returnGeometry=true&f=json" \
+            -nln roo_cjest -progress
+          rclone copyto /tmp/roo-cjest.gpkg nrp:public-rivers/american-rivers/raw/roo-cjest.gpkg
+          cng-convert-to-parquet /tmp/roo-cjest.gpkg \
+            s3://public-rivers/american-rivers/roo-cjest.parquet \
+            --compression ZSTD --compression-level 15
+          echo "✓ ROO/CJEST done"
+
+          echo "=== All preprocessing complete ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

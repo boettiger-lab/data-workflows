@@ -45,6 +45,37 @@ APPS = {
             "in everyday terms &mdash; no need to know the technical dataset names."
         ),
     },
+    "cacao": {
+        "title": "CACAO Explorer",
+        "subtitle": (
+            "Help shape the "
+            '<a href="https://cacao-demo.nrp-nautilus.io/" '
+            'style="color:#3a7a2a">CACAO Explorer</a>. '
+            "Share your feedback or suggest data you need."
+        ),
+        "intro": (
+            "The CACAO Explorer is an interactive mapping platform developed by the "
+            "Schmidt Center for Data Science and the Environment (DSE) at UC Berkeley "
+            "with global partners. It brings together geospatial, ecological, and "
+            "agricultural data layers to help researchers, certifiers, and stakeholders "
+            "explore and quantify the nature-positive contributions of certified "
+            "agriculture. This form is how you can share feedback with the data "
+            "team &mdash; whether that&rsquo;s a reaction to something in the tool, a "
+            "question you wish it could answer, or a dataset you think should be added. "
+            "All responses go directly to the team and will be used to guide improvements."
+        ),
+        "feedback_hint": (
+            "You don\u2019t need to be a GIS expert to answer this &mdash; plain language "
+            "is great. What did you find useful? What was confusing or missing? "
+            "Even a one-sentence impression helps."
+        ),
+        "question_hint": (
+            "Think about an analysis or decision related to certified agriculture "
+            "and its environmental impact. What data would have made it easier? "
+            "You can describe it in everyday terms &mdash; no need to know the "
+            "technical dataset names."
+        ),
+    },
 }
 
 TEMPLATE = (Path(__file__).parent / "index.html").read_text()
