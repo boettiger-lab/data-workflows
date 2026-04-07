@@ -1,0 +1,112 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: om-2026-derive-countries-hex
+  namespace: biodiversity
+  labels:
+    k8s-app: om-2026-derive-countries-hex
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: om-2026-derive-countries-hex
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: derive-countries-hex
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 20Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          echo "=== Deriving countries/hex from regions/hex ==="
+
+          python3 - <<'PYEOF'
+          import duckdb, os
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("SET threads=4")
+          con.execute("SET memory_limit='28GB'")
+
+          endpoint = os.environ.get("AWS_S3_ENDPOINT", "rook-ceph-rgw-nautiluss3.rook")
+          key = os.environ["AWS_ACCESS_KEY_ID"]
+          secret = os.environ["AWS_SECRET_ACCESS_KEY"]
+
+          con.execute(f"""
+              CREATE SECRET s3_secret (
+                  TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                  ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false
+              )
+          """)
+
+          print("Deriving countries/hex from regions/hex via SELECT DISTINCT...")
+          con.execute("""
+              COPY (
+                  SELECT DISTINCT h8, h0, country
+                  FROM read_parquet('s3://public-overturemaps/2026-02-18.0/regions/hex/h0=*/data_0.parquet')
+                  WHERE country IS NOT NULL
+              )
+              TO 's3://public-overturemaps/2026-02-18.0/countries/hex/'
+              (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (h0), OVERWRITE_OR_IGNORE true)
+          """)
+          print("Done.")
+          PYEOF
+
+          echo "Verifying output..."
+          N=$(rclone ls nrp:public-overturemaps/2026-02-18.0/countries/hex/ | wc -l)
+          echo "countries/hex/ has ${N} partition files"
+          if [ "$N" -lt 1 ]; then echo "ERROR: no output files found"; exit 1; fi
+
+          echo "=== Complete: countries/hex derived successfully ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
