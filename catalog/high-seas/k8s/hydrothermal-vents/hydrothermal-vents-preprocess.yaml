@@ -1,0 +1,115 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hydrothermal-vents-preprocess
+  labels:
+    k8s-app: hydrothermal-vents-preprocess
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: hydrothermal-vents-preprocess
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: preprocess-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+
+          # Download CSV from PANGAEA
+          curl -L --retry 5 -o /tmp/vents.csv \
+            "https://hs.pangaea.de/Maps/Vents/InterRidge_Beaulieu_2020/vent_fields_all_20200325cleansorted.csv"
+
+          echo "Downloaded $(wc -l < /tmp/vents.csv) lines"
+
+          # Upload raw CSV to S3
+          rclone copyto /tmp/vents.csv nrp:public-high-seas/raw/interridge-vents-v3.4.csv
+
+          # Convert CSV to GeoParquet with DuckDB
+          python3 -c "
+          import duckdb
+          conn = duckdb.connect()
+          conn.execute('INSTALL spatial; LOAD spatial;')
+          conn.execute(\"\"\"
+            COPY (
+              SELECT
+                row_number() OVER () - 1 AS _fid,
+                \\\"Name.ID\\\" AS name,
+                \\\"Name.Alias.es.\\\" AS name_alias,
+                Activity AS activity,
+                \\\"Maximum.Temperature\\\" AS max_temperature_c,
+                \\\"Max.Temperature.Category\\\" AS max_temperature_category,
+                Ocean AS ocean,
+                Region AS region,
+                \\\"National.Jurisdiction\\\" AS national_jurisdiction,
+                \\\"Maximum.or.Single.Reported.Depth\\\" AS max_depth_m,
+                \\\"Minimum.Depth\\\" AS min_depth_m,
+                \\\"Tectonic.setting\\\" AS tectonic_setting,
+                \\\"Full.Spreading.Rate..mm.a.\\\" AS spreading_rate_mm_a,
+                ST_Point(Longitude, Latitude) AS geom
+              FROM read_csv('/tmp/vents.csv', auto_detect=true)
+              WHERE Latitude IS NOT NULL AND Longitude IS NOT NULL
+            ) TO '/tmp/hydrothermal-vents.parquet'
+            (FORMAT PARQUET, COMPRESSION ZSTD)
+          \"\"\")
+          n = conn.execute('SELECT COUNT(*) FROM read_parquet(\\\"/tmp/hydrothermal-vents.parquet\\\")').fetchone()[0]
+          print(f'Created GeoParquet with {n} features')
+          "
+
+          # Upload GeoParquet to S3
+          rclone copyto /tmp/hydrothermal-vents.parquet nrp:public-high-seas/hydrothermal-vents.parquet
+
+          echo "Preprocessing complete"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
