@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: sync-public-hydrobasins
+  name: sync-public-high-seas
   namespace: biodiversity
 spec:
   backoffLimit: 1
@@ -38,10 +38,10 @@ spec:
             - |
               set -euo pipefail
               RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 120s -v"
-              rclone mkdir "minio:public-hydrobasins"
-              echo "Syncing: nrp:public-hydrobasins -> minio:public-hydrobasins"
-              rclone sync $RCLONE_FLAGS "nrp:public-hydrobasins" "minio:public-hydrobasins"
-              echo "Done: public-hydrobasins"
+              rclone mkdir "minio:public-high-seas"
+              echo "Syncing: nrp:public-high-seas -> minio:public-high-seas"
+              rclone sync $RCLONE_FLAGS "nrp:public-high-seas" "minio:public-high-seas"
+              echo "Done: public-high-seas"
       volumes:
         - name: rclone-config
           secret:
