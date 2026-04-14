@@ -38,6 +38,7 @@ spec:
             - |
               set -euo pipefail
               RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 120s -v"
+              rclone mkdir "minio:public-datacenters"
               echo "Syncing: nrp:public-datacenters -> minio:public-datacenters"
               rclone sync $RCLONE_FLAGS "nrp:public-datacenters" "minio:public-datacenters"
               echo "Done: public-datacenters"

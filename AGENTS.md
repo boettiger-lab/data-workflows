@@ -408,6 +408,41 @@ rclone copyto /tmp/catalog.json nrp:public-data/stac/catalog.json
 
 The child link should point to your dataset's `stac-collection.json` URL.
 
+### Step 7: Add a MinIO Sync Job
+
+All NRP S3 buckets are mirrored to a MinIO backup server via per-bucket k8s Jobs in `catalog/sync/k8s/`. After adding a new dataset to a **new bucket**, create a sync job for it:
+
+```bash
+# Use any existing sync job as a template
+cp catalog/sync/k8s/sync-public-padus.yaml catalog/sync/k8s/sync-<bucket>.yaml
+# Edit: replace "public-padus" with your bucket name in job name, mkdir, sync source/dest, and echo lines
+```
+
+Each sync job:
+1. Creates the destination bucket on MinIO if it doesn't exist (`rclone mkdir`)
+2. Syncs all objects from NRP to MinIO (`rclone sync` with throttling)
+
+**If your dataset uses an existing bucket** (e.g., adding a new census layer to `public-census`), the sync job already exists — no action needed.
+
+**Run sync jobs:**
+```bash
+# All buckets
+kubectl apply -f catalog/sync/k8s/
+
+# Single bucket
+kubectl apply -f catalog/sync/k8s/sync-<bucket>.yaml
+
+# Rerun a failed sync
+kubectl delete job sync-<bucket> -n biodiversity
+kubectl apply -f catalog/sync/k8s/sync-<bucket>.yaml
+```
+
+**Monitor:**
+```bash
+kubectl get jobs | grep sync
+kubectl logs job/sync-<bucket>
+```
+
 ## Common Parameters
 
 ### Memory and Chunking Mental Model

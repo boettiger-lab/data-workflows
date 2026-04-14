@@ -84,11 +84,29 @@ Key commands:
 | `kubectl get jobs` | Monitors job status | Your laptop |
 | Everything else | Processing, S3 uploads, etc. | Kubernetes pods |
 
+## MinIO Backup Sync
+
+All NRP S3 buckets are mirrored to a MinIO backup server. Per-bucket sync jobs live in `catalog/sync/k8s/`:
+
+```bash
+# Sync all buckets
+kubectl apply -f catalog/sync/k8s/
+
+# Sync a single bucket
+kubectl apply -f catalog/sync/k8s/sync-public-census.yaml
+
+# Monitor
+kubectl get jobs | grep sync
+```
+
+Each job auto-creates the destination bucket on MinIO if needed, then runs `rclone sync` with bandwidth throttling. When adding a new NRP bucket, add a corresponding sync job (see [AGENTS.md](AGENTS.md) Step 7).
+
 ## Infrastructure
 
 - **Cluster:** NRP Nautilus, namespace `biodiversity`
 - **S3:** Ceph object storage (S3-compatible, not AWS)
 - **Public endpoint:** `https://s3-west.nrp-nautilus.io/<bucket>/<path>`
+- **MinIO backup:** `minio.carlboettiger.info` (synced via `catalog/sync/k8s/` jobs)
 - **Secrets:** `aws` and `rclone-config` are pre-configured in the namespace
 
 See [.github/copilot-instructions.md](.github/copilot-instructions.md) for detailed infrastructure context.

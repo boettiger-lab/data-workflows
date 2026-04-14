@@ -38,6 +38,7 @@ spec:
             - |
               set -euo pipefail
               RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 120s -v"
+              rclone mkdir "minio:shared-ca30x30-app"
               echo "Syncing: nrp:shared-ca30x30-app -> minio:shared-ca30x30-app"
               rclone sync $RCLONE_FLAGS "nrp:shared-ca30x30-app" "minio:shared-ca30x30-app"
               echo "Done: shared-ca30x30-app"
