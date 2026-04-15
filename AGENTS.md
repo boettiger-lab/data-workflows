@@ -1,160 +1,89 @@
 # Agent Instructions: Dataset Processing
 
-You are working in a repository that uses `cng-datasets` to process geospatial data into cloud-native formats on a Kubernetes cluster. This document tells you everything you need to know.
+You work in `data-workflows`, which uses `cng-datasets` to convert geospatial data into cloud-native formats on Kubernetes. This file tells you everything you need.
 
-## ⛔ HARD BOUNDARY: NRP S3 is the Canonical Source for STAC and Data
+## ⛔ HARD BOUNDARY 1: NRP S3 is Canonical for STAC and Data
 
-**The canonical versions of all datasets and STAC metadata live on NRP S3 buckets** (e.g. `s3://public-census/`, `s3://public-wetlands/`). The public URLs are `https://s3-west.nrp-nautilus.io/<bucket>/...`.
+Canonical STAC/data live on NRP S3 (`s3://public-<bucket>/`, public URL `https://s3-west.nrp-nautilus.io/<bucket>/...`). **This repo does NOT contain STAC JSON or README files.** Never create `catalog/*/stac/`, never `git add` STAC JSON or README.
 
-**This git repo does NOT contain copies of STAC JSON or README files.** The `catalog/*/stac/` directory must never be created. When you need to read, update, or create STAC metadata:
+- Read: `curl https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json`
+- Write: edit in `/tmp/`, then `rclone copyto /tmp/... nrp:<bucket>/...`
 
-- **Read**: `curl https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json`
-- **Write**: edit in `/tmp/`, then `rclone copyto /tmp/stac-collection.json nrp:<bucket>/stac-collection.json`
+## ⛔ HARD BOUNDARY 2: Do NOT Touch the `cng-datasets` Tool Repo
 
-Never create `catalog/<anything>/stac/`. Never `git add` any STAC JSON or README file. Never read a local stac file as canonical — it does not exist and would be stale if it did.
+Work only in `data-workflows`. Do not edit/commit/push/PR to `boettiger-lab/datasets` or any other repo. If `cng-datasets` has a bug: file a GitHub issue on `boettiger-lab/datasets` with a minimal reproducible example (see below), tell the user, and wait. Prior hotfixes have caused production failures — the tool has tests and a deploy pipeline, and unreviewed hotfixes bypass them.
 
-## ⛔ HARD BOUNDARY: Do NOT Touch the `cng-datasets` Tool Repo
+### Bug reports must include a tested MRE
 
-**You work exclusively in this repository (`data-workflows`). You do NOT:**
-- Edit, commit, push, or PR to `boettiger-lab/datasets` (the `cng-datasets` tool)
-- Check out, modify, or hotfix code in any other repository
-- Attempt workarounds in the tool code when workflows fail
+Every bug report MUST include code you have **actually run** that reproduces the error. Circumstantial evidence (e.g. "the S3 parquet has bad coords, so the tool is broken" — S3 could be stale) is not an MRE.
 
-**If `cng-datasets` has a bug or missing feature:**
-1. File a GitHub Issue on `boettiger-lab/datasets` with a **minimal reproducible example (MRE)** — see requirements below
-2. Tell the user what you filed and wait for the fix
-3. Do NOT attempt to fix it yourself — previous hotfixes have introduced breaking regressions
-
-**Why:** The tool has automated tests and a build/deploy pipeline. Unreviewed hotfixes bypass these safeguards and have caused production failures. Issue reports are the correct escalation path.
-
-### Bug Report Requirements: Minimal Reproducible Example
-
-Every bug report MUST include code you have **actually run** that **reproduces the error**. Do not assert a cause without running code to confirm it.
-
-**The MRE must:**
-1. **Isolate the bug to the tool** — verify the upstream input is correct before blaming the tool. E.g., for a coordinate ordering bug: run `ogrinfo` or `ST_Read` on the raw source and confirm coordinates are correct *before* conversion.
-2. **Run the tool locally and capture the bad output** — actually execute `cng-convert-to-parquet` or `cng-datasets` and show the wrong result. Do not infer the tool is broken from downstream artifacts (e.g., bad S3 parquet) without running the tool yourself.
+The MRE must:
+1. **Isolate to the tool** — verify the upstream input is correct first (e.g. `ogrinfo` on the raw source).
+2. **Run the tool locally and capture bad output** — actually execute `cng-convert-to-parquet`/`cng-datasets`. Don't infer from downstream artifacts.
 3. **Show expected vs actual** with concrete values.
-4. **Be minimal** — one feature, one file, not a full dataset.
+4. **Be minimal** — one feature, one file.
 
-**Template:**
+Template:
 ```bash
-# Step 1: show the input is correct
+# 1. Input is correct:
 ogrinfo /vsizip/source.zip -al -where "NAME='X'" | grep 'POLYGON\|Extent'
-# → correct (lon, lat) coordinates
-
-# Step 2: run the tool
+# 2. Run the tool:
 cng-convert-to-parquet source.zip /tmp/output.parquet
-
-# Step 3: show the bug in the output
-python3 -c "
-import duckdb; conn = duckdb.connect(); conn.execute('LOAD spatial;')
-print(conn.execute(\"\"\"
-  SELECT ST_AsText(ST_Envelope(geom)), bbox.xmin, bbox.ymin
-  FROM read_parquet('/tmp/output.parquet') WHERE NAME='X'
-\"\"\").fetchdf())
-"
-# → wrong output: xmin=38.32 (latitude) instead of -120.07 (longitude)
+# 3. Show the bug:
+python3 -c "import duckdb; c=duckdb.connect(); c.execute('LOAD spatial;');
+print(c.execute(\"SELECT ST_AsText(ST_Envelope(geom)) FROM read_parquet('/tmp/output.parquet') WHERE NAME='X'\").fetchdf())"
+# → wrong: xmin=38.32 (lat) instead of -120.07 (lon)
 ```
 
-**Do not file a bug report without running these steps.** Circumstantial evidence ("the S3 parquet has bad coordinates therefore the tool is broken") is not an MRE — the S3 data could be stale from an old tool version.
+## What You Produce
 
-## What You Are Doing
-
-You are taking source geospatial data and producing cloud-native outputs. The outputs depend on whether the dataset is **vector** or **raster**:
-
-### Vector datasets (GDB, Shapefile, GeoPackage, GeoParquet)
-
+**Vector datasets (GDB, Shapefile, GeoPackage, GeoParquet):**
 | Format | File | Use |
-|--------|------|-----|
-| GeoParquet | `dataset.parquet` | Analytical queries with DuckDB/Polars |
+|---|---|---|
+| GeoParquet | `dataset.parquet` | DuckDB/Polars queries |
 | PMTiles | `dataset.pmtiles` | Web map visualization |
-| H3 Hex Parquet | `dataset/hex/h0={cell}/data_0.parquet` | Spatial joins and aggregation |
+| H3 Hex Parquet | `dataset/hex/h0={cell}/data_0.parquet` | Spatial joins/aggregation |
 
-### Raster datasets (GeoTIFF, COG)
-
+**Raster datasets (GeoTIFF, COG):**
 | Format | File | Use |
-|--------|------|-----|
-| COG | `dataset-cog.tif` | Cloud-optimized raster visualization (titiler etc.) |
-| H3 Hex Parquet | `dataset/hex/h0={cell}/data_0.parquet` | Spatial aggregation and joins |
+|---|---|---|
+| COG | `dataset-cog.tif` | Cloud-optimized raster (titiler etc.) |
+| H3 Hex Parquet | `dataset/hex/h0={cell}/data_0.parquet` | Spatial aggregation |
 
-Rasters do **not** produce GeoParquet or PMTiles, but they **do** produce both a COG and H3 hex parquet. The workflow always creates the COG first (reprojecting to WGS84 if needed), then hexes from the NRP S3 COG. The hex step reads from the COG on NRP S3, not from the original source URL.
+Rasters produce COG + hex only (no GeoParquet/PMTiles). Workflow: create WGS84 COG first, then hex from the NRP S3 COG (not the original source URL).
 
-**H3 hex is supported for polygon, point, and line geometries.** Always check geometry type before submitting a hex job:
-```python
-# Quick check (run locally with spatial extension)
+**Geometry support:** polygon, point, line. Check before hexing:
+```sql
 SELECT ST_GeometryType(geom), COUNT(*) FROM read_parquet('s3://...') GROUP BY 1
 ```
+- **Points/MultiPoints:** each point → one H3 cell. At coarse resolutions (6–8) many points collapse to the same cell. Warning emitted during hex. Document in STAC.
+- **Lines/MultiLines:** supported as of `cng-datasets` PR #69. Each line is buffered by the H3 circumradius at the target resolution before polyfill. Default resolution **8** (auto-detected). Document: *"Line features were hexed to H3 resolution 8 by buffering each segment by the H3 cell circumradius before polyfill."*
 
-**Point geometry note:** Point and MultiPoint datasets are supported — each point resolves to a single H3 cell at the requested resolution. This means point data loses no spatial precision at fine resolutions (e.g., 10), but at coarse resolutions (e.g., 6–8) many points may map to the same cell. A warning is emitted during hex processing when point geometries are detected. Document this behavior in the STAC metadata (see STAC documentation guidance below).
+**ALWAYS use the k8s workflow. Local env lacks tools and permissions.**
 
-**Line geometry:** LineString and MultiLineString datasets are supported as of `cng-datasets` PR #69. Each line is buffered by the H3 circumradius at the target resolution before polyfill, ensuring no gaps in coverage along the line. Default resolution for line datasets is **8** (auto-detected by the CLI). Document the buffer-based approach in STAC metadata: *"Line features were hexed to H3 resolution 8 by buffering each segment by the H3 cell circumradius before polyfill."*
-
-
-**ALWAYS use the k8s workflow for data processing. The local environment does not have all required tools and permissions.**
-
-### Local Environment Setup
-
-The `cng-datasets` CLI is only used locally to generate k8s YAML files:
-
+### Local env (YAML generation only)
 ```bash
-uv venv
-source .venv/bin/activate
+uv venv && source .venv/bin/activate
 uv pip install git+https://github.com/boettiger-lab/datasets.git
 ```
 
-## How To Process a Dataset
+## How to Process a Dataset
 
-### Step 1: Identify and verify the source data
+### Step 1: Verify source URLs
 
-**ALWAYS verify URLs exist before generating workflows.** Do not assume file naming patterns.
-
-#### Verify single-file datasets
-
-Use curl to check that the file exists:
-```bash
-curl -I https://example.com/data.zip
-# Look for "HTTP/2 200" - anything else (404, 403) means the file doesn't exist
-```
-
-#### Discover multi-file datasets
-
-Many datasets are distributed as **multiple files** (e.g., per-state, per-region). Check the directory listing:
+**Always verify before generating workflows.** Do not assume naming patterns.
 
 ```bash
-# List available files in a directory
-curl -s https://www2.census.gov/geo/tiger/TIGER2024/TRACT/ | grep '.zip' | head -20
-
-# Check specific file pattern
-curl -I https://www2.census.gov/geo/tiger/TIGER2024/TRACT/tl_2024_01_tract.zip
+curl -I https://example.com/data.zip                         # single file
+curl -s https://.../TIGER2024/TRACT/ | grep '.zip' | head    # directory listing
+ogrinfo /vsicurl/<source-url>                                # multi-layer file
 ```
 
-**Common patterns:**
-- Census TIGER data: Per-state files (`tl_2024_{STATEFP}_tract.zip`)
-- Protected areas: Often per-region or national
-- Raster data: May be tiled
+Common patterns: Census TIGER = per-state (`tl_2024_{STATEFP}_tract.zip`); protected areas = per-region or national; rasters may be tiled.
 
-#### Preprocessing multi-file zipped datasets
+### Step 1b: Copy raw to `s3://<bucket>/raw/` FIRST
 
-**CRITICAL: `cng-convert-to-parquet` cannot handle multiple .zip URLs — it detects .zip in paths and blocks multi-source processing.**
-
-For datasets distributed as multiple zipped files (e.g., per-state shapefiles):
-
-**✅ CORRECT: Download in parallel, unzip, pass shapefiles**
-```bash
-for id in 01 02 03; do
-  curl -sS -O "https://example.com/data_${id}.zip" &
-done
-wait
-unzip -q -o "*.zip"
-cng-convert-to-parquet /tmp/data/*.shp s3://bucket/output.parquet
-```
-
-See the Census 2024 Reference example for a complete preprocessing job YAML.
-
-#### Step 1b: Copy raw source files to S3 /raw/ BEFORE any conversion
-
-**Always upload original source files to `s3://<bucket>/raw/` as the very first k8s job.** External downloads are slow and rate-limited; if conversion fails you can restart from S3. Subsequent jobs should read from `s3://<bucket>/raw/<file>` (or `/vsicurl/https://s3-west.nrp-nautilus.io/<bucket>/raw/<file>` for GDAL).
+External downloads are slow/rate-limited; restart from S3 if conversion fails. Subsequent jobs read `s3://<bucket>/raw/<file>` (or `/vsicurl/https://s3-west.nrp-nautilus.io/<bucket>/raw/<file>` for GDAL).
 
 ```yaml
 command: [bash, -c, |
@@ -163,438 +92,294 @@ command: [bash, -c, |
 ]
 ```
 
-#### Inspect multi-layer files (GDB, GPKG)
+### Step 1c: Preprocessing multi-file zipped datasets
 
-For files with multiple layers:
+**`cng-convert-to-parquet` rejects multiple .zip URLs.** For per-state/per-region zips, preprocess: download in parallel, unzip, pass shapefiles (the tool merges them automatically):
 ```bash
-ogrinfo /vsicurl/<source-url>
+for id in 01 02 03; do curl -sS -O "https://example.com/data_${id}.zip" & done
+wait && unzip -q -o "*.zip"
+cng-convert-to-parquet /tmp/data/*.shp s3://bucket/output.parquet
 ```
+See `catalog/census/k8s/tract/preprocess-tract.yaml` for a complete k8s job.
 
 ### Step 2: Generate the pipeline
 
-#### For vector datasets
-
-Run `cng-datasets workflow` locally — this only generates YAML files, it does not process data:
-
+#### Vector
 ```bash
 cng-datasets workflow \
-  --dataset <name> \
-  --source-url <url> \
-  --bucket <bucket> \
-  --h3-resolution 10 \
-  --parent-resolutions "9,8,0" \
-  --hex-memory 32Gi \
-  --max-completions 200 \
-  --max-parallelism 50 \
+  --dataset <name> --source-url <url> --bucket <bucket> \
+  --h3-resolution 10 --parent-resolutions "9,8,0" \
+  --hex-memory 32Gi --max-completions 200 --max-parallelism 50 \
   --output-dir catalog/<dataset>/k8s/<name>
 ```
 
-**Prefer `--backend armada` for hex-heavy workflows.** The default k8s backend is limited to 200 indexed job completions and 200 pods namespace-wide. Armada removes both constraints, allowing thousands of small jobs in the queue simultaneously. This is especially important for datasets with highly variable polygon sizes (e.g., countries, states) where a single chunk containing Russia or China can run for hours while 199 other chunks finish in minutes. With Armada you can use `--chunk-size 1` (one feature per job) to fully parallelise across features:
+Add `--layer <LayerName>` for multi-layer sources (one workflow per layer). The `/` in `--dataset` creates hierarchical S3 paths; `-` is used in k8s job names.
 
+**Prefer `--backend armada` for hex-heavy workflows.** k8s backend caps at 200 indexed completions and 200 pods namespace-wide. Armada removes both and allows `--chunk-size 1` (one feature per job), critical when polygon sizes vary wildly (a single Russia/China chunk can run for hours while 199 others finish in minutes):
 ```bash
-cng-datasets workflow \
-  --dataset <name> \
-  --source-url <url> \
-  --bucket <bucket> \
-  --h3-resolution 8 \
-  --parent-resolutions "0" \
-  --hex-memory 32Gi \
-  --max-completions <N-features> \
-  --backend armada \
-  --output-dir catalog/<dataset>/k8s/<name>
+cng-datasets workflow ... --h3-resolution 8 --parent-resolutions "0" \
+  --max-completions <N-features> --backend armada ...
 ```
-
-With `--backend armada`, the CLI generates armada YAML files for **all steps** (setup-bucket, convert, pmtiles, hex, repartition) alongside the standard k8s manifests. Submit each step in order manually — there is no orchestrator when using Armada:
-
+With `--backend armada` the CLI emits armada YAMLs for all steps alongside k8s manifests. Submit in order manually (no orchestrator):
 ```bash
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-setup-bucket.yaml
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-convert.yaml
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-pmtiles.yaml
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml
-# Wait for hex to complete, then:
+# wait for hex, then:
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-repartition.yaml
 ```
+Monitor: **https://armada-lookout.nrp-nautilus.io**
 
-Monitor jobs at: **https://armada-lookout.nrp-nautilus.io**
-
-To convert an existing k8s hex YAML to Armada without regenerating the full workflow (e.g. for rechunking):
+Convert an existing k8s hex YAML to Armada (for rechunking):
 ```python
 from cng_datasets.k8s.armada import k8s_indexed_job_to_armada, save_armada_yaml
 import yaml
-
-with open('catalog/<dataset>/k8s/<name>/<name>-hex.yaml') as f:
-    job_spec = yaml.safe_load(f)
-
+with open('<name>-hex.yaml') as f: job_spec = yaml.safe_load(f)
 armada_spec = k8s_indexed_job_to_armada(job_spec, queue='biodiversity', job_set_id='<name>-hex')
-save_armada_yaml(armada_spec, 'catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml')
+save_armada_yaml(armada_spec, 'armada-<name>-hex.yaml')
 ```
 
-Add `--layer <LayerName>` for multi-layer sources.
-
-**For multi-layer sources**, run one workflow command per spatial layer:
-```bash
-cng-datasets workflow --dataset mydata/fee --layer FeeLayer ...
-cng-datasets workflow --dataset mydata/easement --layer EasementLayer ...
-```
-
-The `/` in `--dataset` creates hierarchical S3 paths while using `-` in k8s job names.
-
-#### For raster datasets
-
-Run `cng-datasets raster-workflow` locally:
-
+#### Raster
 ```bash
 cng-datasets raster-workflow \
-  --dataset <name> \
-  --source-url <cog-url> \
-  --bucket <bucket> \
-  --h3-resolution 8 \
-  --parent-resolutions "0" \
-  --value-column <band_name> \
-  --hex-memory 32Gi \
-  --max-parallelism 61 \
+  --dataset <name> --source-url <cog-url> --bucket <bucket> \
+  --h3-resolution 8 --parent-resolutions "0" --value-column <band_name> \
+  --hex-memory 32Gi --max-parallelism 61 \
   --output-dir catalog/<dataset>/k8s/<name>
 ```
 
-Key differences from the vector workflow:
-- **Command:** `raster-workflow` not `workflow`
-- **No `--max-completions`**: always 122 completions (one per h0 cell globally)
-- **Default resolution:** 8 (not 10) — auto-detected from pixel size if omitted
-- **Default parent-resolutions:** `"0"` (not `"9,8,0"`)
-- **Default hex-memory:** 32Gi (not 8Gi)
-- **Default max-parallelism:** 61 (not 50)
-- **`--value-column`:** name for the raster band value in the output parquet (default: `value`)
-- **`--nodata`:** NoData value to exclude (auto-detected from raster metadata if omitted)
-- **Always creates a COG:** the workflow produces a WGS84 COG on NRP S3, then hexes from it. The hex `--source-url` should point to the NRP S3 COG, not the original source.
+Differences from vector:
+- Command: `raster-workflow`
+- Completions always 122 (one per h0 cell) — not configurable
+- Defaults: `--h3-resolution` 8, `--parent-resolutions "0"`, `--hex-memory 32Gi`, `--max-parallelism 61`
+- `--value-column` — raster band name in output (default `value`)
+- `--nodata` — value to exclude (auto from metadata)
+- Always creates a WGS84 COG on NRP S3 first; hex reads from that COG
 
-**For multi-tile rasters** (e.g., multiple UTM zones), repeat `--source-url` for each tile. The workflow adds a `preprocess-cog` step that mosaics them into a single WGS84 COG before hex tiling:
-
+**Multi-tile rasters** (e.g. multiple UTM zones): repeat `--source-url`. Adds `preprocess-cog` step that mosaics into one WGS84 COG:
 ```bash
-cng-datasets raster-workflow \
-  --dataset wyoming/rap-arte \
-  --source-url s3://public-wyoming/raw/rap_arte_zone12.tif \
-  --source-url s3://public-wyoming/raw/rap_arte_zone13.tif \
+cng-datasets raster-workflow --dataset wyoming/rap-arte \
+  --source-url s3://.../rap_arte_zone12.tif \
+  --source-url s3://.../rap_arte_zone13.tif \
   --bucket public-wyoming \
-  --target-extent "-111.1,40.9,-104.0,45.0" \
-  --band 1 \
-  --value-column arte \
+  --target-extent "-111.1,40.9,-104.0,45.0" --band 1 --value-column arte \
   --output-dir catalog/wyoming/k8s/rap-arte
 ```
-
-Additional multi-tile options:
-- `--target-extent "xmin,ymin,xmax,ymax"` — clip to bounding box in EPSG:4326
-- `--target-resolution <degrees>` — output pixel size (default: derived from finest source)
-- `--band <n>` — extract single band from multi-band source (1-indexed)
-- `--output-cog-name <key>` — S3 key for intermediate COG (default: `{dataset}-cog.tif`)
+Extra options: `--target-extent "xmin,ymin,xmax,ymax"` (EPSG:4326 clip), `--target-resolution <degrees>`, `--band <n>` (1-indexed), `--output-cog-name <key>`.
 
 #### How `--dataset` controls naming
 
-The `--dataset` flag determines multiple output names. The **last path segment** is particularly important:
+The **last path segment** drives PMTiles `source-layer`, S3 path, and k8s job prefix:
 
-| `--dataset` value | S3 path prefix | PMTiles `source-layer` | k8s job prefix |
+| `--dataset` value | S3 prefix | PMTiles `source-layer` | k8s job prefix |
 |---|---|---|---|
 | `calenviroscreen-5-0/ces5` | `calenviroscreen-5-0/ces5` | `ces5` | `calenviroscreen-5-0-ces5` |
 | `padus-4-1/fee` | `padus-4-1/fee` | `fee` | `padus-4-1-fee` |
 | `census-2024/tract` | `census-2024/tract` | `tract` | `census-2024-tract` |
 
-**The PMTiles `source-layer` name = the last segment of `--dataset`.** This is what MapLibre needs in `"source-layer"` to render the tiles. It does NOT come from the GDB/source layer name — it comes from your `--dataset` choice.
+The PMTiles `source-layer` that MapLibre needs = last segment of `--dataset`. It does NOT come from the GDB/source layer name.
 
-**⚠️ Dataset names must not contain dots.** Kubernetes job names (and pod names for indexed jobs) must match `[a-z0-9][a-z0-9-]*[a-z0-9]` — dots are invalid. `cng-datasets` converts `/` to `-` and rejects names with dots at workflow-generation time. Version strings like `2026-02-18.0` must be encoded without dots (e.g., `overture-2026-02-18` or `om-2026`). If you ever work with pre-existing YAMLs that contain dotted names (generated before this validation existed), the k8s indexed jobs will fail with pod scheduling errors — rename the job before applying.
+**⚠️ No dots in dataset names.** k8s pod names must match `[a-z0-9][a-z0-9-]*[a-z0-9]`. `cng-datasets` rejects dotted names at YAML generation. Encode versions without dots (e.g. `overture-2026-02-18`, not `2026-02-18.0`). Pre-existing dotted YAMLs fail pod scheduling — rename before applying.
 
 ### Step 3: Apply to the cluster
 
-**One-time RBAC setup** (only needed once per cluster/namespace, likely already done):
-```bash
-kubectl apply -f catalog/<dataset>/k8s/<name>/workflow-rbac.yaml
-```
+One-time RBAC (likely already done): `kubectl apply -f catalog/<dataset>/k8s/<name>/workflow-rbac.yaml`
 
-**Per-workflow** (for each dataset):
+Per workflow:
 ```bash
 kubectl apply -f catalog/<dataset>/k8s/<name>/configmap.yaml \
               -f catalog/<dataset>/k8s/<name>/workflow.yaml
 ```
 
-**Vector** workflow orchestrator jobs: setup-bucket → convert → pmtiles + hex (parallel) → repartition.
+Orchestrator DAG:
+- Vector: setup-bucket → convert → pmtiles + hex (parallel) → repartition
+- Raster: setup-bucket → hex (+ preprocess-cog before hex for multi-tile)
 
-**Raster** workflow orchestrator jobs: setup-bucket → hex (or setup-bucket → preprocess-cog → hex for multi-tile).
-
-**Alternative:** You can manually apply individual job YAMLs for step-by-step control:
-```bash
-kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-setup-bucket.yaml
-kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-convert.yaml   # vector only
-kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-hex.yaml
-# ... etc
-```
+You can also apply individual job YAMLs (`<name>-setup-bucket.yaml`, `<name>-convert.yaml`, `<name>-hex.yaml`, etc.) for step-by-step control.
 
 ### Step 4: Monitor
-
 ```bash
-kubectl get jobs | grep <name>       # Job status
-kubectl logs job/<name>-convert      # Check conversion
-kubectl logs job/<name>-workflow     # Orchestrator log
+kubectl get jobs | grep <name>
+kubectl logs job/<name>-convert       # conversion
+kubectl logs job/<name>-workflow      # orchestrator
 ```
-
-A complete run for a ~300K feature dataset typically takes 1-2 hours.
+A ~300K-feature vector run typically takes 1–2 hours.
 
 ### Step 5: Document
 
-**Write STAC files to `/tmp/` only — never to `catalog/<dataset>/stac/`.** The `catalog/*/stac/` path must not exist in this repo. Writing there produces stale local copies that diverge from S3 and get accidentally committed. Work entirely in `/tmp/` and upload directly:
-
+**Write STAC/README to `/tmp/` only — never to `catalog/<dataset>/stac/`.** Upload directly:
 ```bash
-# Write here
-$EDITOR /tmp/stac-collection.json
-$EDITOR /tmp/README.md
-
-# Upload directly to S3 — do not copy into catalog/
 rclone copyto /tmp/README.md nrp:<bucket>/README.md
 rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.json
 ```
 
-**REQUIRED in every README.md:**
-- A **MapLibre GL JS example** with the correct `source-layer` name (= last segment of `--dataset`)
-- The `source-layer` name documented prominently, not buried
-- A **DuckDB example** with the full public URL to the parquet file
+**README.md MUST include:**
+- A MapLibre GL JS example with the correct `source-layer` (= last segment of `--dataset`), documented prominently
+- A DuckDB example with the full public parquet URL
 
-**REQUIRED in every stac-collection.json:**
-- **Asset key naming**: The JSON key for each asset MUST encode the dataset name, not the format. **Never use generic keys like `"pmtiles"`, `"geoparquet"`, `"h3-parquet"`, `"parquet"`, or `"hex"`** — they break downstream apps when a collection has multiple assets of the same format, and make layer IDs meaningless.
+**stac-collection.json MUST include:**
 
-  Use the last segment of `--dataset` as the base name, with a format suffix:
+- **Asset keys encode the dataset, not the format.** Never use generic keys (`pmtiles`, `geoparquet`, `h3-parquet`, `parquet`, `hex`) — they collide and break downstream apps. Use `{last-segment}-{format}`:
 
-  | Asset type | Key pattern | Example (`--dataset census-2025/sldl`) |
+  | Asset | Pattern | Example (`--dataset census-2025/sldl`) |
   |---|---|---|
   | GeoParquet | `{name}-parquet` | `sldl-parquet` |
   | PMTiles | `{name}-pmtiles` | `sldl-pmtiles` |
-  | H3 hex parquet | `{name}-hex` | `sldl-hex` |
-  | COG (raster) | `{name}-cog` | `sldl-cog` |
+  | H3 hex | `{name}-hex` | `sldl-hex` |
+  | COG | `{name}-cog` | `sldl-cog` |
 
-  For multi-layer collections, prefix with the collection context: `cpad-holdings-parquet`, `cpad-units-hex`, etc.
+  Multi-layer collections: prefix with collection context (`cpad-holdings-parquet`, `cpad-units-hex`).
 
-- **Hex asset `href`**: MUST use the full Hive-partitioned glob pattern — never a bare directory URL. The bare directory URL (`/hex/`) causes downstream tooling to produce mangled paths. Use:
-  ```
-  https://s3-west.nrp-nautilus.io/<bucket>/<dataset>/hex/h0=*/data_0.parquet
-  ```
-  ❌ Wrong: `https://s3-west.nrp-nautilus.io/public-census/census-2025/sldl/hex/`
-  ✅ Correct: `https://s3-west.nrp-nautilus.io/public-census/census-2025/sldl/hex/h0=*/data_0.parquet`
+- **Hex asset `href` MUST use the Hive-partitioned glob — never a bare directory:**
+  - ❌ `.../census-2025/sldl/hex/`
+  - ✅ `.../census-2025/sldl/hex/h0=*/data_0.parquet`
 
-- Any vector asset with named layers (PMTiles, GDB, GPKG, etc.) MUST include a `"vector:layers": ["<name>"]` array field. This is format-agnostic — the same field works for PMTiles, GeoDatabase, GeoPackage, etc. For PMTiles, the layer name = last segment of `--dataset`.
-- A `table:columns` array documenting all columns. **For columns with coded categorical values** (short codes like `FED`, `OA`, `PERM`), the description MUST list all valid values and their definitions in the format `CODE=Definition, CODE=Definition, ...`. Run a DuckDB query to discover the actual values in the data before writing descriptions — do not rely on documentation alone:
+- **Any vector asset with named layers** (PMTiles, GDB, GPKG, etc.) MUST include `"vector:layers": ["<name>"]`. For PMTiles the layer name = last segment of `--dataset`.
+
+- **`table:columns`** array documenting every column. For **coded categorical** columns (e.g. `FED`, `OA`, `PERM`), the description MUST list all valid values in `CODE=Definition, ...` format. Discover actual values via DuckDB before writing:
   ```sql
-  SELECT column_name, COUNT(*) as n
-  FROM read_parquet('s3://...') GROUP BY column_name ORDER BY n DESC
+  SELECT column_name, COUNT(*) AS n FROM read_parquet('s3://...') GROUP BY column_name ORDER BY n DESC
   ```
   Example:
   ```json
-  {
-    "name": "owner_type",
-    "type": "string",
-    "description": "Owner type code. Values: FED=Federal government, STAT=State government, LOC=Local government, NGO=Non-governmental organization/non-profit, TRIB=Tribal/Indigenous nation, PVT=Private, UNK=Unknown"
-  }
+  {"name": "owner_type", "type": "string",
+   "description": "Owner type code. Values: FED=Federal, STAT=State, LOC=Local, NGO=Non-governmental/non-profit, TRIB=Tribal/Indigenous, PVT=Private, UNK=Unknown"}
   ```
-  This is critical — the STAC metadata is the only reference available to LLM agents querying the data. Missing value definitions cause agents to guess filter values (e.g., `WHERE owner_type = 'Federal'` instead of `WHERE owner_type = 'FED'`), returning empty results.
-- **Point geometry datasets**: The `description` field (or a `"processing:notes"` field) MUST state that each point was resolved to a single H3 cell at the processing resolution, and note the resolution used. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
+  Missing definitions cause LLM agents to guess values (e.g. `WHERE owner_type = 'Federal'` instead of `'FED'`) and return empty results.
 
-Upload from `/tmp/` to the bucket (see upload commands above — files live in `/tmp/`, not in the repo).
+- **Point datasets:** `description` or `"processing:notes"` MUST state each point resolved to one H3 cell at the processing resolution, and name the resolution. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 
-### Step 6: Register the new collection in its parent sub-catalog
+### Step 6: Register in the parent sub-catalog
 
-**The STAC catalog is a TREE. Datasets belong in the sub-catalog that matches their domain, not at the root.** The root catalog (`public-data/stac/catalog.json`) only links to top-level sub-catalogs — one per bucket / domain (e.g. `public-high-seas`, `public-padus`, `public-census`). Individual datasets live under those sub-catalogs as children.
+**The STAC catalog is a TREE.** Datasets belong in their domain/bucket sub-catalog, not the root. Root `public-data/stac/catalog.json` only links top-level sub-catalogs (e.g. `public-high-seas`, `public-padus`, `public-census`).
 
-**Before adding a link, identify the correct parent:**
-1. Is there already a sub-catalog for this domain/bucket? Check: `curl -s https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json | jq '.links[] | select(.rel=="child")'`
-2. If yes → add the child link to **that sub-catalog**, NOT the root.
-3. If no (brand-new bucket/domain) → create a bucket-level `stac-collection.json` first, register its children in it, then link the bucket-level collection as a child of the root catalog.
-
-**Example:** `mpa-candidates` is a high-seas dataset, so it is a child of `public-high-seas/stac-collection.json` — not of the root catalog. The root catalog only gains a new child when a new bucket/domain is introduced.
+Before linking:
+1. Check for existing sub-catalog: `curl -s https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json | jq '.links[] | select(.rel=="child")'`
+2. Exists → add child link there.
+3. Brand-new bucket/domain → create bucket-level `stac-collection.json`, register children in it, then link that bucket-level collection from root.
 
 ```bash
-# Common case: add dataset to an existing sub-catalog
 curl -s https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json > /tmp/parent.json
-# Edit /tmp/parent.json to add the new {"rel": "child", "id": "...", "href": "...", "title": "..."} entry
+# Edit /tmp/parent.json to append {"rel": "child", "id": "...", "href": "...", "title": "..."}
 rclone copyto /tmp/parent.json nrp:<bucket>/stac-collection.json
 ```
 
-Only touch `public-data/stac/catalog.json` when registering a **new top-level sub-catalog** (i.e. a new bucket or domain), never for individual datasets that belong under an existing one.
+Only touch the root when adding a **new** top-level sub-catalog.
 
-### Step 7: Add a MinIO Sync Job
+### Step 7: Add a MinIO sync job (new buckets only)
 
-All NRP S3 buckets are mirrored to a MinIO backup server via per-bucket k8s Jobs in `catalog/sync/k8s/`. After adding a new dataset to a **new bucket**, create a sync job for it:
+All NRP buckets mirror to MinIO via per-bucket k8s Jobs in `catalog/sync/k8s/`. If the dataset uses an existing bucket — nothing to do.
 
+For a new bucket:
 ```bash
-# Use any existing sync job as a template
 cp catalog/sync/k8s/sync-public-padus.yaml catalog/sync/k8s/sync-<bucket>.yaml
-# Edit: replace "public-padus" with your bucket name in job name, mkdir, sync source/dest, and echo lines
+# Replace "public-padus" everywhere (job name, mkdir, sync src/dest, echoes)
 ```
+Each job `rclone mkdir`s the dest bucket then `rclone sync`s with throttling.
 
-Each sync job:
-1. Creates the destination bucket on MinIO if it doesn't exist (`rclone mkdir`)
-2. Syncs all objects from NRP to MinIO (`rclone sync` with throttling)
-
-**If your dataset uses an existing bucket** (e.g., adding a new census layer to `public-census`), the sync job already exists — no action needed.
-
-**Run sync jobs:**
+Run/rerun:
 ```bash
-# All buckets
-kubectl apply -f catalog/sync/k8s/
-
-# Single bucket
-kubectl apply -f catalog/sync/k8s/sync-<bucket>.yaml
-
-# Rerun a failed sync
-kubectl delete job sync-<bucket> -n biodiversity
-kubectl apply -f catalog/sync/k8s/sync-<bucket>.yaml
+kubectl apply -f catalog/sync/k8s/                    # all
+kubectl apply -f catalog/sync/k8s/sync-<bucket>.yaml  # one
+kubectl delete job sync-<bucket> -n biodiversity && kubectl apply -f .../sync-<bucket>.yaml  # rerun
+kubectl logs job/sync-<bucket>                        # monitor
 ```
 
-**Monitor:**
-```bash
-kubectl get jobs | grep sync
-kubectl logs job/sync-<bucket>
-```
+## Memory and Chunking Mental Model
 
-## Common Parameters
+**RAM is driven by the H3 cell count of the single largest feature in a chunk — not dataset size or bounding box.**
 
-### Memory and Chunking Mental Model
+Hex generation is two passes:
+1. For each feature polygon, compute covering H3 cells (large array per feature)
+2. Unnest arrays row-by-row; **peak RAM = size of the largest single feature's cell array**
 
-**Memory usage is driven by the H3 cell count of the single largest feature in a chunk, not by dataset size or total spatial area.**
+Counterintuitive result: 10,000 small features at 8Gi can be fine, while a single continent-scale polygon OOMs at 32Gi. What drives RAM:
+- H3 resolution (exponential: res 8 ≈ 1/170th the cells of res 10 for the same area)
+- Area of the largest single feature in the chunk
+- Geometry complexity affects Pass 1 runtime, not Pass 2 RAM
 
-The hex generation step works by:
-1. Pass 1: For each feature polygon, compute all H3 cells that cover it → produces a large array per feature
-2. Pass 2 (unnest): Explode those arrays row-by-row into the output table → peak RAM is the size of the largest single feature's cell array
+**Right approach:** start with default (8Gi vector), then tune from OOM signals.
+1. Use Armada with `--chunk-size 1` for variable feature sizes (each feature its own pod)
+2. On OOM: identify the large polygon(s) and either lower resolution, raise `--hex-memory`, or re-run that chunk alone (see Reprocessing Failed Chunks)
+3. OOMs are expected — a tuning signal, not failure.
 
-This has a counterintuitive implication: **a global dataset of 10,000 small, simple features may use far less memory than a dataset with a single feature that is a large, complex polygon** (e.g., Russia, Alaska, a national forest boundary). A large dataset with many small polygons can be fine at 8Gi; a small dataset with one continent-scale polygon can OOM at 32Gi.
+**Resolution guidance:**
 
-**What actually drives RAM per chunk:**
-- H3 resolution (exponential: res 8 → ~1/170th the cells of res 10 for the same area)
-- The area of the *largest single feature* in the chunk at that resolution
-- Geometry complexity affects Pass 1 runtime but not RAM much; area dominates Pass 2
-
-**You cannot reliably estimate memory from feature count or dataset bounding box.** The right approach is:
-
-1. **Start with the default** (8Gi for vector) and a chunk size that isolates suspect features
-2. **Use Armada with chunk-size 1** for datasets with highly variable feature sizes — this ensures each feature gets its own pod, so one large feature doesn't OOM a chunk containing 49 small ones
-3. **When a pod OOMs:** look at which features were in that chunk (check parquet rows by chunk-id offset), identify the large polygon(s), and either:
-   - Reduce resolution for that dataset
-   - Increase `--hex-memory` for that specific job
-   - Re-run that chunk alone with higher memory (see Reprocessing Failed Chunks)
-4. **OOMs are expected occasionally** — they are a signal to tune, not a sign of failure. The workflow is designed to retry individual chunks.
-
-**Resolution guidance by dataset type:**
-
-| Dataset type | Recommended resolution | Rationale |
+| Dataset type | Resolution | Rationale |
 |---|---|---|
-| Countries, continents | 8 | Single features can be continent-scale |
-| States, provinces, large regions | 8 | Many are still very large polygons |
-| Counties, districts | 8–10 | Mostly manageable at 10; watch for outliers |
-| Census tracts, parcels | 10 | Small features, fine resolution appropriate |
-| Points | 10 | Each point → single H3 cell; coarser resolutions aggregate nearby points |
-| Lines | 8 | Buffered by H3 circumradius before polyfill; default resolution 8 (auto-detected) |
+| Countries, continents | 8 | Continent-scale features |
+| States, provinces | 8 | Still very large |
+| Counties, districts | 8–10 | Mostly OK at 10; watch outliers |
+| Census tracts, parcels | 10 | Small features |
+| Points | 10 | Each point → one cell; coarser = aggregation |
+| Lines | 8 | Buffered by H3 circumradius; default 8 auto-detected |
 
-#### Vector workflow parameters
+### Vector workflow parameters
 
-| Parameter | Default | When to change |
-|-----------|---------|----------------|
-| `--h3-resolution` | 10 | Lower (8, 6) for large-polygon datasets. Halving resolution reduces cell count ~6x. |
-| `--hex-memory` | 8Gi | Tune based on OOM signals, not upfront estimates. Start low; increase for specific failing chunks. |
-| `--max-completions` | 200 | With `--backend k8s`: hard limit of 200. With `--backend armada`: set to feature count for chunk-size 1. |
-| `--max-parallelism` | 50 | **k8s backend only** — capped by namespace pod quota (see below). Not used with `--backend armada`. |
-| `--parent-resolutions` | "9,8,0" | Use `"0"` when `--h3-resolution` is 8 (intermediate resolutions 9, 8 would duplicate the target). |
-| `--intermediate-chunk-size` | 10 | Decrease if hex pods OOM during unnest (Pass 2). This is the first knob to turn before increasing memory. |
+| Param | Default | When to change |
+|---|---|---|
+| `--h3-resolution` | 10 | Lower (8, 6) for large polygons. Halving res ≈ 6× fewer cells. |
+| `--hex-memory` | 8Gi | Tune from OOM signals. Start low. |
+| `--max-completions` | 200 | k8s backend hard limit. With armada: set to feature count for chunk-size 1. |
+| `--max-parallelism` | 50 | k8s only — capped by pod quota. Unused with armada. |
+| `--parent-resolutions` | "9,8,0" | Use `"0"` when `--h3-resolution 8` (9/8 would duplicate target). |
+| `--intermediate-chunk-size` | 10 | Decrease if hex OOMs during unnest — try this before raising memory. |
 
-#### Raster workflow parameters
+### Raster workflow parameters
 
-| Parameter | Default | When to change |
-|-----------|---------|----------------|
-| `--h3-resolution` | auto (from pixel size) | Override if auto-detect gives wrong resolution |
-| `--hex-memory` | 32Gi | Increase if pods OOM; rasters can be memory-intensive at fine resolutions |
-| `--max-parallelism` | 61 | **k8s backend only** — reduce if hitting namespace pod quota; never exceeds 122. Not used with `--backend armada`. |
-| `--parent-resolutions` | "0" | Add intermediate resolutions (e.g., `"7,0"`) if needed |
-| `--value-column` | "value" | Set to a meaningful band name (e.g., `carbon`, `arte`, `nlcd`) |
-| `--nodata` | auto (from raster metadata) | Override if metadata nodata is wrong or missing |
+| Param | Default | When to change |
+|---|---|---|
+| `--h3-resolution` | auto (from pixel size) | Override if auto is wrong |
+| `--hex-memory` | 32Gi | Raise if OOM |
+| `--max-parallelism` | 61 | k8s only; reduce on quota hit; cap 122 |
+| `--parent-resolutions` | "0" | Add intermediate (e.g. `"7,0"`) if needed |
+| `--value-column` | "value" | Use meaningful name (`carbon`, `arte`, `nlcd`) |
+| `--nodata` | auto | Override if metadata nodata is wrong/missing |
 
-Raster completions are always **122** (one per h0 cell) — this is not configurable.
+Raster completions are always **122** — not configurable.
 
-### Namespace Pod Quota — CRITICAL for k8s backend
+## Namespace Pod Quota (`biodiversity`)
 
-**The `biodiversity` namespace has a hard limit of 200 pods total, shared across ALL jobs running simultaneously.**
+**Hard limit: 200 pods total** across all simultaneous jobs. Applies to **k8s backend only** — armada queues externally and is not constrained.
 
-This constraint applies only to the **k8s backend**. With `--backend armada`, jobs are queued externally and scheduled onto the cluster as capacity allows — the 200-pod namespace quota does not apply.
-
-#### k8s backend: sequential submission required
-
-With `--max-parallelism 50`, a single hex job can consume up to 50 pods. Running multiple hex workflows at the same time will rapidly exhaust the quota, causing pods to fail with:
+**Rule: never submit more than one k8s hex workflow at a time.** With `--max-parallelism 50`, a single hex job can take 50 pods; concurrent hex workflows exhaust the quota:
 ```
 pods "...-hex-60-..." is forbidden: exceeded quota: reached-quota,
-requested: pods=1, used: pods=200, limited: pods=200
+  used: pods=200, limited: pods=200
 ```
-
-**Rule: Never submit more than one k8s hex workflow at a time.** Run them sequentially:
+Run sequentially:
 ```bash
-for dataset in dataset-a dataset-b dataset-c; do
-  kubectl apply -f catalog/.../k8s/${dataset}/configmap.yaml \
-                -f catalog/.../k8s/${dataset}/workflow.yaml
-  kubectl wait job/${dataset}-workflow --for=condition=complete --timeout=7200s
+for d in dataset-a dataset-b dataset-c; do
+  kubectl apply -f catalog/.../k8s/$d/configmap.yaml -f catalog/.../k8s/$d/workflow.yaml
+  kubectl wait job/$d-workflow --for=condition=complete --timeout=7200s
 done
 ```
 
-#### Armada backend: submit freely
-
-With Armada you can submit all datasets at once — the scheduler handles queuing. You can also use far more completions than 200, enabling chunk-size 1 (one pod per feature) which eliminates the "one slow pod blocks everything" problem:
+With armada, submit freely — chunk-size 1 (one pod per feature) eliminates "one slow pod blocks everything."
 
 ## S3 Bucket Layout
 
-**Vector datasets:**
 ```
-bucket/
-├── raw/                         # Source data
-├── dataset.parquet              # GeoParquet
-├── dataset.pmtiles              # PMTiles
-├── dataset/
-│   └── hex/
-│       └── h0={cell}/data_0.parquet
-├── README.md
-└── stac-collection.json
-```
-
-**Raster datasets:**
-```
-bucket/
-├── raw/                         # Source raster(s)
-├── dataset-cog.tif              # Cloud-optimized GeoTIFF (may be in raw/ or root)
-├── dataset/
-│   └── hex/
-│       └── h0={cell}/data_0.parquet
-├── README.md
+# Vector                                # Raster
+bucket/                                 bucket/
+├── raw/                                ├── raw/
+├── dataset.parquet                     ├── dataset-cog.tif
+├── dataset.pmtiles                     ├── dataset/hex/h0={cell}/data_0.parquet
+├── dataset/hex/h0={cell}/data_0.parquet├── README.md
+├── README.md                           └── stac-collection.json
 └── stac-collection.json
 ```
 
 ## Troubleshooting
 
-**Convert fails with 404 Not Found → verify source URLs:**
-The most common failure. Always verify URLs exist BEFORE generating workflows:
-```bash
-# Check if file exists
-curl -I <source-url>
+**404 on convert → verify source URLs** with `curl -I` and directory listings (most common failure — always verify BEFORE generating YAMLs).
 
-# List directory to find actual file names
-curl -s <directory-url> | grep '.zip'
-```
+**"Cannot mix .zip files with multiple source URLs"** → preprocess job: download in parallel, unzip, pass shapefiles to `cng-convert-to-parquet`.
 
-**Convert fails with "Cannot mix .zip files with multiple source URLs":**
-`cng-convert-to-parquet` cannot process multiple zip URLs. Create a preprocessing job that:
-1. Downloads all zips in parallel (`curl -O ... &`)
-2. Unzips all files (`unzip -q -o "*.zip"`)
-3. Passes unzipped shapefiles to the tool (`cng-convert-to-parquet /tmp/*.shp s3://...`)
+**Check convert logs:** `kubectl logs job/<name>-convert`
 
-See the "Preprocessing multi-file zipped datasets" section for examples.
-
-**Convert fails → check logs:**
-```bash
-kubectl logs job/<name>-convert
-```
-
-**Repeated preemptions on shared nodes → pin to Berkeley node:**
-
-`stratus1.nrp-espm.berkeley.edu` is our dedicated node. Use it when jobs are getting preempted on the shared cluster. It currently carries a `nautilus.io/issue` taint — tolerate it with `operator: Exists`:
-
+**Repeated preemptions on shared nodes → pin to Berkeley node** `stratus1.nrp-espm.berkeley.edu` (currently carries `nautilus.io/issue` taint):
 ```yaml
 spec:
   template:
@@ -602,114 +387,69 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: stratus1.nrp-espm.berkeley.edu
       tolerations:
-      - key: "nautilus.io/issue"
-        operator: Exists
-        effect: NoSchedule
+      - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
 ```
 
-**Pod keeps getting evicted (ContainerStatusUnknown) → diagnose BEFORE resubmitting:**
-
-**NEVER resubmit a failing job without first running `kubectl describe pod <pod-name>` to read the eviction reason.** Resubmitting with the same resources will produce the same failure repeatedly.
-
+**Pod keeps getting evicted (`ContainerStatusUnknown`) → diagnose BEFORE resubmitting.** Never resubmit a failing job without `kubectl describe pod <pod>` — same resources will fail the same way.
 ```bash
 kubectl -n biodiversity describe pod <pod-name> | grep -A5 "Reason:\|Message:\|Events:"
 ```
 
-Common eviction causes and fixes:
-
 | Message | Cause | Fix |
 |---|---|---|
-| `ephemeral local storage usage exceeds the total limit` | DuckDB sort spilling to disk | Increase both memory AND ephemeral-storage |
-| `OOMKilled` | Insufficient RAM | Increase memory request |
-| `ContainerStatusUnknown` (on shared nodes) | Node preemption | Pin to Berkeley node (see below) |
+| `ephemeral local storage usage exceeds the total limit` | DuckDB sort spill | Raise memory AND ephemeral-storage |
+| `OOMKilled` | Insufficient RAM | Raise memory |
+| `ContainerStatusUnknown` on shared nodes | Preemption | Pin to Berkeley node |
 
-**DuckDB sort jobs need both large RAM and large ephemeral-storage.** When a job does `ORDER BY` over large data, DuckDB spills temp files to local disk. If RAM is insufficient it spills more. Always size both together:
-- If data partition is ~1-2 GB compressed → request 120Gi RAM, 50Gi ephemeral-storage
-- If data partition is ~10-15 GB compressed → request 120Gi RAM, 50Gi ephemeral-storage
-- The namespace max for ephemeral-storage is **50Gi** — always request the max for sort-heavy jobs
+**DuckDB sort jobs need both big RAM and big ephemeral-storage.** `ORDER BY` over large data spills to disk; low RAM spills more. For 1–15 GB compressed partitions: 120Gi RAM, 50Gi ephemeral-storage. Namespace max for ephemeral-storage is **50Gi** — always request the max for sort-heavy jobs.
 
-**Hex pods OOM → increase memory or chunks:**
-Regenerate with `--hex-memory 64Gi` or `--max-completions 200`, delete failed job, reapply.
+**Hex OOM** → regenerate with `--hex-memory 64Gi` and/or more `--max-completions`, delete failed job, reapply.
 
-**S3 throttling (503 SlowDown):** Transient. Wait a few minutes and retry.
+**503 SlowDown (S3 throttle)** → transient, retry.
 
-**PMTiles renders blank in MapLibre → wrong `source-layer` name:**
-The `source-layer` is the last path segment of the `--dataset` flag, NOT the GDB/source layer name. For `--dataset padus-4-1/fee`, the source-layer is `fee` (not `PADUS4_1Fee`). Never guess — derive it from `--dataset`.
+**PMTiles renders blank in MapLibre → wrong `source-layer`.** It's the last path segment of `--dataset`, NOT the GDB/source layer name. For `--dataset padus-4-1/fee`, it's `fee` (not `PADUS4_1Fee`).
 
-**Workflow stuck → check what step it's on:**
-```bash
-kubectl logs job/<name>-workflow
-kubectl get jobs | grep <name>
-```
+**Workflow stuck:** `kubectl logs job/<name>-workflow` and `kubectl get jobs | grep <name>`.
 
-**Hex pods failing with `exceeded quota: reached-quota` → namespace pod limit hit:**
-The `biodiversity` namespace allows max 200 pods. Running multiple hex workflows simultaneously exhausts this. Fix:
-1. Delete all running hex jobs and their workflow orchestrators
-2. Rerun sequentially — one workflow at a time, waiting for each to complete before starting the next
+**`exceeded quota: reached-quota`** → pod limit hit. Delete running hex jobs and resubmit sequentially (see Namespace Pod Quota):
 ```bash
 kubectl get jobs | grep -E 'dataset-a|dataset-b' | awk '{print $1}' | xargs kubectl delete job
-# Then resubmit one at a time (see Namespace Pod Quota section)
 ```
 
 ### Reprocessing Failed Chunks
 
-If specific chunks fail (e.g., due to DuckDB parquet page size limits on extremely complex geometries), reprocess them at a coarser H3 resolution:
-
-1. **Identify failed chunk IDs:** `kubectl get pods | grep <name>-hex | grep -E "Error|Failed"`
-
-2. **Generate base YAML and edit for rechunking:**
-   ```bash
-   # Copy the existing hex job YAML as a template
-   cp catalog/<dataset>/k8s/<name>/<name>-hex.yaml <name>-hex-rechunk.yaml
-   ```
-   
-   Edit the YAML to:
-   - Change job name: `<name>-hex-rechunk`
-   - Set `completions: 4` (number of failed chunks)
-   - Change the `cng-datasets vector` command to use a CHUNK_MAP:
+For chunks that fail (e.g. DuckDB parquet page-size limits on complex geometries), reprocess at coarser H3:
+1. Identify failed IDs: `kubectl get pods | grep <name>-hex | grep -E "Error|Failed"`
+2. Copy `<name>-hex.yaml` → `<name>-hex-rechunk.yaml`, rename the job, set `completions: <N-failed>`, and replace the command with a CHUNK_MAP:
    ```yaml
    args:
    - |
      set -e
-     CHUNK_MAP=(0 1 2 94)  # Failed chunk IDs
+     CHUNK_MAP=(0 1 2 94)
      CHUNK_ID=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
-     echo "Reprocessing chunk $CHUNK_ID at resolution 8"
-     
      cng-datasets vector \
        --input s3://<bucket>/<dataset>.parquet \
        --output s3://<bucket>/<dataset>/chunks \
-       --chunk-id $CHUNK_ID \
-       --chunk-size <same> \
-       --intermediate-chunk-size <same> \
-       --resolution 8 \
-       --parent-resolutions 9,8,0
+       --chunk-id $CHUNK_ID --chunk-size <same> --intermediate-chunk-size <same> \
+       --resolution 8 --parent-resolutions 9,8,0
    ```
-
-3. **Apply and run repartition after completion:**
-   ```bash
-   kubectl apply -f <name>-hex-rechunk.yaml
-   # Wait for completion, then:
-   kubectl apply -f catalog/<dataset>/k8s/<name>/<name>-repartition.yaml
-   ```
-
-Repartition automatically merges all chunks (both resolutions) from `chunks/` into `hex/` partitioned by h0.
+3. Apply, then run `<name>-repartition.yaml`. Repartition merges both resolutions from `chunks/` → `hex/` by h0.
 
 ## What NOT To Do
 
-- **Do not process data locally.** The CLI generates k8s jobs. You apply them. The cluster does the work.
-- **Do not modify `cng_datasets/` source code.** File an issue instead (see Hard Boundary above).
-- **Do not request more than 50Gi ephemeral-storage per pod.** The `biodiversity` namespace caps it at 50Gi. Generated YAMLs default to 250Gi — always reduce to 50Gi and add `limits.ephemeral-storage: 50Gi` before applying.
-- **Do not use multiple .zip URLs with `cng-datasets workflow`.** Create a preprocessing job that downloads, unzips, and converts instead (see Step 1).
+- **Do not process data locally.** CLI generates YAML; the cluster does the work.
+- **Do not modify `cng_datasets/` source.** File an issue (see Hard Boundary 2).
+- **Do not request more than 50Gi ephemeral-storage.** The namespace caps it at 50Gi; generated YAMLs default to 250Gi — reduce to 50Gi and add `limits.ephemeral-storage: 50Gi` before applying.
+- **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
 
-## Reference: Complete PAD-US Example
+## Reference Examples
 
-PAD-US is a multi-layer GDB with 5 spatial layers. Each was processed with a separate workflow:
-
+### PAD-US (multi-layer GDB, 5 spatial layers)
 ```bash
-# Upload raw data first (one-time)
+# One-time raw upload
 rclone copy PADUS4_1Geodatabase.gdb nrp:public-padus/raw/PADUS4_1Geodatabase.gdb -P
 
-# Generate and apply each layer
+# Generate per-layer workflows
 for args in \
   "padus-4-1/fee PADUS4_1Fee" \
   "padus-4-1/easement PADUS4_1Easement" \
@@ -717,140 +457,70 @@ for args in \
   "padus-4-1/marine PADUS4_1Marine" \
   "padus-4-1/combined PADUS4_1Combined_Proclamation_Marine_Fee_Designation_Easement"; do
   set -- $args
-  cng-datasets workflow \
-    --dataset "$1" \
+  cng-datasets workflow --dataset "$1" \
     --source-url https://s3-west.nrp-nautilus.io/public-padus/raw/PADUS4_1Geodatabase.gdb \
-    --bucket public-padus \
-    --layer "$2" \
+    --bucket public-padus --layer "$2" \
     --h3-resolution 10 --hex-memory 32Gi --max-completions 200 --max-parallelism 50 \
     --parent-resolutions "9,8,0" \
     --output-dir "catalog/pad-us/k8s/$(echo $1 | cut -d/ -f2)"
 done
 
-# One-time RBAC setup (only needed once, likely already done)
-kubectl apply -f catalog/pad-us/k8s/fee/workflow-rbac.yaml
-
-# Apply all workflows
+kubectl apply -f catalog/pad-us/k8s/fee/workflow-rbac.yaml   # once
 for layer in fee easement proclamation marine combined; do
-  kubectl apply \
-    -f catalog/pad-us/k8s/$layer/configmap.yaml \
-    -f catalog/pad-us/k8s/$layer/workflow.yaml
+  kubectl apply -f catalog/pad-us/k8s/$layer/configmap.yaml -f catalog/pad-us/k8s/$layer/workflow.yaml
 done
 ```
+Non-spatial lookup tables: see `catalog/pad-us/k8s/extract-lookup-tables.yaml` and `catalog/pad-us/lookup-tables.md`.
 
-### Lookup Tables
-
-Non-spatial lookup tables were extracted via a k8s DuckDB job reading the GDB with `/vsis3/` paths. See `catalog/pad-us/k8s/extract-lookup-tables.yaml` and `catalog/pad-us/lookup-tables.md`.
-
-## Reference: Census 2024 Multi-Source Example
-
-Census TIGER/Line shapefiles are distributed as **per-state files**, not national files. Always verify URL patterns before generating workflows.
-
-**Pattern discovery:**
+### Census 2024 (per-state zips → preprocess → pipeline)
+TIGER/Line ships per-state. Discover pattern:
 ```bash
-# Verify directory exists
 curl -I https://www2.census.gov/geo/tiger/TIGER2024/TRACT/
-
-# List actual files available
-curl -s https://www2.census.gov/geo/tiger/TIGER2024/TRACT/ | grep '.zip' | head -10
-# Output shows: tl_2024_01_tract.zip, tl_2024_02_tract.zip, etc.
-
-# Verify specific file
-curl -I https://www2.census.gov/geo/tiger/TIGER2024/TRACT/tl_2024_01_tract.zip
-# HTTP/2 200 ✓
+curl -s https://www2.census.gov/geo/tiger/TIGER2024/TRACT/ | grep '.zip' | head
+# tl_2024_01_tract.zip, tl_2024_02_tract.zip, ...
 ```
-
-**Creating preprocessing job for zipped multi-file datasets:**
-
-See `catalog/census/k8s/tract/preprocess-tract.yaml` for a complete example. The job downloads all state ZIPs in parallel, unzips them, and calls `cng-convert-to-parquet /tmp/tracts/*.shp s3://...` (the tool merges shapefiles automatically). Apply and monitor with:
-
+Preprocess job (`catalog/census/k8s/tract/preprocess-tract.yaml`) parallel-downloads, unzips, and calls `cng-convert-to-parquet /tmp/tracts/*.shp s3://...` (tool merges). ~3 min for 56 files. Then:
 ```bash
-kubectl apply -f preprocess-tract.yaml
-kubectl logs -f census-2024-tract-preprocess
-```
-
-After preprocessing completes (~3 minutes for 56 files), generate and run the pipeline:
-
-```bash
-# Generate hex/pmtiles/repartition workflows
-cng-datasets workflow \
-  --dataset census-2024/tract \
-  --source-url s3://public-census/census-2024/tract.parquet \
-  --bucket public-census \
-  --h3-resolution 10 \
-  --parent-resolutions "9,8,0" \
-  --hex-memory 16Gi \
-  --max-completions 200 \
-  --max-parallelism 50 \
+cng-datasets workflow --dataset census-2024/tract \
+  --source-url s3://public-census/census-2024/tract.parquet --bucket public-census \
+  --h3-resolution 10 --parent-resolutions "9,8,0" \
+  --hex-memory 16Gi --max-completions 200 --max-parallelism 50 \
   --output-dir catalog/census/k8s/tract
-
-# Apply hex, pmtiles, repartition jobs
 kubectl apply -f catalog/census/k8s/tract/census-2024-tract-hex.yaml
 kubectl apply -f catalog/census/k8s/tract/census-2024-tract-pmtiles.yaml
-# Wait for hex to complete, then:
+# after hex:
 kubectl apply -f catalog/census/k8s/tract/census-2024-tract-repartition.yaml
 ```
+Result: ~85,000 tracts.
 
-**Result:** ~85,000 census tracts processed with parallel downloads completing in 3 minutes.
-
-## Reference: Raster Hex Workflow (Carbon Example)
-
-Raster datasets (COGs) are hexed using `cng-datasets raster-workflow`. The carbon irrecoverable carbon maps are a canonical example — each year is a separate COG already in S3.
-
+### Carbon raster (single COG already on S3)
 ```bash
-# Generate raster workflow YAML (single-tile COG already on S3)
-cng-datasets raster-workflow \
-  --dataset irrecoverable-carbon-2022 \
+cng-datasets raster-workflow --dataset irrecoverable-carbon-2022 \
   --source-url s3://public-carbon/v2/cogs/irrecoverable_c_total_2022.tif \
-  --bucket public-carbon \
-  --h3-resolution 8 \
-  --parent-resolutions "0" \
-  --value-column carbon \
-  --hex-memory 32Gi \
-  --max-parallelism 61 \
+  --bucket public-carbon --h3-resolution 8 --parent-resolutions "0" \
+  --value-column carbon --hex-memory 32Gi --max-parallelism 61 \
   --output-dir catalog/carbon/k8s/v2/irrecoverable-carbon-2022
 
-# Apply (one-time RBAC setup if not done)
 kubectl apply -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/workflow-rbac.yaml
-
-# Apply workflow
-kubectl apply \
-  -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/configmap.yaml \
-  -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/workflow.yaml
+kubectl apply -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/configmap.yaml \
+              -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/workflow.yaml
 ```
-
-The generated hex job runs `cng-datasets raster` once per h0 cell:
-```bash
-cng-datasets raster \
-  --input s3://public-carbon/v2/cogs/irrecoverable_c_total_2022.tif \
-  --output-parquet s3://public-carbon/irrecoverable-carbon-2022/hex/ \
-  --h0-index ${JOB_COMPLETION_INDEX} \
-  --resolution 8 \
-  --parent-resolutions 0 \
-  --value-column carbon
-```
-
-This creates 122 indexed pods (one per h0 cell), each writing `hex/h0={cell}/data_0.parquet`. Cells with no raster data are skipped silently. There is no repartition step — output goes directly to its final partition.
+Hex job runs `cng-datasets raster` once per h0 cell (122 indexed pods), writing `hex/h0={cell}/data_0.parquet`. Empty cells skipped silently. No repartition step — output goes directly to its final partition.
 
 ## Checking for User Dataset Requests
 
-A public-facing request form lives at **https://data-requests.nrp-nautilus.io/**. Each app gets its own route (e.g. `/tpl` for the TPL California Explorer). Submissions are stored as JSON in `s3://public-requests/dataset-requests/`.
+Request form: **https://data-requests.nrp-nautilus.io/** (per-app routes, e.g. `/tpl`). Submissions stored as JSON in `s3://public-requests/dataset-requests/`.
 
-**Check for new requests before starting a work session:**
-
+Check at session start:
 ```bash
-# Via the API (returns JSON array of all submissions)
 curl -s https://data-requests.nrp-nautilus.io/api/requests | python3 -m json.tool
-
-# Or directly from S3
 rclone ls nrp:public-requests/dataset-requests/
 ```
+Each submission: `app`, `timestamp`, plus user fields (dataset name, description, contact).
 
-Each submission is a JSON object with fields: `app` (which form it came from, e.g. `"tpl"`), `timestamp`, and user-provided fields (dataset name, description, contact, etc.).
+Triage:
+1. Review; decide if in scope.
+2. If yes: file a GitHub issue on `boettiger-lab/data-workflows` with the dataset import template (source URL, deliverables, bucket).
+3. Tag with the `app` if it came from a specific form.
 
-**Triage process:**
-1. Review new requests and decide whether the dataset is in scope
-2. If yes, file a GitHub issue in `boettiger-lab/data-workflows` using the standard dataset import template (source URL, deliverables, bucket)
-3. If the request came from a specific app form (e.g. `"app": "tpl"`), tag the issue accordingly
-
-The form deployment lives in `dataset-requests/` in this repo. See `dataset-requests/README.md` for how to add new app routes or redeploy.
+Form deployment: `dataset-requests/` — see `dataset-requests/README.md` for adding routes / redeploying.
