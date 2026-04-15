@@ -395,18 +395,25 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
 
 Upload from `/tmp/` to the bucket (see upload commands above — files live in `/tmp/`, not in the repo).
 
-### Step 6: Update Main Catalog
+### Step 6: Register the new collection in its parent sub-catalog
 
-Add the new collection to the central STAC catalog:
+**The STAC catalog is a TREE. Datasets belong in the sub-catalog that matches their domain, not at the root.** The root catalog (`public-data/stac/catalog.json`) only links to top-level sub-catalogs — one per bucket / domain (e.g. `public-high-seas`, `public-padus`, `public-census`). Individual datasets live under those sub-catalogs as children.
+
+**Before adding a link, identify the correct parent:**
+1. Is there already a sub-catalog for this domain/bucket? Check: `curl -s https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json | jq '.links[] | select(.rel=="child")'`
+2. If yes → add the child link to **that sub-catalog**, NOT the root.
+3. If no (brand-new bucket/domain) → create a bucket-level `stac-collection.json` first, register its children in it, then link the bucket-level collection as a child of the root catalog.
+
+**Example:** `mpa-candidates` is a high-seas dataset, so it is a child of `public-high-seas/stac-collection.json` — not of the root catalog. The root catalog only gains a new child when a new bucket/domain is introduced.
 
 ```bash
-# Download, edit to add child link, then upload
-curl -s https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json > /tmp/catalog.json
-# Edit /tmp/catalog.json to add new child link in "links" array
-rclone copyto /tmp/catalog.json nrp:public-data/stac/catalog.json
+# Common case: add dataset to an existing sub-catalog
+curl -s https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json > /tmp/parent.json
+# Edit /tmp/parent.json to add the new {"rel": "child", "id": "...", "href": "...", "title": "..."} entry
+rclone copyto /tmp/parent.json nrp:<bucket>/stac-collection.json
 ```
 
-The child link should point to your dataset's `stac-collection.json` URL.
+Only touch `public-data/stac/catalog.json` when registering a **new top-level sub-catalog** (i.e. a new bucket or domain), never for individual datasets that belong under an existing one.
 
 ### Step 7: Add a MinIO Sync Job
 
