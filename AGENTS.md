@@ -237,14 +237,47 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
 
 - **Any vector asset with named layers** (PMTiles, GDB, GPKG, etc.) MUST include `"vector:layers": ["<name>"]`. For PMTiles the layer name = last segment of `--dataset`.
 
-- **`table:columns`** array documenting every column. For **coded categorical** columns (e.g. `FED`, `OA`, `PERM`), the description MUST list all valid values in `CODE=Definition, ...` format. Discover actual values via DuckDB before writing:
+- **`table:columns` goes on each parquet asset — NOT at the collection level.** Put it inside the asset object for the GeoParquet and hex assets. Do not add a top-level `table:columns` to the collection. The geo-agent reads asset-level schemas via MCP; collection-level is only a fallback for legacy datasets.
+
+  Each parquet asset documents exactly the columns it contains:
+  - **GeoParquet asset**: include the geometry column (`Shape`, `geom`, or `geometry`)
+  - **Hex asset**: exclude the geometry column; include H3 index columns (`h0`, `h8`, `h9`, `h10` etc.) and `_cng_fid`/`bbox` if present
+  - **PMTiles / COG assets**: no `table:columns` needed (not SQL-queryable)
+
+  ```json
+  "assets": {
+    "sldl-parquet": {
+      "href": "https://…/sldl.parquet",
+      "type": "application/x-parquet",
+      "title": "…",
+      "table:columns": [
+        {"name": "GEOID", "type": "string", "description": "…"},
+        {"name": "geometry", "type": "geometry", "description": "Feature geometry (GeoParquet)"}
+      ]
+    },
+    "sldl-hex": {
+      "href": "https://…/sldl/hex/h0=*/data_0.parquet",
+      "type": "application/x-parquet",
+      "title": "…",
+      "table:columns": [
+        {"name": "GEOID", "type": "string", "description": "…"},
+        {"name": "h10", "type": "integer", "description": "H3 index at resolution 10"},
+        {"name": "h8",  "type": "integer", "description": "H3 index at resolution 8"},
+        {"name": "h0",  "type": "integer", "description": "H3 index at resolution 0 (partition key)"}
+      ]
+    }
+  }
+  ```
+
+  For **coded categorical** columns, the description MUST list all valid values in `CODE=Definition, …` format and include a `"values"` array. Discover actual values via DuckDB before writing:
   ```sql
-  SELECT column_name, COUNT(*) AS n FROM read_parquet('s3://...') GROUP BY column_name ORDER BY n DESC
+  SELECT column_name, COUNT(*) AS n FROM read_parquet('s3://…') GROUP BY column_name ORDER BY n DESC
   ```
   Example:
   ```json
   {"name": "owner_type", "type": "string",
-   "description": "Owner type code. Values: FED=Federal, STAT=State, LOC=Local, NGO=Non-governmental/non-profit, TRIB=Tribal/Indigenous, PVT=Private, UNK=Unknown"}
+   "description": "Owner type code. Values: FED=Federal, STAT=State, LOC=Local, NGO=Non-governmental/non-profit, TRIB=Tribal/Indigenous, PVT=Private, UNK=Unknown",
+   "values": ["FED", "STAT", "LOC", "NGO", "TRIB", "PVT", "UNK"]}
   ```
   Missing definitions cause LLM agents to guess values (e.g. `WHERE owner_type = 'Federal'` instead of `'FED'`) and return empty results.
 
