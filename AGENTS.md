@@ -244,6 +244,14 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
   - **Hex asset**: exclude the geometry column; include H3 index columns (`h0`, `h8`, `h9`, `h10` etc.) and `_cng_fid`/`bbox` if present
   - **PMTiles / COG assets**: no `table:columns` needed (not SQL-queryable)
 
+- **Hex assets MUST declare their H3 resolutions explicitly** via `h3:native_resolution` and `h3:parent_resolutions` on the asset itself. Column-name presence (`h10`, `h9`, …) is not enough — downstream tools shouldn't have to enumerate `table:columns` to find out what resolutions exist. `h3:native_resolution` is the finest resolution (one row per feature-cell at this res); `h3:parent_resolutions` is the list of rollup resolutions, which MUST include `0` (the partition key).
+
+- **Hex assets MUST flag per-feature duplication on any attribute a consumer might aggregate.** One hex row = one (feature, cell) pair, so any column that represents a per-feature total — area (`GIS_Acres`, `SHAPE_Area`), length (`SHAPE_Length`), population, count, amount, funding, intensity — is repeated on every cell the feature covers. The column description on the hex asset MUST state this and give a dedup recipe. Use one of:
+  - **Area/length from hex count** (never SUM the source value): `COUNT(DISTINCT h<N>) × cell_area_at_resolution_N` (res 10 ≈ 0.13 acres; res 9 ≈ 24.7 acres; res 8 ≈ 182 acres).
+  - **SUM after dedup** (when the attribute is a real per-feature value): `SELECT DISTINCT <feature_key>, <attr> …` or `ROW_NUMBER() OVER (PARTITION BY <feature_key>)` before aggregating.
+
+  Columns that are safe to aggregate on hex (H3 indexes, `_cng_fid`, `bbox`) don't need a warning. If no column on the hex asset is safe to SUM, say so once in the collection description too.
+
   ```json
   "assets": {
     "sldl-parquet": {
@@ -252,6 +260,7 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
       "title": "…",
       "table:columns": [
         {"name": "GEOID", "type": "string", "description": "…"},
+        {"name": "ALAND", "type": "int64", "description": "Land area in m² of the source district polygon."},
         {"name": "geometry", "type": "geometry", "description": "Feature geometry (GeoParquet)"}
       ]
     },
@@ -259,11 +268,16 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
       "href": "https://…/sldl/hex/h0=*/data_0.parquet",
       "type": "application/x-parquet",
       "title": "…",
+      "h3:native_resolution": 10,
+      "h3:parent_resolutions": [9, 8, 0],
       "table:columns": [
         {"name": "GEOID", "type": "string", "description": "…"},
-        {"name": "h10", "type": "integer", "description": "H3 index at resolution 10"},
-        {"name": "h8",  "type": "integer", "description": "H3 index at resolution 8"},
-        {"name": "h0",  "type": "integer", "description": "H3 index at resolution 0 (partition key)"}
+        {"name": "ALAND", "type": "int64",
+         "description": "Land area in m² of the source district polygon. **Repeated on every hex row the district covers — never SUM(ALAND) on hex data. Compute area from hex count: COUNT(DISTINCT h10) × 1,478 m².**"},
+        {"name": "h10", "type": "uint64", "description": "H3 cell ID at resolution 10 (~1,478 m² ≈ 0.13 acres)."},
+        {"name": "h9",  "type": "uint64", "description": "H3 cell ID at resolution 9 (~0.1 km² ≈ 24.7 acres)."},
+        {"name": "h8",  "type": "uint64", "description": "H3 cell ID at resolution 8 (~0.737 km² ≈ 182 acres)."},
+        {"name": "h0",  "type": "int64",  "description": "H3 cell ID at resolution 0, used as the partition key for hive-partitioned reads."}
       ]
     }
   }
