@@ -1,0 +1,122 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tpl-split-preprocess
+  namespace: biodiversity
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: tpl-split-preprocess
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: split
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_EC2_METADATA_DISABLED
+          value: "true"
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        envFrom:
+        - secretRef:
+            name: aws
+        resources:
+          requests:
+            memory: 32Gi
+            cpu: "4"
+            ephemeral-storage: 50Gi
+          limits:
+            memory: 32Gi
+            cpu: "4"
+            ephemeral-storage: 50Gi
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          python3 <<'PYEOF'
+          import duckdb
+          c = duckdb.connect()
+          c.execute("INSTALL spatial; LOAD spatial;")
+          c.execute("INSTALL httpfs; LOAD httpfs;")
+          c.execute("""
+            CREATE SECRET s3_public (
+              TYPE S3,
+              KEY_ID '{}',
+              SECRET '{}',
+              ENDPOINT 'rook-ceph-rgw-nautiluss3.rook',
+              URL_STYLE 'path',
+              USE_SSL false
+            )
+          """.format(__import__('os').environ['AWS_ACCESS_KEY_ID'],
+                     __import__('os').environ['AWS_SECRET_ACCESS_KEY']))
+
+          SRC = "s3://public-tpl/raw/conservation-almanac-2024.parquet"
+
+          # Sanity pre-check
+          n_rows, n_tpl = c.execute(
+            f"SELECT COUNT(*), COUNT(DISTINCT tpl_id) FROM read_parquet('{SRC}')"
+          ).fetchone()
+          print(f"[pre] rows={n_rows} unique tpl_id={n_tpl}")
+          assert n_rows >= 90000 and n_tpl >= 67000, "raw shape unexpected"
+
+          # Raw parquet has `geom` but no `bbox` column — bbox is added later
+          # by the cng-datasets convert step in Task 2. Keep geom, drop bbox here.
+          SITE_COLS = [
+            "tpl_id","state_id","state","county","municipality","site","acres",
+            "year","date","owner","owner_type","manager","manager_type",
+            "purchase_type","easement","easement_type","access_type",
+            "purpose_type","duration_type","comments","geom"
+          ]
+          site_select = ", ".join(
+            f"FIRST({col} ORDER BY fid) AS {col}" for col in SITE_COLS if col != "tpl_id"
+          )
+
+          # --- Sites: one row per tpl_id ---
+          c.execute(f"""
+            COPY (
+              SELECT tpl_id, {site_select}
+              FROM read_parquet('{SRC}')
+              GROUP BY tpl_id
+            ) TO 's3://public-tpl/conservation-almanac-2024-sites.parquet'
+            (FORMAT PARQUET, COMPRESSION ZSTD)
+          """)
+
+          # --- Funding: long table, no geometry ---
+          c.execute(f"""
+            COPY (
+              SELECT tpl_id, program_id, program, sponsor_id, sponsor,
+                     sponsor_type, amount,
+                     data_provider, data_source, source_date, data_aggregator
+              FROM read_parquet('{SRC}')
+              WHERE program IS NOT NULL OR sponsor IS NOT NULL OR amount IS NOT NULL
+            ) TO 's3://public-tpl/conservation-almanac-2024-funding.parquet'
+            (FORMAT PARQUET, COMPRESSION ZSTD)
+          """)
+
+          # Post-checks
+          n_sites = c.execute(
+            "SELECT COUNT(*) FROM read_parquet('s3://public-tpl/conservation-almanac-2024-sites.parquet')"
+          ).fetchone()[0]
+          n_sites_u = c.execute(
+            "SELECT COUNT(DISTINCT tpl_id) FROM read_parquet('s3://public-tpl/conservation-almanac-2024-sites.parquet')"
+          ).fetchone()[0]
+          n_fund = c.execute(
+            "SELECT COUNT(*) FROM read_parquet('s3://public-tpl/conservation-almanac-2024-funding.parquet')"
+          ).fetchone()[0]
+          print(f"[post] sites rows={n_sites} unique={n_sites_u} funding rows={n_fund}")
+          assert n_sites == n_sites_u, "sites parquet not unique by tpl_id"
+          assert n_sites == n_tpl, "sites count differs from raw tpl_id count"
+          print("OK")
+          PYEOF
