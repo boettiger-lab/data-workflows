@@ -295,6 +295,25 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
   ```
   Missing definitions cause LLM agents to guess values (e.g. `WHERE owner_type = 'Federal'` instead of `'FED'`) and return empty results.
 
+- **Categorical rasters (COG assets with discrete pixel-value classes):** the COG asset's `raster:bands[0]` MUST include `classification:classes` (STAC classification extension v2.0.0). Each entry: `{ value, name, description, color_hint }` where `color_hint` is a 6-character RGB hex (no leading `#`). Add `https://stac-extensions.github.io/classification/v2.0.0/schema.json` to `stac_extensions`. Do **not** use the legacy `class_values` field from the raster extension — geo-agent reads `classification:classes` and `color_hint` to build both the discrete legend swatches and the titiler categorical colormap; without those colors the layer falls back to a continuous gradient. Use the dataset's standard published palette where one exists (NLCD MRLC colors, etc.); otherwise pick distinguishable accessible colors and note the choice in the asset description.
+  ```json
+  "stac_extensions": [
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json"
+  ],
+  "assets": {
+    "nlcd-cog": {
+      "raster:bands": [{
+        "name": "land_cover_class", "data_type": "uint8", "nodata": 0,
+        "classification:classes": [
+          {"value": 11, "name": "Open Water", "description": "…", "color_hint": "466B9F"},
+          {"value": 41, "name": "Deciduous Forest", "description": "…", "color_hint": "68AB5F"}
+        ]
+      }]
+    }
+  }
+  ```
+
 - **Point datasets:** `description` or `"processing:notes"` MUST state each point resolved to one H3 cell at the processing resolution, and name the resolution. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 
 ### Step 6: Register in the parent sub-catalog
