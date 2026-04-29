@@ -220,6 +220,24 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
 
 **stac-collection.json MUST include:**
 
+- **Navigation links — every collection needs all four:**
+
+  ```json
+  "links": [
+    {"rel": "self",   "href": "https://s3-west.nrp-nautilus.io/<bucket>/<path>/stac-collection.json", "type": "application/json"},
+    {"rel": "root",   "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",        "type": "application/json"},
+    {"rel": "parent", "href": "<URL of the collection that links to this one as a child>",             "type": "application/json"},
+    {"rel": "child",  "href": "<URL of each sub-collection>",                                          "type": "application/json"}
+  ]
+  ```
+
+  Rules:
+  - `self` = the collection's own S3 URL.
+  - `root` = always the NRP root catalog (`public-data/stac/catalog.json`).
+  - `parent` = the collection that holds this one as a `child` link. For top-level bucket collections this is the root catalog. For nested sub-collections (e.g. `public-rivers/american-rivers/dam-removal/`) this is the domain collection (`public-rivers/american-rivers/stac-collection.json`), **not** the root.
+  - `child` = `"rel": "child"` (not `"item"`) for every sub-collection. `"rel": "item"` is for individual STAC Items (features), not Collections.
+  - **Without `self`/`root`/`parent`, geo-agent cannot traverse the tree and the collection won't expand.**
+
 - **Asset keys encode the dataset, not the format.** Never use generic keys (`pmtiles`, `geoparquet`, `h3-parquet`, `parquet`, `hex`) — they collide and break downstream apps. Use `{last-segment}-{format}`:
 
   | Asset | Pattern | Example (`--dataset census-2025/sldl`) |
