@@ -15,6 +15,8 @@ BUCKET = "public-requests"
 PREFIX = "dataset-requests/"
 ENDPOINT = "https://s3-west.nrp-nautilus.io"
 
+DEFAULT_QUESTION_PLACEHOLDER = "e.g. I wanted to find which neighborhoods have the least tree canopy AND highest heat risk, but I couldn't combine those layers."
+
 APPS = {
     "tpl": {
         "title": "TPL California Explorer",
@@ -44,6 +46,7 @@ APPS = {
             "What information would have made it easier? You can describe it "
             "in everyday terms &mdash; no need to know the technical dataset names."
         ),
+        "question_placeholder": DEFAULT_QUESTION_PLACEHOLDER,
     },
     "cacao": {
         "title": "CACAO Explorer",
@@ -75,6 +78,7 @@ APPS = {
             "You can describe it in everyday terms &mdash; no need to know the "
             "technical dataset names."
         ),
+        "question_placeholder": DEFAULT_QUESTION_PLACEHOLDER,
     },
 }
 
@@ -118,6 +122,7 @@ def render(app_id: str = ""):
         feedback_hint_block = f'<p class="hint">{feedback_hint}</p>' if feedback_hint else ""
         question_hint = cfg.get("question_hint", "")
         question_hint_block = f'<p class="hint">{question_hint}</p>' if question_hint else ""
+        question_placeholder = cfg.get("question_placeholder", DEFAULT_QUESTION_PLACEHOLDER)
         return TEMPLATE.format(
             title=cfg["title"],
             subtitle=cfg["subtitle"],
@@ -127,6 +132,7 @@ def render(app_id: str = ""):
             show_question="none",
             feedback_hint_block=feedback_hint_block,
             question_hint_block=question_hint_block,
+            question_placeholder=question_placeholder,
         )
     return TEMPLATE.format(
         title="Boettiger Lab Data Platform",
@@ -140,6 +146,7 @@ def render(app_id: str = ""):
         show_question="block",
         feedback_hint_block="",
         question_hint_block="",
+        question_placeholder=DEFAULT_QUESTION_PLACEHOLDER,
     )
 
 
