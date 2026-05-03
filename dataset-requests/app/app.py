@@ -15,7 +15,9 @@ BUCKET = "public-requests"
 PREFIX = "dataset-requests/"
 ENDPOINT = "https://s3-west.nrp-nautilus.io"
 
+# Question placeholder text for each app
 DEFAULT_QUESTION_PLACEHOLDER = "e.g. I wanted to find which neighborhoods have the least tree canopy AND highest heat risk, but I couldn't combine those layers."
+CACAO_QUESTION_PLACEHOLDER = "e.g. I wanted to find which farms have the least tree canopy AND highest species richness, but I couldn't combine those layers."
 
 APPS = {
     "tpl": {
@@ -78,7 +80,7 @@ APPS = {
             "You can describe it in everyday terms &mdash; no need to know the "
             "technical dataset names."
         ),
-        "question_placeholder": DEFAULT_QUESTION_PLACEHOLDER,
+        "question_placeholder": CACAO_QUESTION_PLACEHOLDER,
     },
 }
 
