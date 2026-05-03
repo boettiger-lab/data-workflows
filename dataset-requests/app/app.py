@@ -82,7 +82,6 @@ APPS = {
         ),
         "question_placeholder": CACAO_QUESTION_PLACEHOLDER,
     },
-    },
 }
 
 TEMPLATE = (Path(__file__).parent / "index.html").read_text()
