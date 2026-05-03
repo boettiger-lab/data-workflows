@@ -1,0 +1,425 @@
+# Auto-generated ConfigMap containing job definitions
+# Generated from: wcb-approved-projects-setup-bucket.yaml, wcb-approved-projects-convert.yaml, wcb-approved-projects-pmtiles.yaml, wcb-approved-projects-hex.yaml, wcb-approved-projects-repartition.yaml
+# Generation command: cng-datasets workflow --dataset wcb-approved-projects --source-url https://s3-west.nrp-nautilus.io/public-tpl/raw/ds672.gdb --bucket public-tpl --h3-resolution 10 --parent-resolutions "9,8,0"
+#
+# This ConfigMap is equivalent to running:
+#   kubectl create configmap wcb-approved-projects-yamls \
+#     --from-file=wcb-approved-projects-setup-bucket.yaml \
+#     --from-file=wcb-approved-projects-convert.yaml \
+#     --from-file=wcb-approved-projects-pmtiles.yaml \
+#     --from-file=wcb-approved-projects-hex.yaml \
+#     --from-file=wcb-approved-projects-repartition.yaml
+#
+# To update: regenerate workflow with cng-datasets and re-apply with kubectl apply -f configmap.yaml
+apiVersion: v1
+data:
+  wcb-approved-projects-convert.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: wcb-approved-projects-convert
+      labels:
+        k8s-app: wcb-approved-projects-convert
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: wcb-approved-projects-convert
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: convert-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-tpl
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              cng-convert-to-parquet \
+                https://s3-west.nrp-nautilus.io/public-tpl/raw/ds672.gdb \
+                s3://public-tpl/wcb-approved-projects.parquet \
+                --row-group-size 100000 \
+                --layer ds672
+            resources:
+              requests:
+                cpu: '4'
+                memory: 16Gi
+              limits:
+                cpu: '4'
+                memory: 16Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  wcb-approved-projects-hex.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: wcb-approved-projects-hex
+      labels:
+        k8s-app: wcb-approved-projects-hex
+    spec:
+      completions: 50
+      parallelism: 25
+      completionMode: Indexed
+      backoffLimit: 0
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - type: DisruptionTarget
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: wcb-approved-projects-hex
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: hex-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
+            - name: BUCKET
+              value: public-tpl
+            - name: DATASET
+              value: wcb-approved-projects
+            command:
+            - bash
+            - -c
+            - |-
+              set -e
+              cng-datasets vector --input s3://public-tpl/wcb-approved-projects.parquet --output s3://public-tpl/wcb-approved-projects/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 79 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+            resources:
+              requests:
+                cpu: '4'
+                memory: 16Gi
+                ephemeral-storage: 10Gi
+              limits:
+                cpu: '4'
+                memory: 16Gi
+                ephemeral-storage: 10Gi
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  wcb-approved-projects-pmtiles.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: wcb-approved-projects-pmtiles
+      labels:
+        k8s-app: wcb-approved-projects-pmtiles
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: wcb-approved-projects-pmtiles
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: pmtiles-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
+            - name: BUCKET
+              value: public-tpl
+            - name: DATASET
+              value: wcb-approved-projects
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              # Use optimized GeoParquet (has ID column) from convert job
+              # GDAL can read parquet via vsicurl
+              ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-tpl/wcb-approved-projects.parquet -progress
+
+              # Generate PMTiles from GeoJSONSeq
+              # TIPPECANOE_MAX_THREADS must be a power of 2; Kubernetes nodes can expose
+              # non-power-of-2 logical CPU counts which triggers an internal assertion
+              # failure "N shards not a power of 2" (felt/tippecanoe#216).
+              # Round detected CPU count down to nearest power of 2 to preserve I/O parallelism.
+              TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$DATASET.geojsonl
+
+              # Upload to S3 using rclone
+              rclone copy /tmp/$DATASET.pmtiles nrp:public-tpl/
+              rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles
+            resources:
+              requests:
+                cpu: '4'
+                memory: 16Gi
+              limits:
+                cpu: '4'
+                memory: 16Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  wcb-approved-projects-repartition.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: wcb-approved-projects-repartition
+      labels:
+        k8s-app: wcb-approved-projects-repartition
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: wcb-approved-projects-repartition
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: repartition-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: TMPDIR
+              value: /tmp
+            - name: BUCKET
+              value: public-tpl
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              cng-datasets repartition --chunks-dir s3://public-tpl/wcb-approved-projects/chunks --output-dir s3://public-tpl/wcb-approved-projects/hex --source-parquet s3://public-tpl/wcb-approved-projects.parquet --cleanup --memory-limit 27GiB
+            resources:
+              requests:
+                cpu: '4'
+                memory: 32Gi
+                ephemeral-storage: 50Gi
+              limits:
+                cpu: '4'
+                memory: 32Gi
+                ephemeral-storage: 50Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  wcb-approved-projects-setup-bucket.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: wcb-approved-projects-setup-bucket
+      labels:
+        k8s-app: wcb-approved-projects-setup-bucket
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: wcb-approved-projects-setup-bucket
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: setup-bucket-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-tpl
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              echo "Setting up bucket with public access and CORS..."
+              cng-datasets storage setup-bucket \
+                --bucket "${BUCKET}" \
+                --remote nrp \
+                --verify
+
+              echo "Bucket setup complete!"
+            resources:
+              requests:
+                cpu: '1'
+                memory: 2Gi
+              limits:
+                cpu: '1'
+                memory: 2Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+kind: ConfigMap
+metadata:
+  name: wcb-approved-projects-yamls
+  namespace: biodiversity
