@@ -53,9 +53,31 @@ spec:
         - -c
         - |
           set -e
-          # Use optimized GeoParquet (has ID column) from convert job
-          # GDAL can read parquet via vsicurl
-          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-cgs/sierra-nevada-atlas/map-unit-polys.parquet -progress
+
+          # Join descriptions onto polygons so PMTiles tooltips/styling can read
+          # FullName/Age/GeoMaterial/Description directly without a client-side join.
+          python3 <<'PYEOF'
+          import duckdb
+          c = duckdb.connect()
+          c.execute("LOAD spatial; LOAD httpfs;")
+          c.execute("""
+            COPY (
+              SELECT
+                p.MapUnit,
+                p.IdentityConfidence,
+                d.FullName,
+                d.Age,
+                d.GeoMaterial,
+                d.Description,
+                p.Shape
+              FROM read_parquet('https://s3-west.nrp-nautilus.io/public-cgs/sierra-nevada-atlas/map-unit-polys.parquet') p
+              LEFT JOIN read_parquet('https://s3-west.nrp-nautilus.io/public-cgs/sierra-nevada-atlas/description-of-map-units.parquet') d
+              USING (MapUnit)
+            ) TO '/tmp/enriched.parquet' (FORMAT PARQUET);
+          """)
+          PYEOF
+
+          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /tmp/enriched.parquet -progress
 
           # Generate PMTiles from GeoJSONSeq
           # TIPPECANOE_MAX_THREADS must be a power of 2; Kubernetes nodes can expose
@@ -67,7 +89,7 @@ spec:
 
           # Upload to S3 using rclone
           rclone copy /tmp/$DATASET.pmtiles nrp:public-cgs/sierra-nevada-atlas/
-          rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles
+          rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles /tmp/enriched.parquet
         resources:
           requests:
             cpu: '4'
