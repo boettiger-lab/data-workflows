@@ -1,0 +1,104 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nwi-v2-pmtiles
+  labels:
+    k8s-app: nwi-v2-pmtiles
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: nwi-v2-pmtiles
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: pmtiles-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-wetlands
+        - name: DATASET
+          value: nwi-v2
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # GeoJSONSeq -> tippecanoe with sufficient ephemeral storage for the
+          # intermediate file. The namespace caps memory at 1Ti and has no
+          # hard ephemeral cap (default LimitRange of 50Gi is overridable),
+          # so request a generous 150Gi for the intermediate jsonl + tippecanoe
+          # tmp. -select drops bulky attribute columns we don't need in tiles.
+          TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          export TIPPECANOE_MAX_THREADS
+
+          ogr2ogr -wrapdateline -datelineoffset 15 \
+                  -select _cng_fid,ATTRIBUTE,WETLAND_TYPE,state_code \
+                  -f GeoJSONSeq /tmp/$DATASET.jsonl \
+                  /vsicurl/https://s3-west.nrp-nautilus.io/public-wetlands/nwi-v2.parquet \
+                  -progress
+
+          tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET \
+              -z14 \
+              --drop-densest-as-needed \
+              --coalesce-densest-as-needed \
+              --simplification=2 \
+              --maximum-tile-bytes=500000 \
+              --maximum-tile-features=200000 \
+              --force /tmp/$DATASET.jsonl
+
+          rm /tmp/$DATASET.jsonl
+          rclone copy /tmp/$DATASET.pmtiles nrp:public-wetlands/ -v
+          rm /tmp/$DATASET.pmtiles
+        resources:
+          requests:
+            cpu: '8'
+            memory: 64Gi
+            ephemeral-storage: 150Gi
+          limits:
+            cpu: '8'
+            memory: 64Gi
+            ephemeral-storage: 150Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

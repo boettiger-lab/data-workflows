@@ -1,0 +1,104 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nwi-v2-state-tiles
+  namespace: biodiversity
+  labels:
+    k8s-app: nwi-v2-state-tiles
+spec:
+  completions: 51
+  parallelism: 20
+  completionMode: Indexed
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nwi-v2-state-tiles
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: tile
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -e
+          STATES=(AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY)
+          ST=${STATES[$JOB_COMPLETION_INDEX]}
+          echo "=== Processing state: $ST (index $JOB_COMPLETION_INDEX) ==="
+
+          TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          export TIPPECANOE_MAX_THREADS
+
+          INPUT="/vsicurl/https://s3-west.nrp-nautilus.io/public-wetlands/raw/nwi/${ST}_Wetlands.parquet"
+          JSONL="/tmp/${ST}.jsonl"
+          PMTILES="/tmp/${ST}.pmtiles"
+
+          # Reproject to EPSG:4326; ogr2ogr auto-detects source CRS from parquet.
+          # -select drops bulky attrs we don't need in tiles.
+          ogr2ogr -t_srs EPSG:4326 -wrapdateline -datelineoffset 15 \
+                  -select ATTRIBUTE,WETLAND_TYPE \
+                  -f GeoJSONSeq "$JSONL" "$INPUT" -progress
+
+          ls -lh "$JSONL"
+
+          # Add state_code via sed since ogr2ogr can't compute it from filename.
+          # GeoJSONSeq features look like: {"type":"Feature","properties":{...},"geometry":{...}}
+          # We inject "state_code":"${ST}" into the properties object.
+          sed -i "s/\"properties\":{/\"properties\":{\"state_code\":\"${ST}\",/" "$JSONL"
+
+          tippecanoe -o "$PMTILES" -l nwi-v2 \
+              -z14 \
+              --drop-densest-as-needed \
+              --coalesce-densest-as-needed \
+              --simplification=2 \
+              --maximum-tile-bytes=500000 \
+              --maximum-tile-features=200000 \
+              --force "$JSONL"
+
+          ls -lh "$PMTILES"
+
+          rclone copyto "$PMTILES" "nrp:public-wetlands/nwi-v2-state-tiles/${ST}.pmtiles" -v
+          rm -f "$JSONL" "$PMTILES"
+          echo "=== Done state: $ST ==="
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        resources:
+          requests:
+            cpu: "4"
+            memory: 16Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
