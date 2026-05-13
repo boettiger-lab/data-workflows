@@ -1,0 +1,99 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nwi-v2-add-id
+  namespace: biodiversity
+  labels:
+    k8s-app: nwi-v2-add-id
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nwi-v2-add-id
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: add-id
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -e
+          mkdir -p /tmp/duckdb
+
+          # DuckDB streams the rewrite to S3 (no local temp file), so we avoid
+          # the convert step's 76 GB local copy that won't fit in 50Gi ephemeral.
+          python3 - <<'PY'
+          import os, duckdb
+          c = duckdb.connect(database=":memory:")
+          c.execute("INSTALL httpfs; LOAD httpfs;")
+          c.execute("INSTALL spatial; LOAD spatial;")
+          c.execute("SET memory_limit='100GB'")
+          c.execute("SET threads=8")
+          c.execute("SET temp_directory='/tmp/duckdb'")
+          c.execute(
+              "CREATE SECRET nrp (TYPE S3, ENDPOINT 's3-west.nrp-nautilus.io', URL_STYLE 'path', KEY_ID ?, SECRET ?, REGION 'us-west-2')",
+              [os.environ["AWS_ACCESS_KEY_ID"], os.environ["AWS_SECRET_ACCESS_KEY"]],
+          )
+
+          # Write to a sibling URL; rclone moveto handles the swap atomically.
+          src = "s3://public-wetlands/nwi-v2.parquet"
+          dst = "s3://public-wetlands/nwi-v2-ided.parquet"
+          c.execute(f"""
+            COPY (
+              SELECT row_number() OVER () - 1 AS _cng_fid, *
+              FROM read_parquet('{src}')
+            ) TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+          """)
+          PY
+
+          # Replace the original parquet with the id'd version
+          rclone moveto nrp:public-wetlands/nwi-v2-ided.parquet nrp:public-wetlands/nwi-v2.parquet -v
+
+          # Verify
+          python3 - <<'VERIFY'
+          import os, duckdb
+          c = duckdb.connect()
+          c.execute("INSTALL httpfs; LOAD httpfs;")
+          c.execute(
+              "CREATE SECRET nrp (TYPE S3, ENDPOINT 's3-west.nrp-nautilus.io', URL_STYLE 'path', KEY_ID ?, SECRET ?, REGION 'us-west-2')",
+              [os.environ["AWS_ACCESS_KEY_ID"], os.environ["AWS_SECRET_ACCESS_KEY"]],
+          )
+          url = "s3://public-wetlands/nwi-v2.parquet"
+          print(c.execute(f"DESCRIBE SELECT * FROM read_parquet('{url}') LIMIT 1").fetchall())
+          print(c.execute(f"SELECT COUNT(*) AS n, COUNT(DISTINCT _cng_fid) AS unique_ids, MIN(_cng_fid), MAX(_cng_fid) FROM read_parquet('{url}')").fetchall())
+          VERIFY
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        resources:
+          requests:
+            cpu: "8"
+            memory: 120Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: "8"
+            memory: 120Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

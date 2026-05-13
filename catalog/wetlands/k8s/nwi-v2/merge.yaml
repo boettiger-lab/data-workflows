@@ -1,0 +1,136 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nwi-v2-merge
+  namespace: biodiversity
+  labels:
+    k8s-app: nwi-v2-merge
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nwi-v2-merge
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: merge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -e
+          mkdir -p /tmp/duckdb
+          python3 - <<'PY'
+          import os, duckdb
+          c = duckdb.connect(database=":memory:")
+          c.execute("INSTALL httpfs; LOAD httpfs;")
+          c.execute("INSTALL spatial; LOAD spatial;")
+          c.execute("SET memory_limit='100GB'")
+          c.execute("SET threads=8")
+          c.execute("SET temp_directory='/tmp/duckdb'")
+          c.execute(
+              "CREATE SECRET nrp (TYPE S3, ENDPOINT 's3-west.nrp-nautilus.io', URL_STYLE 'path', KEY_ID ?, SECRET ?, REGION 'us-west-2')",
+              [os.environ["AWS_ACCESS_KEY_ID"], os.environ["AWS_SECRET_ACCESS_KEY"]],
+          )
+
+          # 49 CONUS states + DC are EPSG:5070; AK is EPSG:3338; HI uses a custom
+          # NAD83 Albers Hawaii projection (no EPSG, encoded as projjson in the file).
+          # We strip the embedded CRS via ST_AsWKB -> ST_GeomFromWKB, then ST_Transform
+          # with the known per-group source CRS, so the UNION ALL is all EPSG:4326.
+          hi_proj = "+proj=aea +lat_1=8 +lat_2=18 +lat_0=3 +lon_0=-157 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+
+          # DuckDB binds schemas across ALL files matched by a glob at parse time,
+          # so a glob covering mixed CRSs is rejected even with a row-level WHERE.
+          # Build explicit per-CRS file lists.
+          all_files = [r[0] for r in c.execute(
+              "SELECT file FROM glob('s3://public-wetlands/raw/nwi/*_Wetlands.parquet') ORDER BY file"
+          ).fetchall()]
+          print(f"Found {len(all_files)} source files", flush=True)
+
+          def matches(f, st):
+              return f.endswith(f"/{st}_Wetlands.parquet")
+
+          ak_files    = [f for f in all_files if matches(f, "AK")]
+          hi_files    = [f for f in all_files if matches(f, "HI")]
+          conus_files = [f for f in all_files if f not in ak_files and f not in hi_files]
+          assert len(ak_files) == 1 and len(hi_files) == 1
+          assert len(conus_files) == len(all_files) - 2
+          print(f"CONUS files: {len(conus_files)}; AK: 1; HI: 1", flush=True)
+
+          def fmt(lst):
+              return "[" + ", ".join(repr(s) for s in lst) + "]"
+
+          select_cols = """
+              ATTRIBUTE,
+              WETLAND_TYPE,
+              ACRES,
+              Shape_Length,
+              Shape_Area,
+              regexp_extract(filename, '([A-Z]{2,3})_Wetlands\\.parquet$', 1) AS state_code
+          """
+
+          sql = f"""
+          COPY (
+            SELECT {select_cols},
+                   ST_Transform(ST_GeomFromWKB(ST_AsWKB(geometry)),
+                                'EPSG:5070', 'EPSG:4326', always_xy := true) AS geometry
+            FROM read_parquet({fmt(conus_files)}, filename = true)
+            UNION ALL
+            SELECT {select_cols},
+                   ST_Transform(ST_GeomFromWKB(ST_AsWKB(geometry)),
+                                'EPSG:3338', 'EPSG:4326', always_xy := true) AS geometry
+            FROM read_parquet({fmt(ak_files)}, filename = true)
+            UNION ALL
+            SELECT {select_cols},
+                   ST_Transform(ST_GeomFromWKB(ST_AsWKB(geometry)),
+                                '{hi_proj}', 'EPSG:4326', always_xy := true) AS geometry
+            FROM read_parquet({fmt(hi_files)}, filename = true)
+          ) TO 's3://public-wetlands/nwi-v2.parquet'
+          (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+          """
+          print("Running merge COPY…", flush=True)
+          c.execute(sql)
+          print("done", flush=True)
+          PY
+
+          python3 - <<'VERIFY'
+          import os, duckdb
+          c = duckdb.connect()
+          c.execute("INSTALL httpfs; LOAD httpfs;")
+          c.execute("INSTALL spatial; LOAD spatial;")
+          c.execute(
+              "CREATE SECRET nrp (TYPE S3, ENDPOINT 's3-west.nrp-nautilus.io', URL_STYLE 'path', KEY_ID ?, SECRET ?, REGION 'us-west-2')",
+              [os.environ["AWS_ACCESS_KEY_ID"], os.environ["AWS_SECRET_ACCESS_KEY"]],
+          )
+          url = "s3://public-wetlands/nwi-v2.parquet"
+          print(c.execute(f"SELECT COUNT(*) AS n, COUNT(DISTINCT state_code) AS states FROM read_parquet('{url}')").fetchall())
+          print(c.execute(f"SELECT state_code, COUNT(*) AS n FROM read_parquet('{url}') GROUP BY 1 ORDER BY 1").fetchall())
+          # Sanity check: WGS84 bbox covers continental US
+          print(c.execute(f"SELECT MIN(ST_XMin(geometry)), MIN(ST_YMin(geometry)), MAX(ST_XMax(geometry)), MAX(ST_YMax(geometry)) FROM read_parquet('{url}')").fetchall())
+          VERIFY
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        resources:
+          requests:
+            cpu: "8"
+            memory: 120Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: "8"
+            memory: 120Gi
+            ephemeral-storage: 50Gi

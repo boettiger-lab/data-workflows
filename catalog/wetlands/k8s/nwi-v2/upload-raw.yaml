@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nwi-v2-upload-raw
+  namespace: biodiversity
+  labels:
+    k8s-app: nwi-v2-upload-raw
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nwi-v2-upload-raw
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: rclone
+        image: rclone/rclone:latest
+        command: ["sh", "-c"]
+        args:
+        - |
+          set -e
+          rclone copy \
+            ":s3,provider=Other,endpoint=s3.us-west-2.amazonaws.com:us-west-2.opendata.source.coop/giswqs/nwi/wetlands/" \
+            "nrp:public-wetlands/raw/nwi/" \
+            --include "*_Wetlands.parquet" \
+            --transfers 16 --checkers 16 \
+            --s3-no-check-bucket --s3-disable-checksum \
+            --progress --stats=30s
+          rclone size nrp:public-wetlands/raw/nwi/
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /config/rclone
+          readOnly: true
+        env:
+        - name: RCLONE_CONFIG
+          value: /config/rclone/rclone.conf
+        resources:
+          requests:
+            cpu: "4"
+            memory: 4Gi
+            ephemeral-storage: 5Gi
+          limits:
+            cpu: "4"
+            memory: 4Gi
+            ephemeral-storage: 5Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

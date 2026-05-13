@@ -1,0 +1,69 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nwi-v2-pmtiles-merge
+  namespace: biodiversity
+  labels:
+    k8s-app: nwi-v2-pmtiles-merge
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nwi-v2-pmtiles-merge
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: merge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -e
+          mkdir -p /tmp/state-tiles
+          # Pull all 51 per-state PMTiles
+          rclone copy nrp:public-wetlands/nwi-v2-state-tiles/ /tmp/state-tiles/ -v
+          ls -lh /tmp/state-tiles/
+
+          # tile-join concatenates 51 single-layer PMTiles into one. All inputs
+          # already share the layer name "nwi-v2", so no rename is needed. Per-state
+          # tippecanoe runs already applied size/feature limits.
+          tile-join -o /tmp/nwi-v2.pmtiles -f /tmp/state-tiles/*.pmtiles
+
+          ls -lh /tmp/nwi-v2.pmtiles
+          rclone copyto /tmp/nwi-v2.pmtiles nrp:public-wetlands/nwi-v2.pmtiles -v
+          rm -rf /tmp/state-tiles /tmp/nwi-v2.pmtiles
+          echo "=== Merge complete ==="
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        resources:
+          requests:
+            cpu: "8"
+            memory: 32Gi
+            ephemeral-storage: 100Gi
+          limits:
+            cpu: "8"
+            memory: 32Gi
+            ephemeral-storage: 100Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
