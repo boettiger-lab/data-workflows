@@ -50,6 +50,36 @@ APPS = {
         ),
         "question_placeholder": DEFAULT_QUESTION_PLACEHOLDER,
     },
+    "tpl-us": {
+        "title": "TPL Protected Lands Explorer",
+        "subtitle": (
+            "Help us improve the "
+            '<a href="https://tpl.nrp-nautilus.io/" '
+            'style="color:#3a7a2a">TPL Protected Lands Explorer</a>. '
+            "Share your feedback or tell us what data you need."
+        ),
+        "intro": (
+            "The TPL Protected Lands Explorer is an interactive mapping tool built by the "
+            "Boettiger Lab at UC Berkeley in partnership with Trust for Public Land. "
+            "It brings together environmental, demographic, and land-use data layers "
+            "to help TPL teams identify and prioritize conservation opportunities "
+            "across the United States. This form is how you can share feedback with the data "
+            "team &mdash; whether that&rsquo;s a reaction to something in the tool, a "
+            "question you wish it could answer, or a dataset you think should be added. "
+            "All responses go directly to the team and will be used to guide improvements."
+        ),
+        "feedback_hint": (
+            "You don’t need to be a GIS expert to answer this &mdash; plain language "
+            "is great. What did you find useful? What was confusing or missing? "
+            "Even a one-sentence impression helps."
+        ),
+        "question_hint": (
+            "Think about a decision or analysis you were trying to do. "
+            "What information would have made it easier? You can describe it "
+            "in everyday terms &mdash; no need to know the technical dataset names."
+        ),
+        "question_placeholder": DEFAULT_QUESTION_PLACEHOLDER,
+    },
     "cacao": {
         "title": "CACAO Explorer",
         "subtitle": (
