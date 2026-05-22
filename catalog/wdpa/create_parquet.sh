@@ -8,8 +8,8 @@ echo "Converting WDPA GDB to GeoParquet..."
 # Convert GDB layer to GeoParquet
 ogr2ogr \
   -f Parquet \
-  /vsis3/public-wdpa/WDPA_Dec2025.parquet \
-  /vsis3/public-wdpa/WDPA_Dec2025_Public.gdb \
+  /vsis3/public-wdpa/wdpa-december-2025/WDPA_Dec2025.parquet \
+  /vsis3/public-wdpa/wdpa-december-2025/WDPA_Dec2025_Public.gdb \
   WDPA_poly_Dec2025 \
   -progress
 
