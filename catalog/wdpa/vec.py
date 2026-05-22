@@ -44,8 +44,8 @@ def main():
     parser.add_argument("--i", type=int, default=0, help="Chunk index to process (0-based)")
     parser.add_argument("--zoom", type=int, default=8, help="H3 resolution to aggregate to (default 8)")
     parser.add_argument("--chunk-size", type=int, default=1500, help="Number of rows per chunk")
-    parser.add_argument("--input-url", default="s3://public-wdpa/WDPA_Dec2025.parquet", help="Input geoparquet file")
-    parser.add_argument("--output-url", default="s3://public-wdpa/chunks", help="Output geoparquet bucket")
+    parser.add_argument("--input-url", default="s3://public-wdpa/wdpa-december-2025/WDPA_Dec2025.parquet", help="Input geoparquet file")
+    parser.add_argument("--output-url", default="s3://public-wdpa/wdpa-december-2025/chunks", help="Output geoparquet bucket")
     args = parser.parse_args()
 
 

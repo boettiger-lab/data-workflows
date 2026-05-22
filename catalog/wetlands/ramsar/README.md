@@ -8,7 +8,7 @@ The Ramsar dataset is built from multiple data sources to maximize coverage:
 
 1. **Original Ramsar polygons**: `s3://public-wetlands/ramsar/ramsar_wetlands.parquet` (7,401 features)
 2. **Site details metadata**: `s3://public-wetlands/ramsar/site-details.parquet` - comprehensive site information
-3. **WDPA database**: `s3://public-wdpa/WDPA_Dec2025.parquet` - used for fuzzy matching missing sites
+3. **WDPA database**: `s3://public-wdpa/wdpa-december-2025/WDPA_Dec2025.parquet` - used for fuzzy matching missing sites
 4. **Centroid points**: `s3://public-wetlands/ramsar/raw/features_centroid_publishedPoint.parquet` - fallback for sites without polygons
 
 ## Processing Pipeline

@@ -119,8 +119,8 @@ spec:
                 --i "$INDEX" \
                 --zoom 8 \
                 --chunk-size 1500 \
-                --input-url s3://public-wdpa/WDPA_Dec2025.parquet \
-                --output-url s3://public-wdpa/chunks
+                --input-url s3://public-wdpa/wdpa-december-2025/WDPA_Dec2025.parquet \
+                --output-url s3://public-wdpa/wdpa-december-2025/chunks
       volumes:
         - name: repo
           emptyDir: {}

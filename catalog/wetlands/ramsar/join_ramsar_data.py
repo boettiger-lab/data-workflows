@@ -45,7 +45,7 @@ def main():
     # Define data sources
     ramsar_polygons = "s3://public-wetlands/ramsar/ramsar_wetlands.parquet"
     site_details = "s3://public-wetlands/ramsar/site-details.parquet"
-    wdpa = "s3://public-wdpa/WDPA_Dec2025.parquet"
+    wdpa = "s3://public-wdpa/wdpa-december-2025/WDPA_Dec2025.parquet"
     centroids = "s3://public-wetlands/ramsar/raw/features_centroid_publishedPoint.parquet"
     
     print("\n=== Step 1: Join existing ramsar polygons with site details ===")

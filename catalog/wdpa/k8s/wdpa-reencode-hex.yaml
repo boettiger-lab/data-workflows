@@ -90,22 +90,22 @@ spec:
           con.execute("""
               COPY (
                   SELECT * EXCLUDE (h8, h0), h3_string_to_h3(h8) AS h8, h3_string_to_h3(h0) AS h0
-                  FROM read_parquet('s3://public-wdpa/hex/**/*.parquet', hive_partitioning=true)
-              ) TO 's3://public-wdpa/hex-new/'
+                  FROM read_parquet('s3://public-wdpa/wdpa-december-2025/hex/**/*.parquet', hive_partitioning=true)
+              ) TO 's3://public-wdpa/wdpa-december-2025/hex-new/'
               (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (h0), OVERWRITE_OR_IGNORE true)
           """)
           print("Done.")
           PYEOF
 
-          N=$(rclone ls nrp:public-wdpa/hex-new/ | wc -l)
+          N=$(rclone ls nrp:public-wdpa/wdpa-december-2025/hex-new/ | wc -l)
           echo "  ${N} files in output"
           if [ "$N" -lt 1 ]; then echo "ERROR: no output files"; exit 1; fi
 
-          SRC_DIR=$(echo "s3://public-wdpa/hex/**/*.parquet" | sed 's|/\*\*.*||')
+          SRC_DIR=$(echo "s3://public-wdpa/wdpa-december-2025/hex/**/*.parquet" | sed 's|/\*\*.*||')
           SRC_RCLONE=$(echo "$SRC_DIR" | sed 's|s3://|nrp:|')
-          echo "Swapping $SRC_RCLONE -> nrp:public-wdpa/hex/hex/ ..."
+          echo "Swapping $SRC_RCLONE -> ${SRC_RCLONE}/ ..."
           rclone delete "$SRC_RCLONE/"
-          rclone move nrp:public-wdpa/hex-new/ "${SRC_RCLONE}/"
+          rclone move nrp:public-wdpa/wdpa-december-2025/hex-new/ "${SRC_RCLONE}/"
           echo "=== Complete ==="
       volumes:
       - name: rclone-config
