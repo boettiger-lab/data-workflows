@@ -17,8 +17,6 @@ Canonical STAC/data live on NRP S3 (`s3://public-<bucket>/`, public URL `https:/
 2. Work in the worktree, commit, push, open the PR from there.
 3. Read-only investigation can stay on whatever branch is checked out — the gate is *committing*, not exploring.
 
-Use **regular merges, not squash**, on `boettiger-lab` PRs.
-
 ## ⛔ HARD BOUNDARY 2: Do NOT Touch the `cng-datasets` Tool Repo
 
 Work only in `data-workflows`. Do not edit/commit/push/PR to `boettiger-lab/datasets` or any other repo. If `cng-datasets` has a bug: file a GitHub issue on `boettiger-lab/datasets` with a minimal reproducible example (see below), tell the user, and wait. Prior hotfixes have caused production failures — the tool has tests and a deploy pipeline, and unreviewed hotfixes bypass them.
