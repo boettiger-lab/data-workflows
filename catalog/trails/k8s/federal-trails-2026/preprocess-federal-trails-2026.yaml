@@ -1,0 +1,250 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: federal-trails-2026-preprocess
+  namespace: biodiversity
+  labels:
+    k8s-app: federal-trails-2026-preprocess
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: federal-trails-2026-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "16Gi"
+            cpu: "4"
+            ephemeral-storage: "30Gi"
+          limits:
+            memory: "16Gi"
+            cpu: "4"
+            ephemeral-storage: "30Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-trails"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+
+          mkdir -p /tmp/trails && cd /tmp/trails
+
+          # Ensure target bucket exists
+          rclone mkdir nrp:public-trails 2>/dev/null || true
+          rclone mkdir nrp:public-trails/raw 2>/dev/null || true
+
+          # ── 1. USFS National Forest System Trails (NFST) ──────────────────────
+          echo "=== USFS NFST ==="
+          curl -sSL --retry 5 -o usfs.gdb.zip \
+            "https://data.fs.usda.gov/geodata/edw/edw_resources/fc/S_USA.TrailNFS_Publish.gdb.zip"
+          rclone copyto usfs.gdb.zip nrp:public-trails/raw/S_USA.TrailNFS_Publish.gdb.zip
+
+          unzip -q usfs.gdb.zip
+          USFS_GDB=$(find . -maxdepth 2 -type d -name '*.gdb' | head -1)
+          echo "USFS GDB: $USFS_GDB"
+
+          # ── 2. NPS Trails — paginate FeatureServer ────────────────────────────
+          echo "=== NPS Trails ==="
+          python3 <<'PYEOF'
+          import urllib.request, json, time
+          BASE = 'https://mapservices.nps.gov/arcgis/rest/services/NationalDatasets/NPS_Public_Trails_Geographic/FeatureServer/0/query'
+          all_features = []
+          offset = 0
+          PAGE = 2000
+          while True:
+              url = (f"{BASE}?where=1%3D1&outFields=*&f=geojson"
+                     f"&resultOffset={offset}&resultRecordCount={PAGE}"
+                     f"&returnGeometry=true&outSR=4326")
+              with urllib.request.urlopen(url, timeout=120) as r:
+                  data = json.load(r)
+              feats = data.get('features', [])
+              if not feats:
+                  break
+              all_features.extend(feats)
+              offset += len(feats)
+              print(f"  fetched {offset}", flush=True)
+              if len(feats) < PAGE:
+                  break
+              time.sleep(0.3)
+          with open('/tmp/trails/nps.geojson', 'w') as f:
+              json.dump({'type':'FeatureCollection','features': all_features}, f)
+          print(f"NPS total features: {len(all_features)}", flush=True)
+          PYEOF
+          rclone copyto /tmp/trails/nps.geojson nrp:public-trails/raw/NPS_Public_Trails_2026.geojson
+
+          # ── 3. Each source → parquet via ogr2ogr (with WGS84 reprojection) ─────
+          echo "=== ogr2ogr to parquet ==="
+          ogr2ogr -f Parquet -t_srs EPSG:4326 \
+            -nln usfs /tmp/trails/usfs.parquet \
+            "$USFS_GDB" TrailNFS_Publish
+
+          ogr2ogr -f Parquet -t_srs EPSG:4326 \
+            -nln nps /tmp/trails/nps.parquet \
+            /tmp/trails/nps.geojson
+
+          # ── 4. Harmonize schemas + compute length_miles via DuckDB ─────────────
+          echo "=== DuckDB harmonize + merge ==="
+          python3 <<'PYEOF'
+          import duckdb
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial;")
+
+          # NTS designation logic shared between sources.
+          # USFS NATIONAL_TRAIL_DESIGNATION enum: 0=none, 1=NST, 2=NHT, 3=NRT, 4=connector.
+          # Specific named NSTs are derived from TRAIL_NAME / TRLNAME.
+          con.execute("""
+              CREATE MACRO derive_nts(code, name) AS CASE
+                  WHEN name IS NULL THEN
+                      CASE code
+                          WHEN 1 THEN 'NST'
+                          WHEN 2 THEN 'NHT'
+                          WHEN 3 THEN 'NRT'
+                          ELSE NULL
+                      END
+                  WHEN UPPER(name) LIKE '%PACIFIC CREST%' THEN 'PCT'
+                  WHEN UPPER(name) LIKE '%CONTINENTAL DIVIDE%' THEN 'CDT'
+                  WHEN UPPER(name) LIKE '%APPALACHIAN%' THEN 'AT'
+                  WHEN UPPER(name) LIKE '%PACIFIC NORTHWEST%' THEN 'PNT'
+                  WHEN UPPER(name) LIKE '%ARIZONA%TRAIL%' THEN 'ANT'
+                  WHEN UPPER(name) LIKE '%IDITAROD%' THEN 'INHT'
+                  WHEN UPPER(name) LIKE '%NEW ENGLAND%' THEN 'NET'
+                  WHEN UPPER(name) LIKE '%FLORIDA%' THEN 'FNST'
+                  WHEN UPPER(name) LIKE '%ICE AGE%' THEN 'IANST'
+                  WHEN UPPER(name) LIKE '%NORTH COUNTRY%' THEN 'NCT'
+                  WHEN UPPER(name) LIKE '%NATCHEZ TRACE%' THEN 'NTNST'
+                  WHEN UPPER(name) LIKE '%POTOMAC HERITAGE%' THEN 'PHT'
+                  WHEN code = 1 THEN 'NST'
+                  WHEN code = 2 THEN 'NHT'
+                  WHEN code = 3 THEN 'NRT'
+                  ELSE NULL
+              END;
+          """)
+
+          # Harmonize each source to common schema. Filter NPS by public-display flags.
+          con.execute("""
+              CREATE TABLE harmonized AS
+              WITH usfs AS (
+                  SELECT
+                      TRAIL_NAME                                        AS trail_name,
+                      NULL                                              AS alt_name,
+                      'USFS'                                            AS admin_agency,
+                      ADMIN_ORG                                         AS admin_unit,
+                      derive_nts(NATIONAL_TRAIL_DESIGNATION, TRAIL_NAME) AS nts_designation,
+                      TRAIL_TYPE                                        AS trail_type,
+                      TRAIL_CLASS                                       AS trail_class,
+                      TRAIL_SURFACE                                     AS trail_surface,
+                      'USFS NFST'                                       AS source_dataset,
+                      ST_GeomFromWKB(geometry)                          AS geom
+                  FROM read_parquet('/tmp/trails/usfs.parquet')
+              ),
+              nps AS (
+                  SELECT
+                      TRLNAME                                           AS trail_name,
+                      TRLALTNAME                                        AS alt_name,
+                      'NPS'                                             AS admin_agency,
+                      UNITNAME                                          AS admin_unit,
+                      derive_nts(NULL::INTEGER, TRLNAME)                AS nts_designation,
+                      TRLTYPE                                           AS trail_type,
+                      TRLCLASS                                          AS trail_class,
+                      TRLSURFACE                                        AS trail_surface,
+                      'NPS Public Trails'                               AS source_dataset,
+                      ST_GeomFromWKB(geometry)                          AS geom
+                  FROM read_parquet('/tmp/trails/nps.parquet')
+                  WHERE COALESCE(DATAACCESS, 'Unrestricted') = 'Unrestricted'
+                    AND COALESCE(PUBLICDISPLAY, 'Public Map Display') = 'Public Map Display'
+              )
+              SELECT * FROM usfs
+              UNION ALL BY NAME
+              SELECT * FROM nps;
+          """)
+
+          # Compute length_miles: reproject WGS84 → EPSG:5070 (USA Contiguous Albers Equal Area, meters)
+          # for accurate planar length, divide by 1609.344 m/mi.
+          # 5070 only covers CONUS — for AK/HI/PR/VI, length is approximate but acceptable.
+          con.execute("""
+              ALTER TABLE harmonized ADD COLUMN length_miles DOUBLE;
+              UPDATE harmonized SET length_miles =
+                  ST_Length(ST_Transform(geom, 'EPSG:4326', 'EPSG:5070', always_xy := TRUE)) / 1609.344;
+          """)
+
+          # Counts for sanity logging
+          for r in con.execute("""
+              SELECT admin_agency, COUNT(*) AS n, ROUND(SUM(length_miles), 0) AS total_miles
+              FROM harmonized GROUP BY admin_agency ORDER BY n DESC
+          """).fetchall():
+              print('  ', r, flush=True)
+
+          for r in con.execute("""
+              SELECT nts_designation, COUNT(*) AS n, ROUND(SUM(length_miles), 0) AS miles
+              FROM harmonized WHERE nts_designation IS NOT NULL
+              GROUP BY nts_designation ORDER BY miles DESC
+          """).fetchall():
+              print('  NTS:', r, flush=True)
+
+          # Write final GeoParquet — geom column named 'geometry' (GeoPandas standard)
+          con.execute("""
+              COPY (
+                  SELECT * EXCLUDE (geom), geom AS geometry
+                  FROM harmonized
+                  WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom)
+              )
+              TO '/tmp/trails/federal-trails-2026.parquet'
+              (FORMAT PARQUET, COMPRESSION 'zstd', COMPRESSION_LEVEL 15, ROW_GROUP_SIZE 100000);
+          """)
+
+          n = con.execute("SELECT COUNT(*) FROM read_parquet('/tmp/trails/federal-trails-2026.parquet')").fetchone()[0]
+          print(f"Final feature count: {n}", flush=True)
+          PYEOF
+
+          # ── 5. Upload to s3 ───────────────────────────────────────────────────
+          rclone copyto /tmp/trails/federal-trails-2026.parquet \
+            nrp:public-trails/federal-trails-2026.parquet
+
+          echo "✓ Preprocess complete"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
