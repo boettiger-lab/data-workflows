@@ -4,7 +4,7 @@
 
 ## Source Data
 
-Original geodatabase: `s3://public-wdpa/WDPA_Dec2025_Public.gdb`
+Original geodatabase: `s3://public-wdpa/wdpa-december-2025/raw/WDPA_Dec2025_Public.gdb`
 
 We process the polygon data only, layer `WDPA_poly_Dec2025` (296,046 features).
 
@@ -54,7 +54,7 @@ Convert the GDB layer to GeoParquet format:
 kubectl apply -f wdpa/convert-job.yaml -n biodiversity
 ```
 
-**Output:** `s3://public-wdpa/WDPA_Dec2025.parquet` (5.1 GB)
+**Output:** `s3://public-wdpa/wdpa-december-2025/WDPA_Dec2025.parquet` (5.1 GB)
 
 ### 2. PMTiles Generation
 
@@ -69,7 +69,7 @@ The script converts GDB → GeoJSONSeq → PMTiles using tippecanoe.
 kubectl apply -f wdpa/pmtiles-job.yaml -n biodiversity
 ```
 
-**Output:** `s3://public-wdpa/WDPA_Dec2025.pmtiles`
+**Output:** `s3://public-wdpa/wdpa-december-2025/WDPA_Dec2025.pmtiles`
 
 ### 3. H3 Hexagon Processing
 
@@ -84,7 +84,7 @@ Processes the data in indexed chunks with parallel workers.
 kubectl apply -f wdpa/hex-job.yaml -n biodiversity
 ```
 
-**Output:** `s3://public-wdpa/chunks/chunk_*.parquet` (temporary chunks)
+**Output:** `s3://public-wdpa/wdpa-december-2025/chunks/chunk_*.parquet` (temporary chunks)
 
 ### 4. Repartitioning by H3 Resolution 0
 
@@ -99,13 +99,13 @@ Reads all chunks and writes with h0 partitioning for efficient spatial queries. 
 kubectl apply -f wdpa/repartition-job.yaml -n biodiversity
 ```
 
-**Output:** `s3://public-wdpa/hex/h0=*/` (hive-partitioned by h0)
+**Output:** `s3://public-wdpa/wdpa-december-2025/hex/h0=*/` (hive-partitioned by h0)
 
 ## Final Outputs
 
-- **GeoParquet:** `s3://public-wdpa/WDPA_Dec2025.parquet` - Full dataset with all attributes
-- **PMTiles:** `s3://public-wdpa/WDPA_Dec2025.pmtiles` - Vector tiles for web mapping
-- **H3 Hexagons:** `s3://public-wdpa/hex/` - Hive-partitioned by h0, resolution 8 hexagons
+- **GeoParquet:** `s3://public-wdpa/wdpa-december-2025/WDPA_Dec2025.parquet` - Full dataset with all attributes
+- **PMTiles:** `s3://public-wdpa/wdpa-december-2025/WDPA_Dec2025.pmtiles` - Vector tiles for web mapping
+- **H3 Hexagons:** `s3://public-wdpa/wdpa-december-2025/hex/` - Hive-partitioned by h0, resolution 8 hexagons
 
 ## Troubleshooting
 
@@ -123,7 +123,7 @@ kubectl delete jobs -n biodiversity -l workflow=wdpa-workflow
 
 ### Manual cleanup of chunks directory
 ```bash
-mc rm --recursive --force s3/public-wdpa/chunks/
+mc rm --recursive --force s3/public-wdpa/wdpa-december-2025/chunks/
 ```
 
 ## Bucket Setup

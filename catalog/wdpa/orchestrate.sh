@@ -91,14 +91,14 @@ cleanup_chunks() {
     
     # Use mc (minio client) or aws cli to remove chunks
     if command -v mc &> /dev/null; then
-        mc rm --recursive --force s3/public-wdpa/chunks/ 2>/dev/null || true
+        mc rm --recursive --force s3/public-wdpa/wdpa-december-2025/chunks/ 2>/dev/null || true
         echo "✓ Chunks directory removed (mc)"
     elif command -v aws &> /dev/null; then
-        aws s3 rm s3://public-wdpa/chunks/ --recursive --endpoint-url https://s3-west.nrp-nautilus.io 2>/dev/null || true
+        aws s3 rm s3://public-wdpa/wdpa-december-2025/chunks/ --recursive --endpoint-url https://s3-west.nrp-nautilus.io 2>/dev/null || true
         echo "✓ Chunks directory removed (aws)"
     else
         echo "⚠ Neither mc nor aws cli found, skipping cleanup"
-        echo "  Run manually: mc rm --recursive --force s3/public-wdpa/chunks/"
+        echo "  Run manually: mc rm --recursive --force s3/public-wdpa/wdpa-december-2025/chunks/"
     fi
 }
 

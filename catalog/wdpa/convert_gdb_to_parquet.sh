@@ -10,8 +10,8 @@ echo "Converting WDPA GDB to GeoParquet..."
 # This avoids Arrow type mapping issues when reading the parquet back
 ogr2ogr \
   -f Parquet \
-  /vsis3/public-wdpa/WDPA_Dec2025.parquet \
-  /vsis3/public-wdpa/WDPA_Dec2025_Public.gdb \
+  /vsis3/public-wdpa/wdpa-december-2025/WDPA_Dec2025.parquet \
+  /vsis3/public-wdpa/wdpa-december-2025/WDPA_Dec2025_Public.gdb \
   WDPA_poly_Dec2025 \
   -unsetFid \
   -progress
@@ -22,7 +22,7 @@ echo "GeoParquet created successfully!"
 echo "Generating PMTiles from GDB..."
 
 ogr2ogr -f GeoJSONSeq /vsistdout/ \
-  /vsis3/public-wdpa/WDPA_Dec2025_Public.gdb \
+  /vsis3/public-wdpa/wdpa-december-2025/WDPA_Dec2025_Public.gdb \
   WDPA_poly_Dec2025 \
   | tippecanoe \
   -o /tmp/WDPA_Dec2025.pmtiles \
@@ -36,7 +36,7 @@ echo "PMTiles created successfully!"
 # Upload PMTiles to S3
 echo "Uploading PMTiles to S3..."
 
-aws s3 cp /tmp/WDPA_Dec2025.pmtiles s3://public-wdpa/WDPA_Dec2025.pmtiles \
+aws s3 cp /tmp/WDPA_Dec2025.pmtiles s3://public-wdpa/wdpa-december-2025/WDPA_Dec2025.pmtiles \
   --endpoint-url https://s3-west.nrp-nautilus.io
 
 echo "All conversions complete!"

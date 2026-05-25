@@ -11,7 +11,7 @@ echo "Converting WDPA GDB to GeoJSONSeq for tippecanoe..."
 ogr2ogr \
   -f GeoJSONSeq \
   /tmp/WDPA_Dec2025.geojsonl \
-  /vsis3/public-wdpa/WDPA_Dec2025_Public.gdb \
+  /vsis3/public-wdpa/wdpa-december-2025/WDPA_Dec2025_Public.gdb \
   WDPA_poly_Dec2025 \
   -progress
 
@@ -36,6 +36,6 @@ echo "Uploading PMTiles to S3..."
 # Configure mc alias if not already configured
 mc alias set s3 https://${AWS_PUBLIC_ENDPOINT} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY}
 
-mc cp /tmp/WDPA_Dec2025.pmtiles s3/public-wdpa/WDPA_Dec2025.pmtiles
+mc cp /tmp/WDPA_Dec2025.pmtiles s3/public-wdpa/wdpa-december-2025/WDPA_Dec2025.pmtiles
 
 echo "PMTiles uploaded successfully!"

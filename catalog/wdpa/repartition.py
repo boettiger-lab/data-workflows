@@ -18,7 +18,7 @@ os.makedirs(local_dir, exist_ok=True)
 print("Reading chunks and writing to local directory with h0 partitioning...")
 # Read all chunks and write to local directory with h0 partitioning
 (con
-    .read_parquet("s3://public-wdpa/chunks/*.parquet")
+    .read_parquet("s3://public-wdpa/wdpa-december-2025/chunks/*.parquet")
     .to_parquet(f"{local_dir}/", partition_by="h0")
 )
 
@@ -26,7 +26,7 @@ print("Uploading partitioned data to S3...")
 # Upload from local directory to S3 with h0 partitioning
 (con
     .read_parquet(f"{local_dir}/**/*.parquet")
-    .to_parquet("s3://public-wdpa/hex/", partition_by="h0")
+    .to_parquet("s3://public-wdpa/wdpa-december-2025/hex/", partition_by="h0")
 )
 
 print("Cleaning up local directory...")
@@ -40,7 +40,7 @@ print("Removing chunks directory from S3...")
 try:
     # Try using mc (minio client) first
     result = subprocess.run(
-        ["mc", "rm", "--recursive", "--force", "s3/public-wdpa/chunks/"],
+        ["mc", "rm", "--recursive", "--force", "s3/public-wdpa/wdpa-december-2025/chunks/"],
         capture_output=True,
         text=True,
         timeout=300
@@ -51,7 +51,7 @@ try:
         print(f"⚠ mc cleanup failed: {result.stderr}")
         # Try aws cli as fallback
         result = subprocess.run(
-            ["aws", "s3", "rm", "s3://public-wdpa/chunks/", "--recursive",
+            ["aws", "s3", "rm", "s3://public-wdpa/wdpa-december-2025/chunks/", "--recursive",
              "--endpoint-url", os.environ.get("AWS_PUBLIC_ENDPOINT", "https://s3-west.nrp-nautilus.io")],
             capture_output=True,
             text=True,
