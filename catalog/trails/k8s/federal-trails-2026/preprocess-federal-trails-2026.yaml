@@ -138,6 +138,50 @@ spec:
               rclone copyto /tmp/trails/nps.geojson nrp:public-trails/raw/NPS_Public_Trails_2026.geojson
           fi
 
+          # ── 2b. BLM National GTLF Public Managed Trails ───────────────────────
+          # Master national BLM trail dataset (19k segments). The five sibling
+          # GTLF feeds (Motorized/Nonmechanized/Nonmotorized/Not-Assessed/Limited)
+          # are use-type subsets of this one; we don't need them.
+          echo "=== BLM GTLF Public Managed Trails ==="
+          if have_s3 BLM_Natl_GTLF_Public_Managed_Trails_2026.geojson; then
+              echo "  ↓ from S3"
+              rclone copyto nrp:public-trails/raw/BLM_Natl_GTLF_Public_Managed_Trails_2026.geojson /tmp/trails/blm.geojson
+          else
+              echo "  ↓ from upstream FeatureServer (paginated, retry/backoff)"
+              python3 <<'PYEOF'
+          import urllib.request, json, time, sys
+          BASE = 'https://services1.arcgis.com/KbxwQRRfWyEYLgp4/arcgis/rest/services/BLM_Natl_GTLF_Public_Managed_Trails/FeatureServer/2/query'
+          all_features, offset, PAGE = [], 0, 2000
+          while True:
+              url = (f"{BASE}?where=1%3D1&outFields=*&f=geojson"
+                     f"&resultOffset={offset}&resultRecordCount={PAGE}"
+                     f"&returnGeometry=true&outSR=4326")
+              data = None
+              for attempt in range(1, 7):
+                  try:
+                      with urllib.request.urlopen(url, timeout=120) as r:
+                          data = json.load(r)
+                      break
+                  except Exception as e:
+                      wait = 5 * (2 ** (attempt - 1))
+                      print(f"  attempt {attempt} failed ({e}); sleeping {wait}s", flush=True)
+                      time.sleep(wait)
+              if data is None:
+                  print(f"  giving up at offset={offset}", flush=True); sys.exit(1)
+              feats = data.get('features', [])
+              if not feats: break
+              all_features.extend(feats)
+              offset += len(feats)
+              print(f"  fetched {offset}", flush=True)
+              if len(feats) < PAGE: break
+              time.sleep(0.5)
+          with open('/tmp/trails/blm.geojson','w') as f:
+              json.dump({'type':'FeatureCollection','features': all_features}, f)
+          print(f"BLM total features: {len(all_features)}", flush=True)
+          PYEOF
+              rclone copyto /tmp/trails/blm.geojson nrp:public-trails/raw/BLM_Natl_GTLF_Public_Managed_Trails_2026.geojson
+          fi
+
           # ── 3. Each source → parquet via ogr2ogr (with WGS84 reprojection) ─────
           # GEOMETRY_NAME=geometry forces a consistent column name across sources
           # (GDB defaults to SHAPE; GeoJSON to geometry).
@@ -151,6 +195,11 @@ spec:
             -lco GEOMETRY_NAME=geometry \
             -nln nps /tmp/trails/nps.parquet \
             /tmp/trails/nps.geojson
+
+          ogr2ogr -f Parquet -t_srs EPSG:4326 \
+            -lco GEOMETRY_NAME=geometry \
+            -nln blm /tmp/trails/blm.parquet \
+            /tmp/trails/blm.geojson
 
           # ── 4. Harmonize schemas + compute length_miles via DuckDB ─────────────
           echo "=== DuckDB harmonize + merge ==="
@@ -200,7 +249,13 @@ spec:
                   WHEN UPPER(name) LIKE '%POTOMAC HERITAGE%'       THEN 'PHT'
                   -- Pony Express NHT
                   WHEN UPPER(name) LIKE '%PONY EXPRESS%'           THEN 'PENHT'
-                  -- Fallbacks by USFS code (NPS rows pass NULL for code so they skip these)
+                  -- Juan Bautista de Anza NHT
+                  WHEN UPPER(name) LIKE '%ANZA TRAIL%' OR UPPER(name) LIKE '%JUAN BAUTISTA%' THEN 'ANZA'
+                  -- Old Spanish NHT
+                  WHEN UPPER(name) LIKE '%OLD SPANISH%'            THEN 'OSNHT'
+                  -- Generic National Recreation Trail (catches BLM NRTs named in alt_name)
+                  WHEN UPPER(name) LIKE '%NATIONAL RECREATION TRAIL%' THEN 'NRT'
+                  -- Fallbacks by USFS code (NPS/BLM rows pass NULL for code so they skip these)
                   WHEN code = 3                                    THEN 'NST'
                   WHEN code = 2                                    THEN 'NRT'
                   ELSE NULL
@@ -239,10 +294,32 @@ spec:
                   FROM read_parquet('/tmp/trails/nps.parquet')
                   WHERE COALESCE(DATAACCESS, 'Unrestricted') = 'Unrestricted'
                     AND COALESCE(PUBLICDISPLAY, 'Public Map Display') = 'Public Map Display'
+              ),
+              -- BLM GTLF schema: ROUTE_PRMRY_NM (primary name),
+              -- ROUTE_SCNDRY_SPCL_DSGNTN_NM (special-designation name — often the NST name like 'CDNST'),
+              -- ADMIN_ST (2-letter state code), OBSRVE_ROUTE_USE_CLASS, OBSRVE_SRFCE_TYPE.
+              -- For nts_designation, prefer the secondary special-designation name when present;
+              -- fall through to primary name (same derive_nts macro handles both).
+              blm AS (
+                  SELECT
+                      ROUTE_PRMRY_NM                                                       AS trail_name,
+                      ROUTE_SCNDRY_SPCL_DSGNTN_NM                                          AS alt_name,
+                      'BLM'                                                                AS admin_agency,
+                      ADMIN_ST                                                             AS admin_unit,
+                      COALESCE(derive_nts(NULL::INTEGER, ROUTE_SCNDRY_SPCL_DSGNTN_NM),
+                               derive_nts(NULL::INTEGER, ROUTE_PRMRY_NM))                  AS nts_designation,
+                      OBSRVE_ROUTE_USE_CLASS                                               AS trail_type,
+                      PLAN_ASSET_CLASS                                                     AS trail_class,
+                      OBSRVE_SRFCE_TYPE                                                    AS trail_surface,
+                      'BLM GTLF Managed Trails'                                            AS source_dataset,
+                      geometry                                                             AS geom
+                  FROM read_parquet('/tmp/trails/blm.parquet')
               )
               SELECT * FROM usfs
               UNION ALL BY NAME
-              SELECT * FROM nps;
+              SELECT * FROM nps
+              UNION ALL BY NAME
+              SELECT * FROM blm;
           """)
 
           # Compute length_miles: reproject WGS84 → EPSG:5070 (USA Contiguous Albers Equal Area, meters)
