@@ -1,0 +1,97 @@
+# IUCN raw-data coverage audit
+#
+# Syncs minio:public-iucn/ to the rechunk-scratch PVC, then runs
+# catalog/iucn/audit/audit_iucn.py to extract attribute tables from every
+# shapefile / zip / gdb and emit the coverage + overlap matrices.
+#
+# Apply:
+#   kubectl create configmap iucn-audit-script \
+#     --from-file=audit_iucn.py=catalog/iucn/audit/audit_iucn.py \
+#     -n biodiversity --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n biodiversity delete job iucn-audit --ignore-not-found
+#   kubectl apply -f catalog/iucn/audit/k8s/iucn-audit-job.yaml
+#
+# Monitor:
+#   kubectl -n biodiversity logs -f job/iucn-audit
+#
+# Results (after completion):
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-audit-summary.csv
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-audit-overlaps.csv
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-audit-taxonomy.csv
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-audit-features.parquet
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-audit
+  namespace: biodiversity
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+        - name: audit
+          image: ghcr.io/boettiger-lab/datasets:latest
+          resources:
+            requests:
+              memory: "8Gi"
+              cpu: "2"
+              ephemeral-storage: "10Gi"
+            limits:
+              memory: "16Gi"
+              cpu: "4"
+              ephemeral-storage: "10Gi"
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              SCRATCH=/scratch/iucn-audit
+              DATA=$SCRATCH/data
+              OUT=$SCRATCH/output
+              mkdir -p $DATA $OUT
+
+              echo "=== Step 1: pip install pyogrio (if missing) ==="
+              python -c "import pyogrio" 2>/dev/null || pip install --quiet pyogrio
+
+              echo "=== Step 2: sync minio:public-iucn/ → $DATA ==="
+              # Pull only raw inputs we want to audit; skip derived hex/parquet/cog.
+              rclone copy minio:public-iucn/ $DATA \
+                --include "raw/**" \
+                --include "*.zip" \
+                --transfers 8 --checkers 16 \
+                --progress
+              echo "Synced: $(du -sh $DATA | cut -f1)"
+
+              echo "=== Step 3: run audit ==="
+              cd /
+              DATA_ROOT=$DATA OUT_ROOT=$OUT python /scripts/audit_iucn.py
+
+              echo "=== Step 4: upload results to nrp:public-output/iucn-audit/ ==="
+              rclone copy $OUT nrp:public-output/iucn-audit/ --progress
+              echo "Done. Results:"
+              echo "  https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-audit-summary.csv"
+              echo "  https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-audit-overlaps.csv"
+              echo "  https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-audit-taxonomy.csv"
+              echo "  https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-audit-features.parquet"
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: scratch
+              mountPath: /scratch
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: iucn-audit-script
+        - name: scratch
+          persistentVolumeClaim:
+            claimName: rechunk-scratch
+        - name: rclone-config
+          secret:
+            secretName: rclone-config

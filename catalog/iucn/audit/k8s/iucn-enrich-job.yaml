@@ -1,0 +1,81 @@
+# Enrich the IUCN audit features parquet with GBIF backbone taxonomy.
+# Runs against the rechunk-scratch PVC where iucn-audit-features.parquet
+# already lives from the iucn-audit job. Reads GBIF backbone directly from
+# nrp:public-gbif/taxa.parquet (public-read, no auth needed).
+#
+# Apply:
+#   kubectl create configmap iucn-enrich-script \
+#     --from-file=audit_enrich.py=catalog/iucn/audit/audit_enrich.py \
+#     -n biodiversity --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n biodiversity delete job iucn-enrich --ignore-not-found
+#   kubectl apply -f catalog/iucn/audit/k8s/iucn-enrich-job.yaml
+#
+# Monitor:
+#   kubectl -n biodiversity logs -f job/iucn-enrich
+#
+# Results:
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-coverage-species.parquet
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-coverage-by-class.csv
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-coverage-by-order.csv
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-coverage-by-family.csv
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-coverage-unmatched.csv
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-enrich
+  namespace: biodiversity
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+        - name: enrich
+          image: ghcr.io/boettiger-lab/datasets:latest
+          resources:
+            requests:
+              memory: "16Gi"
+              cpu: "2"
+              ephemeral-storage: "5Gi"
+            limits:
+              memory: "16Gi"
+              cpu: "2"
+              ephemeral-storage: "5Gi"
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              python -c "import polars" 2>/dev/null || pip install --quiet polars==1.18.0
+              SCRATCH=/scratch/iucn-audit
+              FEATURES=$SCRATCH/output/iucn-audit-features.parquet
+              OUT=$SCRATCH/output
+              [ -s "$FEATURES" ] || { echo "Missing $FEATURES — run iucn-audit first"; exit 1; }
+              FEATURES=$FEATURES OUT_ROOT=$OUT python /scripts/audit_enrich.py
+              rclone copy $OUT nrp:public-output/iucn-audit/ \
+                --include "iucn-coverage-*" --progress
+              echo "Done. Published:"
+              for f in iucn-coverage-species.parquet iucn-coverage-by-class.csv iucn-coverage-by-order.csv iucn-coverage-by-family.csv iucn-coverage-unmatched.csv; do
+                echo "  https://s3-west.nrp-nautilus.io/public-output/iucn-audit/$f"
+              done
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: scratch
+              mountPath: /scratch
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: iucn-enrich-script
+        - name: scratch
+          persistentVolumeClaim:
+            claimName: rechunk-scratch
+        - name: rclone-config
+          secret:
+            secretName: rclone-config
