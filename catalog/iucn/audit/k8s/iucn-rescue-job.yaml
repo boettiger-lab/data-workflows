@@ -1,0 +1,57 @@
+# Rescue the 50-ish species that only exist in PLANTS.zip (not in any
+# numbered advanced-search plant chunk) before that zip gets deleted.
+#
+# Apply:
+#   kubectl create configmap iucn-rescue-script \
+#     --from-file=audit_iucn_rescue.py=catalog/iucn/audit/audit_iucn_rescue.py \
+#     -n biodiversity --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n biodiversity delete job iucn-rescue --ignore-not-found
+#   kubectl apply -f catalog/iucn/audit/k8s/iucn-rescue-job.yaml
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-rescue
+  namespace: biodiversity
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+        - name: rescue
+          image: ghcr.io/boettiger-lab/datasets:latest
+          resources:
+            requests: {memory: "4Gi", cpu: "1", ephemeral-storage: "2Gi"}
+            limits:   {memory: "4Gi", cpu: "1", ephemeral-storage: "2Gi"}
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              python -c "import polars" 2>/dev/null || pip install --quiet polars==1.18.0
+              python -c "import geopandas, pyogrio" 2>/dev/null || pip install --quiet geopandas pyogrio
+              SCRATCH=/scratch/iucn-audit
+              OUT=$SCRATCH/output
+              DATA_ROOT=$SCRATCH/data OUT_ROOT=$OUT \
+                FEATURES=$OUT/iucn-audit-features.parquet \
+                MASTER=$OUT/iucn-master-species.parquet \
+                PLANTS_ZIP=$SCRATCH/data/raw/rangemaps/PLANTS.zip \
+                python /scripts/audit_iucn_rescue.py
+              echo "== uploading to MinIO"
+              rclone copyto $OUT/plants-zip-unique-species.parquet \
+                minio:public-iucn/raw/ranges/plants-zip-unique-species.parquet --progress
+              echo "Done."
+          volumeMounts:
+            - {name: scripts, mountPath: /scripts}
+            - {name: scratch, mountPath: /scratch}
+            - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+      volumes:
+        - name: scripts
+          configMap: {name: iucn-rescue-script}
+        - name: scratch
+          persistentVolumeClaim: {claimName: rechunk-scratch}
+        - name: rclone-config
+          secret: {secretName: rclone-config}
