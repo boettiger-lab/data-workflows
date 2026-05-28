@@ -64,7 +64,18 @@ spec:
               FEATURES=$SCRATCH/output/iucn-coverage-species.parquet
               OUT=$SCRATCH/output
               [ -s "$FEATURES" ] || { echo "Missing $FEATURES — run iucn-audit + iucn-enrich first"; exit 1; }
+              # Extract BOTW GeoPackage from its zip once — random-access
+              # reads through /vsizip on a 4 GB SQLite-backed GPKG are
+              # pathologically slow.
+              BOTW_GPKG=$SCRATCH/botw/BOTW_2025.gpkg
+              if [ ! -s "$BOTW_GPKG" ]; then
+                mkdir -p $(dirname "$BOTW_GPKG")
+                echo "== extracting BOTW gpkg to disk"
+                unzip -p $SCRATCH/data/raw/rangemaps/species.zip BOTW_2025.gpkg > "$BOTW_GPKG"
+                echo "   extracted: $(du -sh "$BOTW_GPKG" | cut -f1)"
+              fi
               FEATURES=$FEATURES OUT_ROOT=$OUT CACHE_DIR=$SCRATCH/master-cache \
+                BOTW_GPKG=$BOTW_GPKG \
                 python /scripts/audit_iucn_master.py
               rclone copy $OUT nrp:public-output/iucn-audit/ \
                 --include "iucn-master-*" --include "iucn-have.csv" \

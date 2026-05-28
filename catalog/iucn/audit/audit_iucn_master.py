@@ -187,6 +187,32 @@ def main() -> int:
         .drop_nulls()
         .unique()
     )
+
+    # BOTW (BirdLife of the World) ships as a GeoPackage inside a zip.
+    # The wrapper job unzips it to disk first; SQLite-backed GPKG reads
+    # through /vsizip are too slow to be practical.
+    botw_path = os.environ.get("BOTW_GPKG")
+    if botw_path and Path(botw_path).exists():
+        print(f"== reading BOTW birds: {botw_path}")
+        import pyogrio
+        botw = pyogrio.read_dataframe(botw_path, layer="all_species", read_geometry=False)
+        botw_ids = (
+            pl.from_pandas(botw[["sisid", "sci_name"]])
+            .rename({"sisid": "sis_taxon_id"})
+            .with_columns(pl.col("sis_taxon_id").cast(pl.Int64))
+            .drop_nulls(subset=["sis_taxon_id"])
+            .unique(subset=["sis_taxon_id"])
+        )
+        print(f"   BOTW unique sisid: {botw_ids.height}")
+        ours_ids = ours_ids.join(botw_ids.select("sis_taxon_id"), on="sis_taxon_id", how="full", coalesce=True).unique()
+        # Also enrich `ours` so the extras CSV has the bird names too
+        ours = pl.concat([
+            ours,
+            botw_ids.rename({"sis_taxon_id": "id_no"})
+                    .with_columns(pl.lit(["BOTW_2025.gpkg"]).alias("source_files")),
+        ], how="diagonal_relaxed")
+        print(f"   ours_ids after BOTW union: {ours_ids.height}")
+
     master_ids = latest.select(pl.col("sis_taxon_id").cast(pl.Int64)).unique()
 
     have = master_ids.join(ours_ids, on="sis_taxon_id", how="inner")
