@@ -40,9 +40,10 @@ API_KEY = os.environ.get("IUCN_API_KEY") or ""
 PER_REQUEST_DELAY = float(os.environ.get("IUCN_REQUEST_DELAY", "0.2"))
 PAGE_TIMEOUT = float(os.environ.get("IUCN_PAGE_TIMEOUT", "60"))
 MAX_RETRIES = int(os.environ.get("IUCN_MAX_RETRIES", "5"))
-FEATURES = Path(os.environ.get("FEATURES", "/scratch/iucn-audit/output/iucn-coverage-species.parquet"))
+FEATURES = Path(os.environ.get("FEATURES", "/scratch/iucn-audit/output/iucn-audit-features.parquet"))
 OUT_ROOT = Path(os.environ.get("OUT_ROOT", "/scratch/iucn-audit/output"))
 CACHE_DIR = Path(os.environ.get("CACHE_DIR", "/scratch/iucn-audit/master-cache"))
+ALL_GROUPS = os.environ.get("ALL_GROUPS", "true").lower() == "true"
 
 
 def get(path: str) -> dict:
@@ -76,15 +77,17 @@ def fetch_groups() -> list[dict]:
 
 
 def fetch_group(name: str) -> list[dict]:
-    """Page through every assessment in a comprehensive group."""
-    cache = CACHE_DIR / f"{name}.json"
+    """Page through one comprehensive group, latest assessments only."""
+    # Cache key includes ".latest" so the new latest-only fetches don't reuse
+    # the old all-historical cache from the first audit pass.
+    cache = CACHE_DIR / f"{name}.latest.json"
     if cache.exists():
         print(f"[cache] {name}")
         return json.loads(cache.read_text())
     rows: list[dict] = []
     page = 1
     while True:
-        data = get(f"/comprehensive_groups/{name}?page={page}")
+        data = get(f"/comprehensive_groups/{name}?page={page}&latest=true")
         page_rows = data.get("assessments", [])
         if not page_rows:
             break
@@ -129,14 +132,17 @@ def main() -> int:
 
     print("== fetching comprehensive_groups list")
     groups = fetch_groups()
-    print(f"   {len(groups)} groups")
-    high_groups = [g for g in groups if g.get("high")]
-    print(f"   {len(high_groups)} high-level groups (preferred for enumeration)")
+    print(f"   {len(groups)} groups total")
+    # By default walk all 51 groups: 22 high-level (broad sweeps) + 29
+    # comp-only sub-groups (finer slices). Comp-only species also appear in
+    # their parent high-level group, so the dedup at the end folds them in;
+    # the benefit is richer iucn_groups labels per species and catching any
+    # species that only live in a comp-only group.
+    walk = groups if ALL_GROUPS else [g for g in groups if g.get("high")]
+    print(f"   walking {len(walk)} groups (ALL_GROUPS={ALL_GROUPS})")
 
-    # Walk every high-level group. Comprehensive (high:false, comp:true) subgroups
-    # are subsets of these; we'd just dedup them later anyway.
     all_rows: list[dict] = []
-    for g in high_groups:
+    for g in walk:
         name = g["name"]
         try:
             rows = fetch_group(name)
@@ -179,8 +185,19 @@ def main() -> int:
         print(f"!! features parquet missing: {FEATURES}; skipping diff", file=sys.stderr)
         return 0
     print(f"== reading our holdings: {FEATURES}")
-    ours = pl.read_parquet(FEATURES)
-    print(f"   {ours.height} unique (id_no, sci_name)")
+    feats = pl.read_parquet(FEATURES)
+    print(f"   {feats.height} feature rows in {FEATURES.name}")
+    # Aggregate to one row per (id_no, sci_name) with the list of source files.
+    # This replaces the previous audit_enrich.py step — we no longer enrich
+    # with GBIF backbone since the IUCN master gives us iucn_group directly.
+    ours = (
+        feats.lazy()
+        .filter(pl.col("id_no").is_not_null())
+        .group_by(["id_no", "sci_name"])
+        .agg(pl.col("source_file").unique().sort().alias("source_files"))
+        .collect()
+    )
+    print(f"   {ours.height} unique (id_no, sci_name) species")
 
     ours_ids = (
         ours.select(pl.col("id_no").cast(pl.Int64).alias("sis_taxon_id"))

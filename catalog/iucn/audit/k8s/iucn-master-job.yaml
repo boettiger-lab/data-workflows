@@ -61,9 +61,9 @@ spec:
               python -c "import polars" 2>/dev/null || pip install --quiet polars==1.18.0
               python -c "import requests" 2>/dev/null || pip install --quiet requests
               SCRATCH=/scratch/iucn-audit
-              FEATURES=$SCRATCH/output/iucn-coverage-species.parquet
+              FEATURES=$SCRATCH/output/iucn-audit-features.parquet
               OUT=$SCRATCH/output
-              [ -s "$FEATURES" ] || { echo "Missing $FEATURES — run iucn-audit + iucn-enrich first"; exit 1; }
+              [ -s "$FEATURES" ] || { echo "Missing $FEATURES — run iucn-audit first"; exit 1; }
               # Extract BOTW GeoPackage from its zip once — random-access
               # reads through /vsizip on a 4 GB SQLite-backed GPKG are
               # pathologically slow.
