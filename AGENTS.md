@@ -12,13 +12,13 @@ For ANY query/scan/aggregation over S3 parquet — catalog data **and** large in
 - The tool is deferred: `ToolSearch select:mcp__duckdb-geo__query` first. **If ToolSearch returns no match the MCP server is disconnected — ask the user to reconnect it; do NOT fall back to the slow RAM-bound path.**
 - Heavy *writes/transforms* the MCP can't do still run as cluster jobs, but over the **internal** endpoint (`rook-ceph-rgw-nautiluss3.rook`, `AWS_HTTPS=false`), never the laptop.
 
-## ⛔ Serialization standard: GeoParquet must be `OGC:CRS84`, never `EPSG:4326`
+## ⛔ Serialization standard: never publish geopandas-WRITTEN GeoParquet
 
-Publish all GeoParquet with CRS **`OGC:CRS84`** (lon/lat axis) — what cng-datasets writes. **Never `EPSG:4326`.** geopandas (`set_crs("EPSG:4326")` + `to_parquet`) writes an EPSG:4326 PROJJSON that DuckDB reads as `GEOMETRY('EPSG:4326')` and then **crashes with `stoi`** on any `ST_` op (known upstream bug [duckdb/duckdb#21691](https://github.com/duckdb/duckdb/issues/21691); the MCP's duckdb 1.5.3 predates the fix). **Both the duckdb-geo MCP and `cng-convert-to-parquet` crash reading such files** — so the geo-agent can't query them and convert can't even re-ingest them; only geopandas can read them back.
+The break is the **writer/encoding, not the CRS value.** GeoParquet written by **geopandas** (its pyarrow `geoarrow.wkb` extension type carrying the CRS as PROJJSON) makes DuckDB **crash with `stoi`** on any `ST_` op — whether tagged `EPSG:4326` *or* `OGC:CRS84`. GeoParquet written by **DuckDB/cng-datasets works fine**, and even a non-geopandas `EPSG:4326` file (e.g. `public-icca/.../icca-polygon.parquet`) queries cleanly. So `EPSG:4326` vs `OGC:CRS84` is a red herring; the discriminator is **`creator: geopandas`**. Root cause: known upstream bug [duckdb/duckdb#21691](https://github.com/duckdb/duckdb/issues/21691) (DuckDB 1.5.3 — the MCP build — `stoi`-crashes parsing the geoarrow-extension Arrow format string). **Both the duckdb-geo MCP and `cng-convert-to-parquet` crash reading a geopandas file** — the geo-agent can't query it and convert can't re-ingest it.
 
-- Prefer the cng-datasets workflow for ingests (writes `OGC:CRS84`). If you must use geopandas, `gdf.set_crs("OGC:CRS84", allow_override=True)` before writing (WKB is already lon/lat — it's a metadata retag, not a reprojection).
-- Detect bad files: `SELECT file_name FROM parquet_kv_metadata('s3://<bucket>/**/*.parquet') WHERE key::VARCHAR='geo' AND value::VARCHAR LIKE '%4326%'`.
-- Fix an existing EPSG:4326 file: geopandas only — `read_parquet → set_crs("OGC:CRS84", allow_override=True) → to_parquet`.
+- **Don't produce catalog GeoParquet with geopandas** — use the cng-datasets workflow (DuckDB-native, queryable). `OGC:CRS84` is still the right CRS standard, but orthogonal to this bug.
+- Detect bad files by **writer**: `SELECT file_name FROM parquet_kv_metadata('s3://<bucket>/**/*.parquet') WHERE key::VARCHAR='geo' AND value::VARCHAR LIKE '%geopandas%'`.
+- Fix an existing geopandas file (**WKB→DuckDB bridge**, proven): geopandas reads it → emit geometry as plain WKB (`g.geometry.to_wkb()`, no geoarrow extension) → DuckDB `ST_GeomFromWKB(wkb)` + `COPY TO 's3://…' (FORMAT PARQUET)` over the internal endpoint → DuckDB-native GeoParquet.
 
 ## ⛔ HARD BOUNDARY 1: NRP S3 is Canonical for STAC and Data
 
