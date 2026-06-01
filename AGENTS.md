@@ -2,6 +2,24 @@
 
 You work in `data-workflows`, which uses `cng-datasets` to convert geospatial data into cloud-native formats on Kubernetes. This file tells you everything you need.
 
+## ⛔ HARD BOUNDARY 0: Big-data compute runs on the cluster, NOT your laptop
+
+For ANY query/scan/aggregation over S3 parquet — catalog data **and** large intermediate/build files (e.g. a 24 GB consolidated GeoParquet) — use the **`mcp__duckdb-geo__query` MCP server**. It runs on generously-provisioned cluster metal with the **internal NRP S3 endpoint** and a **100 Gb/s** network, and DuckDB **streams** (larger-than-memory spills to disk) — so it does not hit the RAM limits or the slow public endpoint (~12 MB/s) that bottleneck the laptop.
+
+- ❌ Do NOT shell out to local `duckdb`/`python -c "import duckdb"`/`uv run --with duckdb`.
+- ❌ Do NOT spin up k8s jobs running `pyarrow`/`geopandas`/`duckdb` to scan big parquet, and never read big parquet over `https://s3-west.nrp-nautilus.io/...` (public endpoint) — use `s3://` (internal) inside jobs and the MCP for queries.
+- ✅ Verify counts/schema, scan for pathological geometries/bbox/validity, distinct counts, ST_*/h3_* → `mcp__duckdb-geo__query`.
+- The tool is deferred: `ToolSearch select:mcp__duckdb-geo__query` first. **If ToolSearch returns no match the MCP server is disconnected — ask the user to reconnect it; do NOT fall back to the slow RAM-bound path.**
+- Heavy *writes/transforms* the MCP can't do still run as cluster jobs, but over the **internal** endpoint (`rook-ceph-rgw-nautiluss3.rook`, `AWS_HTTPS=false`), never the laptop.
+
+## ⛔ Serialization standard: GeoParquet must be `OGC:CRS84`, never `EPSG:4326`
+
+Publish all GeoParquet with CRS **`OGC:CRS84`** (lon/lat axis) — what cng-datasets writes. **Never `EPSG:4326`.** geopandas (`set_crs("EPSG:4326")` + `to_parquet`) writes an EPSG:4326 PROJJSON that DuckDB reads as `GEOMETRY('EPSG:4326')` and then **crashes with `stoi`** on any `ST_` op (known upstream bug [duckdb/duckdb#21691](https://github.com/duckdb/duckdb/issues/21691); the MCP's duckdb 1.5.3 predates the fix). **Both the duckdb-geo MCP and `cng-convert-to-parquet` crash reading such files** — so the geo-agent can't query them and convert can't even re-ingest them; only geopandas can read them back.
+
+- Prefer the cng-datasets workflow for ingests (writes `OGC:CRS84`). If you must use geopandas, `gdf.set_crs("OGC:CRS84", allow_override=True)` before writing (WKB is already lon/lat — it's a metadata retag, not a reprojection).
+- Detect bad files: `SELECT file_name FROM parquet_kv_metadata('s3://<bucket>/**/*.parquet') WHERE key::VARCHAR='geo' AND value::VARCHAR LIKE '%4326%'`.
+- Fix an existing EPSG:4326 file: geopandas only — `read_parquet → set_crs("OGC:CRS84", allow_override=True) → to_parquet`.
+
 ## ⛔ HARD BOUNDARY 1: NRP S3 is Canonical for STAC and Data
 
 Canonical STAC/data live on NRP S3 (`s3://public-<bucket>/`, public URL `https://s3-west.nrp-nautilus.io/<bucket>/...`). **This repo does NOT contain STAC JSON or README files.** Never create `catalog/*/stac/`, never `git add` STAC JSON or README.
