@@ -6,9 +6,10 @@ metadata:
     k8s-app: cgls-lc100-2019-hex
 spec:
   completions: 122
-  parallelism: 61
+  parallelism: 30
   completionMode: Indexed
-  backoffLimit: 0
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 122
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -50,6 +51,12 @@ spec:
           value: /usr/lib/python3/dist-packages
         - name: BUCKET
           value: public-land-cover
+        # rclone-config is required: the current tool localizes the COG to local
+        # NVMe (rclone copy nrp:...) before hexing; without it localization fails.
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
         command:
         - bash
         - -c
@@ -63,16 +70,20 @@ spec:
             export PROJ_LIB="$PROJ_DATA"
           fi
 
-          cng-datasets raster --input "s3://public-land-cover/cgls-lc100-2019-cog.tif" --output-parquet s3://public-land-cover/cgls-lc100-2019/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 5,6,7,0 --value-column lc_class --hex-resampling mode
+          cng-datasets raster --input "s3://public-land-cover/cgls-lc100-2019-cog.tif" --output-parquet s3://public-land-cover/cgls-lc100-2019/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 9 --parent-resolutions 8,7,6,5,0 --value-column lc_class --hex-resampling mode
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 128Gi
             ephemeral-storage: 50Gi
           limits:
             cpu: '4'
-            memory: 32Gi
+            memory: 128Gi
             ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:
