@@ -450,6 +450,16 @@ Counterintuitive result: 10,000 small features at 8Gi can be fine, while a singl
 
 Raster completions are always **122** — not configurable.
 
+### Re-hexing an existing raster (campaign-style reprocessing)
+
+Most rework here comes from skipped pre-flight checks, not hard problems. Do, in order:
+
+1. **Pre-flight the COG** with one GDAL job (rclone-localize → read; never `/vsis3` for GDAL — it's flaky/node-dependent). Report size, dtype, **real nodata** (published STAC nodata is often wrong), and the value summary that becomes your validation truth (class histogram for `mode`; pixel-SUM for `sum`; min/max/mean for `mean`). **Confirm the COG is non-empty** — published "total" COGs have shipped 100% nodata.
+2. **Resolution = match the source pixel** (≈100 m → res 9; ≈500 m → res 8). Don't bump blindly; res finer than the pixel is 7× cost for no gain.
+3. **Hex job musts:** mount the `rclone-config` secret (the tool localizes the COG via rclone first; generated YAML omits it → fails), `backoffLimitPerIndex: 2` + `maxFailedIndexes` (not `backoffLimit: 0`), output to a **staging** prefix. `:latest` has the seam fix — no runtime clone.
+4. **Validate value AND coverage.** `sum`: hex `SUM` == COG pixel-SUM. Note `sum`/area layers are a **full h0 grid** (one row per cell, `value = 0` where the feature is absent) — same shape as carbon/ghs-pop; that's expected, not bloat. Check that the count of **nonzero** cells matches the feature extent, not the total. `mode`: sparse (cells with no valid pixel are dropped); only canonical codes + distribution tracks the histogram. **Seam (all reducers):** dateline h0 `576707042908045311` — fixed builds span ±180°, buggy ones are bloated and miss the dateline.
+5. **Flip: purge-and-VERIFY-empty, then sync.** `cng-datasets raster` overwrites the partition for each h0 it produces, but does **not** remove partitions for h0s that now yield no data — so reprocessing to a smaller/different domain (e.g. all-land → wetland-only) leaves **stale partitions** behind that corrupt aggregates. And `rclone purge` can silently no-op under S3 load. So purge staging **and confirm it's empty** before any re-hex. `kubectl apply` on a completed Job is a no-op; `delete`+`apply` to rerun. Jobs TTL-GC 3 h after completion — validate before then.
+
 ## Namespace Pod Quota (`biodiversity`)
 
 **Hard limit: 200 pods total** across all simultaneous jobs. Applies to **k8s backend only** — armada queues externally and is not constrained.
