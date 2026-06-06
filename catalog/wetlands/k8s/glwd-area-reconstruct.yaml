@@ -1,0 +1,95 @@
+# Reconstructs the GLWD v2.0 total wetland-area COG from the 34 per-class area
+# rasters (classes 1-33 summed; class 0 = Dryland excluded), wetland-only
+# (no-wetland pixels -> nodata). The GLWD distribution's single
+# GLWD_v2_0_area_ha_x10_cog.tif is empty, so this rebuilds it.
+# Output: s3://public-wetlands/glwd/glwd-area-cog.tif (UInt16 ha x10, nodata 65535).
+# Global sum = 18,187,432,309 ha x10 = 1,818,743,231 ha (~18.2 Mkm^2).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: glwd-area-reconstruct
+  labels:
+    k8s-app: glwd-area-reconstruct
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: glwd-area-reconstruct
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: reconstruct
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: GDAL_CACHEMAX
+          value: '2048'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          mkdir -p /tmp/cls
+          rclone copy nrp:public-wetlands/GLWD_v2_0/GLWD_v2_0_area_by_class_ha/ /tmp/cls/ \
+            --include "*_ha_x10.tif" --retries 10 --low-level-retries 20 --transfers 8
+          python3 - <<'PY'
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          NOD_IN = 255; NOD_OUT = 65535
+          paths = {c: f"/tmp/cls/GLWD_v2_0_class_{c:02d}_ha_x10.tif" for c in range(34)}
+          dss = {c: gdal.Open(p) for c, p in paths.items()}   # keep Datasets alive
+          bands = {c: dss[c].GetRasterBand(1) for c in range(34)}
+          ref = dss[1]; xs, ys = ref.RasterXSize, ref.RasterYSize
+          out = gdal.GetDriverByName("GTiff").Create(
+              "/tmp/total.tif", xs, ys, 1, gdal.GDT_UInt16,
+              options=["TILED=YES","COMPRESS=ZSTD","BIGTIFF=YES","BLOCKXSIZE=256","BLOCKYSIZE=256"])
+          out.SetGeoTransform(ref.GetGeoTransform()); out.SetProjection(ref.GetProjection())
+          ob = out.GetRasterBand(1); ob.SetNoDataValue(NOD_OUT)
+          total = 0.0
+          for yo in range(0, ys, 512):
+              h = min(512, ys - yo)
+              acc = np.zeros((h, xs), dtype=np.float64)
+              for c in range(1, 34):  # wetland classes only (skip 0 = Dryland)
+                  a = bands[c].ReadAsArray(0, yo, xs, h).astype(np.float64)
+                  acc += np.where(a == NOD_IN, 0.0, a)
+              acc_i = np.rint(acc).astype(np.int32)
+              outarr = np.where(acc_i > 0, acc_i, NOD_OUT).astype(np.uint16)  # wetland-only
+              ob.WriteArray(outarr, 0, yo)
+              total += float(acc_i[acc_i > 0].sum())
+          ob.FlushCache(); out.FlushCache(); out = None
+          print(f"AREA_TOTAL_ha_x10: {total:.0f}  ha: {total/10.0:.1f}", flush=True)
+          PY
+          gdal_translate /tmp/total.tif /tmp/glwd-area-cog.tif \
+            -of COG -co COMPRESS=ZSTD -co BIGTIFF=YES -co BLOCKSIZE=512 --config GDAL_CACHEMAX 2048
+          rclone copyto /tmp/glwd-area-cog.tif nrp:public-wetlands/glwd/glwd-area-cog.tif \
+            --retries 10 --low-level-retries 20
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 50Gi}
+          limits: {cpu: '4', memory: 16Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
