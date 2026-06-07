@@ -1,14 +1,13 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: wdpa-june-2026-hex
+  name: wdpa-june-2026-hex-main
   labels:
-    k8s-app: wdpa-june-2026-hex
+    k8s-app: wdpa-june-2026-hex-main
 spec:
-  # completions x chunk-size must cover the feature count (306,985 features:
-  # 200 x 1540 = 308,000 >= 306,985). chunk-size = ceil(N_features / 200).
+  # 305,688 features < 5,000 km2 (the fast tier). 200 x 1529 = 305,800 >= 305,688.
   completions: 200
-  parallelism: 20
+  parallelism: 25
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 200
@@ -21,7 +20,7 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: wdpa-june-2026-hex
+        k8s-app: wdpa-june-2026-hex-main
     spec:
       restartPolicy: Never
       containers:
@@ -30,15 +29,9 @@ spec:
         imagePullPolicy: Always
         env:
         - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: aws
-              key: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
         - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: aws
-              key: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
         - name: AWS_S3_ENDPOINT
           value: rook-ceph-rgw-nautiluss3.rook
         - name: AWS_PUBLIC_ENDPOINT
@@ -50,44 +43,27 @@ spec:
         - name: TMPDIR
           value: /tmp
         - name: DUCKDB_MEMORY_LIMIT
-          value: 88GiB
-        - name: BUCKET
-          value: public-wdpa
-        - name: DATASET
-          value: wdpa-june-2026
+          value: 40GiB
         command:
         - bash
         - -c
         - |-
           set -e
-          # Native h9 (parents 8,0). Small intermediate-chunk-size keeps the
-          # Pass-2 unnest memory-bounded for ocean/continent-scale features.
-          # Features whose polygon contains no h9 cell centre produce 0 cells
-          # here and are recovered by the representative-point backfill job.
           cng-datasets vector \
-            --input s3://public-wdpa/wdpa-june-2026.parquet \
+            --input s3://public-wdpa/wdpa-june-2026/tiers/tier_main.parquet \
             --output s3://public-wdpa/wdpa-june-2026/chunks \
             --chunk-id ${JOB_COMPLETION_INDEX} \
-            --chunk-size 1540 \
+            --chunk-size 1529 \
             --intermediate-chunk-size 5 \
             --resolution 9 \
             --parent-resolutions 8,0
         resources:
-          requests:
-            cpu: '4'
-            memory: 96Gi
-            ephemeral-storage: 50Gi
-          limits:
-            cpu: '4'
-            memory: 96Gi
-            ephemeral-storage: 50Gi
+          requests: {cpu: '4', memory: 48Gi, ephemeral-storage: 40Gi}
+          limits: {cpu: '4', memory: 48Gi, ephemeral-storage: 40Gi}
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
-                operator: NotIn
-                values:
-                - 'true'
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

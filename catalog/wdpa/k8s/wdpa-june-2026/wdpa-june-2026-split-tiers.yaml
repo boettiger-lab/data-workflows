@@ -1,0 +1,82 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdpa-june-2026-split-tiers
+  labels:
+    k8s-app: wdpa-june-2026-split-tiers
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wdpa-june-2026-split-tiers
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: split-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import duckdb
+          from cng_datasets.storage.s3 import configure_s3_credentials
+          SRC = "s3://public-wdpa/wdpa-june-2026.parquet"
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial")
+          con.execute("SET memory_limit='56GiB'")
+          con.execute("SET http_timeout=3600000"); con.execute("SET http_retries=30"); con.execute("SET http_retry_wait_ms=5000")
+          con.execute("SET preserve_insertion_order=false")
+          configure_s3_credentials(con)
+          for tier, cond, dst in [
+              ("main",   "COALESCE(GIS_AREA,0) <  5000", "/tmp/tier_main.parquet"),
+              ("giants", "COALESCE(GIS_AREA,0) >= 5000", "/tmp/tier_giants.parquet"),
+          ]:
+              n = con.execute(f"""
+                COPY (SELECT _cng_fid, SHAPE FROM read_parquet('{SRC}') WHERE {cond})
+                TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 20000)
+              """)
+              cnt = con.execute(f"SELECT COUNT(*) FROM read_parquet('{dst}')").fetchone()[0]
+              print(f"{tier}: {cnt:,} features -> {dst}", flush=True)
+          PY
+          rclone copyto /tmp/tier_main.parquet   nrp:public-wdpa/wdpa-june-2026/tiers/tier_main.parquet   -P --s3-chunk-size 64M --s3-upload-concurrency 16
+          rclone copyto /tmp/tier_giants.parquet nrp:public-wdpa/wdpa-june-2026/tiers/tier_giants.parquet -P --s3-chunk-size 64M --s3-upload-concurrency 16
+          echo "DONE"
+        resources:
+          requests: {cpu: '6', memory: 64Gi, ephemeral-storage: 50Gi}
+          limits: {cpu: '6', memory: 64Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
