@@ -10,7 +10,7 @@ spec:
   # (giant ocean EEZs would be ~43M h9 cells; at h8 ~6M, tractable as in Dec2025).
   # Representative-point (ST_PointOnSurface) fallback guarantees >=1 cell per feature.
   completions: 200
-  parallelism: 25
+  parallelism: 20
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 200
@@ -47,6 +47,10 @@ spec:
           value: /tmp
         - name: CHUNK_SIZE
           value: '1540'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
         command:
         - bash
         - -c
@@ -123,6 +127,9 @@ spec:
         resources:
           requests: {cpu: '4', memory: 64Gi, ephemeral-storage: 50Gi}
           limits: {cpu: '4', memory: 64Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:
