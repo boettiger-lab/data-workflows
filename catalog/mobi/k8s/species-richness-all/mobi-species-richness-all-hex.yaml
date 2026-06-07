@@ -6,9 +6,10 @@ metadata:
     k8s-app: mobi-species-richness-all-hex
 spec:
   completions: 122
-  parallelism: 61
+  parallelism: 30
   completionMode: Indexed
-  backoffLimit: 0
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 122
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -50,6 +51,12 @@ spec:
           value: /usr/lib/python3/dist-packages
         - name: BUCKET
           value: public-mobi
+        # rclone-config is required: the tool localizes the COG to local NVMe
+        # (rclone copy nrp:...) before hexing; without it localization fails.
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
         command:
         - bash
         - -c
@@ -63,7 +70,10 @@ spec:
             export PROJ_LIB="$PROJ_DATA"
           fi
 
-          cng-datasets raster --input "https://minio.carlboettiger.info/public-biodiversity/mobi/species-richness-all/SpeciesRichness_All.tif" --output-parquet s3://public-mobi/mobi-species-richness-all/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 --value-column species_richness --nodata -128.0
+          # exact-extract, one row per cell, `max` reducer: species richness is a
+          # count, so each cell stores the peak (not the average) modeled richness
+          # among the source pixels covering it. Hexed from the WGS84 COG on NRP S3.
+          cng-datasets raster --input "s3://public-mobi/mobi-species-richness-all-cog.tif" --output-parquet s3://public-mobi/mobi-species-richness-all/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 7,6,5,0 --value-column species_richness --hex-resampling max --nodata -128
         resources:
           requests:
             cpu: '4'
@@ -73,6 +83,10 @@ spec:
             cpu: '4'
             memory: 32Gi
             ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:
