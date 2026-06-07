@@ -1,0 +1,93 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdpa-june-2026-hex
+  labels:
+    k8s-app: wdpa-june-2026-hex
+spec:
+  # completions x chunk-size must cover the feature count. Set chunk-size =
+  # ceil(N_features / 200) from the convert row count before applying.
+  completions: 200
+  parallelism: 20
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 200
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wdpa-june-2026-hex
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 88GiB
+        - name: BUCKET
+          value: public-wdpa
+        - name: DATASET
+          value: wdpa-june-2026
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Native h9 (parents 8,0). Small intermediate-chunk-size keeps the
+          # Pass-2 unnest memory-bounded for ocean/continent-scale features.
+          # Features whose polygon contains no h9 cell centre produce 0 cells
+          # here and are recovered by the representative-point backfill job.
+          cng-datasets vector \
+            --input s3://public-wdpa/wdpa-june-2026.parquet \
+            --output s3://public-wdpa/wdpa-june-2026/chunks \
+            --chunk-id ${JOB_COMPLETION_INDEX} \
+            --chunk-size 1500 \
+            --intermediate-chunk-size 5 \
+            --resolution 9 \
+            --parent-resolutions 8,0
+        resources:
+          requests:
+            cpu: '4'
+            memory: 96Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 96Gi
+            ephemeral-storage: 50Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

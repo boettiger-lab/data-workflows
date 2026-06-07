@@ -1,0 +1,138 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdpa-june-2026-hex-backfill
+  labels:
+    k8s-app: wdpa-june-2026-hex-backfill
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wdpa-june-2026-hex-backfill
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: backfill-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-wdpa
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import duckdb
+          from cng_datasets.storage.s3 import configure_s3_credentials
+
+          FLAT   = "s3://public-wdpa/wdpa-june-2026.parquet"
+          CHUNKS = "s3://public-wdpa/wdpa-june-2026/chunks/*.parquet"
+          RES = 9
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial")
+          con.execute("INSTALL h3 FROM community; LOAD h3")
+          con.execute("SET http_retries=20"); con.execute("SET http_retry_wait_ms=5000")
+          con.execute("SET arrow_large_buffer_size=true")
+          configure_s3_credentials(con)
+
+          # Identify the geometry column in the flat parquet.
+          desc = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{FLAT}')").fetchdf()
+          cols = dict(zip(desc.column_name, desc.column_type))
+          geom = next((c for c in ("geometry","geom","SHAPE","Shape","shape") if c in cols), None)
+          if geom is None:
+              geom = next((c for c,t in cols.items() if str(t).upper().startswith("GEOMETRY")), None)
+          if geom is None:
+              raise SystemExit(f"no geometry column found in {FLAT}: {list(cols)}")
+          print(f"geometry column: {geom}", flush=True)
+
+          n_flat = con.execute(f"SELECT COUNT(*) FROM read_parquet('{FLAT}')").fetchone()[0]
+          n_hex  = con.execute(f"SELECT COUNT(DISTINCT _cng_fid) FROM read_parquet('{CHUNKS}')").fetchone()[0]
+          print(f"flat features: {n_flat:,}   features already in hex chunks: {n_hex:,}", flush=True)
+
+          # Features the polyfill dropped (no h9 cell centre inside the polygon).
+          # Give each one the single h9 cell containing a guaranteed-interior point.
+          out = "/tmp/backfill_dropped.parquet"
+          con.execute(f"""
+            COPY (
+              WITH dropped AS (
+                SELECT f._cng_fid, f."{geom}" AS g
+                FROM read_parquet('{FLAT}') f
+                ANTI JOIN (SELECT DISTINCT _cng_fid FROM read_parquet('{CHUNKS}')) h
+                  ON f._cng_fid = h._cng_fid
+                WHERE f."{geom}" IS NOT NULL AND ST_Area(f."{geom}") > 0
+              ),
+              pts AS (
+                SELECT _cng_fid, ST_PointOnSurface(g) AS p FROM dropped
+              )
+              SELECT
+                _cng_fid,
+                h3_latlng_to_cell(ST_Y(p), ST_X(p), {RES})       AS h{RES},
+                h3_cell_to_parent(h3_latlng_to_cell(ST_Y(p), ST_X(p), {RES}), 8) AS h8,
+                h3_cell_to_parent(h3_latlng_to_cell(ST_Y(p), ST_X(p), {RES}), 0) AS h0
+              FROM pts
+            ) TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD)
+          """)
+          n_bf = con.execute(f"SELECT COUNT(*) FROM read_parquet('{out}')").fetchone()[0]
+          print(f"backfilled dropped features: {n_bf:,}", flush=True)
+          if n_bf == 0:
+              print("nothing to backfill — every feature already produced cells", flush=True)
+          PY
+          # Upload the backfill chunk alongside the polyfill chunks so repartition merges it.
+          if [ -s /tmp/backfill_dropped.parquet ]; then
+            rclone copyto /tmp/backfill_dropped.parquet nrp:public-wdpa/wdpa-june-2026/chunks/backfill_dropped.parquet -P
+            echo "backfill chunk uploaded"
+          fi
+        resources:
+          requests:
+            cpu: '4'
+            memory: 48Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 48Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
