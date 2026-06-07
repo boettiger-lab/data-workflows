@@ -1,0 +1,82 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ncp-reproject
+  labels:
+    k8s-app: ncp-reproject
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ncp-reproject
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: reproject
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: GDAL_CACHEMAX
+          value: '2048'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          [ -n "$PROJ_DB" ] && export PROJ_DATA="$(dirname $PROJ_DB)" PROJ_LIB="$(dirname $PROJ_DB)"
+          process () {
+            local src=$1 dst=$2 ndst=$3
+            rclone copy nrp:public-ncp/${src}.tif /tmp/ --retries 10 --low-level-retries 20
+            echo "=== gdalinfo source $src ==="; gdalinfo /tmp/${src}.tif | grep -E 'Coordinate System|PROJCRS|Pixel Size|Size is' | head
+            gdalwarp -t_srs EPSG:4326 -tr 0.0179331 0.0179331 -r near \
+              -dstnodata ${ndst} -of COG -co COMPRESS=ZSTD -co BIGTIFF=YES \
+              -overwrite /tmp/${src}.tif /tmp/${dst}.tif --config GDAL_CACHEMAX 2048
+            rclone copyto /tmp/${dst}.tif nrp:public-ncp/${dst}.tif --retries 10 --low-level-retries 20
+            python3 - "$dst" "$ndst" <<'PY'
+          import sys, numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          dst, ndst = sys.argv[1], float(sys.argv[2])
+          ds=gdal.Open(f"/tmp/{dst}.tif"); b=ds.GetRasterBand(1)
+          xs,ys=ds.RasterXSize,ds.RasterYSize; _,by=b.GetBlockSize()
+          vmin=1e30;vmax=-1e30;tot=0.0;n=0
+          for yo in range(0,ys,by):
+              a=b.ReadAsArray(0,yo,xs,min(by,ys-yo)).astype(np.float64)
+              a=a[np.isfinite(a) & (a!=ndst)]
+              if a.size: vmin=min(vmin,float(a.min()));vmax=max(vmax,float(a.max()));tot+=float(a.sum());n+=a.size
+          print(f"TRUTH {dst}: size={xs}x{ys} VALID_PX={n} MIN={vmin:.5f} MAX={vmax:.5f} MEAN={tot/n:.6f}", flush=True)
+          PY
+          }
+          process NCP_biod_nathab_cog NCP_biod_nathab_4326_cog -9999
+          process NCP_only_cog        NCP_only_4326_cog        -128
+          echo "DONE reproject + truth"
+        resources:
+          requests: {cpu: '4', memory: 8Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '4', memory: 8Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
