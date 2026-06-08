@@ -1,0 +1,49 @@
+version: 1
+project:
+  id: agentic-data-workflows
+  title: Agentic Data Workflows
+  description: >-
+    Turn disparate legacy and proprietary data into AI-ready, cloud-native
+    data with rich STAC metadata — through an AI-driven pipeline powered by
+    cng-datasets and autoscaled on Kubernetes.
+  github: https://github.com/boettiger-lab/data-workflows
+  license:
+    content: CC-BY-4.0
+    code: BSD-3-Clause
+  authors:
+    - name: Carl Boettiger
+      orcid: 0000-0002-1642-628X
+      affiliation: University of California, Berkeley
+  keywords:
+    - cloud-native
+    - AI-ready data
+    - STAC
+    - Kubernetes
+    - agentic workflows
+    - data engineering
+  toc:
+    - file: index.md
+    - file: how-it-works.md
+    - file: features.md
+    - file: quickstart.md
+    - file: ecosystem.md
+    - file: catalog.md
+site:
+  template: book-theme
+  options:
+    favicon: ''
+    logo_text: Agentic Data Workflows
+  nav:
+    - title: How it works
+      url: /how-it-works
+    - title: Features
+      url: /features
+    - title: Quickstart
+      url: /quickstart
+    - title: Ecosystem
+      url: /ecosystem
+    - title: Catalog
+      url: /catalog
+  actions:
+    - title: GitHub
+      url: https://github.com/boettiger-lab/data-workflows

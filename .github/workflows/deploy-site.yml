@@ -1,0 +1,52 @@
+name: Deploy MyST site to GitHub Pages
+
+# Build the Agentic Data Workflows site with mystmd and publish to GitHub Pages.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'myst.yml'
+      - '*.md'
+      - '.github/workflows/deploy-site.yml'
+  workflow_dispatch:
+
+# GitHub Pages needs pages + id-token; contents:read to checkout.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; don't cancel an in-progress run.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # Served at https://boettiger-lab.github.io/data-workflows/
+  BASE_URL: /data-workflows
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install mystmd
+        run: npm install -g mystmd
+      - name: Build HTML
+        run: myst build --html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_build/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
