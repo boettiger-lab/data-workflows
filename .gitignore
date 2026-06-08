@@ -1,3 +1,7 @@
+# MyST site build artifacts
+_build/
+node_modules/
+
 # Python
 __pycache__/
 *.py[cod]
