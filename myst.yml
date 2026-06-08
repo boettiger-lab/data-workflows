@@ -14,6 +14,7 @@ project:
     - name: Carl Boettiger
       orcid: 0000-0002-1642-628X
       affiliation: University of California, Berkeley
+    - name: Cassie Buhler
   keywords:
     - cloud-native
     - AI-ready data
