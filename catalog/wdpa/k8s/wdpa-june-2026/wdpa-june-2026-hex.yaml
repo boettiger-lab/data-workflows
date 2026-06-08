@@ -60,7 +60,8 @@ spec:
           python3 - "$IDX" "$CHUNK_SIZE" <<'PY'
           import sys, duckdb
           from cng_datasets.storage.s3 import configure_s3_credentials
-          idx = int(sys.argv[1]); chunk = int(sys.argv[2]); offset = idx * chunk
+          idx = int(sys.argv[1]); chunk = int(sys.argv[2])
+          lo = idx * chunk; hi = (idx + 1) * chunk   # _cng_fid range (1-based, contiguous)
           SRC = "s3://public-wdpa/wdpa-june-2026.parquet"
           OUT = f"/tmp/chunk_{idx:06d}.parquet"
 
@@ -85,7 +86,7 @@ spec:
                        CASE WHEN COALESCE(GIS_AREA,0) < 5000 THEN 9 ELSE 8 END AS res,
                        ST_Multi(SHAPE) AS geom
                 FROM read_parquet('{SRC}')
-                LIMIT {chunk} OFFSET {offset}
+                WHERE _cng_fid > {lo} AND _cng_fid <= {hi}
               ),
               parts AS (
                 SELECT _cng_fid, res, UNNEST(ST_Dump(geom)).geom AS g FROM src
@@ -114,7 +115,8 @@ spec:
             ) TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD)
           """)
           n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{OUT}')").fetchone()[0]
-          print(f"chunk {idx}: offset {offset}, {n:,} (feature,cell) rows", flush=True)
+          nf = con.execute(f"SELECT COUNT(DISTINCT _cng_fid) FROM read_parquet('{OUT}')").fetchone()[0]
+          print(f"chunk {idx}: _cng_fid ({lo},{hi}], {nf:,} features, {n:,} (feature,cell) rows", flush=True)
           PY
           if [ -s "/tmp/chunk_$(printf '%06d' "$IDX").parquet" ]; then
             timeout 1200 rclone copyto "/tmp/chunk_$(printf '%06d' "$IDX").parquet" \
