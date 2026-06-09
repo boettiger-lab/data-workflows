@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdpa-june-2026-download-raw
+  labels:
+    k8s-app: wdpa-june-2026-download-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wdpa-june-2026-download-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: download-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: SOURCE_URL
+          value: https://d1gam3xoknrgr2.cloudfront.net/current/WDPA_Jun2026_Public.zip
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+          echo "Downloading $SOURCE_URL ..."
+          curl -L --retry 5 --retry-delay 10 -o WDPA_Jun2026_Public.zip "$SOURCE_URL"
+          ls -lh WDPA_Jun2026_Public.zip
+          echo "Unzipping ..."
+          unzip -q -o WDPA_Jun2026_Public.zip -d wdpa_unzip
+          echo "Contents:"; find wdpa_unzip -maxdepth 2 | head -40
+          GDB=$(find wdpa_unzip -maxdepth 2 -name '*.gdb' -type d | head -1)
+          if [ -z "$GDB" ]; then echo "ERROR: no .gdb found in archive"; exit 1; fi
+          echo "Found GDB: $GDB"
+          echo "Layers:"; ogrinfo -so "$GDB" || true
+          echo "Uploading raw GDB to s3://public-wdpa/wdpa-june-2026/raw/ ..."
+          rclone copy "$GDB" "nrp:public-wdpa/wdpa-june-2026/raw/$(basename "$GDB")/" -P --transfers 16
+          echo "Done. Verifying upload:"
+          rclone size "nrp:public-wdpa/wdpa-june-2026/raw/$(basename "$GDB")/"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
