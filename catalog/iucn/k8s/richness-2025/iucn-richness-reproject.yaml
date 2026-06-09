@@ -1,0 +1,54 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-reproject
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
+      containers:
+      - name: reproject
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          if [ -n "$PROJ_DB" ]; then export PROJ_DATA="$(dirname $PROJ_DB)"; export PROJ_LIB="$PROJ_DATA"; fi
+          NAMES="Amphibians_SR_2025 Birds_SR_2025 Mammals_SR_2025 Reptiles_SR_2025 FW_Fish_SR_2025 Combined_SR_2025 Amphibians_THR_SR_2025 Birds_THR_SR_2025 Mammals_THR_SR_2025 Reptiles_THR_SR_2025 FW_Fish_THR_SR_2025 Combined_THR_SR_2025 Combined_RWR_2025 Combined_THR_RWR_2025"
+          for N in $NAMES; do
+            echo "===== reprojecting $N ====="
+            rclone copyto nrp:public-iucn/cog/richness/${N}.tif /tmp/${N}.tif
+            gdalwarp -t_srs EPSG:4326 -r near -of COG \
+              -srcnodata 0 -dstnodata 0 \
+              -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=4 \
+              /tmp/${N}.tif /tmp/${N}_4326.tif
+            gdalinfo /tmp/${N}_4326.tif | grep -iE "Size is|ID\[\"EPSG|Pixel Size|NoData|Type=" | head -6
+            rclone copyto /tmp/${N}_4326.tif nrp:public-iucn/cog/richness/${N}_4326.tif
+            rm -f /tmp/${N}.tif /tmp/${N}_4326.tif
+          done
+          echo "ALL 14 REPROJECTED"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

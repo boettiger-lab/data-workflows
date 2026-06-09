@@ -1,9 +1,9 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: mobi-species-richness-all-hex
+  name: iucn-rich-hex
   labels:
-    k8s-app: mobi-species-richness-all-hex
+    k8s-app: iucn-rich-hex
 spec:
   completions: 122
   parallelism: 30
@@ -19,7 +19,7 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: mobi-species-richness-all-hex
+        k8s-app: iucn-rich-hex
     spec:
       restartPolicy: Never
       containers:
@@ -28,15 +28,9 @@ spec:
         imagePullPolicy: Always
         env:
         - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: aws
-              key: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
         - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: aws
-              key: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
         - name: AWS_S3_ENDPOINT
           value: rook-ceph-rgw-nautiluss3.rook
         - name: AWS_PUBLIC_ENDPOINT
@@ -49,10 +43,6 @@ spec:
           value: /usr/share/gdal
         - name: PYTHONPATH
           value: /usr/lib/python3/dist-packages
-        - name: BUCKET
-          value: public-mobi
-        # rclone-config is required: the tool localizes the COG to local NVMe
-        # (rclone copy nrp:...) before hexing; without it localization fails.
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
@@ -62,27 +52,24 @@ spec:
         - -c
         - |-
           set -e
-
-          # Locate PROJ database dynamically to avoid version mismatches
           PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
-          if [ -n "$PROJ_DB" ]; then
-            export PROJ_DATA="$(dirname $PROJ_DB)"
-            export PROJ_LIB="$PROJ_DATA"
-          fi
-
-          # exact-extract, one row per cell, `max` reducer: species richness is a
-          # count, so each cell stores the peak (not the average) modeled richness
-          # among the source pixels covering it. Hexed from the WGS84 COG on NRP S3.
-          cng-datasets raster --input "s3://public-mobi/mobi-species-richness-all-cog.tif" --output-parquet s3://public-mobi/mobi-species-richness-all/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 7,6,5,0 --value-column species_richness --hex-resampling max --nodata -128
+          if [ -n "$PROJ_DB" ]; then export PROJ_DATA="$(dirname $PROJ_DB)"; export PROJ_LIB="$PROJ_DATA"; fi
+          IDX=${JOB_COMPLETION_INDEX}
+          COGS=(Amphibians_SR_2025 Birds_SR_2025 Mammals_SR_2025 Reptiles_SR_2025 FW_Fish_SR_2025 Combined_SR_2025 Amphibians_THR_SR_2025 Birds_THR_SR_2025 Mammals_THR_SR_2025 Reptiles_THR_SR_2025 FW_Fish_THR_SR_2025 Combined_THR_SR_2025 Combined_RWR_2025 Combined_THR_RWR_2025)
+          LAYERS=(amphibians_sr birds_sr mammals_sr reptiles_sr fw_fish_sr combined_sr amphibians_thr_sr birds_thr_sr mammals_thr_sr reptiles_thr_sr fw_fish_thr_sr combined_thr_sr combined_rwr combined_thr_rwr)
+          for k in ${!COGS[@]}; do
+            N=${COGS[$k]}; L=${LAYERS[$k]}
+            echo "===== h0-index $IDX  layer $L ($N) ====="
+            cng-datasets raster \
+              --input "s3://public-iucn/cog/richness/${N}_4326.tif" \
+              --output-parquet "s3://public-iucn/hex/${L}/" \
+              --h0-index ${IDX} --resolution 5 --parent-resolutions 4,3,0 \
+              --value-column ${L} --hex-resampling max --nodata 0
+          done
+          echo "index $IDX done"
         resources:
-          requests:
-            cpu: '4'
-            memory: 32Gi
-            ephemeral-storage: 50Gi
-          limits:
-            cpu: '4'
-            memory: 32Gi
-            ephemeral-storage: 50Gi
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 30Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 30Gi}
       volumes:
       - name: rclone-config
         secret:
@@ -95,5 +82,4 @@ spec:
             - matchExpressions:
               - key: feature.node.kubernetes.io/pci-10de.present
                 operator: NotIn
-                values:
-                - 'true'
+                values: ['true']
