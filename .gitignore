@@ -28,3 +28,7 @@ catalog/wyoming/
 **/*.woff
 **/*.zip
 kubectl
+# IUCN audit todo lists — derived from cluster outputs at
+# s3://public-output/iucn-audit/missing-by-group/, kept locally as
+# untracked working space for the missing-species requests.
+iucn/

@@ -1,0 +1,102 @@
+# Pull the IUCN master taxonomy via the v4 API and diff against our holdings.
+# Re-reads iucn-coverage-species.parquet from the rechunk-scratch PVC.
+# The IUCN_API_KEY env var is sourced from the `iucn-api-key` k8s secret
+# (created out-of-band; never committed):
+#
+#   kubectl create secret generic iucn-api-key \
+#     --from-literal=IUCN_API_KEY='...' -n biodiversity
+#
+# Apply:
+#   kubectl create configmap iucn-master-script \
+#     --from-file=audit_iucn_master.py=catalog/iucn/audit/audit_iucn_master.py \
+#     -n biodiversity --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n biodiversity delete job iucn-master --ignore-not-found
+#   kubectl apply -f catalog/iucn/audit/k8s/iucn-master-job.yaml
+#
+# Monitor:
+#   kubectl -n biodiversity logs -f job/iucn-master
+#
+# Results:
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-master-species.parquet
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-have.csv
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-missing.csv
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-extras.csv
+#   https://s3-west.nrp-nautilus.io/public-output/iucn-audit/iucn-coverage-summary.csv
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-master
+  namespace: biodiversity
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+        - name: master
+          image: ghcr.io/boettiger-lab/datasets:latest
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "1"
+              ephemeral-storage: "2Gi"
+            limits:
+              memory: "4Gi"
+              cpu: "1"
+              ephemeral-storage: "2Gi"
+          env:
+            - name: IUCN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: iucn-api-key
+                  key: IUCN_API_KEY
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              python -c "import polars" 2>/dev/null || pip install --quiet polars==1.18.0
+              python -c "import requests" 2>/dev/null || pip install --quiet requests
+              SCRATCH=/scratch/iucn-audit
+              FEATURES=$SCRATCH/output/iucn-audit-features.parquet
+              OUT=$SCRATCH/output
+              [ -s "$FEATURES" ] || { echo "Missing $FEATURES — run iucn-audit first"; exit 1; }
+              # Extract BOTW GeoPackage from its zip once — random-access
+              # reads through /vsizip on a 4 GB SQLite-backed GPKG are
+              # pathologically slow.
+              BOTW_GPKG=$SCRATCH/botw/BOTW_2025.gpkg
+              if [ ! -s "$BOTW_GPKG" ]; then
+                mkdir -p $(dirname "$BOTW_GPKG")
+                echo "== extracting BOTW gpkg to disk"
+                unzip -p $SCRATCH/data/raw/rangemaps/species.zip BOTW_2025.gpkg > "$BOTW_GPKG"
+                echo "   extracted: $(du -sh "$BOTW_GPKG" | cut -f1)"
+              fi
+              FEATURES=$FEATURES OUT_ROOT=$OUT CACHE_DIR=$SCRATCH/master-cache \
+                BOTW_GPKG=$BOTW_GPKG \
+                python /scripts/audit_iucn_master.py
+              rclone copy $OUT nrp:public-output/iucn-audit/ \
+                --include "iucn-master-*" --include "iucn-have.csv" \
+                --include "iucn-missing.csv" --include "iucn-extras.csv" \
+                --include "iucn-coverage-summary.csv" --progress
+              echo "Done."
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: scratch
+              mountPath: /scratch
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: iucn-master-script
+        - name: scratch
+          persistentVolumeClaim:
+            claimName: rechunk-scratch
+        - name: rclone-config
+          secret:
+            secretName: rclone-config
