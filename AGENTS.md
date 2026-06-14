@@ -2,6 +2,15 @@
 
 You work in `data-workflows`, which uses `cng-datasets` to convert geospatial data into cloud-native formats on Kubernetes. This file tells you everything you need.
 
+## ⛔ HARD BOUNDARY: Scoping decisions live in the GitHub issue, NEVER in memory
+
+Every decision that defines *what* a dataset task delivers — **spatial extent** (full upstream coverage vs. a regional clip), **H3 resolution**, reducer, source product/version, target bucket and naming, acceptance criteria — MUST be written into the GitHub issue before you act on it. Sessions are disposable: the laptop dies, agent memory is wiped, a different agent picks up the task. The issue is the single source of truth that survives all of that. Treat yourself like any professional developer — nobody is expected to carry scope "in their head," and you must not rely on agent memory (`~/.claude/.../memory`) for scope. Memory is for *how you work*, never *what a task delivers*.
+
+- **Before building:** if the issue does not state the extent, resolution, and acceptance criteria explicitly, the issue is underspecified. **Stop, propose the scope, get agreement, and edit the issue to record it** (`gh issue edit` / a scoping comment) before running cluster jobs. A vague label like "the wyoming group" is not a scope.
+- **When scope changes mid-task** (e.g. "extend to the full upstream extent, not the regional clip"): update the issue body in the same turn you learn it — don't just remember it.
+- **Never infer scope** from the bucket name, an existing clipped COG, or a prior build's resolution. Those are artifacts of how an earlier (possibly wrong) pass happened to run, not statements of intent.
+- A reviewer (human or agent) must be able to read the issue alone and know exactly what to build. If you found yourself reconstructing scope from code, S3 layout, or memory, that is the signal the issue needs updating.
+
 ## ⛔ HARD BOUNDARY 0: Big-data compute runs on the cluster, NOT your laptop
 
 For ANY query/scan/aggregation over S3 parquet — catalog data **and** large intermediate/build files (e.g. a 24 GB consolidated GeoParquet) — use the **`mcp__duckdb-geo__query` MCP server**. It runs on generously-provisioned cluster metal with the **internal NRP S3 endpoint** and a **100 Gb/s** network, and DuckDB **streams** (larger-than-memory spills to disk) — so it does not hit the RAM limits or the slow public endpoint (~12 MB/s) that bottleneck the laptop.
@@ -545,6 +554,19 @@ kubectl -n biodiversity describe pod <pod-name> | grep -A5 "Reason:\|Message:\|E
 | `ContainerStatusUnknown` on shared nodes | Preemption | Pin to Berkeley node |
 
 **DuckDB sort jobs need both big RAM and big ephemeral-storage.** `ORDER BY` over large data spills to disk; low RAM spills more. For 1–15 GB compressed partitions: 120Gi RAM, 50Gi ephemeral-storage. Namespace max for ephemeral-storage is **50Gi** — always request the max for sort-heavy jobs.
+
+**When scratch exceeds 50Gi, mount a PVC — do NOT fight the ephemeral cap.** Ephemeral-storage is hard-capped at 50Gi namespace-wide, so any job whose local scratch exceeds that — a raw download bigger than ~45 GB (e.g. the 35 GB RAP CONUS COG), a multi-tile `preprocess-cog` mosaic, a `raster --local-cache-dir` localization of a large COG — must use a **PersistentVolumeClaim**, not a bigger ephemeral request (which the quota will reject). A shared scratch PVC already exists: **`rechunk-scratch`** (2Ti, `RWX` rook-cephfs) — list with `kubectl -n biodiversity get pvc`.
+- Mount it and redirect the tool's scratch onto it; keep ephemeral small (~10Gi):
+  ```yaml
+  volumeMounts:
+  - {name: scratch, mountPath: /scratch, subPath: <job-name>}   # subPath → per-job isolation on the shared PVC
+  volumes:
+  - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+  env:
+  - {name: TMPDIR, value: /scratch}        # Python tempfile.mkdtemp (mosaic temp) honors TMPDIR
+  # and pass: cng-datasets raster --local-cache-dir /scratch ...   (input localization; CLI default is /tmp/cng-raster-cache)
+  ```
+- **`RWX` + concurrency caveat:** `rechunk-scratch` is ReadWriteMany, but `--local-cache-dir` localizes to a fixed basename, so **N concurrent pods sharing one mountPath collide on the same file**. Use a per-pod `subPath` (or per-pod cache subdir) for fan-out jobs. The 122-pod raster **hex** step localizes a multi-GB COG per pod and is best left on **per-pod ephemeral** (the mosaic COG fits in 50Gi); reserve the PVC for the **single-pod** `preprocess-cog`/download/stage steps where the file genuinely exceeds 50Gi.
 
 **Hex OOM** → regenerate with `--hex-memory 64Gi` and/or more `--max-completions`, delete failed job, reapply.
 

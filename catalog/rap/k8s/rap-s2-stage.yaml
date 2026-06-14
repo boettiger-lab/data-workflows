@@ -1,0 +1,51 @@
+# Stage NTSG rangeland-s2 arte (sagebrush) + iag (invasive annual grass) 2025-10 tiles to S3.
+# 117 UTM zone-10N (EPSG:32610) 10 m tiles per layer; mosaicked + reprojected to WGS84 by preprocess-cog.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-s2-stage
+  namespace: biodiversity
+  labels: {k8s-app: rap-s2-stage}
+spec:
+  completions: 2
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rap-s2-stage}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          LAYERS=(arte iag); L=${LAYERS[$JOB_COMPLETION_INDEX]}
+          NTSG=https://rangeland.ntsg.umt.edu/data/rangeland-s2/$L
+          mkdir -p /tmp/$L && cd /tmp/$L
+          curl -sS --max-time 600 --retry 2 "$NTSG/" -o listing.html
+          grep -oE "${L}-2025-10-[0-9]+-[0-9]+\.tif" listing.html | sort -u > tiles.txt
+          echo "$(wc -l < tiles.txt) tiles"
+          cat tiles.txt | xargs -P 8 -I {} curl -sS --max-time 300 --retry 3 -O "$NTSG/{}"
+          rm -f listing.html tiles.txt
+          rclone mkdir nrp:public-rap
+          rclone copy /tmp/$L nrp:public-rap/raw/$L/ --transfers 16 -P
+        resources:
+          requests: {cpu: '4', memory: 8Gi, ephemeral-storage: 30Gi}
+          limits:   {cpu: '4', memory: 8Gi, ephemeral-storage: 30Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
