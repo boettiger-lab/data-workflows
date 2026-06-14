@@ -1,0 +1,42 @@
+# Stage RAP Vegetation Cover v3 2025 (CONUS, ~37.6 GB, EPSG:4326) raw to S3.
+# Band 4 (perennial forb & grass) is extracted later by the preprocess-cog step (--band 4).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-pfg-stage
+  namespace: biodiversity
+  labels: {k8s-app: rap-pfg-stage}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rap-pfg-stage}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # NTSG serves over HTTPS only (port 80 is firewalled from the cluster).
+          NTSG=https://rangeland.ntsg.umt.edu/data/rap/rap-vegetation-cover/v3
+          curl -L --retry 5 --retry-delay 10 -o /tmp/vegetation-cover-v3-2025.tif "$NTSG/vegetation-cover-v3-2025.tif"
+          rclone mkdir nrp:public-rap
+          rclone copyto /tmp/vegetation-cover-v3-2025.tif nrp:public-rap/raw/vegetation-cover-v3-2025.tif -P
+        resources:
+          requests: {cpu: '4', memory: 4Gi, ephemeral-storage: 45Gi}
+          limits:   {cpu: '4', memory: 4Gi, ephemeral-storage: 45Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-iag-preprocess-cog
+  labels:
+    k8s-app: rap-iag-preprocess-cog
+  namespace: biodiversity
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: rap-iag-preprocess-cog
+    spec:
+      restartPolicy: Never
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      containers:
+      - name: preprocess-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_CACHEMAX
+          value: '4096'
+        - name: GDAL_HTTP_TIMEOUT
+          value: '60'
+        - name: GDAL_HTTP_MAX_RETRY
+          value: '5'
+        - name: TMPDIR
+          value: /tmp/cng-raster-cache
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /tmp/cng-raster-cache
+          subPath: rap-iag-preprocess
+        command:
+        - bash
+        - -c
+        - "set -e\n\necho \"Mosaicking 117 tiles \u2192 s3://public-rap/rap-iag-cog.tif\"\n\ncng-datasets raster \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-4375000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-4450000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-4525000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-4600000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-4675000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-4750000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-4825000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-4900000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-4975000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-5050000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-5125000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-5200000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-5275000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-350000-5350000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4150000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4225000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4300000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4375000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4450000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4525000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4600000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4675000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4750000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4825000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4900000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-4975000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-5050000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-5125000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-5200000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-5275000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-5350000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-425000-5425000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4075000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4150000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4225000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4300000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4375000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4450000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4525000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4600000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4675000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4750000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4825000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4900000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-4975000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-5050000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-5125000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-5200000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-5275000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-5350000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-500000-5425000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-3925000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4000000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4075000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4150000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4225000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4300000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4375000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4450000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4525000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4600000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4675000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4750000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4825000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4900000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-4975000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-5050000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-5125000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-5200000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-5275000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-5350000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-575000-5425000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-3775000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-3850000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-3925000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4000000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4075000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4150000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4225000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4300000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4375000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4450000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4525000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4600000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4675000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4750000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4825000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4900000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-4975000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-5050000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-5125000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-5200000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-5275000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-5350000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-650000-5425000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-3700000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-3775000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-3850000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-3925000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4000000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4075000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4150000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4225000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4300000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4375000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4450000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4525000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4600000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4675000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4750000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4825000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4900000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-4975000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-5050000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-5125000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-5200000.tif\" \\\n  --input \"s3://public-rap/raw/iag/iag-2025-10-725000-5275000.tif\" \\\n  --output-cog \"s3://public-rap/rap-iag-cog.tif\" \\\n  --target-crs EPSG:4326 \\\n  --resampling bilinear \\\n  --nodata \"255\" \\\n  --hex-resampling mean\n\necho \"\u2713 Preprocess COG complete: s3://public-rap/rap-iag-cog.tif\"\n"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

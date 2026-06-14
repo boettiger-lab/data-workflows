@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-pfg-cover-preprocess-cog
+  labels:
+    k8s-app: rap-pfg-cover-preprocess-cog
+  namespace: biodiversity
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: rap-pfg-cover-preprocess-cog
+    spec:
+      restartPolicy: Never
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      containers:
+      - name: preprocess-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_CACHEMAX
+          value: '4096'
+        - name: GDAL_HTTP_TIMEOUT
+          value: '60'
+        - name: GDAL_HTTP_MAX_RETRY
+          value: '5'
+        - name: TMPDIR
+          value: /tmp/cng-raster-cache
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /tmp/cng-raster-cache
+          subPath: rap-pfg-cover-preprocess
+        command:
+        - bash
+        - -c
+        - "set -e\n\necho \"Mosaicking 1 tiles \u2192 s3://public-rap/rap-pfg-cover-cog.tif\"\n\ncng-datasets raster \\\n  --input \"s3://public-rap/raw/vegetation-cover-v3-2025.tif\" \\\n  --output-cog \"s3://public-rap/rap-pfg-cover-cog.tif\" \\\n  --target-crs EPSG:4326 \\\n  --resampling bilinear \\\n  --band 4 \\\n  --nodata \"255\" \\\n  --hex-resampling mean\n\necho \"\u2713 Preprocess COG complete: s3://public-rap/rap-pfg-cover-cog.tif\"\n"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
