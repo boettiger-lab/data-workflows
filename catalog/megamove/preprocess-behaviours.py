@@ -75,9 +75,10 @@ for beh, (bytaxa_p, total_p) in BEHAVIOURS.items():
     ds = gpkg_drv.CreateDataSource(out_path)
     lyr = ds.CreateLayer(beh, srs, ogr.wkbMultiPolygon)
     fd = ogr.FieldDefn("Taxon", ogr.OFTString); fd.SetWidth(80); lyr.CreateField(fd)
-    # immegas geometry is a smaller "both-behaviour" layer, NOT the corridor∪residence
-    # union, so the CSV area/time columns don't correspond to it — Taxon only.
-    with_stats = beh in ("corridors", "residencies")
+    # All three carry per-taxon global stats. immegas = corridor∪residence union, so its
+    # area = Area Total − Area None and time = 1 − time(None); see stats() (verified against
+    # res-4 hex cell counts to within ~5%).
+    with_stats = True
     if with_stats:
         lyr.CreateField(ogr.FieldDefn("area_km2", ogr.OFTReal))
         lyr.CreateField(ogr.FieldDefn("time_frac", ogr.OFTReal))
