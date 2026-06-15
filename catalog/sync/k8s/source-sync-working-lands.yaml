@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: source-sync-working-lands
+  namespace: biodiversity
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values: ["true"]
+      containers:
+        - name: sync
+          image: ghcr.io/boettiger-lab/datasets:latest
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              SRC="nrp:public-working-lands"
+              DEST="source:us-west-2.opendata.source.coop/cboettig/working-lands"
+              # Safety: the source.coop remote has account-wide access to a SHARED
+              # bucket. Refuse to sync unless DEST is the intended cboettig sub-path.
+              case "$DEST" in
+                "source:us-west-2.opendata.source.coop/cboettig/"?*) : ;;
+                *) echo "REFUSING: dest '$DEST' is not a cboettig/<repo> sub-path" >&2; exit 1 ;;
+              esac
+              RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 120s -v"
+              # DRYRUN=true (env) lists changes without writing. Default: real sync.
+              if [ "${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="$RCLONE_FLAGS --dry-run"; fi
+              echo "Syncing: $SRC -> $DEST  (DRYRUN=${DRYRUN:-false})"
+              rclone sync $RCLONE_FLAGS "$SRC" "$DEST"
+              echo "Done: working-lands"
+      volumes:
+        - name: rclone-config
+          secret:
+            secretName: rclone-config
