@@ -430,6 +430,17 @@ kubectl delete job sync-<bucket> -n biodiversity && kubectl apply -f .../sync-<b
 kubectl logs job/sync-<bucket>                        # monitor
 ```
 
+MinIO is the **private backup** of every `public-*` bucket — and the *only* off-NRP copy for datasets whose license forbids public redistribution.
+
+### Step 7b: source.coop public mirror
+
+Public datasets are *also* mirrored to **Source Cooperative** (`us-west-2.opendata.source.coop/cboettig/<repo>`) for discoverability. This is a **license-gated** campaign — **do not** add a bucket without reading the plan first:
+
+- **`catalog/sync/source-coop/README.md`** — campaign plan: scope policy (catalogued **and** license-clear only), the add-a-repo loop, the **account-wide-credentials safety guard**, and the phase-2 STAC href-rewrite.
+- **`gen-source-sync.sh`** (`REPOS` + `EXCLUDES`) is the scope source-of-truth; **`license-inventory.md`** has per-collection license verdicts; **`new-repos.md`** lists repos still to create (creation is manual in the web UI — the API is disabled).
+- Some datasets **must not** be mirrored — WDPA/WD-OECM/ICCA/IUCN/HydroBASINS forbid redistribution (MinIO-only). Every collection needs a correct STAC `license` (see the License requirement above) before it can be classified.
+- Status & decisions: **issue #158**.
+
 ## Memory and Chunking Mental Model
 
 **RAM is driven by the H3 cell count of the single largest feature in a chunk — not dataset size or bounding box.**
