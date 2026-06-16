@@ -21,6 +21,10 @@
 #   datacenters, im3 (raw files, no STAC), landfire (WIP, issue #203),
 #   ca30x30 + wlfw + working-lands (real data but not yet in the STAC catalog;
 #   catalogue them first, then add here).
+# NOT mirrored — wyoming: a Wyoming-CLIPPED collection whose datasets (NLCD, RAP,
+#   etc.) now exist as full-extent buckets (public-land-cover, public-rap, ...).
+#   Kept on NRP as-is (apps wired to it); migrate its constituents into their
+#   full-extent buckets first, then retire the wyoming-scoped naming (see #225).
 # Partially mirrored — HOLD sub-paths excluded below until terms are confirmed.
 set -euo pipefail
 OUTDIR="$(cd "$(dirname "$0")/../k8s" && pwd)"
@@ -32,7 +36,7 @@ REPOS=(
   ca-dac ca-wolves calenviroscreen carbon census cgs cpad ecoregion epa-water
   fire gbif gfw high-seas inat indigenous land-cover mappinginequality mobi ncp
   overturemaps padus population rap rivers social-vulnerability tpl trails usfws
-  wetlands wyoming
+  wetlands
 )
 
 # Per-repo sub-path excludes (HOLD: license unconfirmed for these collections).

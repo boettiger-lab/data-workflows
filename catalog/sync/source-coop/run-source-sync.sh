@@ -20,7 +20,7 @@ NS=biodiversity
 ORDER=(
   ca-wolves mobi mappinginequality cgs ncp usfws calenviroscreen trails tpl
   cpad ca-dac gfw epa-water ecoregion rivers fire land-cover indigenous
-  social-vulnerability inat wyoming population census high-seas padus
+  social-vulnerability inat population census high-seas padus
   overturemaps rap wetlands carbon gbif
 )
 
