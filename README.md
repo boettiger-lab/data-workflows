@@ -84,29 +84,38 @@ Key commands:
 | `kubectl get jobs` | Monitors job status | Your laptop |
 | Everything else | Processing, S3 uploads, etc. | Kubernetes pods |
 
-## MinIO Backup Sync
+## Sync, Backup & Public Mirror
 
-All NRP S3 buckets are mirrored to a MinIO backup server. Per-bucket sync jobs live in `catalog/sync/k8s/`:
+NRP S3 is canonical. Two off-NRP destinations, both driven by per-bucket k8s Jobs under `catalog/sync/`:
+
+| Destination | Purpose | Scope | Jobs |
+|---|---|---|---|
+| **MinIO** (`minio.carlboettiger.info`) | **private backup** of every public bucket (and the only off-NRP copy for license-restricted data) | all `public-*` | `catalog/sync/k8s/sync-public-*.yaml` |
+| **Source Cooperative** (`source.coop`) | **public mirror** for discoverability | catalogued **and** license-clear datasets only | `catalog/sync/k8s/source-sync-*.yaml` |
 
 ```bash
-# Sync all buckets
-kubectl apply -f catalog/sync/k8s/
+# MinIO backup (private)
+kubectl apply -f catalog/sync/k8s/sync-public-census.yaml      # one bucket
+kubectl apply -f catalog/sync/k8s/                             # all
 
-# Sync a single bucket
-kubectl apply -f catalog/sync/k8s/sync-public-census.yaml
+# source.coop public mirror — see the campaign docs first (scope is license-gated)
+catalog/sync/source-coop/dry-run-local.sh census               # preview (no writes)
+catalog/sync/source-coop/run-source-sync.sh census             # one repo (sequential runner)
 
-# Monitor
-kubectl get jobs | grep sync
+kubectl get jobs | grep -E 'sync-public|source-sync'           # monitor
 ```
 
-Each job auto-creates the destination bucket on MinIO if needed, then runs `rclone sync` with bandwidth throttling. When adding a new NRP bucket, add a corresponding sync job (see [AGENTS.md](AGENTS.md) Step 7).
+Each job runs `rclone sync` with bandwidth throttling. When adding a new NRP bucket, add a MinIO sync job (see [AGENTS.md](AGENTS.md) Step 7).
+
+**source.coop mirror — read before touching it:** [`catalog/sync/source-coop/README.md`](catalog/sync/source-coop/README.md) is the campaign plan (scope policy, the add-a-repo loop, account-wide-credentials safety, phase-2 STAC). Scope is the `REPOS`/`EXCLUDES` arrays in `gen-source-sync.sh`; per-collection license verdicts are in `license-inventory.md`; repos still to create are in `new-repos.md`. Some datasets **cannot** be mirrored (license forbids redistribution — WDPA/IUCN/ICCA/HydroBASINS) and stay MinIO-only. Tracking + status: **issue #158**.
 
 ## Infrastructure
 
 - **Cluster:** NRP Nautilus, namespace `biodiversity`
 - **S3:** Ceph object storage (S3-compatible, not AWS)
 - **Public endpoint:** `https://s3-west.nrp-nautilus.io/<bucket>/<path>`
-- **MinIO backup:** `minio.carlboettiger.info` (synced via `catalog/sync/k8s/` jobs)
-- **Secrets:** `aws` and `rclone-config` are pre-configured in the namespace
+- **MinIO backup:** `minio.carlboettiger.info` (private backup; synced via `catalog/sync/k8s/sync-public-*.yaml`)
+- **Source Cooperative:** `us-west-2.opendata.source.coop/cboettig/<repo>` (public mirror, license-gated; see `catalog/sync/source-coop/`)
+- **Secrets:** `aws` and `rclone-config` are pre-configured in the namespace (`rclone-config` has `nrp`, `minio`, and `source` remotes)
 
 See [.github/copilot-instructions.md](.github/copilot-instructions.md) for detailed infrastructure context.
