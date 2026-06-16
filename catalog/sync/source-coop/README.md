@@ -108,3 +108,22 @@ non-redistributable data** (no WDPA/IUCN/ICCA/HydroBASINS). Several are **NC** (
 versions** than NRP (`pad-us-3`, old `ca30x30`/`cpad`/`fire`) — stale, not a license issue.
 
 Total in current scope ≈ 2.5 TB / ~44 k objects (gbif alone ≈ 1.2 TB).
+
+## Private backup (MinIO) for datasets NOT on source.coop
+
+Anything we can't publish to source.coop still needs an off-NRP backup — that's MinIO
+(`catalog/sync/k8s/sync-public-*.yaml`). Status:
+
+- **License-prohibited (source.coop impossible — MinIO is the ONLY off-NRP copy):**
+  `wdpa`, `icca`, `iucn`, `hydrobasins` — ✅ all have MinIO sync jobs. **Keep these.**
+- **Already MinIO-backed (uncatalogued/clipped, no source.coop):** `wyoming`,
+  `datacenters`, `im3`, `ca30x30` (wyoming/ca30x30 restructuring tracked in #225).
+- **NOT backed up yet — and shouldn't be until fixed upstream (don't back up a mess):**
+  - `landfire` — **partial import**; complete it first (#203), then catalogue + back up.
+  - `wlfw` — **migrate into `public-working-lands`** first (#226), don't back up standalone.
+  - `working-lands` — back up after the wlfw consolidation + proper STAC (#226).
+- **Redundant-backup candidates (space optimization, not urgent):** large *public*
+  datasets ALSO mirrored to source.coop (`gbif` ≈1.2 TB, `carbon`, `wetlands`, `rap`, …)
+  now have an off-NRP copy on source.coop, so their MinIO copy is redundant and could be
+  dropped to save private-system space. Not needed yet ("so far we are fine") — revisit
+  if MinIO fills up.
