@@ -18,10 +18,11 @@ ACCOUNT="cboettig"
 DEST_BUCKET="us-west-2.opendata.source.coop"
 
 # In-scope repos (== NRP public-<repo>). Excludes infra buckets
-# (test/output/requests/boettiger-lab/data) and the empty public-tnc.
+# (test/output/requests/boettiger-lab/data, plus public-grids which is hex
+# pipeline infrastructure not a dataset) and the empty public-tnc.
 REPOS=(
   ca-dac ca-wolves ca30x30 calenviroscreen carbon census cgs cpad datacenters
-  ecoregion epa-water fire gbif gfw grids high-seas hydrobasins icca im3 inat
+  ecoregion epa-water fire gbif gfw high-seas hydrobasins icca im3 inat
   indigenous iucn land-cover landfire mappinginequality mobi ncp overturemaps
   padus population rap rivers social-vulnerability tpl trails usfws wdpa
   wetlands wlfw working-lands wyoming

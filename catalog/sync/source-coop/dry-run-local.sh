@@ -16,7 +16,7 @@ ACCOUNT="cboettig"
 DEST_BUCKET="us-west-2.opendata.source.coop"
 REPOS=(
   ca-dac ca-wolves ca30x30 calenviroscreen carbon census cgs cpad datacenters
-  ecoregion epa-water fire gbif gfw grids high-seas hydrobasins icca im3 inat
+  ecoregion epa-water fire gbif gfw high-seas hydrobasins icca im3 inat
   indigenous iucn land-cover landfire mappinginequality mobi ncp overturemaps
   padus population rap rivers social-vulnerability tpl trails usfws wdpa
   wetlands wlfw working-lands wyoming
