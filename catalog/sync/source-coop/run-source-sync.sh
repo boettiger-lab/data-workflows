@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Run the source.coop mirror jobs SEQUENTIALLY (one bucket at a time) to keep
-# NRP egress gentle — 41 jobs at --bwlimit 50M in parallel would be ~2 GiB/s.
+# NRP egress gentle — 30 jobs at --bwlimit 50M in parallel would be ~1.5 GiB/s.
 # Ordered smallest -> largest so the long pole (gbif, ~1.2 TB) runs last/alone.
 #
 # Usage:
 #   ./run-source-sync.sh                # real sync, all repos, in order
-#   ./run-source-sync.sh mobi wdpa      # only the named repos
+#   ./run-source-sync.sh mobi rivers    # only the named repos
 #
 # To preview without writing, dry-run locally first: ./dry-run-local.sh [repos...]
 # (the job YAML also honors a DRYRUN=true env var if you prefer editing it).
@@ -18,11 +18,10 @@ K8S="$(cd "$(dirname "$0")/../k8s" && pwd)"
 NS=biodiversity
 
 ORDER=(
-  im3 datacenters ca-wolves wlfw mobi mappinginequality icca cgs ncp
-  usfws calenviroscreen trails tpl working-lands cpad ca-dac gfw epa-water
-  ecoregion rivers fire landfire land-cover indigenous social-vulnerability
-  inat wyoming wdpa hydrobasins population census high-seas padus overturemaps
-  iucn rap wetlands ca30x30 carbon gbif
+  ca-wolves mobi mappinginequality cgs ncp usfws calenviroscreen trails tpl
+  cpad ca-dac gfw epa-water ecoregion rivers fire land-cover indigenous
+  social-vulnerability inat wyoming population census high-seas padus
+  overturemaps rap wetlands carbon gbif
 )
 
 REPOS=("$@"); [ ${#REPOS[@]} -eq 0 ] && REPOS=("${ORDER[@]}")

@@ -1,7 +1,8 @@
 # source.coop repos to create (account: cboettig)
 
-32 new repos. Create each in the source.coop web UI with **visibility: public**.
-`repository_id` = the id below. Already-existing repos (carbon, ca30x30, cpad, fire, gbif, mappinginequality, mobi, social-vulnerability) are NOT listed — they only need a data refresh.
+23 new repos to create in the source.coop web UI (visibility: public). These are the catalogued, license-clear datasets. 7 already-existing repos (carbon, cpad, fire, gbif, mappinginequality, mobi, social-vulnerability) only need a data refresh.
+
+See `license-inventory.md` for the full per-collection license verdicts, and the source-coop `README.md` for what is intentionally NOT mirrored (license-blocked or uncatalogued).
 
 ## ca-dac
 
@@ -33,12 +34,6 @@
 
 **Description:** Geologic, geophysical, and neotectonic data products published by the California Geological Survey (CGS), often co-produced with the U.S. Geological Survey. Each child collection corresponds to a published Geologic Data Map (GDM) series volume.
 
-## datacenters
-
-**Title:** Global Data Center Locations
-
-**Description:** Point dataset of global data center locations (Cloud Regions, Local Zones, On-Ramps) with provider, region, type, metro, country, and coordinates. Sourced from Cloud Infrastructure Map. CSV + GeoJSON.
-
 ## ecoregion
 
 **Title:** WWF Terrestrial Ecoregions of the World (2017 update)
@@ -63,23 +58,7 @@
 
 **Description:** Cloud-native geospatial datasets supporting analysis of areas beyond national jurisdiction (ABNJ) and ocean governance. Includes maritime boundaries, seafloor geomorphology, fishing effort, biodiversity, and conservation priority datasets for the global high seas.
 
-## hydrobasins
-
-**Title:** HydroBasins Global Watershed Boundaries v1c
-
-**Description:** Global watershed boundary data from HydroSHEDS HydroBasins v1c, organized by hierarchical basin levels (1-12). Compiled from multiple continental datasets into unified global layers. Available in GeoParquet and PMTiles formats.
-
-## icca
-
-**Title:** ICCA Registry — Indigenous and Community Conserved Areas
-
-**Description:** The ICCA Registry is a global, community-submitted inventory of Indigenous and Community Conserved Areas (ICCAs) — territories and areas conserved by Indigenous Peoples and local communities through customary governance, cultural practice, and self-determined management.
-
-## im3
-
-**Title:** IM3 Open-Source Data Center Atlas
-
-**Description:** Open-source atlas of data center locations from the IM3 (Integrated Multisector Multiscale Modeling) project — a point inventory of data centers as CSV + GeoPackage.
+**Mirror note:** ⚠️ PARTIAL: `mpa-candidates` EXCLUDED (source/license unidentified). All other high-seas collections mirrored. Note WDPA/IUCN-derived layers are not in this bucket.
 
 ## inat
 
@@ -93,23 +72,11 @@
 
 **Description:** LandMark provides the world's first global platform to map land rights of Indigenous Peoples and local communities.
 
-## iucn
-
-**Title:** IUCN Species Richness 2025
-
-**Description:** Global species richness and range-weighted richness maps derived from the IUCN Red List of Threatened Species (Version 2025.1), covering five taxonomic groups (Amphibians, Birds, Mammals, Reptiles, Freshwater Fish) plus all-taxa Combined layers.
-
 ## land-cover
 
 **Title:** Land Cover (Global & US)
 
 **Description:** Land-cover classification products. Two child collections: Copernicus Global Land Cover 100 m v3.0.1 (CGLS-LC100, 2019) and Annual NLCD Land Cover 2024 (CONUS, 30 m).
-
-## landfire
-
-**Title:** LANDFIRE — Vegetation & Fire Regimes (CONUS)
-
-**Description:** LANDFIRE products for the conterminous US: Existing Vegetation Type (EVT 2023), Biophysical Settings (BPS 2020), and Fire Regime Groups (FRG 2016). WGS84 COG + source rasters.
 
 ## ncp
 
@@ -147,11 +114,15 @@
 
 **Description:** Parent collection for US river conservation datasets. Currently American Rivers: eight river conservation & water-infrastructure datasets spanning identification, protection, and restoration of US rivers.
 
+**Mirror note:** ⚠️ PARTIAL: `american-rivers/{campaigns,ira-watersheds,roo-cjest}` EXCLUDED pending license confirmation; the rest (dam-removal, NRI, wild-scenic) are mirrored.
+
 ## tpl
 
 **Title:** Trust for Public Land datasets
 
 **Description:** TPL-sourced datasets hosted on NRP Nautilus S3. The Conservation Almanac 2024 has been split into two collections — `conservation-almanac-2024-sites` (one row per protected site, with geometry and H3 hex aggregation) and `conservation-almanac-2024-funding` (long transaction table, no geometry) — joined by `tpl_id`.
+
+**Mirror note:** ⚠️ PARTIAL: only `wcb-approved-projects` (CC-BY 4.0) is mirrored. Conservation Almanac (sites/funding) and LandVote are EXCLUDED pending TPL terms confirmation.
 
 ## trails
 
@@ -165,33 +136,14 @@
 
 **Description:** Geospatial datasets administered by the U.S. Fish and Wildlife Service (USFWS), starting with ESA Critical Habitat. Note: USFWS National Wetlands Inventory (NWI) is published in a separate `public-wetlands` bucket alongside Ramsar and GLWD.
 
-## wdpa
-
-**Title:** Protected Planet — WDPA + WD-OECM
-
-**Description:** UNEP-WCMC Protected Planet data products hosted on NRP S3.
-
 ## wetlands
 
 **Title:** Global Wetlands Data (Ramsar, GLWD, NWI)
 
 **Description:** Parent collection linking three major global wetland datasets, each a separate child collection: Ramsar Sites of International Importance (designated wetland polygons), the Global Lakes and Wetlands Database v2.0 (GLWD, Lehner et al. 2025), and the USFWS National Wetlands Inventory (NWI).
 
-## wlfw
-
-**Title:** Working Lands for Wildlife (WLFW)
-
-**Description:** NRCS Working Lands for Wildlife datasets. Currently migratory big-game movement corridors and habitat (GeoParquet + PMTiles + H3 hex).
-
-## working-lands
-
-**Title:** Working & Agricultural Lands
-
-**Description:** Working- and agricultural-lands datasets. Currently the California Farmland Mapping & Monitoring Program (FMMP) 2020 important-farmland classification.
-
 ## wyoming
 
 **Title:** Wyoming Wildlife & Land Cover Datasets
 
 **Description:** Cloud-native geospatial datasets for Wyoming including wildlife habitat ranges from the Wyoming Game & Fish Department (WGFD), BLM Surface Management Areas, land cover rasters (NLCD 2024, RAP rangeland cover, sagebrush design), and administrative boundaries. All vector datasets include GeoParquet, PMTiles, and H3 hex-indexed parquet.
-
