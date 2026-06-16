@@ -24,7 +24,11 @@ older differently-versioned repo is left untouched:
 
 **Excluded** (infra/internal): `public-test`, `public-output`, `public-requests`,
 `public-boettiger-lab`, and `public-data` (the root STAC catalog — its hrefs point
-at NRP URLs, so it would publish broken cross-links). `public-tnc` is empty.
+at NRP URLs, so it would publish broken cross-links), and `public-grids` (H3
+hex-pipeline infrastructure, not a dataset). `public-tnc` is empty.
+
+The 32 new repos to create in the web UI (id / title / description) are listed
+in [`new-repos.md`](new-repos.md); 8 repos already exist and only need a refresh.
 
 ## ⚠️ Credentials are account-wide — handle with care
 
@@ -65,7 +69,7 @@ long-running pod per bucket — only the destination differs.
 ./run-source-sync.sh               # all repos, smallest -> largest (gbif ~1.2 TB last)
 ```
 
-**Run sequentially** (the runner does this). 41 jobs at `--bwlimit 50M` in parallel
+**Run sequentially** (the runner does this). 40 jobs at `--bwlimit 50M` in parallel
 would be ~2 GiB/s of NRP egress — the opposite of gentle.
 
 Monitor: `kubectl -n biodiversity get jobs | grep source-sync` /
