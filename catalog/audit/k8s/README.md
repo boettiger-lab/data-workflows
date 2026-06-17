@@ -21,3 +21,26 @@ Per `//` key (boto3, internal endpoint, server-side copy — no data egress):
 `DRYRUN=true` (default) classifies and reports without mutating. Set `DRYRUN=false`
 to execute. See data-workflows #240 for the full audit + the 2026-06 run results
 (carbon 792, gbif 234, overturemaps 196 keys).
+
+## `purge-stale-chunks.yaml`
+
+Deletes leftover intermediate `chunks/` prefixes (pre-repartition per-pod output).
+The cng-datasets repartition `--cleanup` step removes these via `rclone purge`, which
+**silently no-ops under S3 load** (300s timeout, non-fatal) — so large/busy datasets
+leak chunks while small ones don't. Found on `gbif` (174 GiB / 20.5k objs),
+`padus` (5 layers), `wetlands/ramsar` (#240).
+
+**Only purge after verifying the canonical `hex/` is complete** (`hex` row count ≥
+`chunks` per h0). boto3 list+delete, guarded to `chunks/` prefixes only, verify-empty
+after. `TARGETS` = space-separated `bucket/prefix/` list; `DRYRUN=true` default.
+
+## `../../gbif/k8s/gbif-2025-repair-hex.yaml`
+
+Before gbif chunks could be purged, the hex≥chunks check found 3 h0 cells
+(`8011`/`804b`/`8047`) where `hex/` was **truncated** — the original fill-missing
+write was preempted (opportunistic priority) and the retry skipped the partial files
+(`OVERWRITE_OR_IGNORE`), so `hex/` held far fewer rows than the complete `chunks/`.
+This job re-consolidates those cells from `chunks/`, **deleting the partition first on
+every attempt** (so a preemption can't leave a partial) and writing the corrected
+no-trailing-slash path; it asserts `hex == chunks` per cell. Only then were gbif
+chunks safe to purge.
