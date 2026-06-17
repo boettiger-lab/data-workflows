@@ -18,7 +18,7 @@ K8S="$(cd "$(dirname "$0")/../k8s" && pwd)"
 NS=biodiversity
 
 ORDER=(
-  ca-wolves mobi mappinginequality cgs ncp usfws calenviroscreen trails tpl
+  mobi mappinginequality cgs ncp usfws calenviroscreen trails
   cpad ca-dac gfw epa-water ecoregion rivers fire land-cover indigenous
   social-vulnerability inat population census high-seas padus
   overturemaps rap wetlands carbon gbif

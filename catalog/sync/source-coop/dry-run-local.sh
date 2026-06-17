@@ -17,13 +17,12 @@ set -euo pipefail
 ACCOUNT="cboettig"
 DEST_BUCKET="us-west-2.opendata.source.coop"
 REPOS=(
-  ca-dac ca-wolves calenviroscreen carbon census cgs cpad ecoregion epa-water
+  ca-dac calenviroscreen carbon census cgs cpad ecoregion epa-water
   fire gbif gfw high-seas inat indigenous land-cover mappinginequality mobi ncp
-  overturemaps padus population rap rivers social-vulnerability tpl trails usfws
+  overturemaps padus population rap rivers social-vulnerability trails usfws
   wetlands
 )
 declare -A EXCLUDES=(
-  [tpl]="conservation-almanac-2024-sites/** conservation-almanac-2024-funding/** landvote/**"
   [rivers]="american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**"
   [high-seas]="mpa-candidates/**"
 )

@@ -17,7 +17,7 @@ Per-collection license verdicts live in [`license-inventory.md`](license-invento
 (OK · OK-NC · NO · HOLD). That file + the `REPOS`/`EXCLUDES` arrays in
 [`gen-source-sync.sh`](gen-source-sync.sh) are the **single source of truth** for scope.
 
-### Currently mirrored: 30 buckets
+### Currently mirrored: 27 repos
 Repo name = NRP bucket minus `public-` (1:1). Two get a **new** repo while the older
 differently-versioned legacy repo is left untouched:
 
@@ -26,12 +26,11 @@ differently-versioned legacy repo is left untouched:
 | `public-padus` (PAD-US 4.1) | `cboettig/padus` | `cboettig/pad-us-3` |
 | `public-rivers` | `cboettig/rivers` | `cboettig/us-rivers` |
 
-Three buckets are mirrored **partially** — HOLD sub-collections (license unconfirmed)
+Two buckets are mirrored **partially** — HOLD sub-collections (license unconfirmed)
 are excluded via per-repo `--exclude` until terms are confirmed:
 
 | repo | excluded sub-paths | reason |
 |---|---|---|
-| `tpl` | `conservation-almanac-2024-{sites,funding}`, `landvote` | TPL spatial-data terms unconfirmed (only `wcb-approved-projects`, CC-BY, is mirrored) |
 | `rivers` | `american-rivers/{campaigns,ira-watersheds,roo-cjest}` | American Rivers org layers, no clear license |
 | `high-seas` | `mpa-candidates` | candidate-MPA source/license unidentified |
 
@@ -43,6 +42,16 @@ are excluded via per-repo `--exclude` until terms are confirmed:
 - **Not a catalogued dataset / WIP:** `datacenters`, `im3` (raw files, no STAC); `landfire`
   (WIP, issue #203); `ca30x30`, `wlfw`, `working-lands` (real data but not yet in the STAC
   catalog — catalogue them first, then add here).
+- **`tpl` — misfiled state-agency data, no clear-license remainder:** the only license-clear
+  collection in `public-tpl` was `wcb-approved-projects` (CDFW BIOS ds672, CA Wildlife
+  Conservation Board) — a CDFW **state-agency** product, not a Trust for Public Land one. It is
+  being relocated to the planned `public-cdfw` bucket (geo-agent-ops #19; data-workflows #228),
+  after which mirror it as `cboettig/cdfw`. The rest of `public-tpl` (Conservation Almanac,
+  LandVote) is HOLD pending TPL terms, so `cboettig/tpl` was never created.
+- **`ca-wolves` — live product, not a license issue:** license is clear (`CC0-1.0`), but it is a
+  **real-time updated** product (`wolf_*_latest.geojson` + `snapshots/`); a static mirror would be
+  a stale point-in-time copy presented as current. Held until we decide whether to publish only
+  the dated `snapshots/` (not the `_latest` feeds).
 - **Infra/internal:** `public-{test,output,requests,boettiger-lab,data,grids}`; `public-tnc` empty.
 
 ### Non-commercial datasets (mirrored, must be labeled NC)

@@ -1,55 +1,31 @@
-# source.coop repos to create (account: cboettig)
+# source.coop repos (account: cboettig)
 
-**17 left to create** · 5 already created · 7 existing repos refresh only.
-Create in the web UI with **visibility: public**. ⚠️ = non-commercial (label NC). See `license-inventory.md` + `README.md`.
+**Scope: 27 repos** (all created in the web UI as of 2026-06-17). Create with **visibility: public**.
+⚠️ = non-commercial (label NC). See `license-inventory.md` + `README.md`.
 
-> Note: `public-wyoming` is intentionally NOT mirrored — it is a Wyoming-clipped collection whose datasets now live in full-extent buckets; kept on NRP, migration tracked in #225.
+> Note: `public-wyoming` is intentionally NOT mirrored — a Wyoming-clipped collection whose datasets now live in full-extent buckets; kept on NRP, migration tracked in #225.
 
-## ⬜ Still to create (17)
+## ✅ Created (27 in scope)
 
-- **ca-wolves** — California Gray Wolf Monitoring  
-  license: `CC0-1.0`
-- **epa-water** — EPA Water Datasets  
-  license: `public-domain`
-- **gfw** — Global Fishing Watch Annual Fishing Effort v3 (2012–2024)  
-  license: `CC-BY-NC-4.0`  ·  ⚠️ NON-COMMERCIAL
-- **high-seas** — High Seas & Ocean Governance Datasets  
-  license: `various`  ·  `mpa-candidates` EXCLUDED
-- **inat** — iNaturalist Species Ranges & Taxonomy  
-  license: `CC-BY-NC-4.0`  ·  ⚠️ NON-COMMERCIAL
-- **indigenous** — LandMark: Indigenous & Community Land Rights (v202509)  
-  license: `CC-BY-4.0`
-- **land-cover** — Land Cover (Global & US)  
-  license: `various`  ·  CGLS-LC100 CC-BY-4.0 + NLCD public-domain
-- **ncp** — Nature's Contributions to People (NCP) - Biodiversity Indicators  
-  license: `CC-BY-4.0`
-- **overturemaps** — Overture Maps Divisions  
-  license: `CDLA-Permissive-2.0`
-- **padus** — PAD-US 4.1 - Protected Areas Database of the United States  
-  license: `public-domain`  ·  legacy `pad-us-3` kept
-- **population** — Population & Demography  
-  license: `CC-BY-4.0`  ·  GHS-POP 2020
-- **rap** — Rangeland vegetation cover (RAP / rangeland-s2)  
-  license: `public-domain`
-- **rivers** — US Rivers  
-  license: `various`  ·  `american-rivers/{campaigns,ira-watersheds,roo-cjest}` EXCLUDED; legacy `us-rivers` kept
-- **tpl** — Trust for Public Land datasets  
-  license: `CC-BY-4.0`  ·  ONLY `wcb-approved-projects`; Almanac+LandVote EXCLUDED pending TPL terms
-- **trails** — U.S. Federal Trails Network  
-  license: `public-domain`  ·  US federal
-- **usfws** — U.S. Fish and Wildlife Service (USFWS) Datasets  
-  license: `public-domain`  ·  US federal
-- **wetlands** — Global Wetlands Data (Ramsar, GLWD, NWI)  
-  license: `various`  ·  Ramsar PD + GLWD CC-BY-4.0 + NWI PD
+`ca-dac` (CC-BY-4.0), `calenviroscreen` (public-domain), `carbon` (CC-BY-NC-4.0 ⚠️),
+`census` (public-domain), `cgs` (public-domain), `cpad` (CC-BY-4.0), `ecoregion` (CC-BY-4.0),
+`epa-water` (public-domain), `fire` (CC-BY-4.0), `gbif` (various/NC ⚠️), `gfw` (CC-BY-NC-4.0 ⚠️),
+`high-seas` (various; `mpa-candidates` excluded), `inat` (CC-BY-NC-4.0 ⚠️), `indigenous` (CC-BY-4.0),
+`land-cover` (various: CGLS-LC100 CC-BY-4.0 + NLCD PD), `mappinginequality` (CC-BY-NC-SA-4.0 ⚠️),
+`mobi` (CC-BY-NC-4.0 ⚠️; **copy-mode**, see README), `ncp` (CC-BY-4.0),
+`overturemaps` (CDLA-Permissive-2.0), `padus` (public-domain; legacy `pad-us-3` kept),
+`population` (CC-BY-4.0; GHS-POP 2020), `rap` (public-domain),
+`rivers` (various; `american-rivers/{campaigns,ira-watersheds,roo-cjest}` excluded; legacy `us-rivers` kept),
+`social-vulnerability` (public-domain), `trails` (public-domain), `usfws` (public-domain),
+`wetlands` (various: Ramsar PD + GLWD CC-BY-4.0 + NWI PD)
 
-## ✅ Already created (5)
+## ⛔ Not mirrored (held — NOT a license problem)
 
-- **ca-dac** — license `CC-BY-4.0`
-- **calenviroscreen** — license `public-domain`  ·  CA OEHHA public data
-- **census** — license `public-domain`
-- **cgs** — license `public-domain`
-- **ecoregion** — license `CC-BY-4.0`
-
-## ↻ Existing (refresh only)
-
-`carbon` (CC-BY-NC-4.0 ⚠️), `cpad` (CC-BY-4.0), `fire` (CC-BY-4.0), `gbif` (various/NC ⚠️), `mappinginequality` (CC-BY-NC-SA-4.0 ⚠️), `mobi` (CC-BY-NC-4.0 ⚠️), `social-vulnerability` (public-domain)
+- **`tpl`** — the only license-clear collection in `public-tpl` was `wcb-approved-projects`
+  (CDFW BIOS ds672, CA Wildlife Conservation Board), a CDFW **state-agency** product misfiled
+  under "tpl". Being relocated to the planned `public-cdfw` bucket (geo-agent-ops #19;
+  data-workflows #228) — mirror as `cboettig/cdfw` afterward. The rest of `public-tpl`
+  (Conservation Almanac, LandVote) is HOLD pending TPL terms, so `cboettig/tpl` was not created.
+- **`ca-wolves`** — license is clear (`CC0-1.0`), but it is a **real-time updated** product
+  (`wolf_*_latest.geojson` + `snapshots/`); a static mirror would be a stale copy presented as
+  current. Held until we decide whether to publish only the dated `snapshots/`.

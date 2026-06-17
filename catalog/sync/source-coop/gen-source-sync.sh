@@ -26,6 +26,18 @@
 #   Kept on NRP as-is (apps wired to it); migrate its constituents into their
 #   full-extent buckets first, then retire the wyoming-scoped naming (see #225).
 # Partially mirrored — HOLD sub-paths excluded below until terms are confirmed.
+# NOT mirrored — tpl: the only license-clear collection in public-tpl was
+#   wcb-approved-projects (CDFW BIOS ds672 — CA Wildlife Conservation Board), but
+#   that is a CDFW state-agency product misfiled under "tpl", being relocated to
+#   the planned public-cdfw bucket (geo-agent-ops #19; data-workflows #228). The
+#   rest of public-tpl (Conservation Almanac, LandVote) is HOLD pending TPL terms,
+#   so there is nothing license-clear left to mirror as cboettig/tpl. Revisit as
+#   cboettig/cdfw once WCB moves.
+# NOT mirrored — ca-wolves: license is clear (CC0-1.0), but it is a REAL-TIME
+#   updated product (wolf_*_latest.geojson + snapshots/); a static source.coop
+#   mirror would be a stale point-in-time copy presented as current. Hold until we
+#   decide whether to publish only dated snapshots/ (not the _latest feeds). The
+#   block here is data-semantics, NOT licensing.
 set -euo pipefail
 OUTDIR="$(cd "$(dirname "$0")/../k8s" && pwd)"
 ACCOUNT="cboettig"
@@ -33,16 +45,15 @@ DEST_BUCKET="us-west-2.opendata.source.coop"
 
 # Catalogued, license-clear repos (== NRP public-<repo>).
 REPOS=(
-  ca-dac ca-wolves calenviroscreen carbon census cgs cpad ecoregion epa-water
+  ca-dac calenviroscreen carbon census cgs cpad ecoregion epa-water
   fire gbif gfw high-seas inat indigenous land-cover mappinginequality mobi ncp
-  overturemaps padus population rap rivers social-vulnerability tpl trails usfws
+  overturemaps padus population rap rivers social-vulnerability trails usfws
   wetlands
 )
 
 # Per-repo sub-path excludes (HOLD: license unconfirmed for these collections).
 # Space-separated rclone --exclude patterns, relative to the bucket root.
 declare -A EXCLUDES=(
-  [tpl]="conservation-almanac-2024-sites/** conservation-almanac-2024-funding/** landvote/**"
   [rivers]="american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**"
   [high-seas]="mpa-candidates/**"
 )
