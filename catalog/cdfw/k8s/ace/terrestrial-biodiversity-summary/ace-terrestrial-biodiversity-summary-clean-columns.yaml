@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ace-terrestrial-biodiversity-summary-clean-columns
+  labels:
+    k8s-app: ace-terrestrial-biodiversity-summary-clean-columns
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ace-terrestrial-biodiversity-summary-clean-columns
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: clean-columns-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # Drop OBJECTID (source artifact, excluded by issue scope) and OGC_FID
+          # (redundant GDAL FID added during convert). Keep _cng_fid + geom + the
+          # 43 documented source columns. DuckDB-native GeoParquet in -> out.
+          python3 - <<'PY'
+          import duckdb, os
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial;")
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false;")
+          con.execute("SET s3_url_style='path';")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';")
+          con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+          src = 's3://public-cdfw/ace/terrestrial-biodiversity-summary.parquet'
+          dst = 's3://public-cdfw/ace/terrestrial-biodiversity-summary.parquet'
+          # Fully materialize input before writing back to the same key.
+          con.execute(f"""
+            CREATE TABLE t AS
+            SELECT * EXCLUDE (OBJECTID, OGC_FID) FROM read_parquet('{src}');
+          """)
+          n = con.execute("SELECT COUNT(*) FROM t").fetchone()[0]
+          print("input rows (post-exclude):", n)
+          con.execute(f"COPY t TO '{dst}' (FORMAT PARQUET, ROW_GROUP_SIZE 100000);")
+          cols = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{dst}')").fetchall()]
+          print("output ncols:", len(cols))
+          print("output cols:", cols)
+          assert 'OBJECTID' not in cols and 'OGC_FID' not in cols, "artifact columns still present"
+          PY
+          echo "Column cleanup complete."
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
