@@ -112,7 +112,9 @@ spec:
           """)
 
           src = f"s3://public-gbif/2025-06/chunks/h0={src_h0}/**"
-          dst = f"s3://public-gbif/2025-06/hex/h0={dst_h0}/"
+          # NO trailing slash: DuckDB COPY ... (FILE_SIZE_BYTES) writes <dst>/data_N.parquet,
+          # so a trailing slash here produced double-slash keys hex/h0=.../data_N (#240).
+          dst = f"s3://public-gbif/2025-06/hex/h0={dst_h0}"
 
           # Verify source exists
           result = subprocess.run(

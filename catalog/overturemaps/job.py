@@ -112,7 +112,7 @@ def main():
         .drop('h3id')
     )
 
-    output_file = f"{args.output_url}/chunk_{chunk_id:06d}.parquet"
+    output_file = f"{args.output_url.rstrip('/')}/chunk_{chunk_id:06d}.parquet"
     result.to_parquet(output_file)
 
     print(f"  ✓ Chunk {chunk_id} written")
