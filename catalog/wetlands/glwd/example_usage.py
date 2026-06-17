@@ -142,7 +142,7 @@ def example_cli_usage():
             "cmd": """cng-datasets raster \\
   --input wetlands.tif \\
   --output-cog s3://bucket/wetlands-cog.tif \\
-  --output-parquet s3://bucket/wetlands/hex/ \\
+  --output-parquet s3://bucket/wetlands/hex \\
   --parent-resolutions "8,0" \\
   --value-column wetland_class \\
   --nodata 255"""
@@ -151,7 +151,7 @@ def example_cli_usage():
             "name": "Process specific h0 region (for K8s jobs)",
             "cmd": """cng-datasets raster \\
   --input s3://bucket/data.tif \\
-  --output-parquet s3://bucket/data/hex/ \\
+  --output-parquet s3://bucket/data/hex \\
   --h0-index 42 \\
   --resolution 8"""
         },

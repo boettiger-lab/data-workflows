@@ -68,7 +68,7 @@ data:
                 export PROJ_LIB="$PROJ_DATA"
               fi
 
-              cng-datasets raster --input "https://minio.carlboettiger.info/public-biodiversity/mobi/species-richness-all/SpeciesRichness_All.tif" --output-parquet s3://public-mobi/mobi-species-richness-all/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 --value-column species_richness --nodata -128.0
+              cng-datasets raster --input "https://minio.carlboettiger.info/public-biodiversity/mobi/species-richness-all/SpeciesRichness_All.tif" --output-parquet s3://public-mobi/mobi-species-richness-all/hex --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 --value-column species_richness --nodata -128.0
             resources:
               requests:
                 cpu: '4'

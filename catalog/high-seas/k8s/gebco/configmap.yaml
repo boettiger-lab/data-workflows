@@ -77,7 +77,7 @@ data:
                 export PROJ_LIB="$PROJ_DATA"
               fi
 
-              cng-datasets raster --input "s3://public-high-seas/gebco-2025-cog.tif" --output-parquet s3://public-high-seas/gebco-2025/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 7,6,5,0 --value-column elevation --hex-resampling mean
+              cng-datasets raster --input "s3://public-high-seas/gebco-2025-cog.tif" --output-parquet s3://public-high-seas/gebco-2025/hex --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 7,6,5,0 --value-column elevation --hex-resampling mean
             resources:
               requests:
                 cpu: '4'
