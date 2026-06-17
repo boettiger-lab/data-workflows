@@ -48,8 +48,8 @@ spec:
               RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 120s -v"
               # DRYRUN=true (env) lists changes without writing. Default: real sync.
               if [ "${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="$RCLONE_FLAGS --dry-run"; fi
-              echo "Syncing: $SRC -> $DEST  (DRYRUN=${DRYRUN:-false})"
-              rclone sync $RCLONE_FLAGS "$SRC" "$DEST"
+              echo "Copying: $SRC -> $DEST  (DRYRUN=${DRYRUN:-false})"
+              rclone copy $RCLONE_FLAGS "$SRC" "$DEST"
               echo "Done: mobi"
       volumes:
         - name: rclone-config

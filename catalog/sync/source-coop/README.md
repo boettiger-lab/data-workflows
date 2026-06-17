@@ -17,7 +17,7 @@ Per-collection license verdicts live in [`license-inventory.md`](license-invento
 (OK · OK-NC · NO · HOLD). That file + the `REPOS`/`EXCLUDES` arrays in
 [`gen-source-sync.sh`](gen-source-sync.sh) are the **single source of truth** for scope.
 
-### Currently mirrored: 30 buckets
+### Currently mirrored: 27 repos
 Repo name = NRP bucket minus `public-` (1:1). Two get a **new** repo while the older
 differently-versioned legacy repo is left untouched:
 
@@ -26,12 +26,11 @@ differently-versioned legacy repo is left untouched:
 | `public-padus` (PAD-US 4.1) | `cboettig/padus` | `cboettig/pad-us-3` |
 | `public-rivers` | `cboettig/rivers` | `cboettig/us-rivers` |
 
-Three buckets are mirrored **partially** — HOLD sub-collections (license unconfirmed)
+Two buckets are mirrored **partially** — HOLD sub-collections (license unconfirmed)
 are excluded via per-repo `--exclude` until terms are confirmed:
 
 | repo | excluded sub-paths | reason |
 |---|---|---|
-| `tpl` | `conservation-almanac-2024-{sites,funding}`, `landvote` | TPL spatial-data terms unconfirmed (only `wcb-approved-projects`, CC-BY, is mirrored) |
 | `rivers` | `american-rivers/{campaigns,ira-watersheds,roo-cjest}` | American Rivers org layers, no clear license |
 | `high-seas` | `mpa-candidates` | candidate-MPA source/license unidentified |
 
@@ -43,6 +42,16 @@ are excluded via per-repo `--exclude` until terms are confirmed:
 - **Not a catalogued dataset / WIP:** `datacenters`, `im3` (raw files, no STAC); `landfire`
   (WIP, issue #203); `ca30x30`, `wlfw`, `working-lands` (real data but not yet in the STAC
   catalog — catalogue them first, then add here).
+- **`tpl` — misfiled state-agency data, no clear-license remainder:** the only license-clear
+  collection in `public-tpl` was `wcb-approved-projects` (CDFW BIOS ds672, CA Wildlife
+  Conservation Board) — a CDFW **state-agency** product, not a Trust for Public Land one. It is
+  being relocated to the planned `public-cdfw` bucket (geo-agent-ops #19; data-workflows #228),
+  after which mirror it as `cboettig/cdfw`. The rest of `public-tpl` (Conservation Almanac,
+  LandVote) is HOLD pending TPL terms, so `cboettig/tpl` was never created.
+- **`ca-wolves` — live product, not a license issue:** license is clear (`CC0-1.0`), but it is a
+  **real-time updated** product (`wolf_*_latest.geojson` + `snapshots/`); a static mirror would be
+  a stale point-in-time copy presented as current. Held until we decide whether to publish only
+  the dated `snapshots/` (not the `_latest` feeds).
 - **Infra/internal:** `public-{test,output,requests,boettiger-lab,data,grids}`; `public-tnc` empty.
 
 ### Non-commercial datasets (mirrored, must be labeled NC)
@@ -88,8 +97,26 @@ Run **sequentially** (the runner does this): 30 jobs at `--bwlimit 50M` in paral
 of NRP egress — the opposite of gentle. Monitor: `kubectl -n biodiversity get jobs | grep source-sync`.
 
 **Mirror-with-delete:** `rclone sync` makes the dest an exact copy, deleting stale source.coop
-files. For the 7 pre-existing repos this replaces older structure with NRP-canonical content —
-dry-run first.
+files. For the pre-existing repos this replaces older structure with NRP-canonical content —
+**dry-run first.** This is the riskiest step: several pre-existing repos were populated from an
+*older* layout of their NRP bucket that has since been restructured/re-versioned, so a blind
+`sync` deletes the old-vintage files. That is usually intended (the data lives on NRP under new
+paths), but it **breaks any citable `cboettig/<repo>/…` URL** to the old paths, so confirm before
+running. The 2026-06 refresh dry-ran all 7 and split them:
+
+- **Safe (0–2 benign deletions):** `social-vulnerability`, `mappinginequality`, `cpad` — synced.
+- **`carbon` (~445 GiB), `fire` (~6 GiB):** full `sync`; old `cogs/*_2010|2018.tif` / 2022 CALFIRE
+  vintages and build cruft removed, replaced by current NRP layout (decision: match NRP).
+- **`gbif` (~1.2 TB):** dry-run separately before refreshing (the long pole).
+
+**`copy` vs `sync` (per-repo `MODE` in `gen-source-sync.sh`):** a repo holding content that exists
+**only on source.coop** (not a stale version of any NRP file) must NOT be mirror-with-deleted. Set
+`MODE[repo]="copy"` so the job uses `rclone copy` (additive, never deletes). Currently:
+
+| repo | mode | why |
+|---|---|---|
+| `mobi` | `copy` | A 27k-tile `tiles/**` XYZ pyramid, a whole `range-size-rarity-all/` layer, the original `SpeciesRichness_All`/`RSR_All` source rasters, and `LICENSE.txt` live only on source.coop (NRP public-mobi has just the reprocessed COG + hex). A `sync` would wipe them. |
+| *(all others)* | `sync` | mirror-with-delete (default) |
 
 ## Phase 2 — STAC on source.coop (after the data mirror)
 

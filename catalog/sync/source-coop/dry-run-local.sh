@@ -17,15 +17,19 @@ set -euo pipefail
 ACCOUNT="cboettig"
 DEST_BUCKET="us-west-2.opendata.source.coop"
 REPOS=(
-  ca-dac ca-wolves calenviroscreen carbon census cgs cpad ecoregion epa-water
+  ca-dac calenviroscreen carbon census cgs cpad ecoregion epa-water
   fire gbif gfw high-seas inat indigenous land-cover mappinginequality mobi ncp
-  overturemaps padus population rap rivers social-vulnerability tpl trails usfws
+  overturemaps padus population rap rivers social-vulnerability trails usfws
   wetlands
 )
 declare -A EXCLUDES=(
-  [tpl]="conservation-almanac-2024-sites/** conservation-almanac-2024-funding/** landvote/**"
   [rivers]="american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**"
   [high-seas]="mpa-candidates/**"
+)
+# Per-repo rclone verb — keep in lockstep with gen-source-sync.sh. "copy" (additive,
+# never deletes) for repos with source.coop-only content; "sync" (mirror) otherwise.
+declare -A MODE=(
+  [mobi]="copy"
 )
 [ $# -gt 0 ] && REPOS=("$@")
 CFG_FLAG=""; [ -n "${RCLONE_CONFIG:-}" ] && CFG_FLAG="--config ${RCLONE_CONFIG}"
@@ -33,8 +37,9 @@ CFG_FLAG=""; [ -n "${RCLONE_CONFIG:-}" ] && CFG_FLAG="--config ${RCLONE_CONFIG}"
 for repo in "${REPOS[@]}"; do
   excl=()
   for pat in ${EXCLUDES[$repo]:-}; do excl+=(--exclude "$pat"); done
-  echo "=== DRY RUN: nrp:public-${repo} -> source:${DEST_BUCKET}/${ACCOUNT}/${repo} ${EXCLUDES[$repo]:+(excl: ${EXCLUDES[$repo]})} ==="
-  rclone $CFG_FLAG sync --dry-run --tpslimit 5 -v "${excl[@]}" \
+  verb="${MODE[$repo]:-sync}"
+  echo "=== DRY RUN [${verb}]: nrp:public-${repo} -> source:${DEST_BUCKET}/${ACCOUNT}/${repo} ${EXCLUDES[$repo]:+(excl: ${EXCLUDES[$repo]})} ==="
+  rclone $CFG_FLAG ${verb} --dry-run --tpslimit 5 -v "${excl[@]}" \
     "nrp:public-${repo}" "source:${DEST_BUCKET}/${ACCOUNT}/${repo}" 2>&1 \
     | grep -iE 'Skipped|would|delete|copy|error' || echo "(no changes / both sides match)"
 done

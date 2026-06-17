@@ -8,7 +8,7 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 - **OK** · `CC-BY-4.0` — public-ca-dac  · CA DWR via CNRA open data + US Census ACS (confirm exact)
 
 ## public-ca-wolves
-- **OK** · `CC0-1.0` — public-ca-wolves  
+- **OK (license) / HELD (data semantics)** · `CC0-1.0` — public-ca-wolves  · license is fully clear (CC0); NOT mirrored to source.coop because it is a real-time updated product (`wolf_*_latest.geojson` + `snapshots/`) — a static mirror would be a stale copy presented as current. Revisit publishing only the dated `snapshots/`.
 
 ## public-calenviroscreen
 - **OK** · `CA OEHHA (other)` — public-calenviroscreen  · CA public data; NOTE it is a DRAFT release
@@ -157,7 +157,7 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 - **HOLD** · `TPL (no public terms)` — public-tpl/conservation-almanac-2024-sites  · no data license found; TPL requires contact for spatial data
 - **HOLD** · `TPL (no public terms)` — public-tpl/landvote  · no data license found; TPL requires contact for spatial data
 - **HOLD** · `TPL (no public terms)` — public-tpl  · no data license found; TPL requires contact for spatial data
-- **OK** · `CC-BY-4.0` — public-tpl/wcb-approved-projects  
+- **OK (license) / RELOCATING** · `CC-BY-4.0` — public-tpl/wcb-approved-projects  · CDFW BIOS ds672 (CA Wildlife Conservation Board) — a CDFW **state-agency** product misfiled under "tpl". Moving to the planned `public-cdfw` bucket (geo-agent-ops #19; data-workflows #228); mirror as `cboettig/cdfw` afterward. `cboettig/tpl` was NOT created (rest of public-tpl is HOLD).
 
 ## public-trails
 - **HOLD** · `various (U.S. federal works — see assets)` — public-trails/federal-trails-2026  · unmapped/proprietary — confirm
