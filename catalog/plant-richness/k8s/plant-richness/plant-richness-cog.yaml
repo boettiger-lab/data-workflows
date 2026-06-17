@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: plant-richness-cog
+  labels: {k8s-app: plant-richness-cog}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels: {k8s-app: plant-richness-cog}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        command:
+        - bash
+        - -c
+        - |
+            set -e
+            cng-datasets raster --input "s3://public-ca30x30/plant-richness/raw/species_D_epsg3310.tif" --output-cog "s3://public-ca30x30/plant-richness/plant-richness-cog.tif" \
+              --target-crs EPSG:4326 --value-column richness --nodata -3.4e38 --resampling near --compression deflate
+            python3 - <<'PY'
+            import subprocess, numpy as np
+            from osgeo import gdal
+            gdal.UseExceptions()
+            ND = np.float32(-3.4e38)
+            subprocess.run(['rclone','copyto','nrp:public-ca30x30/plant-richness/plant-richness-cog.tif','/tmp/full.tif'], check=True)
+            ds = gdal.Open('/tmp/full.tif'); b = ds.GetRasterBand(1); arr = b.ReadAsArray()
+            fill = ~np.isfinite(arr) | (arr < -1e30)
+            arr = np.where(fill, ND, arr).astype('float32')
+            drv = gdal.GetDriverByName('GTiff')
+            t = drv.Create('/tmp/clean.tif', ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Float32)
+            t.SetGeoTransform(ds.GetGeoTransform()); t.SetProjection(ds.GetProjection())
+            ob = t.GetRasterBand(1); ob.WriteArray(arr); ob.SetNoDataValue(float(ND)); t.FlushCache(); t = None
+            gdal.Translate('/tmp/clean-cog.tif', '/tmp/clean.tif', format='COG',
+                           creationOptions=['COMPRESS=DEFLATE','BLOCKSIZE=512'])
+            v = arr[~fill]
+            print('CLEANED valid=%d fill=%d min=%.5f max=%.5f' % (int((~fill).sum()), int(fill.sum()), float(v.min()), float(v.max())))
+            PY
+            rclone copyto /tmp/clean-cog.tif nrp:public-ca30x30/plant-richness/plant-richness-cog.tif
+            echo 'clean COG uploaded'
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

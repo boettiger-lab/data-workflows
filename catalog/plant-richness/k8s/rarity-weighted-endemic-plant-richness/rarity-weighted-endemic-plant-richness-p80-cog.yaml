@@ -1,0 +1,73 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rarity-weighted-endemic-plant-richness-p80-cog
+  labels: {k8s-app: rarity-weighted-endemic-plant-richness-p80-cog}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels: {k8s-app: rarity-weighted-endemic-plant-richness-p80-cog}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        command:
+        - bash
+        - -c
+        - |
+            set -e
+            python3 - <<'PY'
+            import subprocess, numpy as np
+            from osgeo import gdal
+            gdal.UseExceptions()
+            subprocess.run(['rclone','copyto','nrp:public-ca30x30/rarity-weighted-endemic-plant-richness/rarity-weighted-endemic-plant-richness-cog.tif','/tmp/full-cog.tif'], check=True)
+            ds = gdal.Open('/tmp/full-cog.tif'); b = ds.GetRasterBand(1)
+            nd = b.GetNoDataValue(); arr = b.ReadAsArray()
+            # robust fill mask (threshold, not exact-equality) — see cog clean step
+            valid_mask = np.isfinite(arr) & (arr > -1e30)
+            p80 = float(np.percentile(arr[valid_mask], 80))
+            print('COMPUTED_P80=%r' % p80)
+            keep = valid_mask & (arr >= p80)
+            out = np.where(keep, arr, nd).astype('float32')
+            drv = gdal.GetDriverByName('GTiff')
+            tmp = drv.Create('/tmp/p80.tif', ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Float32)
+            tmp.SetGeoTransform(ds.GetGeoTransform()); tmp.SetProjection(ds.GetProjection())
+            ob = tmp.GetRasterBand(1); ob.WriteArray(out); ob.SetNoDataValue(nd); tmp.FlushCache(); tmp = None
+            gdal.Translate('/tmp/p80-cog.tif', '/tmp/p80.tif', format='COG',
+                           creationOptions=['COMPRESS=DEFLATE','BLOCKSIZE=512'])
+            open('/tmp/p80-value.txt','w').write('%s\n' % p80)
+            print('RETAINED_PIXELS=%d  MIN_RETAINED=%.6f  MAX_RETAINED=%.6f' % (int(keep.sum()), float(arr[keep].min()), float(arr[keep].max())))
+            PY
+            rclone copyto /tmp/p80-cog.tif   nrp:public-ca30x30/rarity-weighted-endemic-plant-richness/rarity-weighted-endemic-plant-richness-p80-cog.tif
+            rclone copyto /tmp/p80-value.txt nrp:public-ca30x30/rarity-weighted-endemic-plant-richness/p80-value.txt
+            echo 'P80 build done'
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
