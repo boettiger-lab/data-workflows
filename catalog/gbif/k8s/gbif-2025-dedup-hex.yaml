@@ -49,9 +49,11 @@ spec:
           # Lossless dedup of the 5 gbif hex cells that carry exact full-row duplicate
           # occurrences (a sub-block was consolidated twice during the build, #240).
           # Every dup is byte-identical (proved: distinct-full-rows == distinct-gbifid),
-          # so SELECT DISTINCT * recovers the true set. Write to staging -> verify
-          # (rows == distinct gbifid) -> replace the live partition. The 5 trivial-dup
-          # cells (<=99 dup rows, incl. a 245M-row cell with 7) are left as-is.
+          # so DISTINCT ON (gbifid) keeps one row per occurrence losslessly. We hash one
+          # short key column, NOT the full ~40-col row: full-row DISTINCT * spilled past
+          # the 50Gi ephemeral cap on cell 8049 (106M rows) and got Evicted. Write to
+          # staging -> verify (rows == distinct gbifid) -> replace the live partition.
+          # The 5 trivial-dup cells (<=99 dup rows, incl. a 245M-row cell with 7) are left as-is.
           DST_LIST=(577762574070710271 579451423930974207 579803267651862527 579099580210085887 580119927000662015)
           DST="${DST_LIST[$JOB_COMPLETION_INDEX]}"
           echo "=== dedup hex/h0=${DST} ==="
@@ -76,7 +78,7 @@ spec:
 
           # 1) write deduped to staging (clean staging first)
           purge(stg)
-          con.execute(f"""COPY (SELECT DISTINCT * FROM read_parquet('{live_src}'))
+          con.execute(f"""COPY (SELECT DISTINCT ON (gbifid) * FROM read_parquet('{live_src}'))
               TO 's3://{B}/{stg}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 1000000, FILE_SIZE_BYTES 268435456, OVERWRITE_OR_IGNORE true)""")
           ns=con.execute(f"SELECT COUNT(*) FROM read_parquet('s3://{B}/{stg}/*.parquet')").fetchone()[0]
           ds=con.execute(f"SELECT COUNT(DISTINCT gbifid) FROM read_parquet('s3://{B}/{stg}/*.parquet')").fetchone()[0]
