@@ -27,14 +27,20 @@ declare -A EXCLUDES=(
   [rivers]="american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**"
   [high-seas]="mpa-candidates/**"
 )
+# Per-repo rclone verb — keep in lockstep with gen-source-sync.sh. "copy" (additive,
+# never deletes) for repos with source.coop-only content; "sync" (mirror) otherwise.
+declare -A MODE=(
+  [mobi]="copy"
+)
 [ $# -gt 0 ] && REPOS=("$@")
 CFG_FLAG=""; [ -n "${RCLONE_CONFIG:-}" ] && CFG_FLAG="--config ${RCLONE_CONFIG}"
 
 for repo in "${REPOS[@]}"; do
   excl=()
   for pat in ${EXCLUDES[$repo]:-}; do excl+=(--exclude "$pat"); done
-  echo "=== DRY RUN: nrp:public-${repo} -> source:${DEST_BUCKET}/${ACCOUNT}/${repo} ${EXCLUDES[$repo]:+(excl: ${EXCLUDES[$repo]})} ==="
-  rclone $CFG_FLAG sync --dry-run --tpslimit 5 -v "${excl[@]}" \
+  verb="${MODE[$repo]:-sync}"
+  echo "=== DRY RUN [${verb}]: nrp:public-${repo} -> source:${DEST_BUCKET}/${ACCOUNT}/${repo} ${EXCLUDES[$repo]:+(excl: ${EXCLUDES[$repo]})} ==="
+  rclone $CFG_FLAG ${verb} --dry-run --tpslimit 5 -v "${excl[@]}" \
     "nrp:public-${repo}" "source:${DEST_BUCKET}/${ACCOUNT}/${repo}" 2>&1 \
     | grep -iE 'Skipped|would|delete|copy|error' || echo "(no changes / both sides match)"
 done

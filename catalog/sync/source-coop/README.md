@@ -88,8 +88,26 @@ Run **sequentially** (the runner does this): 30 jobs at `--bwlimit 50M` in paral
 of NRP egress — the opposite of gentle. Monitor: `kubectl -n biodiversity get jobs | grep source-sync`.
 
 **Mirror-with-delete:** `rclone sync` makes the dest an exact copy, deleting stale source.coop
-files. For the 7 pre-existing repos this replaces older structure with NRP-canonical content —
-dry-run first.
+files. For the pre-existing repos this replaces older structure with NRP-canonical content —
+**dry-run first.** This is the riskiest step: several pre-existing repos were populated from an
+*older* layout of their NRP bucket that has since been restructured/re-versioned, so a blind
+`sync` deletes the old-vintage files. That is usually intended (the data lives on NRP under new
+paths), but it **breaks any citable `cboettig/<repo>/…` URL** to the old paths, so confirm before
+running. The 2026-06 refresh dry-ran all 7 and split them:
+
+- **Safe (0–2 benign deletions):** `social-vulnerability`, `mappinginequality`, `cpad` — synced.
+- **`carbon` (~445 GiB), `fire` (~6 GiB):** full `sync`; old `cogs/*_2010|2018.tif` / 2022 CALFIRE
+  vintages and build cruft removed, replaced by current NRP layout (decision: match NRP).
+- **`gbif` (~1.2 TB):** dry-run separately before refreshing (the long pole).
+
+**`copy` vs `sync` (per-repo `MODE` in `gen-source-sync.sh`):** a repo holding content that exists
+**only on source.coop** (not a stale version of any NRP file) must NOT be mirror-with-deleted. Set
+`MODE[repo]="copy"` so the job uses `rclone copy` (additive, never deletes). Currently:
+
+| repo | mode | why |
+|---|---|---|
+| `mobi` | `copy` | A 27k-tile `tiles/**` XYZ pyramid, a whole `range-size-rarity-all/` layer, the original `SpeciesRichness_All`/`RSR_All` source rasters, and `LICENSE.txt` live only on source.coop (NRP public-mobi has just the reprocessed COG + hex). A `sync` would wipe them. |
+| *(all others)* | `sync` | mirror-with-delete (default) |
 
 ## Phase 2 — STAC on source.coop (after the data mirror)
 

@@ -47,12 +47,24 @@ declare -A EXCLUDES=(
   [high-seas]="mpa-candidates/**"
 )
 
+# Per-repo rclone verb. Default "sync" (mirror-with-delete: dest becomes an exact
+# copy of NRP). Override to "copy" (additive: never deletes on dest) for repos
+# that hold content which exists ONLY on source.coop and must be preserved.
+#   mobi: a 27k-tile XYZ pyramid (tiles/**), a whole range-size-rarity-all/ layer,
+#   the original SpeciesRichness_All/RSR_All source rasters, and LICENSE.txt all
+#   live only on source.coop (NRP public-mobi has just the reprocessed COG + hex).
+#   A mirror-with-delete would wipe them, so mobi is copy-only.
+declare -A MODE=(
+  [mobi]="copy"
+)
+
 for repo in "${REPOS[@]}"; do
   src="nrp:public-${repo}"
   dest="source:${DEST_BUCKET}/${ACCOUNT}/${repo}"
   # build --exclude flags (single-quoted patterns) for this repo
   excl=""
   for pat in ${EXCLUDES[$repo]:-}; do excl="${excl} --exclude '${pat}'"; done
+  verb="${MODE[$repo]:-sync}"
   cat > "${OUTDIR}/source-sync-${repo}.yaml" <<YAML
 apiVersion: batch/v1
 kind: Job
@@ -104,15 +116,15 @@ spec:
               RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 120s -v"
               # DRYRUN=true (env) lists changes without writing. Default: real sync.
               if [ "\${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="\$RCLONE_FLAGS --dry-run"; fi
-              echo "Syncing: \$SRC -> \$DEST  (DRYRUN=\${DRYRUN:-false})"
-              rclone sync \$RCLONE_FLAGS${excl} "\$SRC" "\$DEST"
+              echo "${verb^}ing: \$SRC -> \$DEST  (DRYRUN=\${DRYRUN:-false})"
+              rclone ${verb} \$RCLONE_FLAGS${excl} "\$SRC" "\$DEST"
               echo "Done: ${repo}"
       volumes:
         - name: rclone-config
           secret:
             secretName: rclone-config
 YAML
-  echo "wrote source-sync-${repo}.yaml${excl:+  (excludes:${excl})}"
+  echo "wrote source-sync-${repo}.yaml  [${verb}]${excl:+  (excludes:${excl})}"
 done
 
 echo "Generated ${#REPOS[@]} jobs into ${OUTDIR}"
