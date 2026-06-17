@@ -73,7 +73,7 @@ spec:
           # exact-extract, one row per cell, `max` reducer: species richness is a
           # count, so each cell stores the peak (not the average) modeled richness
           # among the source pixels covering it. Hexed from the WGS84 COG on NRP S3.
-          cng-datasets raster --input "s3://public-mobi/mobi-species-richness-all-cog.tif" --output-parquet s3://public-mobi/mobi-species-richness-all/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 7,6,5,0 --value-column species_richness --hex-resampling max --nodata -128
+          cng-datasets raster --input "s3://public-mobi/mobi-species-richness-all-cog.tif" --output-parquet s3://public-mobi/mobi-species-richness-all/hex --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 7,6,5,0 --value-column species_richness --hex-resampling max --nodata -128
         resources:
           requests:
             cpu: '4'

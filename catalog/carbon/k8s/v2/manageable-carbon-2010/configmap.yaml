@@ -72,7 +72,7 @@ data:
             - -c
             - |-
               set -e
-              cng-datasets raster --input "s3://public-carbon/v2/cogs/manageable_c_total_2010.tif" --output-parquet s3://public-carbon/manageable-carbon-2010/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 --value-column carbon
+              cng-datasets raster --input "s3://public-carbon/v2/cogs/manageable_c_total_2010.tif" --output-parquet s3://public-carbon/manageable-carbon-2010/hex --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 --value-column carbon
             resources:
               requests:
                 cpu: '4'

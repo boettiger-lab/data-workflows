@@ -1,0 +1,136 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fix-double-slash-keys
+  namespace: biodiversity
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 172800
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        # DRYRUN=true  -> classify + report only, NO mutation (default)
+        # DRYRUN=false -> execute the planned moves/deletes
+        - {name: DRYRUN, value: "true"}
+        resources:
+          requests: {cpu: '2', memory: 4Gi}
+          limits: {cpu: '2', memory: 4Gi}
+        command:
+        - python3
+        - -c
+        - |
+          import os, boto3
+          from botocore.config import Config
+          from botocore.exceptions import ClientError
+
+          EP = "http://rook-ceph-rgw-nautiluss3.rook"
+          DRYRUN = os.environ.get("DRYRUN", "true").lower() != "false"
+          s3 = boto3.client("s3", endpoint_url=EP, config=Config(s3={"addressing_style": "path"}))
+
+          # --- Phase A: consolidate hex // keys onto the canonical single-slash path ---
+          # Rule per // key:
+          #   target absent                  -> MOVE   (copy //->/, then delete //): surfaces hidden data
+          #   target present, same size+ETag -> DUPDEL (delete // orphan): byte-identical, safe cleanup
+          #   target present, in VERIFIED_FLAGS -> DUPDEL (delete //): byte-DIFFERENT but proven
+          #       content-identical to its single-slash twin via whole-row fingerprint
+          #       bit_xor(hash(row)) over the duckdb-geo MCP (all 21 returned identical=True).
+          #       These are re-serializations (same row multiset, diff parquet compression/order)
+          #       of dense cells that were manually reprocessed.
+          #   target present, differs, NOT verified -> FLAG (leave both): never auto-deleted
+          CONSOLIDATE = ["public-carbon", "public-gbif"]
+          VERIFIED_FLAGS = {
+            "v2/irrecoverable-carbon-2018/hex//h0=8021fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2018/hex//h0=8021fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2018/hex//h0=803dfffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2018/hex//h0=8041fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2018/hex//h0=8069fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2018/hex//h0=8081fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2018/hex//h0=808bfffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2018/hex//h0=8097fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2018/hex//h0=80bffffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2024/hex//h0=8015fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2024/hex//h0=8031fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2024/hex//h0=8041fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2024/hex//h0=8081fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2024/hex//h0=808bfffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2024/hex//h0=8097fffffffffff/data_0.parquet",
+            "v2/manageable-carbon-2024/hex//h0=80a7fffffffffff/data_0.parquet",
+            "v2/vulnerable-carbon-2010/hex//h0=8027fffffffffff/data_0.parquet",
+            "v2/vulnerable-carbon-2010/hex//h0=8031fffffffffff/data_0.parquet",
+            "v2/vulnerable-carbon-2010/hex//h0=803dfffffffffff/data_0.parquet",
+            "v2/vulnerable-carbon-2010/hex//h0=8097fffffffffff/data_0.parquet",
+            "v2/vulnerable-carbon-2018/hex//h0=8083fffffffffff/data_0.parquet",
+          }
+          # --- Phase B: purge an intermediate prefix outright (stale, not canonical) ---
+          PURGE = [("public-overturemaps", "chunks/")]
+
+          def list_keys(bucket, prefix=""):
+              out = []
+              for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
+                  for o in page.get("Contents", []):
+                      out.append((o["Key"], o["Size"], o["ETag"].strip('"')))
+              return out
+
+          def head(bucket, key):
+              try:
+                  h = s3.head_object(Bucket=bucket, Key=key)
+                  return h["ContentLength"], h["ETag"].strip('"')
+              except ClientError as e:
+                  if e.response["Error"]["Code"] in ("404", "NoSuchKey"): return None
+                  raise
+
+          print(f"=== fix-double-slash-keys  DRYRUN={DRYRUN} ===\n")
+          for bucket in CONSOLIDATE:
+              keys = [(k, sz, et) for (k, sz, et) in list_keys(bucket) if "//" in k]
+              moved = dupdel = flagged = 0
+              flags = []
+              print(f"## {bucket}: {len(keys)} double-slash keys")
+              for key, sz, et in keys:
+                  target = key.replace("//", "/")
+                  th = head(bucket, target)
+                  if th is None:
+                      print(f"  MOVE    {key}")
+                      if not DRYRUN:
+                          s3.copy_object(Bucket=bucket, Key=target,
+                                         CopySource={"Bucket": bucket, "Key": key})
+                          s3.delete_object(Bucket=bucket, Key=key)
+                      moved += 1
+                  elif th == (sz, et) or key in VERIFIED_FLAGS:
+                      why = "byte-identical" if th == (sz, et) else "verified-content-identical"
+                      print(f"  DUPDEL  {key}  ({why})")
+                      if not DRYRUN:
+                          s3.delete_object(Bucket=bucket, Key=key)
+                      dupdel += 1
+                  else:
+                      tsz, tet = th
+                      flags.append(f"  FLAG    {key}  (//: {sz}B {et}  vs  /: {tsz}B {tet})")
+                      flagged += 1
+              for f in flags: print(f)
+              print(f"  -> MOVE={moved}  DUPDEL={dupdel}  FLAG={flagged}\n")
+
+          for bucket, prefix in PURGE:
+              keys = list_keys(bucket, prefix)
+              print(f"## PURGE {bucket}/{prefix}: {len(keys)} keys")
+              batch = []
+              for key, _, _ in keys:
+                  batch.append({"Key": key})
+                  if len(batch) == 1000:
+                      if not DRYRUN: s3.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+                      batch = []
+              if batch and not DRYRUN:
+                  s3.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+              print(f"  -> {'DELETED' if not DRYRUN else 'would delete'} {len(keys)} keys under {prefix}\n")
+
+          print("=== done ===")

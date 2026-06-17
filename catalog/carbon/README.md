@@ -60,7 +60,7 @@ pip install -e .
 # Uses public HTTPS access (no credentials needed)
 cng-datasets raster \
   --input https://s3-west.nrp-nautilus.io/public-carbon/cogs/irrecoverable_c_total_2018.tif \
-  --output-parquet s3://public-carbon/irrecoverable-carbon/hex/ \
+  --output-parquet s3://public-carbon/irrecoverable-carbon/hex \
   --resolution 8 \
   --parent-resolutions 0 \
   --h0-index 0 \

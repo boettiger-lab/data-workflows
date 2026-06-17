@@ -31,3 +31,17 @@ All fixes are in [`boettiger-lab/datasets`](https://github.com/boettiger-lab/dat
 | Hex output S3 keys had double-slash (`hex//h0=...`) | Fixed path join in raster output writer | upstream |
 
 The `move-hex-to-v2.yaml` job uses `aws s3api list-objects` (not rclone) to copy objects with double-slash keys, since rclone silently skips them.
+
+> **2026-06-17 follow-up — double-slash keys remediated (data-workflows #240).** The
+> "fixed upstream" writer fix landed *after* several carbon collections were first
+> built, and `move-hex-to-v2` **propagated** the old `hex//h0=` keys into `v2/`
+> rather than fixing them. An audit found **792** lingering `hex//h0=...` keys here
+> — including `v2/irrecoverable-carbon-{2022,2023,2024}` and non-v2
+> `irrecoverable-carbon`, which existed **only** at `//`, so the canonical
+> `hex/h0=*/data_0.parquet` glob returned **nothing** for them. Consolidated onto
+> single-slash by `catalog/audit/k8s/fix-double-slash-keys.yaml` (664 moved to the
+> canonical path; 128 byte/content-identical orphans deleted — the 21 byte-different
+> ones proven identical first via whole-row `bit_xor(hash(row))` over the MCP). The
+> trailing-slash `--output-parquet .../hex/` args (the trigger) were dropped to
+> `.../hex`. gbif (234 keys, dense manually-reprocessed cells) and overturemaps (196
+> intermediate `chunks/` keys, purged) were fixed in the same pass.

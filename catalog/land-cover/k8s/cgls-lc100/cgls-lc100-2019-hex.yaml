@@ -70,7 +70,7 @@ spec:
             export PROJ_LIB="$PROJ_DATA"
           fi
 
-          cng-datasets raster --input "s3://public-land-cover/cgls-lc100-2019-cog.tif" --output-parquet s3://public-land-cover/cgls-lc100-2019/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 9 --parent-resolutions 8,7,6,5,0 --value-column lc_class --hex-resampling mode
+          cng-datasets raster --input "s3://public-land-cover/cgls-lc100-2019-cog.tif" --output-parquet s3://public-land-cover/cgls-lc100-2019/hex --h0-index ${JOB_COMPLETION_INDEX} --resolution 9 --parent-resolutions 8,7,6,5,0 --value-column lc_class --hex-resampling mode
         resources:
           requests:
             cpu: '4'
