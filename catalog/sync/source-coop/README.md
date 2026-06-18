@@ -63,10 +63,11 @@ state the NC/SA license — we are a non-commercial project and downstream users
 ## Adding a repo later (the maintainable loop)
 
 1. Confirm it's catalogued and license-clear (add a row to `license-inventory.md`).
-2. Add the bucket to `REPOS` in `gen-source-sync.sh` (and `EXCLUDES`/`new-repos.md` if needed).
-3. `./gen-source-sync.sh` → emits `../k8s/source-sync-<repo>.yaml`.
+2. Add the bucket to `REPOS` in `gen-source-sync.sh` (and `EXCLUDES`/`MODE`/`new-repos.md` if needed).
+3. `./gen-source-sync.sh` → emits `../k8s/source-sync-<repo>.yaml` **and** regenerates the scheduled-backup scope (`../k8s/source-sync-cron-config.yaml`).
 4. Create the `cboettig/<repo>` product in the source.coop web UI (it's not automatable — see below).
 5. `./dry-run-local.sh <repo>` then `./run-source-sync.sh <repo>`.
+6. Roll the new repo into the weekly backup: `kubectl apply -f ../k8s/source-sync-cron-config.yaml` (the `source-sync` CronJob picks up the new line on its next run — see *Scheduled weekly backup* below).
 
 ## ⚠️ Credentials are account-wide
 
@@ -117,6 +118,40 @@ running. The 2026-06 refresh dry-ran all 7 and split them:
 |---|---|---|
 | `mobi` | `copy` | A 27k-tile `tiles/**` XYZ pyramid, a whole `range-size-rarity-all/` layer, the original `SpeciesRichness_All`/`RSR_All` source rasters, and `LICENSE.txt` live only on source.coop (NRP public-mobi has just the reprocessed COG + hex). A `sync` would wipe them. |
 | *(all others)* | `sync` | mirror-with-delete (default) |
+
+## Scheduled weekly backup (CronJob) — keeps the mirror fresh
+
+Once the one-time backfill above is done, the **`source-sync` CronJob** keeps every in-scope
+repo current automatically — this is the original goal of #158. `./gen-source-sync.sh` emits two
+extra files alongside the per-repo jobs:
+
+- **`../k8s/source-sync-cron-config.yaml`** — a `source-sync-scope` ConfigMap holding `repos.txt`
+  (one line per repo: `<repo> <verb> [exclude globs…]`), generated from the same
+  `REPOS`/`MODE`/`EXCLUDES` arrays. **This is the policy/scope** — regenerate + re-apply it whenever
+  scope changes.
+- **`../k8s/source-sync-cron.yaml`** — the CronJob itself (mechanism, ~static). One pod loops
+  `repos.txt` **sequentially** at the same gentle 50 MB/s recipe, **continue-on-error** (one bad
+  repo doesn't block the rest; the Job still exits non-zero so a failure shows up). Schedule:
+  **Sundays 08:00 UTC** (`0 8 * * 0`), `concurrencyPolicy: Forbid` (a still-running weekly backup
+  is never overlapped), opportunistic priority, 3-run history.
+
+Keeping scope in the generated ConfigMap (not baked into the CronJob) is deliberate: the per-repo
+jobs and the weekly cron read the *same* source of truth and can't drift.
+
+```bash
+kubectl apply -f ../k8s/source-sync-cron-config.yaml -f ../k8s/source-sync-cron.yaml   # install/update
+kubectl -n biodiversity get cronjob source-sync                                        # status
+# one-off run now (real sync):
+kubectl -n biodiversity create job --from=cronjob/source-sync source-sync-manual
+# dry-run a one-off (lists changes, writes nothing): create the job then flip env DRYRUN=true,
+# or just run ./run-source-sync.sh <repos…> which honors DRYRUN.
+kubectl -n biodiversity logs -f job/source-sync-manual
+```
+
+The per-repo `source-sync-<repo>.yaml` jobs + `run-source-sync.sh` remain for **manual/backfill**
+use (a single repo, a fresh repo's first sync, or a targeted re-run); the CronJob is the standing
+backup. The same DEST safety guard (refuse any non-`cboettig/<repo>` path) runs per repo inside the
+loop.
 
 ## Phase 2 — STAC on source.coop (after the data mirror)
 
