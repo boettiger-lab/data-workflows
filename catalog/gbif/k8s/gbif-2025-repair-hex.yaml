@@ -1,0 +1,88 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2025-repair-hex
+  namespace: biodiversity
+  labels:
+    k8s-app: gbif-2025-repair-hex
+spec:
+  completions: 3
+  parallelism: 1          # sequential: one pod at a time (each needs up to 30Gi ephemeral; ns cap 50Gi)
+  completionMode: Indexed
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2025-repair-hex
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+      containers:
+      - name: repair-hex
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '4', memory: 64Gi, ephemeral-storage: 30Gi}
+          limits:   {cpu: '4', memory: 64Gi, ephemeral-storage: 30Gi}
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          # Repair the 3 h0 cells whose original fill-missing write was truncated by
+          # preemption + OVERWRITE_OR_IGNORE-skip-on-retry (#240): hex/ holds far fewer
+          # rows than the complete chunks/ source. Re-consolidate from chunks, DELETING
+          # the partition first on EVERY attempt so a preemption can't leave a partial.
+          SRC_LIST=(8011fffffffffff       804bfffffffffff       8047fffffffffff)
+          DST_LIST=(576777411652222975    577797758442799103    577727389698621439)
+          SRC="${SRC_LIST[$JOB_COMPLETION_INDEX]}"
+          DST="${DST_LIST[$JOB_COMPLETION_INDEX]}"
+          echo "=== repair chunks/h0=${SRC} -> hex/h0=${DST} ==="
+          python3 - <<PYEOF
+          import duckdb, os, boto3
+          from botocore.config import Config
+          src_h0="${SRC}"; dst_h0="${DST}"
+          key=os.environ["AWS_ACCESS_KEY_ID"]; secret=os.environ["AWS_SECRET_ACCESS_KEY"]
+          endpoint=os.environ["AWS_S3_ENDPOINT"]
+
+          # 1) delete-first (clean slate every attempt) via boto3
+          s3=boto3.client("s3", endpoint_url=f"http://{endpoint}", config=Config(s3={"addressing_style":"path"}))
+          pfx=f"2025-06/hex/h0={dst_h0}/"
+          old=[o["Key"] for p in s3.get_paginator("list_objects_v2").paginate(Bucket="public-gbif",Prefix=pfx) for o in p.get("Contents",[])]
+          print(f"  deleting {len(old)} existing (truncated) files under {pfx}", flush=True)
+          for i in range(0,len(old),1000):
+              s3.delete_objects(Bucket="public-gbif", Delete={"Objects":[{"Key":k} for k in old[i:i+1000]]})
+
+          # 2) re-consolidate from chunks, fixed (no-trailing-slash) path
+          con=duckdb.connect()
+          con.execute(f"CREATE SECRET s3_secret (TYPE S3, KEY_ID '{key}', SECRET '{secret}', ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false, REGION 'us-east-1')")
+          src=f"s3://public-gbif/2025-06/chunks/h0={src_h0}/**"
+          dst=f"s3://public-gbif/2025-06/hex/h0={dst_h0}"
+          nchunks=con.execute(f"SELECT COUNT(*) FROM read_parquet('{src}', hive_partitioning=false)").fetchone()[0]
+          print(f"  chunks rows={nchunks}; writing {dst} ...", flush=True)
+          con.execute(f"""
+              COPY (SELECT * FROM read_parquet('{src}', hive_partitioning=false) ORDER BY h1,h2,h3,h4,h5)
+              TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 1000000, FILE_SIZE_BYTES 268435456, OVERWRITE_OR_IGNORE true)
+          """)
+          # 3) verify written == chunks
+          nhex=con.execute(f"SELECT COUNT(*) FROM read_parquet('{dst}/*.parquet')").fetchone()[0]
+          print(f"  hex rows now={nhex}", flush=True)
+          assert nhex==nchunks, f"REPAIR INCOMPLETE: hex {nhex} != chunks {nchunks}"
+          print(f"  OK: hex/h0={dst_h0} == chunks ({nhex} rows)", flush=True)
+          PYEOF
+          echo "=== done ${DST} ==="
+      volumes: []

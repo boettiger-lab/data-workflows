@@ -1,0 +1,100 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2025-dedup-hex
+  namespace: biodiversity
+  labels:
+    k8s-app: gbif-2025-dedup-hex
+spec:
+  completions: 5
+  parallelism: 1          # one cell at a time; each subPath gets the whole PVC for spill
+  completionMode: Indexed
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2025-dedup-hex
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+      containers:
+      - name: dedup-hex
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '4', memory: 120Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 120Gi, ephemeral-storage: 50Gi}
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        # Spill to ephemeral /tmp (50Gi ns max). The rechunk-scratch CephFS PVC was
+        # failing to attach (FailedAttachVolume, CSI attacher timeout); a high DuckDB
+        # memory_limit keeps the ~42GB cell-8049 DISTINCT mostly in RAM so spill fits.
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          # Lossless dedup of the 5 gbif hex cells that carry exact full-row duplicate
+          # occurrences (a sub-block was consolidated twice during the build, #240).
+          # Every dup is byte-identical (proved: distinct-full-rows == distinct-gbifid),
+          # so DISTINCT ON (gbifid) keeps one row per occurrence losslessly. We hash one
+          # short key column, NOT the full ~40-col row: full-row DISTINCT * spilled past
+          # the 50Gi ephemeral cap on cell 8049 (106M rows) and got Evicted. Write to
+          # staging -> verify (rows == distinct gbifid) -> replace the live partition.
+          # The 5 trivial-dup cells (<=99 dup rows, incl. a 245M-row cell with 7) are left as-is.
+          # 8049 (577762574070710271, 106M rows) LAST: the 4 smaller cells bank first
+          DST_LIST=(579451423930974207 579803267651862527 579099580210085887 580119927000662015 577762574070710271)
+          DST="${DST_LIST[$JOB_COMPLETION_INDEX]}"
+          echo "=== dedup hex/h0=${DST} ==="
+          python3 - <<PYEOF
+          import duckdb, os, boto3
+          from botocore.config import Config
+          dst_h0="${DST}"
+          key=os.environ["AWS_ACCESS_KEY_ID"]; secret=os.environ["AWS_SECRET_ACCESS_KEY"]; endpoint=os.environ["AWS_S3_ENDPOINT"]
+          B="public-gbif"; live=f"2025-06/hex/h0={dst_h0}"; stg=f"2025-06/hex-dedup-staging/h0={dst_h0}"
+          s3=boto3.client("s3", endpoint_url=f"http://{endpoint}", config=Config(s3={"addressing_style":"path"}))
+          def listing(pfx): return [o["Key"] for p in s3.get_paginator("list_objects_v2").paginate(Bucket=B,Prefix=pfx+"/") for o in p.get("Contents",[])]
+          def purge(pfx):
+              ks=listing(pfx)
+              for i in range(0,len(ks),1000): s3.delete_objects(Bucket=B, Delete={"Objects":[{"Key":k} for k in ks[i:i+1000]]})
+
+          con=duckdb.connect(); con.execute("SET memory_limit='100GB'; SET temp_directory='/tmp'; SET preserve_insertion_order=false;")
+          con.execute(f"CREATE SECRET s3_secret (TYPE S3, KEY_ID '{key}', SECRET '{secret}', ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false, REGION 'us-east-1')")
+          live_src=f"s3://{B}/{live}/*.parquet"
+          n0=con.execute(f"SELECT COUNT(*) FROM read_parquet('{live_src}')").fetchone()[0]
+          d0=con.execute(f"SELECT COUNT(DISTINCT gbifid) FROM read_parquet('{live_src}')").fetchone()[0]
+          print(f"  live rows={n0} distinct_gbifid={d0} dups={n0-d0}", flush=True)
+
+          # 1) write deduped to staging (clean staging first)
+          purge(stg)
+          con.execute(f"""COPY (SELECT DISTINCT ON (gbifid) * FROM read_parquet('{live_src}'))
+              TO 's3://{B}/{stg}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 1000000, FILE_SIZE_BYTES 268435456, OVERWRITE_OR_IGNORE true)""")
+          ns=con.execute(f"SELECT COUNT(*) FROM read_parquet('s3://{B}/{stg}/*.parquet')").fetchone()[0]
+          ds=con.execute(f"SELECT COUNT(DISTINCT gbifid) FROM read_parquet('s3://{B}/{stg}/*.parquet')").fetchone()[0]
+          print(f"  staging rows={ns} distinct_gbifid={ds}", flush=True)
+          assert ns==ds==d0, f"DEDUP MISMATCH: staging {ns}/{ds} vs live-distinct {d0}"
+
+          # 2) replace live partition with staging (server-side copy), then drop staging
+          purge(live)
+          for k in listing(stg):
+              newk=k.replace("hex-dedup-staging/","hex/")
+              s3.copy_object(Bucket=B, Key=newk, CopySource={"Bucket":B,"Key":k})
+          purge(stg)
+          nf=con.execute(f"SELECT COUNT(*) FROM read_parquet('{live_src}')").fetchone()[0]
+          print(f"  final live rows={nf}", flush=True)
+          assert nf==d0, f"POST-SWAP MISMATCH: {nf} != {d0}"
+          print(f"  OK hex/h0={dst_h0}: {n0} -> {nf} (removed {n0-d0} dup rows)", flush=True)
+          PYEOF
+          echo "=== done ${DST} ==="
