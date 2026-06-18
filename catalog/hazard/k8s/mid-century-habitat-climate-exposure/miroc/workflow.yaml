@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mid-century-habitat-climate-exposure-miroc-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "set -e\n\necho \"Starting mid-century-habitat-climate-exposure-miroc raster\
+          \ workflow...\"\n\n# Step 0: Setup bucket\necho \"Step 0: Setting up bucket...\"\
+          \nkubectl apply -f /yamls/mid-century-habitat-climate-exposure-miroc-setup-bucket.yaml\
+          \ -n biodiversity\nkubectl wait --for=condition=complete --timeout=600s\
+          \ job/mid-century-habitat-climate-exposure-miroc-setup-bucket -n biodiversity\n\
+          \n# Step 1: H3 hexagonal tiling\necho \"Step 1: H3 hexagonal tiling...\"\
+          \nkubectl apply -f /yamls/mid-century-habitat-climate-exposure-miroc-hex.yaml\
+          \ -n biodiversity\nkubectl wait --for=condition=complete --timeout=7200s\
+          \ job/mid-century-habitat-climate-exposure-miroc-hex -n biodiversity\n\n\
+          echo \"\u2713 Workflow complete!\"\necho \"Clean up with:\"\necho \"  kubectl\
+          \ delete jobs mid-century-habitat-climate-exposure-miroc-setup-bucket mid-century-habitat-climate-exposure-miroc-hex\
+          \ mid-century-habitat-climate-exposure-miroc-workflow -n biodiversity\"\n\
+          echo \"  kubectl delete configmap mid-century-habitat-climate-exposure-miroc-yamls\
+          \ -n biodiversity\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: mid-century-habitat-climate-exposure-miroc-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
