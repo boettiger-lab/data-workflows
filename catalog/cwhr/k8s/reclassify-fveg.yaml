@@ -1,0 +1,104 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cwhr-reclassify-fveg
+  namespace: biodiversity
+  labels: {k8s-app: cwhr-reclassify-fveg}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: cwhr-reclassify-fveg}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: reclassify
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          [ -n "$PROJ_DB" ] && export PROJ_DATA="$(dirname $PROJ_DB)" PROJ_LIB="$(dirname $PROJ_DB)"
+
+          echo "=== 1. fetch + unzip raw FVEG GDB ==="
+          rclone copyto nrp:public-ca30x30/raw/fveg221gdb.zip /tmp/fveg221gdb.zip -P
+          cd /tmp && unzip -q -o fveg221gdb.zip
+          GDB=/tmp/fveg22_1.gdb
+          ls -d "$GDB"
+
+          echo "=== 2. reclassify Value -> WHR13NUM and Value -> WHRNUM (block-wise, nearest, uint8) ==="
+          python3 - <<'PY'
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          src = gdal.OpenEx("/tmp/fveg22_1.gdb", gdal.OF_RASTER)
+          band = src.GetRasterBand(1)
+          rat = band.GetDefaultRAT()
+          cols = [rat.GetNameOfCol(i) for i in range(rat.GetColumnCount())]
+          ci = {c: cols.index(c) for c in cols}
+          n = rat.GetRowCount()
+          # LUTs sized to full uint16 range; unmapped values -> 0 (nodata/background)
+          lut13 = np.zeros(65536, dtype=np.uint8)
+          lutN  = np.zeros(65536, dtype=np.uint8)
+          for r in range(n):
+              v = rat.GetValueAsInt(r, ci['Value'])
+              lut13[v] = rat.GetValueAsInt(r, ci['WHR13NUM'])
+              lutN[v]  = rat.GetValueAsInt(r, ci['WHRNUM'])
+          print("RAT rows:", n, "max WHR13NUM:", int(lut13.max()), "max WHRNUM:", int(lutN.max()))
+
+          xs, ys = src.RasterXSize, src.RasterYSize
+          gt, proj = src.GetGeoTransform(), src.GetProjection()
+          drv = gdal.GetDriverByName("GTiff")
+          opts = ["COMPRESS=DEFLATE", "ZLEVEL=9", "TILED=YES", "BIGTIFF=YES",
+                  "BLOCKXSIZE=512", "BLOCKYSIZE=512", "NUM_THREADS=ALL_CPUS"]
+          outs = {"/tmp/cwhr13-3310.tif": lut13, "/tmp/cwhr-3310.tif": lutN}
+          handles = {}
+          for path, _ in outs.items():
+              ds = drv.Create(path, xs, ys, 1, gdal.GDT_Byte, options=opts)
+              ds.SetGeoTransform(gt); ds.SetProjection(proj)
+              ob = ds.GetRasterBand(1); ob.SetNoDataValue(0)
+              handles[path] = (ds, ob)
+          # block read; native block size
+          bxs, bys = band.GetBlockSize()
+          bxs = bxs or 512; bys = bys or 512
+          # use generous row strips to limit overhead
+          step_y = max(bys, 1024)
+          for y0 in range(0, ys, step_y):
+              ny = min(step_y, ys - y0)
+              arr = band.ReadAsArray(0, y0, xs, ny).astype(np.uint16, copy=False)
+              for path, lut in outs.items():
+                  handles[path][1].WriteArray(np.take(lut, arr), 0, y0)
+          for path, (ds, ob) in handles.items():
+              ob.FlushCache(); ds.FlushCache(); ds = None
+              print("wrote", path)
+          PY
+
+          echo "=== 3. reproject 3310 -> WGS84 (-r near) + COG (nearest overviews) ==="
+          for ds in cwhr13 cwhr; do
+            gdalwarp -t_srs EPSG:4326 -r near -of COG \
+              -srcnodata 0 -dstnodata 0 \
+              -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS \
+              /tmp/${ds}-3310.tif /tmp/${ds}-cog.tif
+            echo "--- ${ds}-cog.tif ---"; gdalinfo /tmp/${ds}-cog.tif | grep -iE "Size is|Pixel Size|NoData|Type=|COMPRESS|Min=|Max=" | head
+          done
+
+          echo "=== 4. publish WGS84 COGs ==="
+          rclone copyto /tmp/cwhr13-cog.tif nrp:public-ca30x30/cwhr13-cog.tif -P
+          rclone copyto /tmp/cwhr-cog.tif   nrp:public-ca30x30/cwhr-cog.tif   -P
+          echo "DONE"
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
