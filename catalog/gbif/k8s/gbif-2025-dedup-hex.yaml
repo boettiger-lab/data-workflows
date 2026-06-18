@@ -29,8 +29,8 @@ spec:
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         resources:
-          requests: {cpu: '4', memory: 64Gi, ephemeral-storage: 50Gi}
-          limits:   {cpu: '4', memory: 64Gi, ephemeral-storage: 50Gi}
+          requests: {cpu: '4', memory: 120Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 120Gi, ephemeral-storage: 50Gi}
         env:
         - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
         - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
@@ -54,7 +54,8 @@ spec:
           # the 50Gi ephemeral cap on cell 8049 (106M rows) and got Evicted. Write to
           # staging -> verify (rows == distinct gbifid) -> replace the live partition.
           # The 5 trivial-dup cells (<=99 dup rows, incl. a 245M-row cell with 7) are left as-is.
-          DST_LIST=(577762574070710271 579451423930974207 579803267651862527 579099580210085887 580119927000662015)
+          # 8049 (577762574070710271, 106M rows) LAST: the 4 smaller cells bank first
+          DST_LIST=(579451423930974207 579803267651862527 579099580210085887 580119927000662015 577762574070710271)
           DST="${DST_LIST[$JOB_COMPLETION_INDEX]}"
           echo "=== dedup hex/h0=${DST} ==="
           python3 - <<PYEOF
@@ -69,7 +70,7 @@ spec:
               ks=listing(pfx)
               for i in range(0,len(ks),1000): s3.delete_objects(Bucket=B, Delete={"Objects":[{"Key":k} for k in ks[i:i+1000]]})
 
-          con=duckdb.connect(); con.execute("SET memory_limit='50GB'; SET temp_directory='/tmp';")
+          con=duckdb.connect(); con.execute("SET memory_limit='100GB'; SET temp_directory='/tmp'; SET preserve_insertion_order=false;")
           con.execute(f"CREATE SECRET s3_secret (TYPE S3, KEY_ID '{key}', SECRET '{secret}', ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false, REGION 'us-east-1')")
           live_src=f"s3://{B}/{live}/*.parquet"
           n0=con.execute(f"SELECT COUNT(*) FROM read_parquet('{live_src}')").fetchone()[0]
