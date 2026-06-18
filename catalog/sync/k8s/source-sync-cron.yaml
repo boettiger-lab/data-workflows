@@ -57,7 +57,9 @@ spec:
               command: [bash, -c]
               args:
                 - |
-                  set -uo pipefail            # NOT -e: keep going past a failed repo
+                  set -ufo pipefail           # NOT -e: keep going past a failed repo. -f: no
+                                              # globbing, so exclude patterns (e.g. mpa-candidates/**)
+                                              # stay literal and a HOLD path can't accidentally expand away.
                   ACCOUNT="cboettig"
                   DEST_BUCKET="us-west-2.opendata.source.coop"
                   RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 300s -v"
@@ -66,7 +68,13 @@ spec:
                   while read -r repo verb excludes; do
                     [ -z "${repo:-}" ] && continue
                     case "$repo" in \#*) continue ;; esac
-                    verb="${verb:-sync}"
+                    # Require an explicit verb. A missing column must NOT silently
+                    # default to the destructive `sync` (which would delete a
+                    # copy-only repo's source.coop-only content, e.g. mobi).
+                    case "${verb:-}" in
+                      sync|copy) : ;;
+                      *) echo "REFUSING: repo '$repo' has invalid/missing verb '${verb:-}' (want sync|copy)" >&2 ; fail=1 ; continue ;;
+                    esac
                     SRC="nrp:public-${repo}"
                     DEST="source:${DEST_BUCKET}/${ACCOUNT}/${repo}"
                     # Safety: the source.coop creds have account-wide access to a
