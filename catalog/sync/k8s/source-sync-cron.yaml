@@ -90,6 +90,19 @@ spec:
                     echo "=== [$n] rclone $verb $SRC -> $DEST  (DRYRUN=${DRYRUN:-false}) ==="
                     if rclone "${args[@]}" ; then echo "OK: $repo" ; else echo "FAILED: $repo (rc=$?)" >&2 ; fail=1 ; fi
                   done < /config/repos.txt
+                  # Phase 2 (#158): the data sync above makes source.coop an exact
+                  # copy of NRP, clobbering the STAC back to NRP-pointing hrefs — so
+                  # re-apply the idempotent rewrite right after. Fetch the committed
+                  # script from main (public repo); scope comes from the mounted ConfigMap.
+                  echo "=== rewriting STAC hrefs on source.coop (phase 2) ==="
+                  RW_URL="https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/catalog/sync/source-coop/rewrite-stac-hrefs.py"
+                  if curl -fsSL "$RW_URL" -o /tmp/rewrite-stac-hrefs.py ; then
+                    rwflags="" ; [ "${DRYRUN:-false}" = "true" ] && rwflags="--dry-run"
+                    SCOPE_FILE=/config/repos.txt python3 /tmp/rewrite-stac-hrefs.py $rwflags \
+                      || { echo "STAC rewrite FAILED" >&2 ; fail=1 ; }
+                  else
+                    echo "could not fetch STAC rewrite script from $RW_URL" >&2 ; fail=1
+                  fi
                   echo "=== source-sync complete: $n repos attempted, fail=$fail ==="
                   exit $fail
           volumes:

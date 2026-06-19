@@ -153,14 +153,40 @@ use (a single repo, a fresh repo's first sync, or a targeted re-run); the CronJo
 backup. The same DEST safety guard (refuse any non-`cboettig/<repo>` path) runs per repo inside the
 loop.
 
-## Phase 2 — STAC on source.coop (after the data mirror)
+## Phase 2 — STAC on source.coop (DONE; runs after every mirror)
 
-The mirrored `stac-collection.json` files still carry **NRP** hrefs. A second pass should rewrite
-each mirrored collection so `self`/`root`/`parent`/`child` + asset hrefs point to the source.coop
-copies (`https://data.source.coop/cboettig/<repo>/…`), drop the excluded HOLD sub-collections, and
-stamp the correct (NC/SA) license. This makes source.coop a self-consistent catalog rather than a
-set of NRP-pointing records. Not built yet — tracked as phase 2; keep it a separate, idempotent
-job so re-running the data mirror doesn't require re-running the STAC rewrite.
+As mirrored, the STAC `*.json` files carry **NRP** hrefs. **`rewrite-stac-hrefs.py`** makes them
+self-referential for everything that exists on source.coop:
+
+- Rewrites any href `https://s3-west.nrp-nautilus.io/public-<X>/<path>` →
+  `https://data.source.coop/cboettig/<X>/<path>` **iff `<X>` is a mirrored repo** (read from
+  `source-sync-cron-config.yaml` repos.txt — the same single source of truth). Covers
+  `self` / `child` / `describedby` / all asset hrefs, including cross-bucket references.
+- Leaves `root`/`parent` pointing at the **NRP canonical root** (`public-data/stac/catalog.json`
+  is the global catalog spanning non-mirrored buckets; it is not mirrored). source.coop collections
+  stay navigable up to the canonical root. (Decision in #158; a source.coop root catalog is a
+  possible future enhancement.)
+- Drops dangling `child` links to the excluded HOLD sub-paths that were never mirrored
+  (`rivers/american-rivers/{campaigns,ira-watersheds,roo-cjest}`, `high-seas/mpa-candidates`).
+- Licenses are unchanged (already correct SPDX on NRP, carried over by the mirror).
+
+**Idempotent** (a 2nd run is a no-op — an already-source.coop href won't re-match) and
+**topology-agnostic** (does not assume a fixed root path; e.g. `rivers` has no top-level
+`stac-collection.json`). Writes to source.coop ONLY (refuses any non-`cboettig/<repo>` path); never
+touches NRP. It reads/writes via `rclone` (`cat`/`rcat --s3-no-check-bucket`), so it works
+identically on a laptop and in-pod.
+
+```bash
+./rewrite-stac-hrefs.py --dry-run          # report changes, write nothing
+./rewrite-stac-hrefs.py                      # rewrite in place on source.coop
+./rewrite-stac-hrefs.py --repos rivers high-seas   # limit to some repos
+```
+
+**Why it's wired into the weekly CronJob:** a plain `rclone sync` makes source.coop an exact copy of
+NRP, so the weekly data mirror would clobber the rewrite back to NRP-pointing hrefs. The
+`source-sync` CronJob therefore runs this script **as its final step** (fetched from `main`, scope
+from the mounted ConfigMap), re-applying it after each sync. So source.coop self-consistency is
+maintained automatically — no manual re-run needed.
 
 ## Existing-content audit (2026-06-16)
 
