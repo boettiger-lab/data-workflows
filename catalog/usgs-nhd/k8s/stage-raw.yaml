@@ -1,0 +1,106 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhd-stage-raw
+  labels:
+    k8s-app: nhd-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nhd-stage-raw
+    spec:
+      restartPolicy: Never
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+        - 9.9.9.9
+      dnsPolicy: None
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: SOURCE_URL
+          value: https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/NHD/National/GDB/NHD_H_National_GDB.zip
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: nhd-stage
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /scratch
+          echo "=== Downloading national GDB zip (~30 GB) to PVC ==="
+          curl -L --retry 8 --retry-delay 15 --retry-all-errors -C - \
+            -o NHD_H_National_GDB.zip "$SOURCE_URL"
+          ls -lh NHD_H_National_GDB.zip
+          echo "=== Archiving raw zip to s3://public-usgs-nhd/raw/ ==="
+          rclone copy NHD_H_National_GDB.zip nrp:public-usgs-nhd/raw/ -P --transfers 8 --s3-chunk-size 256M
+          echo "=== Unzipping GDB onto PVC ==="
+          rm -rf gdb_unzip && mkdir -p gdb_unzip
+          unzip -q -o NHD_H_National_GDB.zip -d gdb_unzip
+          GDB=$(find gdb_unzip -maxdepth 2 -name '*.gdb' -type d | head -1)
+          echo "Found GDB: $GDB"
+          du -sh "$GDB"
+          # Persist the unzipped GDB at a stable path for downstream convert jobs
+          rm -rf /scratch/NHD_H_National_GDB.gdb
+          mv "$GDB" /scratch/NHD_H_National_GDB.gdb
+          echo "=== GDB ready at PVC subPath nhd-stage/NHD_H_National_GDB.gdb ==="
+          ogrinfo -so /scratch/NHD_H_National_GDB.gdb NHDFlowline 2>&1 | grep -i "Feature Count" || true
+          rm -f NHD_H_National_GDB.zip
+          echo "DONE"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 8Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 8Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

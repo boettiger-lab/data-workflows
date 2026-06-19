@@ -1,0 +1,93 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhd-convert
+  labels:
+    k8s-app: nhd-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nhd-convert
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: convert
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: nhd-stage
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp
+          GDB=/scratch/NHD_H_National_GDB.gdb
+          echo "=== GDB layers present ==="
+          ogrinfo -so "$GDB" NHDFlowline 2>&1 | grep -i "Feature Count" || true
+
+          echo "=== [1/2] Convert NHDFlowline -> GeoParquet (reproject NAD83 -> OGC:CRS84) ==="
+          cng-convert-to-parquet "$GDB" /scratch/nhdflowline.parquet \
+            --layer NHDFlowline --target-crs OGC:CRS84 \
+            --compression ZSTD --compression-level 6 --row-group-size 100000 --no-progress
+          ls -lh /scratch/nhdflowline.parquet
+
+          echo "=== nhdflowline.parquet schema (so we know the geometry column name) ==="
+          python3 -c "import duckdb; c=duckdb.connect(); print(c.execute(\"DESCRIBE SELECT * FROM read_parquet('/scratch/nhdflowline.parquet')\").fetchdf().to_string())"
+
+          echo "=== [2/2] Convert NHDFlowlineVAA -> parquet (non-spatial: stream order) ==="
+          ogr2ogr -f Parquet /scratch/vaa.parquet "$GDB" NHDFlowlineVAA \
+            -select "PERMANENT_IDENTIFIER,STREAMORDER,STREAMLEVEL"
+          ls -lh /scratch/vaa.parquet
+          echo "=== vaa.parquet schema ==="
+          python3 -c "import duckdb; c=duckdb.connect(); print(c.execute(\"DESCRIBE SELECT * FROM read_parquet('/scratch/vaa.parquet')\").fetchdf().to_string())"
+          python3 -c "import duckdb; c=duckdb.connect(); print(c.execute('SELECT COUNT(*) n, COUNT(DISTINCT \"PERMANENT_IDENTIFIER\") d FROM read_parquet(%r)' % '/scratch/vaa.parquet').fetchdf().to_string())"
+
+          echo "=== Archive intermediates to s3://public-usgs-nhd/raw/ ==="
+          rclone copy /scratch/nhdflowline.parquet nrp:public-usgs-nhd/raw/ -P --s3-chunk-size 256M
+          rclone copy /scratch/vaa.parquet nrp:public-usgs-nhd/raw/ -P --s3-chunk-size 256M
+          echo "CONVERT DONE"
+        resources:
+          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '8', memory: 64Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: scratch
+        persistentVolumeClaim: {claimName: rechunk-scratch}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
