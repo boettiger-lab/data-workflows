@@ -10,6 +10,11 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 ## public-ca-wolves
 - **OK (license) / HELD (data semantics)** · `CC0-1.0` — public-ca-wolves  · license is fully clear (CC0); NOT mirrored to source.coop because it is a real-time updated product (`wolf_*_latest.geojson` + `snapshots/`) — a static mirror would be a stale copy presented as current. Revisit publishing only the dated `snapshots/`.
 
+## public-ca30x30
+- **OK** · `other (free use w/ attribution)` — public-ca30x30/plant-richness  · Kling et al. (2018) Phil. Trans. R. Soc. B, [DOI 10.1098/rstb.2017.0397](https://doi.org/10.1098/rstb.2017.0397). Upstream terms: *"These data can be used freely, provided attribution is given to: Kling et al. (2018)…"* — **redistribution is permitted with attribution** (not a formal CC license, so STAC `license: other` + a `cite-as`/`sci:doi` citation, not an SPDX id). Mirror-eligible.
+- **OK** · `other (free use w/ attribution)` — public-ca30x30/rarity-weighted-endemic-plant-richness  · same Kling et al. (2018) source/terms as above. Mirror-eligible.
+- **N/A (partial)** — the rest of `public-ca30x30` is not yet catalogued (see `gen-source-sync.sh`); only the two plant-richness collections above are license-cleared. Do **not** add `ca30x30` to `REPOS` until the whole bucket is catalogued + cleared.
+
 ## public-calenviroscreen
 - **OK** · `CA OEHHA (other)` — public-calenviroscreen  · CA public data; NOTE it is a DRAFT release
 
