@@ -1,0 +1,84 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ace-terrestrial-biodiversity-summary-convert
+  labels:
+    k8s-app: ace-terrestrial-biodiversity-summary-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ace-terrestrial-biodiversity-summary-convert
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-cdfw
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # Read the raw shapefile zip staged to internal S3 (avoids the slow/rate-limited
+          # external hub.arcgis.com download and the unquoted-& URL breaking bash).
+          echo "Localizing raw zip from nrp:public-cdfw/raw/ds2739.zip ..."
+          rclone copyto nrp:public-cdfw/raw/ds2739.zip /tmp/ds2739.zip -v
+          mkdir -p /tmp/ds2739
+          unzip -q -o /tmp/ds2739.zip -d /tmp/ds2739
+          SHP=$(find /tmp/ds2739 -name '*.shp' | head -1)
+          echo "Converting shapefile: $SHP"
+          cng-convert-to-parquet \
+            "$SHP" \
+            s3://public-cdfw/ace/terrestrial-biodiversity-summary.parquet \
+            --row-group-size 100000
+        resources:
+          requests:
+            cpu: '4'
+            memory: 8Gi
+          limits:
+            cpu: '4'
+            memory: 8Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

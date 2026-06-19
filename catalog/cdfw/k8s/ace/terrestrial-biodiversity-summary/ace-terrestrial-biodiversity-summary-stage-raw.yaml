@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ace-terrestrial-biodiversity-summary-stage-raw
+  labels:
+    k8s-app: ace-terrestrial-biodiversity-summary-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ace-terrestrial-biodiversity-summary-stage-raw
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: stage-raw-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          URL="https://hub.arcgis.com/api/v3/datasets/f3430956fbe847c4b0e315b83bcd8844_0/downloads/data?format=shp&spatialRefId=3857&where=1%3D1"
+          echo "Downloading ACE ds2739 shapefile zip..."
+          curl -L --retry 5 -o /tmp/ds2739.zip "$URL"
+          ls -la /tmp/ds2739.zip
+          echo "Verifying zip integrity..."
+          unzip -t /tmp/ds2739.zip > /dev/null && echo "zip OK"
+          echo "Staging to nrp:public-cdfw/raw/..."
+          rclone copyto /tmp/ds2739.zip nrp:public-cdfw/raw/ds2739.zip -v
+          echo "Done staging raw."
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
