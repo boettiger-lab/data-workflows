@@ -143,10 +143,19 @@ spec:
               echo "  NO OGR SOURCE FOUND"; FAILED="$FAILED $fname"; rm -rf "$WORK/ex" "$WORK/${fname}"; continue
             fi
 
-            # discover the 5 ft ocean-connected layer: newer gpkg = *_slr_5_0ft, older gdb = *_slr_5ft
-            layers=$(ogrinfo -ro -q "$src" 2>/dev/null)
-            layer=$(echo "$layers" | grep -oE '[A-Za-z0-9_]+_slr_5_0ft' | head -1)
-            [ -z "$layer" ] && layer=$(echo "$layers" | grep -oE '[A-Za-z0-9_]+_slr_5ft' | head -1)
+            # discover the 5 ft ocean-connected layer via OGR API (returns the FULL layer name).
+            # Naming varies: newer gpkg = *_slr_5_0ft, older gdb = *_slr_5ft, and some regions
+            # ship only a levee-modeled variant *_slr_5ft_Levee (e.g. TX_Central). Prefer the
+            # plain *_slr_5_0ft, else any *_slr_5ft* (incl. _Levee); always exclude *_low_*.
+            # A bare grep -oE truncates the _Levee suffix → references a non-existent layer.
+            layer=$(python3 -c "
+            import re
+            from osgeo import gdal
+            ds=gdal.OpenEx('$src')
+            ls=[ds.GetLayer(i).GetName() for i in range(ds.GetLayerCount())]
+            c=[l for l in ls if re.search(r'_slr_5_0ft\$', l) and '_low_' not in l] \
+              or [l for l in ls if re.search(r'_slr_5ft', l) and '_low_' not in l]
+            print(c[0] if c else '')" 2>/dev/null)
             if [ -z "$layer" ]; then
               echo "  NO 5ft slr LAYER (skipping)"; rm -rf "$WORK/ex" "$WORK/${fname}"; continue
             fi
