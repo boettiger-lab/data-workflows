@@ -17,7 +17,12 @@ Thumbs.db
 *~
 .idea/
 .vscode/
-.claude/
+# Claude Code: share guardrails (settings.json + hooks/), keep the rest local
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+# git worktrees (relocated out of .claude/)
+.worktrees/
 # Private datasets — keep off public GitHub
 catalog/wyoming/
 **/*.min..css
