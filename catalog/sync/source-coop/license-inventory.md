@@ -10,6 +10,9 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 ## public-ca-wolves
 - **OK (license) / HELD (data semantics)** · `CC0-1.0` — public-ca-wolves  · license is fully clear (CC0); NOT mirrored to source.coop because it is a real-time updated product (`wolf_*_latest.geojson` + `snapshots/`) — a static mirror would be a stale copy presented as current. Revisit publishing only the dated `snapshots/`.
 
+## public-ca30x30
+- **OK** · `other (TNC/CDFW ds1197)` — public-ca30x30/freshwater-species-richness  · TNC California Freshwater Species Database (Aquarius) v2.0.7, distributed via CDFW BIOS ds1197. Use constraints (filelib.wildlife.ca.gov DS1197 metadata) explicitly permit redistribution provided the original source data + source citation are included; companion paper Howard et al. 2015 (PLOS ONE 10(7): e0130710) is CC-BY-4.0. Mirror with attribution (TNC data-product citation). Rest of bucket not yet inventoried.
+
 ## public-calenviroscreen
 - **OK** · `CA OEHHA (other)` — public-calenviroscreen  · CA public data; NOTE it is a DRAFT release
 
