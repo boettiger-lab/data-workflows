@@ -1,0 +1,72 @@
+# Preprocess: cng-convert-to-parquet's zip path only extracts shapefiles, and the
+# GDE sources are File Geodatabases (.gdb) zipped. Extract each GDB and convert it
+# to a single GeoPackage (preserves long field names + CRS, reads cleanly over
+# /vsicurl/), upload to raw/. The convert step then reads the .gpkg.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gde-preprocess
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: gde-preprocess
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cd /tmp
+          for ds in ds2788 ds2789; do
+            echo "===== $ds ====="
+            curl -sL -o $ds.zip "https://s3-west.nrp-nautilus.io/public-ca30x30/raw/$ds.zip"
+            unzip -q -o $ds.zip -d ${ds}_x
+            # Source has MULTISURFACE/curve geometries that DuckDB ST_Read cannot
+            # parse; CONVERT_TO_LINEAR linearizes curves and PROMOTE_TO_MULTI keeps
+            # everything as MultiPolygon.
+            ogr2ogr -f GPKG /tmp/$ds.gpkg ${ds}_x/$ds.gdb $ds \
+              -nlt CONVERT_TO_LINEAR -nlt PROMOTE_TO_MULTI
+            echo "feature count in gpkg:"; ogrinfo -so /tmp/$ds.gpkg $ds | grep -i 'Feature Count'
+            rclone copyto /tmp/$ds.gpkg nrp:public-ca30x30/raw/$ds.gpkg
+            echo "uploaded $ds.gpkg"
+          done
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
