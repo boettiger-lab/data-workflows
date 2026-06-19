@@ -65,7 +65,7 @@ data:
             - |-
               set -e
 
-              cng-datasets raster --input "s3://public-hazard/raw/thorne/exp_miroc_4069_90m_ext.tif" --output-parquet s3://public-hazard/mid-century-habitat-climate-exposure-miroc/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 9 --parent-resolutions 8,0 --value-column exposure --hex-resampling mean
+              cng-datasets raster --input "s3://public-hazard/mid-century-habitat-climate-exposure/miroc-cog.tif" --output-parquet s3://public-hazard/mid-century-habitat-climate-exposure/miroc/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 9 --parent-resolutions 8,0 --value-column exposure --hex-resampling mean
             resources:
               requests:
                 cpu: '4'
