@@ -1,0 +1,96 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhd-derive
+  labels:
+    k8s-app: nhd-derive
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nhd-derive
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: derive
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+          subPath: nhd-stage
+        command:
+        - python3
+        - -c
+        - |
+          import os, duckdb
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ['AWS_ACCESS_KEY_ID'])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ['AWS_SECRET_ACCESS_KEY'])
+          con.execute("SET memory_limit='100GB'; SET threads=8;")
+          con.execute("SET temp_directory='/scratch/tmp_derive'; SET preserve_insertion_order=false;")
+
+          FL = "/scratch/nhdflowline.parquet"
+          VAA = "/scratch/vaa.parquet"
+
+          n_fl = con.execute(f"SELECT COUNT(*) FROM read_parquet('{FL}')").fetchone()[0]
+          print(f"flowlines: {n_fl:,}", flush=True)
+
+          print("=== streams-by-order: LEFT JOIN VAA stream order ===", flush=True)
+          con.execute(f"""
+            COPY (
+              SELECT f.*, v.STREAMORDER, v.STREAMLEVEL
+              FROM read_parquet('{FL}') f
+              LEFT JOIN read_parquet('{VAA}') v
+                ON f.PERMANENT_IDENTIFIER = v.PERMANENT_IDENTIFIER
+            ) TO 's3://public-usgs-nhd/streams-by-order.parquet'
+            (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000);
+          """)
+          print("wrote streams-by-order.parquet", flush=True)
+
+          print("=== perennial-streams: WHERE FCODE = 46006 ===", flush=True)
+          n_per = con.execute(f"SELECT COUNT(*) FROM read_parquet('{FL}') WHERE FCODE = 46006").fetchone()[0]
+          print(f"perennial (FCODE=46006): {n_per:,}", flush=True)
+          con.execute(f"""
+            COPY (
+              SELECT * FROM read_parquet('{FL}') WHERE FCODE = 46006
+            ) TO 's3://public-usgs-nhd/perennial-streams.parquet'
+            (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000);
+          """)
+          print("wrote perennial-streams.parquet", flush=True)
+          print("DERIVE DONE", flush=True)
+        resources:
+          requests: {cpu: '8', memory: 100Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '8', memory: 100Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: scratch
+        persistentVolumeClaim: {claimName: rechunk-scratch}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
