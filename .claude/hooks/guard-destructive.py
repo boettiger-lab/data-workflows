@@ -65,10 +65,13 @@ if has(r"\baws\s+s3api\s+delete-bucket\b"):
     block("aws s3api delete-bucket")
 if has(r"\baws\s+s3\s+rm\b.*--recursive"):
     block("aws s3 rm --recursive (mass delete)")
-if has(r"\bmc\s+rb\b"):
-    block("mc rb (remove bucket)")
-if has(r"\bmc\s+rm\b.*(--recursive|--force|\s-r\b)"):
-    block("mc rm --recursive/--force (mass delete)")
+# MinIO/rustfs client: `mc` and `rc` (rustfs's drop-in for mc — same verbs).
+if has(r"\b(mc|rc)\s+rb\b"):
+    block("mc/rc rb (remove bucket)")
+if has(r"\b(mc|rc)\s+rm\b.*(--recursive|--force|\s-r\b)"):
+    block("mc/rc rm --recursive/--force (mass delete)")
+if has(r"\b(mc|rc)\s+mirror\b.*(--remove|--overwrite)"):
+    block("mc/rc mirror --remove/--overwrite (destructive mirror)")
 
 # --- Catastrophic kubernetes ops (normal `delete job` / `delete -f` allowed) ---
 if has(r"\bkubectl\b.*\bdelete\b"):
