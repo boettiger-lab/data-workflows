@@ -1,0 +1,132 @@
+# Build a (species, h0) partition-index sidecar for an h0-partitioned hex dataset.
+#
+# Problem (data-workflows#281): the hex is partitioned by geography (h0), not by
+# species, so `WHERE sci_name = '…'` cannot prune partitions and opens all 122
+# h0 files. This tiny (~5 MiB) sidecar lists the distinct (id_no, sci_name, h0)
+# triples; a subquery on it drives DuckDB *dynamic partition pruning* so a
+# per-species read touches only that species' h0 partitions (median 2/122 → ~16×).
+#
+# Reusable template: the SRC_HEX / INDEX_COLS / DST_SIDECAR env vars below
+# parametrize it. Defaults build the IUCN ranges sidecar; for the GBIF reprocess
+# (#247) point SRC_HEX at the new GBIF hex and set INDEX_COLS to its species
+# column(s) to ship an analogous sidecar (see #279/#281).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-build-species-h0-index
+  namespace: biodiversity
+  labels:
+    k8s-app: iucn-build-species-h0-index
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-build-species-h0-index
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: build-index
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '8'
+            memory: 32Gi
+        env:
+        - name: SRC_HEX
+          value: 's3://public-iucn/iucn-ranges-2025/hex/h0=*/data_0.parquet'
+        - name: INDEX_COLS
+          value: 'id_no, sci_name'
+        - name: DST_SIDECAR
+          value: 's3://public-iucn/iucn-ranges-2025/species-h0-index.parquet'
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          echo "=== Building species->h0 sidecar ==="
+          echo "  SRC_HEX     = ${SRC_HEX}"
+          echo "  INDEX_COLS  = ${INDEX_COLS}"
+          echo "  DST_SIDECAR = ${DST_SIDECAR}"
+
+          python3 - <<'PYEOF'
+          import duckdb, os
+
+          src   = os.environ["SRC_HEX"]
+          cols  = os.environ["INDEX_COLS"]
+          dst   = os.environ["DST_SIDECAR"]
+          key   = os.environ["AWS_ACCESS_KEY_ID"]
+          secret= os.environ["AWS_SECRET_ACCESS_KEY"]
+          endpoint = os.environ.get("AWS_S3_ENDPOINT", "rook-ceph-rgw-nautiluss3.rook")
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute(f"""
+              CREATE SECRET s3_secret (
+                  TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                  ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false
+              )
+          """)
+
+          # DISTINCT over the full hex; sort by the species key so the tiny output
+          # file gets clean row-group min/max pruning on per-species lookups.
+          sort_col = cols.split(",")[-1].strip()  # last index col (sci_name) as sort key
+          con.execute(f"""
+              COPY (
+                  SELECT DISTINCT {cols}, h0
+                  FROM read_parquet('{src}', hive_partitioning=true)
+                  ORDER BY {sort_col}
+              ) TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD)
+          """)
+          print("COPY complete.")
+          PYEOF
+
+          echo "=== Validating sidecar ==="
+          python3 - <<'PYEOF'
+          import duckdb, os
+          dst = os.environ["DST_SIDECAR"]
+          key = os.environ["AWS_ACCESS_KEY_ID"]; secret = os.environ["AWS_SECRET_ACCESS_KEY"]
+          endpoint = os.environ.get("AWS_S3_ENDPOINT", "rook-ceph-rgw-nautiluss3.rook")
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute(f"CREATE SECRET s3_secret (TYPE S3, KEY_ID '{key}', SECRET '{secret}', ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false)")
+          n, sp = con.execute(f"SELECT COUNT(*), COUNT(DISTINCT sci_name) FROM read_parquet('{dst}')").fetchone()
+          print(f"  rows={n}  species={sp}")
+          assert n > 100000, "sidecar suspiciously small"
+          PYEOF
+          echo "=== Done ==="
