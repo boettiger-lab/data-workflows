@@ -1,0 +1,66 @@
+# Preprocess: the BIOS ds1197 download is a .zip containing a File GDB.
+# cng-convert-to-parquet's built-in zip extractor cannot read the zip from S3
+# ("File not found"), so we unzip once and stage the bare ds1197.gdb directory
+# to raw/. The convert step then reads it via GDAL /vsicurl. Run this BEFORE
+# freshwater-species-richness-convert.yaml.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: freshwater-species-richness-preprocess
+  labels:
+    k8s-app: freshwater-species-richness-preprocess
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: freshwater-species-richness-preprocess
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: preprocess-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cd /tmp
+          # Stage raw zip (idempotent) then unzip the File GDB and upload it to raw/.
+          curl -L --retry 5 -o ds1197.zip \
+            "https://filelib.wildlife.ca.gov/Public/BDB/GIS/BIOS/Public_Datasets/1100_1199/ds1197.zip"
+          rclone copy ds1197.zip nrp:public-ca30x30/raw/ -P
+          unzip -q -o ds1197.zip -d extract
+          GDB=$(find extract -maxdepth 2 -name '*.gdb' | head -1)
+          echo "Found GDB: $GDB"
+          rclone copy "$GDB" nrp:public-ca30x30/raw/ds1197.gdb -P
+          rclone ls nrp:public-ca30x30/raw/ds1197.gdb | head
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
