@@ -1,0 +1,82 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: climate-migration-routes-preprocess-cog
+  labels:
+    k8s-app: climate-migration-routes-preprocess-cog
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: climate-migration-routes-preprocess-cog
+    spec:
+      restartPolicy: Never
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      containers:
+      - name: preprocess-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_CACHEMAX
+          value: '4096'
+        - name: GDAL_HTTP_TIMEOUT
+          value: '60'
+        - name: GDAL_HTTP_MAX_RETRY
+          value: '5'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - "set -e\n\necho \"Mosaicking 1 tiles \u2192 s3://public-connectivity/climate-migration-routes-cog.tif\"\
+          \n\ncng-datasets raster \\\n  --input \"https://s3-west.nrp-nautilus.io/public-connectivity/raw/climateConnectivityOmniscapeCalifornia.tif\"\
+          \ \\\n  --output-cog \"s3://public-connectivity/climate-migration-routes-cog.tif\"\
+          \ \\\n  --target-crs EPSG:4326 \\\n  --resampling near \\\n  --nodata\
+          \ \"65535\" \\\n  --hex-resampling mode\n\necho \"\u2713 Preprocess COG\
+          \ complete: s3://public-connectivity/climate-migration-routes-cog.tif\"\n"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

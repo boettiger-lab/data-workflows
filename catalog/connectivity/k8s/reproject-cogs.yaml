@@ -1,0 +1,77 @@
+# Workaround for cng-datasets AutoIdentifyEPSG crash on sources whose CRS has no
+# EPSG code (ESRI:102003 USA Contiguous Albers; sphere Web-Mercator). See
+# boettiger-lab/datasets bug report. Reprojects each connectivity raster source to
+# a clean EPSG:4326 COG so the raster hex step (cng-datasets raster --input <cog>)
+# can read it. Resampling per data type: near for categorical, bilinear for the
+# continuous flow index.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: connectivity-reproject-cogs
+  namespace: biodiversity
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values: ["true"]
+      containers:
+        - name: reproject
+          image: ghcr.io/boettiger-lab/datasets:latest
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "4"
+              memory: "12Gi"
+              ephemeral-storage: "40Gi"
+            limits:
+              cpu: "4"
+              memory: "12Gi"
+              ephemeral-storage: "40Gi"
+          volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              cd /tmp
+              WARP="gdalwarp -t_srs EPSG:4326 -of COG -multi -wo NUM_THREADS=ALL_CPUS \
+                    -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co BIGTIFF=IF_SAFER --config GDAL_CACHEMAX 2048"
+
+              echo '### 1/3 Schloss omniscape (categorical UInt16, nodata 65535) -> near'
+              rclone copy nrp:public-connectivity/raw/climateConnectivityOmniscapeCalifornia.tif /tmp/ -P
+              $WARP -r near -co OVERVIEW_RESAMPLING=NEAREST -srcnodata 65535 -dstnodata 65535 \
+                /tmp/climateConnectivityOmniscapeCalifornia.tif /tmp/climate-migration-routes-cog.tif
+              rclone copyto /tmp/climate-migration-routes-cog.tif nrp:public-connectivity/climate-migration-routes-cog.tif
+              gdalinfo -norat -nomd /tmp/climate-migration-routes-cog.tif | grep -E "Size is|EPSG|NoData|Type=" | head
+
+              echo '### 2/3 Cameron Cflow1 (continuous Int16 1-100, nodata 128) -> bilinear'
+              rclone copy nrp:public-connectivity/raw/Cflow1.tif /tmp/ -P
+              $WARP -r bilinear -co OVERVIEW_RESAMPLING=AVERAGE -srcnodata 128 -dstnodata 128 \
+                /tmp/Cflow1.tif /tmp/present-day-connectivity-flow-cog.tif
+              rclone copyto /tmp/present-day-connectivity-flow-cog.tif nrp:public-connectivity/present-day-connectivity-flow-cog.tif
+              gdalinfo -norat -nomd /tmp/present-day-connectivity-flow-cog.tif | grep -E "Size is|EPSG|NoData|Type=" | head
+
+              echo '### 3/3 Cameron ConnectivityCategories (categorical Float64 -> Byte) -> near'
+              rclone copy nrp:public-connectivity/raw/ConnectivityCategories.tif /tmp/ -P
+              $WARP -r near -ot Byte -co OVERVIEW_RESAMPLING=NEAREST -dstnodata 255 \
+                /tmp/ConnectivityCategories.tif /tmp/present-day-connectivity-categories-cog.tif
+              rclone copyto /tmp/present-day-connectivity-categories-cog.tif nrp:public-connectivity/present-day-connectivity-categories-cog.tif
+              gdalinfo -norat -nomd /tmp/present-day-connectivity-categories-cog.tif | grep -E "Size is|EPSG|NoData|Type=" | head
+
+              echo "ALL COGS DONE"
+      volumes:
+        - name: rclone-config
+          secret:
+            secretName: rclone-config

@@ -86,12 +86,12 @@ Key commands:
 
 ## Sync, Backup & Public Mirror
 
-NRP S3 is canonical. Two off-NRP destinations, both driven by per-bucket k8s Jobs under `catalog/sync/`:
+NRP S3 is canonical. Two off-NRP destinations, driven by k8s Jobs under `catalog/sync/`:
 
-| Destination | Purpose | Scope | Jobs |
+| Destination | Purpose | Scope | Mechanism |
 |---|---|---|---|
-| **MinIO** (`minio.carlboettiger.info`) | **private backup** of every public bucket (and the only off-NRP copy for license-restricted data) | all `public-*` | `catalog/sync/k8s/sync-public-*.yaml` |
-| **Source Cooperative** (`source.coop`) | **public mirror** for discoverability | catalogued **and** license-clear datasets only | `catalog/sync/k8s/source-sync-*.yaml` |
+| **MinIO** (`minio.carlboettiger.info`) | **private backup** of every public bucket (and the only off-NRP copy for license-restricted data) | all `public-*` | per-bucket Jobs `catalog/sync/k8s/sync-public-*.yaml` |
+| **Source Cooperative** (`source.coop`) | **public mirror** for discoverability | catalogued **and** license-clear datasets only | weekly **`source-sync` CronJob** (+ per-bucket `source-sync-*.yaml` for backfill) |
 
 ```bash
 # MinIO backup (private)
@@ -100,14 +100,17 @@ kubectl apply -f catalog/sync/k8s/                             # all
 
 # source.coop public mirror — see the campaign docs first (scope is license-gated)
 catalog/sync/source-coop/dry-run-local.sh census               # preview (no writes)
-catalog/sync/source-coop/run-source-sync.sh census             # one repo (sequential runner)
+catalog/sync/source-coop/run-source-sync.sh census             # one repo (manual/backfill)
+kubectl -n biodiversity create job --from=cronjob/source-sync source-sync-manual  # run the weekly job now
 
 kubectl get jobs | grep -E 'sync-public|source-sync'           # monitor
 ```
 
 Each job runs `rclone sync` with bandwidth throttling. When adding a new NRP bucket, add a MinIO sync job (see [AGENTS.md](AGENTS.md) Step 7).
 
-**source.coop mirror — read before touching it:** [`catalog/sync/source-coop/README.md`](catalog/sync/source-coop/README.md) is the campaign plan (scope policy, the add-a-repo loop, account-wide-credentials safety, phase-2 STAC). Scope is the `REPOS`/`EXCLUDES` arrays in `gen-source-sync.sh`; per-collection license verdicts are in `license-inventory.md`; repos still to create are in `new-repos.md`. Some datasets **cannot** be mirrored (license forbids redistribution — WDPA/IUCN/ICCA/HydroBASINS) and stay MinIO-only. Tracking + status: **issue #158**.
+**source.coop is a standing automated mirror, not a one-shot.** A weekly **`source-sync` CronJob** (Sundays 08:00 UTC, `catalog/sync/k8s/source-sync-cron.yaml`) re-syncs every in-scope repo and then re-applies the **Phase 2 STAC href-rewrite** (`rewrite-stac-hrefs.py`, which repoints mirrored STAC hrefs to `data.source.coop/…`; a plain sync would clobber it). It does **not** auto-discover new NRP buckets — scope is the generated `source-sync-scope` ConfigMap. **Adding a bucket** means following the *add-a-repo loop* in the campaign README, including **manually creating the `cboettig/<repo>` product in the source.coop web UI first** (the create API is disabled); a repo added to scope before its product exists fails its own sync *visibly* (continue-on-error) rather than auto-creating anything.
+
+**source.coop mirror — read before touching it:** [`catalog/sync/source-coop/README.md`](catalog/sync/source-coop/README.md) is the campaign plan (scope policy, the **add-a-repo loop**, the weekly CronJob, account-wide-credentials safety, the Phase 2 STAC rewrite). Scope is the `REPOS`/`MODE`/`EXCLUDES` arrays in `gen-source-sync.sh`; per-collection license verdicts are in `license-inventory.md`. Some datasets **cannot** be mirrored (license forbids redistribution — WDPA/IUCN/ICCA/HydroBASINS) and stay MinIO-only. Tracking + status: **issue #158**.
 
 ## Infrastructure
 

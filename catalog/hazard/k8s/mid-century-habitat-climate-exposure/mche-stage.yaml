@@ -1,0 +1,112 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mche-stage
+  labels:
+    k8s-app: mche-stage
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 21600
+  template:
+    metadata:
+      labels:
+        k8s-app: mche-stage
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: 8Gi
+            cpu: '4'
+            ephemeral-storage: 40Gi
+          limits:
+            memory: 8Gi
+            cpu: '4'
+            ephemeral-storage: 40Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-hazard
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/mche
+          cd /tmp/mche
+
+          echo "=== copy source zip from MinIO to public-hazard/raw/ ==="
+          rclone copy minio:public-ca30x30/CBN/Climate_risks/Mid-century_habitat_climate_exposure/Midcentury_habitat_climate_exposure.zip /tmp/mche/
+          rclone copy /tmp/mche/Midcentury_habitat_climate_exposure.zip nrp:public-hazard/raw/
+
+          echo "=== unzip ==="
+          unzip -q -o Midcentury_habitat_climate_exposure.zip
+          D="Mid-century habitat climate exposure"
+          ls -la "$D"/
+
+          echo "=== upload the two GCM exposure GeoTIFFs (Albers, raw source) to raw/thorne/ ==="
+          rclone copyto "$D/exp_cnrm_4069_90m_ext.tif"  nrp:public-hazard/raw/thorne/exp_cnrm_4069_90m_ext.tif
+          rclone copyto "$D/exp_miroc_4069_90m_ext.tif" nrp:public-hazard/raw/thorne/exp_miroc_4069_90m_ext.tif
+
+          # Source is Albers Equal-Area (NAD83); H3 hexing needs WGS84. Build a WGS84 COG per GCM
+          # (nearest resampling preserves the continuous exposure values; nodata -3.4028235e+38 kept).
+          ND="-3.4028234663852886e+38"
+          for gcm in cnrm miroc; do
+            src="$D/exp_${gcm}_4069_90m_ext.tif"
+            echo "=== ${gcm}: reproject Albers -> WGS84 ==="
+            gdalwarp -overwrite -t_srs EPSG:4326 -r near \
+              -srcnodata "$ND" -dstnodata "$ND" \
+              -co COMPRESS=DEFLATE -co BIGTIFF=YES \
+              "$src" /tmp/mche/${gcm}_4326.tif
+            echo "=== ${gcm}: write Cloud-Optimized GeoTIFF ==="
+            gdal_translate -of COG -co COMPRESS=DEFLATE -co OVERVIEWS=AUTO -co BLOCKSIZE=512 \
+              -a_nodata "$ND" \
+              /tmp/mche/${gcm}_4326.tif /tmp/mche/${gcm}-cog.tif
+            echo "=== ${gcm}: upload COG ==="
+            rclone copyto /tmp/mche/${gcm}-cog.tif \
+              nrp:public-hazard/mid-century-habitat-climate-exposure/${gcm}-cog.tif
+            rm -f /tmp/mche/${gcm}_4326.tif
+            gdalinfo -stats /tmp/mche/${gcm}-cog.tif 2>/dev/null | grep -iE 'Size is|EPSG|NoData|Minimum=|STATISTICS_M' | head
+          done
+
+          echo "Done."
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

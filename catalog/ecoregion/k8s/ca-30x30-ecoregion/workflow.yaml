@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ecoregion-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "\nset -e\n\necho \"Starting ecoregion workflow...\"\n\n# Step 0: Setup\
+          \ bucket with public access and CORS\necho \"Step 0: Setting up bucket...\"\
+          \nkubectl apply -f /yamls/ecoregion-setup-bucket.yaml -n biodiversity\n\n\
+          echo \"Waiting for bucket setup to complete...\"\nkubectl wait --for=condition=complete\
+          \ --timeout=600s job/ecoregion-setup-bucket -n biodiversity\n\n# Step 1:\
+          \ Convert to optimized GeoParquet (needed by both pmtiles and hex jobs)\n\
+          echo \"Step 1: Converting to optimized GeoParquet...\"\nkubectl apply -f\
+          \ /yamls/ecoregion-convert.yaml -n biodiversity\n\necho \"Waiting for GeoParquet\
+          \ conversion to complete...\"\nkubectl wait --for=condition=complete --timeout=3600s\
+          \ job/ecoregion-convert -n biodiversity\n\n# Step 2: Run pmtiles and hex\
+          \ tiling in parallel (both use the converted geoparquet)\necho \"Step 2:\
+          \ H3 hexagonal tiling and PMTiles generation (parallel)...\"\nkubectl apply\
+          \ -f /yamls/ecoregion-pmtiles.yaml -n biodiversity\nkubectl apply -f /yamls/ecoregion-hex.yaml\
+          \ -n biodiversity\n\necho \"Waiting for hex tiling to complete (PMTiles\
+          \ continues in background)...\"\necho \"Timeout set to 48 hours (172800s)...\"\
+          \nkubectl wait --for=condition=complete --timeout=172800s job/ecoregion-hex\
+          \ -n biodiversity\n\necho \"Step 3: Repartitioning by h0...\"\nkubectl apply\
+          \ -f /yamls/ecoregion-repartition.yaml -n biodiversity\n\necho \"Waiting\
+          \ for repartition to complete...\"\nkubectl wait --for=condition=complete\
+          \ --timeout=3600s job/ecoregion-repartition -n biodiversity\n\necho \"\u2713\
+          \ Workflow complete!\"\necho \"Note: PMTiles job may still be running in\
+          \ the background\"\necho \"\"\necho \"Clean up with:\"\necho \"  kubectl\
+          \ delete jobs ecoregion-setup-bucket ecoregion-convert ecoregion-pmtiles\
+          \ ecoregion-hex ecoregion-repartition ecoregion-workflow -n biodiversity\"\
+          \necho \"  kubectl delete configmap ecoregion-yamls -n biodiversity\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: ecoregion-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800

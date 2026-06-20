@@ -1,0 +1,67 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: purge-stale-chunks
+  namespace: biodiversity
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 172800
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: purge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: DRYRUN, value: "true"}
+        # space-separated bucket/prefix targets to purge (each must end in /)
+        - {name: TARGETS, value: ""}
+        resources:
+          requests: {cpu: '2', memory: 4Gi}
+          limits: {cpu: '2', memory: 4Gi}
+        command:
+        - python3
+        - -c
+        - |
+          import os, boto3
+          from botocore.config import Config
+          EP = "http://rook-ceph-rgw-nautiluss3.rook"
+          DRYRUN = os.environ.get("DRYRUN", "true").lower() != "false"
+          TARGETS = os.environ.get("TARGETS", "").split()
+          s3 = boto3.client("s3", endpoint_url=EP, config=Config(s3={"addressing_style": "path"}))
+
+          # Purge stale intermediate `chunks/` prefixes (pre-repartition output that the
+          # cng-datasets repartition --cleanup step failed to remove via rclone purge,
+          # which silently no-ops under S3 load). Only run against verified-safe prefixes
+          # where the canonical hex/ is complete (hex row count >= chunks). See #240.
+          print(f"=== purge-stale-chunks  DRYRUN={DRYRUN} ===")
+          if not TARGETS:
+              print("No TARGETS set; nothing to do."); raise SystemExit(0)
+          for t in TARGETS:
+              bucket, _, prefix = t.partition("/")
+              if not prefix.endswith("/"):
+                  print(f"REFUSING {t}: prefix must end in / (guard against over-broad purge)"); raise SystemExit(1)
+              if "chunks/" not in prefix:
+                  print(f"REFUSING {t}: only chunks/ prefixes may be purged by this job"); raise SystemExit(1)
+              keys = []
+              for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
+                  keys += [o["Key"] for o in page.get("Contents", [])]
+              print(f"{t}: {len(keys)} keys")
+              if not DRYRUN:
+                  for i in range(0, len(keys), 1000):
+                      s3.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": k} for k in keys[i:i+1000]]})
+                  # verify empty
+                  remaining = sum(len(p.get("Contents", [])) for p in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix))
+                  print(f"  -> deleted; remaining under prefix: {remaining}")
+                  assert remaining == 0, f"PURGE INCOMPLETE for {t}: {remaining} keys remain"
+              else:
+                  print(f"  -> would delete {len(keys)} keys")
+          print("=== done ===")

@@ -1,0 +1,204 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sea-level-rise-preprocess
+  labels:
+    k8s-app: sea-level-rise-preprocess
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 21600
+  template:
+    metadata:
+      labels:
+        k8s-app: sea-level-rise-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      # cluster CoreDNS fails to resolve external hosts (coast.noaa.gov) on some nodes;
+      # append public resolvers as fallback. ClusterFirst still resolves the internal .rook S3 endpoint.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+        options:
+        - name: timeout
+          value: '2'
+        - name: attempts
+          value: '3'
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: 64Gi
+            cpu: '8'
+            ephemeral-storage: 10Gi
+          limits:
+            memory: 64Gi
+            cpu: '8'
+            ephemeral-storage: 10Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-hazard
+        - name: TMPDIR
+          value: /scratch/tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: sea-level-rise-preprocess
+        command:
+        - bash
+        - -c
+        - |
+          set -uo pipefail
+
+          # coast.noaa.gov/slrdata (nginx) reliably serves both URL lists and zips;
+          # chs.coast.noaa.gov (the host inside the lists) has DNS flakiness on cluster nodes.
+          BASE="https://coast.noaa.gov/slrdata/Sea_Level_Rise_Vectors"
+          CODES="AL AS CA CT DC DE FL GA GU HI LA MA MD ME MS MP NC NH NJ NY OR PR RI SC TX VA VI WA"
+          WORK=/scratch/work
+          MERGED=/scratch/sea_level_rise_5ft.gpkg
+          mkdir -p "$WORK" /scratch/tmp
+          rm -f "$MERGED"
+
+          echo "=== building national URL list ==="
+          : > /scratch/all_urls.txt
+          for c in $CODES; do
+            curl -sSL --retry 8 --retry-delay 5 --retry-all-errors "${BASE}/${c}/URLlist_${c}.txt" | tr -d '\r' >> /scratch/all_urls.txt
+            echo "" >> /scratch/all_urls.txt
+          done
+          # keep only standard vector bundles (zip) + bare gpkgs; drop HalfFoot supplements & blanks;
+          # rewrite the flaky chs.coast.noaa.gov download host -> reliable coast.noaa.gov/slrdata
+          grep -E '_slr_data_dist\.zip$|_slr_final_dist\.gpkg$' /scratch/all_urls.txt \
+            | grep -v 'HalfFoot' \
+            | sed 's#https://chs.coast.noaa.gov/htdata/Inundation/SLR/BulkDownload/#https://coast.noaa.gov/slrdata/#' \
+            | sort -u > /scratch/urls.txt
+          n=$(wc -l < /scratch/urls.txt)
+          echo "selected $n source files"
+
+          FAILED=""
+          i=0
+          while read -r url; do
+            [ -z "$url" ] && continue
+            i=$((i+1))
+            fname=$(basename "$url")
+            echo "=== [$i/$n] $fname ==="
+
+            # fetch: reuse s3 raw copy if present (fast internal), else download from NOAA + stage raw
+            # NB: `rclone lsf` exits 0 with empty output for a missing file, so test for non-empty output.
+            if [ -n "$(rclone lsf "nrp:public-hazard/raw/${fname}" 2>/dev/null)" ]; then
+              echo "  reusing staged raw from s3"
+              rclone copy "nrp:public-hazard/raw/${fname}" "$WORK/" || { FAILED="$FAILED $fname"; continue; }
+            else
+              if ! curl -sSL --retry 8 --retry-delay 5 --retry-all-errors -o "$WORK/${fname}" "$url"; then
+                echo "  DOWNLOAD FAILED"; FAILED="$FAILED $fname"; rm -f "$WORK/${fname}"; continue
+              fi
+              rclone copy "$WORK/${fname}" nrp:public-hazard/raw/ || true
+            fi
+
+            # locate the OGR source (unzip if needed). Format varies by region vintage:
+            #   newer = GeoPackage (.gpkg); older = Esri File Geodatabase (.gdb dir); fallback = shapefile.
+            if [[ "$fname" == *.zip ]]; then
+              unzip -q -o "$WORK/${fname}" -d "$WORK/ex" || { FAILED="$FAILED $fname"; rm -rf "$WORK/ex" "$WORK/${fname}"; continue; }
+              src=$(find "$WORK/ex" -name '*.gpkg' | head -1)
+              [ -z "$src" ] && src=$(find "$WORK/ex" -name '*.gdb' -type d | head -1)
+              [ -z "$src" ] && src=$(find "$WORK/ex" \( -iname '*_slr_5_0ft.shp' -o -iname '*_slr_5ft.shp' \) | head -1)
+            else
+              src="$WORK/${fname}"
+            fi
+            if [ -z "${src:-}" ] || [ ! -e "$src" ]; then
+              echo "  NO OGR SOURCE FOUND"; FAILED="$FAILED $fname"; rm -rf "$WORK/ex" "$WORK/${fname}"; continue
+            fi
+
+            # discover the 5 ft ocean-connected layer via OGR API (returns the FULL layer name).
+            # Naming varies: newer gpkg = *_slr_5_0ft, older gdb = *_slr_5ft, and some regions
+            # ship only a levee-modeled variant *_slr_5ft_Levee (e.g. TX_Central). Prefer the
+            # plain *_slr_5_0ft, else any *_slr_5ft* (incl. _Levee); always exclude *_low_*.
+            # A bare grep -oE truncates the _Levee suffix → references a non-existent layer.
+            layer=$(python3 -c "
+            import re
+            from osgeo import gdal
+            ds=gdal.OpenEx('$src')
+            ls=[ds.GetLayer(i).GetName() for i in range(ds.GetLayerCount())]
+            c=[l for l in ls if re.search(r'_slr_5_0ft\$', l) and '_low_' not in l] \
+              or [l for l in ls if re.search(r'_slr_5ft', l) and '_low_' not in l]
+            print(c[0] if c else '')" 2>/dev/null)
+            if [ -z "$layer" ]; then
+              echo "  NO 5ft slr LAYER (skipping)"; rm -rf "$WORK/ex" "$WORK/${fname}"; continue
+            fi
+
+            base="${fname%_slr_data_dist.zip}"; base="${base%_slr_final_dist.gpkg}"
+            state="${base%%_*}"
+            region="${base#*_}"; [ "$region" = "$base" ] && region="$base"
+
+            # Discover the geometry column name and select it EXPLICITLY. OGR SQL does NOT
+            # auto-carry a GeoPackage's named geom column with a restricted column list
+            # (it silently produced NULL geometry for all gpkg sources); naming it fixes that.
+            # Most NOAA gpkgs use "Shape" but some (e.g. FL_SW, FL_East_1) use "geom", so read
+            # the real column via OGR's API rather than parsing ogrinfo text.
+            geomcol=$(python3 -c "from osgeo import gdal; ds=gdal.OpenEx('$src'); print((ds.GetLayerByName('$layer').GetGeometryColumn()) or 'Shape')" 2>/dev/null)
+            [ -z "$geomcol" ] && geomcol="Shape"
+            echo "  layer=$layer geomcol=$geomcol state=$state region=$region"
+
+            ogr2ogr -f GPKG -append "$MERGED" "$src" -nln slr -t_srs OGC:CRS84 \
+              -sql "SELECT \"${geomcol}\", '${state}' AS state, '${region}' AS region, 5.0 AS slr_ft FROM \"${layer}\"" \
+              || { echo "  OGR2OGR FAILED"; FAILED="$FAILED $fname"; }
+
+            rm -rf "$WORK/ex" "$WORK/${fname}"
+          done < /scratch/urls.txt
+
+          echo "=== FAILED FILES:${FAILED:- none} ==="
+          echo "=== merged feature count ==="
+          ogrinfo -so "$MERGED" slr | grep -i 'Feature Count'
+
+          echo "=== converting merged gpkg -> DuckDB-native GeoParquet (OGC:CRS84) ==="
+          cng-convert-to-parquet \
+            "$MERGED" \
+            s3://public-hazard/sea-level-rise.parquet \
+            --layer slr \
+            --target-crs OGC:CRS84 \
+            --compression ZSTD \
+            --compression-level 15 \
+            --row-group-size 100000
+
+          echo "Done."
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch

@@ -63,10 +63,11 @@ state the NC/SA license — we are a non-commercial project and downstream users
 ## Adding a repo later (the maintainable loop)
 
 1. Confirm it's catalogued and license-clear (add a row to `license-inventory.md`).
-2. Add the bucket to `REPOS` in `gen-source-sync.sh` (and `EXCLUDES`/`new-repos.md` if needed).
-3. `./gen-source-sync.sh` → emits `../k8s/source-sync-<repo>.yaml`.
+2. Add the bucket to `REPOS` in `gen-source-sync.sh` (and `EXCLUDES`/`MODE`/`new-repos.md` if needed).
+3. `./gen-source-sync.sh` → emits `../k8s/source-sync-<repo>.yaml` **and** regenerates the scheduled-backup scope (`../k8s/source-sync-cron-config.yaml`).
 4. Create the `cboettig/<repo>` product in the source.coop web UI (it's not automatable — see below).
 5. `./dry-run-local.sh <repo>` then `./run-source-sync.sh <repo>`.
+6. Roll the new repo into the weekly backup: `kubectl apply -f ../k8s/source-sync-cron-config.yaml` (the `source-sync` CronJob picks up the new line on its next run — see *Scheduled weekly backup* below).
 
 ## ⚠️ Credentials are account-wide
 
@@ -118,14 +119,74 @@ running. The 2026-06 refresh dry-ran all 7 and split them:
 | `mobi` | `copy` | A 27k-tile `tiles/**` XYZ pyramid, a whole `range-size-rarity-all/` layer, the original `SpeciesRichness_All`/`RSR_All` source rasters, and `LICENSE.txt` live only on source.coop (NRP public-mobi has just the reprocessed COG + hex). A `sync` would wipe them. |
 | *(all others)* | `sync` | mirror-with-delete (default) |
 
-## Phase 2 — STAC on source.coop (after the data mirror)
+## Scheduled weekly backup (CronJob) — keeps the mirror fresh
 
-The mirrored `stac-collection.json` files still carry **NRP** hrefs. A second pass should rewrite
-each mirrored collection so `self`/`root`/`parent`/`child` + asset hrefs point to the source.coop
-copies (`https://data.source.coop/cboettig/<repo>/…`), drop the excluded HOLD sub-collections, and
-stamp the correct (NC/SA) license. This makes source.coop a self-consistent catalog rather than a
-set of NRP-pointing records. Not built yet — tracked as phase 2; keep it a separate, idempotent
-job so re-running the data mirror doesn't require re-running the STAC rewrite.
+Once the one-time backfill above is done, the **`source-sync` CronJob** keeps every in-scope
+repo current automatically — this is the original goal of #158. `./gen-source-sync.sh` emits two
+extra files alongside the per-repo jobs:
+
+- **`../k8s/source-sync-cron-config.yaml`** — a `source-sync-scope` ConfigMap holding `repos.txt`
+  (one line per repo: `<repo> <verb> [exclude globs…]`), generated from the same
+  `REPOS`/`MODE`/`EXCLUDES` arrays. **This is the policy/scope** — regenerate + re-apply it whenever
+  scope changes.
+- **`../k8s/source-sync-cron.yaml`** — the CronJob itself (mechanism, ~static). One pod loops
+  `repos.txt` **sequentially** at the same gentle 50 MB/s recipe, **continue-on-error** (one bad
+  repo doesn't block the rest; the Job still exits non-zero so a failure shows up). Schedule:
+  **Sundays 08:00 UTC** (`0 8 * * 0`), `concurrencyPolicy: Forbid` (a still-running weekly backup
+  is never overlapped), opportunistic priority, 3-run history.
+
+Keeping scope in the generated ConfigMap (not baked into the CronJob) is deliberate: the per-repo
+jobs and the weekly cron read the *same* source of truth and can't drift.
+
+```bash
+kubectl apply -f ../k8s/source-sync-cron-config.yaml -f ../k8s/source-sync-cron.yaml   # install/update
+kubectl -n biodiversity get cronjob source-sync                                        # status
+# one-off run now (real sync):
+kubectl -n biodiversity create job --from=cronjob/source-sync source-sync-manual
+# dry-run a one-off (lists changes, writes nothing): create the job then flip env DRYRUN=true,
+# or just run ./run-source-sync.sh <repos…> which honors DRYRUN.
+kubectl -n biodiversity logs -f job/source-sync-manual
+```
+
+The per-repo `source-sync-<repo>.yaml` jobs + `run-source-sync.sh` remain for **manual/backfill**
+use (a single repo, a fresh repo's first sync, or a targeted re-run); the CronJob is the standing
+backup. The same DEST safety guard (refuse any non-`cboettig/<repo>` path) runs per repo inside the
+loop.
+
+## Phase 2 — STAC on source.coop (DONE; runs after every mirror)
+
+As mirrored, the STAC `*.json` files carry **NRP** hrefs. **`rewrite-stac-hrefs.py`** makes them
+self-referential for everything that exists on source.coop:
+
+- Rewrites any href `https://s3-west.nrp-nautilus.io/public-<X>/<path>` →
+  `https://data.source.coop/cboettig/<X>/<path>` **iff `<X>` is a mirrored repo** (read from
+  `source-sync-cron-config.yaml` repos.txt — the same single source of truth). Covers
+  `self` / `child` / `describedby` / all asset hrefs, including cross-bucket references.
+- Leaves `root`/`parent` pointing at the **NRP canonical root** (`public-data/stac/catalog.json`
+  is the global catalog spanning non-mirrored buckets; it is not mirrored). source.coop collections
+  stay navigable up to the canonical root. (Decision in #158; a source.coop root catalog is a
+  possible future enhancement.)
+- Drops dangling `child` links to the excluded HOLD sub-paths that were never mirrored
+  (`rivers/american-rivers/{campaigns,ira-watersheds,roo-cjest}`, `high-seas/mpa-candidates`).
+- Licenses are unchanged (already correct SPDX on NRP, carried over by the mirror).
+
+**Idempotent** (a 2nd run is a no-op — an already-source.coop href won't re-match) and
+**topology-agnostic** (does not assume a fixed root path; e.g. `rivers` has no top-level
+`stac-collection.json`). Writes to source.coop ONLY (refuses any non-`cboettig/<repo>` path); never
+touches NRP. It reads/writes via `rclone` (`cat`/`rcat --s3-no-check-bucket`), so it works
+identically on a laptop and in-pod.
+
+```bash
+./rewrite-stac-hrefs.py --dry-run          # report changes, write nothing
+./rewrite-stac-hrefs.py                      # rewrite in place on source.coop
+./rewrite-stac-hrefs.py --repos rivers high-seas   # limit to some repos
+```
+
+**Why it's wired into the weekly CronJob:** a plain `rclone sync` makes source.coop an exact copy of
+NRP, so the weekly data mirror would clobber the rewrite back to NRP-pointing hrefs. The
+`source-sync` CronJob therefore runs this script **as its final step** (fetched from `main`, scope
+from the mounted ConfigMap), re-applying it after each sync. So source.coop self-consistency is
+maintained automatically — no manual re-run needed.
 
 ## Existing-content audit (2026-06-16)
 

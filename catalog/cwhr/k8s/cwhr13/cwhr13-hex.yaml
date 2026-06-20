@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cwhr13-hex
+  namespace: biodiversity
+  labels: {k8s-app: cwhr13-hex}
+spec:
+  completions: 2
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: cwhr13-hex}}
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: stratus1.nrp-espm.berkeley.edu
+      tolerations:
+      - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,  valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,    value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,          value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,          value: /usr/share/gdal}
+        - {name: PYTHONPATH,         value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,    value: '8'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          CHUNK_MAP=(50 71)   # res-0 ordinals covering California
+          H0=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
+          echo "=== CWHR13 (13-class) res-10 mode hex, h0-index $H0 ==="
+          cng-datasets raster \
+            --input "s3://public-ca30x30/cwhr13-cog.tif" \
+            --output-parquet s3://public-ca30x30/cwhr13/hex/ \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,7,6,5,0 \
+            --value-column whr13num --hex-resampling mode --resampling near --nodata "0"
+        resources:
+          requests: {cpu: '8', memory: 256Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 256Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

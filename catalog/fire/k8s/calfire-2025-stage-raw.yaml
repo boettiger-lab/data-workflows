@@ -1,0 +1,98 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: calfire-2025-stage-raw
+  namespace: biodiversity
+  labels:
+    k8s-app: calfire-2025-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: calfire-2025-stage-raw
+    spec:
+      restartPolicy: Never
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      dnsPolicy: None
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          URL='https://34c031f8-c9fd-4018-8c5a-4159cdff6b0d-cdn-endpoint.azureedge.net/-/media/calfire-website/what-we-do/fire-resource-assessment-program---frap/gis-data/fire251gdb.zip?rev=e97f9da91c81440a80c4305af07c94c0'
+          echo "Downloading fire251gdb.zip..."
+          curl -L --retry 8 --retry-all-errors -o /tmp/fire251gdb.zip "$URL"
+          ls -la /tmp/fire251gdb.zip
+          echo "Unzipping..."
+          mkdir -p /tmp/gdb && cd /tmp/gdb
+          unzip -q -o /tmp/fire251gdb.zip
+          echo "=== unzipped contents ==="
+          find /tmp/gdb -maxdepth 2 -name '*.gdb' -type d
+          GDB=$(find /tmp/gdb -maxdepth 2 -name '*.gdb' -type d | head -1)
+          echo "GDB path: $GDB"
+          echo "=== ogrinfo layer list ==="
+          ogrinfo -so "$GDB"
+          echo "=== firep layer summary ==="
+          ogrinfo -so "$GDB" $(ogrinfo -so "$GDB" | grep -oE 'firep[0-9_]+' | head -1) || true
+          echo "Uploading GDB to s3://public-fire/raw/calfire-2025.gdb ..."
+          rclone copy "$GDB" nrp:public-fire/raw/calfire-2025.gdb -P --transfers 16 --checkers 16
+          echo "=== verify upload ==="
+          rclone size nrp:public-fire/raw/calfire-2025.gdb
+          echo "DONE"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 4Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 4Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

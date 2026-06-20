@@ -1,0 +1,108 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2025-dedup-hex-8049
+  namespace: biodiversity
+  labels:
+    k8s-app: gbif-2025-dedup-hex-8049
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2025-dedup-hex-8049
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+      containers:
+      - name: dedup-hex
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '4', memory: 64Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '4', memory: 64Gi, ephemeral-storage: 40Gi}
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          # Dedup gbif hex cell 8049 (h0=577762574070710271), the ONE cell the
+          # whole-cell dedup job (gbif-2025-dedup-hex.yaml) could not finish: a single
+          # DISTINCT ON (gbifid) over 106M wide rows (61 cols, ~4.6 GiB compressed ->
+          # tens of GiB uncompressed + sort overhead) spilled past the 50Gi ephemeral
+          # cap even at 120Gi RAM and got Evicted.
+          #
+          # Fix: hash-bucket on gbifid. Every duplicate of a gbifid hashes to the same
+          # bucket, so per-bucket DISTINCT ON (gbifid) is COMPLETE and lossless. 8 even
+          # buckets (~13.4M rows / ~0.58 GiB each) fit in RAM with no meaningful spill,
+          # regardless of the cell's badly-skewed h1 distribution. Verified pre-flight:
+          # sum of per-bucket distinct gbifid == global distinct == 106,010,719.
+          #
+          # All dups are byte-identical (proved: distinct-full-rows == distinct-gbifid).
+          # Write all buckets to staging -> assert staging rows == staging distinct
+          # gbifid == 106,010,719 -> swap into the live partition -> purge staging.
+          # delete-first on every attempt so a preemption can't leave partial output.
+          echo "=== dedup hex/h0=577762574070710271 (hash-bucketed) ==="
+          python3 - <<'PYEOF'
+          import duckdb, os, boto3
+          from botocore.config import Config
+          dst_h0="577762574070710271"
+          EXPECT=106010719            # distinct gbifid, verified pre-flight
+          NBUCKETS=8
+          key=os.environ["AWS_ACCESS_KEY_ID"]; secret=os.environ["AWS_SECRET_ACCESS_KEY"]; endpoint=os.environ["AWS_S3_ENDPOINT"]
+          B="public-gbif"; live=f"2025-06/hex/h0={dst_h0}"; stg=f"2025-06/hex-dedup-staging/h0={dst_h0}"
+          s3=boto3.client("s3", endpoint_url=f"http://{endpoint}", config=Config(s3={"addressing_style":"path"}))
+          def listing(pfx): return [o["Key"] for p in s3.get_paginator("list_objects_v2").paginate(Bucket=B,Prefix=pfx+"/") for o in p.get("Contents",[])]
+          def purge(pfx):
+              ks=listing(pfx)
+              for i in range(0,len(ks),1000): s3.delete_objects(Bucket=B, Delete={"Objects":[{"Key":k} for k in ks[i:i+1000]]})
+
+          con=duckdb.connect(); con.execute("SET memory_limit='52GB'; SET temp_directory='/tmp'; SET preserve_insertion_order=false;")
+          con.execute(f"CREATE SECRET s3_secret (TYPE S3, KEY_ID '{key}', SECRET '{secret}', ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false, REGION 'us-east-1')")
+          live_src=f"s3://{B}/{live}/*.parquet"
+          n0=con.execute(f"SELECT COUNT(*) FROM read_parquet('{live_src}')").fetchone()[0]
+          d0=con.execute(f"SELECT COUNT(DISTINCT gbifid) FROM read_parquet('{live_src}')").fetchone()[0]
+          print(f"  live rows={n0} distinct_gbifid={d0} dups={n0-d0}", flush=True)
+          assert d0==EXPECT, f"distinct_gbifid {d0} != expected {EXPECT}"
+
+          # 1) per-bucket dedup -> staging. Each bucket is an independent, bounded sort.
+          purge(stg)
+          for b in range(NBUCKETS):
+              con.execute(f"""COPY (SELECT DISTINCT ON (gbifid) * FROM read_parquet('{live_src}')
+                  WHERE hash(gbifid) % {NBUCKETS} = {b})
+                  TO 's3://{B}/{stg}/bucket={b}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 1000000, FILE_SIZE_BYTES 268435456, OVERWRITE_OR_IGNORE true)""")
+              print(f"  bucket {b} written", flush=True)
+          ns=con.execute(f"SELECT COUNT(*) FROM read_parquet('s3://{B}/{stg}/**/*.parquet')").fetchone()[0]
+          ds=con.execute(f"SELECT COUNT(DISTINCT gbifid) FROM read_parquet('s3://{B}/{stg}/**/*.parquet')").fetchone()[0]
+          print(f"  staging rows={ns} distinct_gbifid={ds}", flush=True)
+          assert ns==ds==EXPECT, f"DEDUP MISMATCH: staging {ns}/{ds} vs expected {EXPECT}"
+
+          # 2) swap staging -> live (flatten bucket=*/ into the partition root), drop staging
+          purge(live)
+          for j,k in enumerate(listing(stg)):
+              newk=f"{live}/data_{j}.parquet"
+              s3.copy_object(Bucket=B, Key=newk, CopySource={"Bucket":B,"Key":k})
+          purge(stg)
+          nf=con.execute(f"SELECT COUNT(*) FROM read_parquet('{live_src}')").fetchone()[0]
+          df=con.execute(f"SELECT COUNT(DISTINCT gbifid) FROM read_parquet('{live_src}')").fetchone()[0]
+          print(f"  final live rows={nf} distinct_gbifid={df}", flush=True)
+          assert nf==df==EXPECT, f"POST-SWAP MISMATCH: {nf}/{df} != {EXPECT}"
+          print(f"  OK hex/h0={dst_h0}: {n0} -> {nf} (removed {n0-EXPECT} dup rows)", flush=True)
+          PYEOF
+          echo "=== done 577762574070710271 ==="
