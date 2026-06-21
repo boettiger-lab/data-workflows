@@ -1,0 +1,75 @@
+# GBIF 2026-06 Stage 2: dedup + consolidate each h0 -> 2026-06/hex/h0=<int>/data_0.parquet
+# Run AFTER Stage 1 (gbif-2026-06-hex) completes. completions=122 (one per h0).
+# Scripts from the gbif-2026-06-scripts ConfigMap. 120Gi matches the proven 2025-06 config.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2026-06-consolidate
+  namespace: biodiversity
+  labels:
+    k8s-app: gbif-2026-06-consolidate
+spec:
+  completions: 122
+  parallelism: 30
+  completionMode: Indexed
+  backoffLimitPerIndex: 5
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2026-06-consolidate
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+        - name: consolidate
+          image: ghcr.io/rocker-org/ml-spatial
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+            - name: AWS_S3_ENDPOINT
+              value: "rook-ceph-rgw-nautiluss3.rook"
+            - name: AWS_PUBLIC_ENDPOINT
+              value: "s3-west.nrp-nautilus.io"
+            - name: AWS_HTTPS
+              value: "false"
+            - name: AWS_VIRTUAL_HOSTING
+              value: "FALSE"
+            - name: TMPDIR
+              value: "/tmp"
+            - name: JOB_COMPLETION_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+          resources:
+            requests: {cpu: "4", memory: 120Gi, ephemeral-storage: 40Gi}
+            limits:   {cpu: "4", memory: 120Gi, ephemeral-storage: 50Gi}
+          command:
+            - bash
+            - -lc
+            - |
+              pip install -q 'duckdb==1.5.3' boto3
+              python -u /scripts/consolidate_h0_partitions.py
+      volumes:
+        - name: scripts
+          configMap:
+            name: gbif-2026-06-scripts
