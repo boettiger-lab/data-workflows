@@ -1,0 +1,101 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flood-hazard-simplify
+  labels:
+    k8s-app: flood-hazard-simplify
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 21600
+  template:
+    metadata:
+      labels:
+        k8s-app: flood-hazard-simplify
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: simplify
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '8'
+            memory: 120Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '8'
+            memory: 120Gi
+            ephemeral-storage: 10Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: TMPDIR
+          value: /scratch/tmp
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+          subPath: flood-hazard-harvest
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp
+          ls -la /scratch/flood_hazard.gpkg
+          python3 - <<'PY'
+          import os, duckdb
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial;")
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET memory_limit='110GB'")
+          con.execute("SET threads=8")
+          con.execute("SET preserve_insertion_order=false")
+          con.execute("SET temp_directory='/scratch/tmp'")
+          con.execute("SET max_temp_directory_size='1500GB'")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'")
+          con.execute("SET s3_url_style='path'")
+          con.execute("SET s3_use_ssl=false")
+          con.execute("SET s3_region='us-east-1'")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}'")
+          con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}'")
+
+          # Read the merged county GeoPackage via GDAL (clean GEOMETRY, no geoarrow-CRS
+          # extension), simplify to ~10 m (0.0001 deg) — lossless at H3 res-10 (~65 m cells) —
+          # and round-trip through WKB to strip any CRS tag so the DuckDB 1.5.3 MCP can ST_-query
+          # it (the WKB->DuckDB bridge from AGENTS.md). Output a smaller, queryable GeoParquet.
+          con.execute("""
+            COPY (
+              SELECT * EXCLUDE (geom),
+                     ST_GeomFromWKB(ST_AsWKB(ST_SimplifyPreserveTopology(geom, 0.0001))) AS geom
+              FROM ST_Read('/scratch/flood_hazard.gpkg', layer='flood')
+            ) TO 's3://public-hazard/flood-hazard-simplified.parquet'
+            (FORMAT PARQUET, COMPRESSION ZSTD, COMPRESSION_LEVEL 15, ROW_GROUP_SIZE 100000)
+          """)
+          n = con.execute("SELECT COUNT(*) FROM read_parquet('s3://public-hazard/flood-hazard-simplified.parquet')").fetchone()[0]
+          print(f"=== wrote flood-hazard-simplified.parquet: {n} features ===", flush=True)
+          PY
+          echo "Done."
+      volumes:
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
