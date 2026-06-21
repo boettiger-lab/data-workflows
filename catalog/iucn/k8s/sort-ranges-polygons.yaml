@@ -1,0 +1,144 @@
+# Sort/cluster iucn-ranges-2025.parquet by sci_name for fast per-species reads (#255).
+#
+# The published polygon GeoParquet (135,986 sub-ranges, 6.1 GB) has only 7 huge
+# row groups (~19k rows / ~2 GB each) and is NOT ordered by species, so a
+# `WHERE sci_name='…'` read finds no row-group min/max pruning and scans the whole
+# geometry column (~653 MiB / ~8.4s for a single species).
+#
+# This rewrites it sorted by sci_name with small row groups so the sort actually
+# enables tight per-row-group min/max pruning. Writes to a staging sibling first
+# (validated before the canonical file is swapped). DuckDB-native GeoParquet
+# (the source is already WKB/native, NOT geopandas — verified), so ST_ ops stay safe.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-sort-ranges-polygons
+  namespace: biodiversity
+  labels:
+    k8s-app: iucn-sort-ranges-polygons
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-sort-ranges-polygons
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: sort-polygons
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '8'
+            memory: 64Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '8'
+            memory: 64Gi
+            ephemeral-storage: 50Gi
+        env:
+        - name: SRC
+          value: 's3://public-iucn/iucn-ranges-2025.parquet'
+        - name: DST
+          value: 's3://public-iucn/iucn-ranges-2025-sorted.parquet'
+        - name: SORT_KEY
+          value: 'sci_name'
+        # 2048 = DuckDB's effective floor (parquet row groups are written in
+        # multiples of the vector size, 2048); smaller values are clamped up.
+        # Sorted + 2048-row groups → a single-species read prunes to 1 of 67
+        # row groups (~101 MiB / ~2.2s, vs ~653 MiB / ~8.4s unsorted).
+        - name: ROW_GROUP_SIZE
+          value: '2048'
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          echo "=== Sorting ${SRC} -> ${DST} by ${SORT_KEY} (row_group_size=${ROW_GROUP_SIZE}) ==="
+
+          python3 - <<'PYEOF'
+          import duckdb, os
+          src=os.environ["SRC"]; dst=os.environ["DST"]
+          sort_key=os.environ["SORT_KEY"]; rgs=int(os.environ["ROW_GROUP_SIZE"])
+          key=os.environ["AWS_ACCESS_KEY_ID"]; secret=os.environ["AWS_SECRET_ACCESS_KEY"]
+          endpoint=os.environ.get("AWS_S3_ENDPOINT","rook-ceph-rgw-nautiluss3.rook")
+
+          con=duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial")
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("SET preserve_insertion_order=false")  # let the sort stream/parallelize
+          con.execute("SET memory_limit='50GB'")
+          con.execute("SET temp_directory='/tmp/duckdb-spill'")
+          con.execute(f"""
+              CREATE SECRET s3_secret (
+                  TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                  ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false
+              )
+          """)
+          # spatial reads the WKB geometry column as GEOMETRY; COPY writes it back as
+          # DuckDB-native GeoParquet (WKB + geo metadata). ORDER BY sci_name clusters
+          # species; small row groups make their min/max ranges tight for pruning.
+          con.execute(f"""
+              COPY (
+                  SELECT * FROM read_parquet('{src}')
+                  ORDER BY {sort_key}
+              ) TO '{dst}'
+              (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE {rgs})
+          """)
+          print("COPY complete.")
+          PYEOF
+
+          echo "=== Validating staged sorted file ==="
+          python3 - <<'PYEOF'
+          import duckdb, os
+          src=os.environ["SRC"]; dst=os.environ["DST"]
+          key=os.environ["AWS_ACCESS_KEY_ID"]; secret=os.environ["AWS_SECRET_ACCESS_KEY"]
+          endpoint=os.environ.get("AWS_S3_ENDPOINT","rook-ceph-rgw-nautiluss3.rook")
+          con=duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs")
+          con.execute(f"CREATE SECRET s3_secret (TYPE S3, KEY_ID '{key}', SECRET '{secret}', ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false)")
+          n_src=con.execute(f"SELECT COUNT(*) FROM read_parquet('{src}')").fetchone()[0]
+          n_dst=con.execute(f"SELECT COUNT(*) FROM read_parquet('{dst}')").fetchone()[0]
+          rgs=con.execute(f"SELECT COUNT(DISTINCT row_group_id) FROM parquet_metadata('{dst}')").fetchone()[0]
+          geopd=con.execute(f"SELECT COUNT(*) FROM parquet_kv_metadata('{dst}') WHERE value::VARCHAR ILIKE '%geopandas%'").fetchone()[0]
+          # ST_ op must work on the new file
+          gt=con.execute(f"SELECT ST_GeometryType(geometry) FROM read_parquet('{dst}') WHERE sci_name='Rana draytonii' LIMIT 1").fetchone()
+          print(f"  src_rows={n_src} dst_rows={n_dst} row_groups={rgs} geopandas_hits={geopd} sample_geom={gt}")
+          assert n_src==n_dst, f"ROW COUNT MISMATCH {n_src} != {n_dst}"
+          assert geopd==0, "OUTPUT IS GEOPANDAS-ENCODED — abort"
+          assert gt is not None, "ST_ op returned nothing"
+          print("  VALIDATION PASSED")
+          PYEOF
+          echo "=== Done. Staged at ${DST} (swap into place after MCP validation) ==="
+      volumes: []
