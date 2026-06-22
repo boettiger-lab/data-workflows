@@ -21,20 +21,47 @@ For ANY query/scan/aggregation over S3 parquet — catalog data **and** large in
 - The tool is deferred: `ToolSearch select:mcp__duckdb-geo__query` first. **If ToolSearch returns no match the MCP server is disconnected — ask the user to reconnect it; do NOT fall back to the slow RAM-bound path.**
 - Heavy *writes/transforms* the MCP can't do still run as cluster jobs, but over the **internal** endpoint (`rook-ceph-rgw-nautiluss3.rook`, `AWS_HTTPS=false`), never the laptop.
 
-## ⛔ Serialization standard: the DuckDB-1.5.3 `stoi` crash (diagnosis is NOT settled)
+## ⛔ Serialization standard: DuckDB httpfs `stoi` crash on oversized column chunks
 
-The MCP / `cng-convert` DuckDB build (1.5.3) can abort with **`SQL Error: stoi`** on `ST_` ops over some GeoParquet. The trigger is **not yet pinned**, and earlier confident diagnoses here were **wrong** — do not treat any single discriminator as reliable. What is actually established (tested 2026-06-20, datasets [#106](https://github.com/boettiger-lab/datasets/issues/106)):
+The MCP can abort with **`SQL Error: stoi`** when reading GeoParquet over S3/httpfs. The root cause is a **DuckDB httpfs bug on large Parquet column chunks** — not the CRS tag, writer, or geometry content. Fully diagnosed in datasets [#106](https://github.com/boettiger-lab/datasets/issues/106).
 
-- **`creator: geopandas` is NOT the discriminator.** A `cng-convert`-written (non-geopandas) national file — `s3://public-hazard/flood-hazard.parquet`, 5.6M MultiPolygons / 51.6 GiB, `GEOMETRY('OGC:CRS84')`, no `crs` key — `stoi`-crashes. So a DuckDB-native writer does **not** make a file safe, and the writer is not a dependable signal.
-- **It is plan-dependent, not a bad-geometry / encoding class.** On that file `SELECT ST_GeometryType(geom) FROM read_parquet(...) GROUP BY 1` crashes, but the **same query with any filter node — even `WHERE 1=1`** — returns all rows, and every `_cng_fid` sub-range passes individually (no single geometry crashes). The unfiltered full-table-scan plan is what aborts.
-- **Not minimally reproducible.** Small/synthetic `OGC:CRS84`-tagged files (incl. `cng-convert` output at 22 row groups, and 400k complex polygons at 40 row groups) do **not** crash on full scan — the trigger needs a real large file. Likely an upstream DuckDB 1.5.3 scan-plan issue (cf. [duckdb/duckdb#21691](https://github.com/duckdb/duckdb/issues/21691)), not a cng-datasets serialization class.
+### What triggers it
 
-**`EPSG:4326` vs `OGC:CRS84` is a red herring** (both display as `GEOMETRY('OGC:CRS84')` after a DuckDB transform). geopandas-written files may *also* crash, but that's one trigger among several — not the rule.
+A single Parquet column chunk in the **~2.8–2.88 GB compressed / ~3.73–3.84 GB uncompressed** range causes the httpfs reader to abort with `stoi`. No spatial function needed — `SELECT COUNT(geom)` (which decodes the column) is sufficient to crash; `SELECT COUNT(*)` (footer only, no decode) is fine. **Local file reads always work** — this is exclusively an httpfs path bug.
 
-- **If a catalog file `stoi`-crashes the MCP:** first try **adding a predicate** (`WHERE 1=1`, or read in `_cng_fid` ranges) — it usually works around the crash immediately. Don't conclude the data is bad; every row may be fine.
-- **Producer-side fix (WKB→DuckDB bridge, proven):** re-encode geometry through `ST_GeomFromWKB(ST_AsWKB(geom))` and `COPY TO (FORMAT PARQUET)` over the internal endpoint. This strips the CRS-tagged geoarrow extension and yields a full-scan-queryable file. Works whether the source was geopandas- or `cng-convert`-written (for geopandas, read with geopandas → `g.geometry.to_wkb()` first). **Avoid emitting `--target-crs OGC:CRS84`-tagged geometry from `cng-convert` when you can** (it's the form observed crashing); the bridge or an untagged GEOMETRY is safer. `OGC:CRS84` remains the right CRS *standard* — the issue is the tagged-geometry encoding, not the datum.
-- **Detection is not by writer.** The old `value LIKE '%geopandas%'` probe finds only one trigger and misses cng-convert-written crashers; the reliable check is to actually run the unfiltered `ST_` query and see if it aborts.
-- Don't publish geopandas-written catalog GeoParquet anyway (other compat reasons) — use the cng-datasets DuckDB-native path — but understand that alone does **not** guarantee MCP-queryability.
+```sql
+SELECT COUNT(*)  FROM read_parquet('https://…/repro-100000.parquet');   -- ✅ OK
+SELECT COUNT(geom) FROM read_parquet('https://…/repro-100000.parquet'); -- ❌ stoi
+```
+
+The crash appears "plan-dependent" because queries that skip decoding the geometry column (e.g. filtered reads that never touch the oversized chunk) avoid it. Every individual row is valid; the data is not corrupt.
+
+### What does NOT matter
+
+| Hypothesis | Verdict |
+|---|---|
+| `creator: geopandas` | ❌ cng-convert-written file crashes identically |
+| `OGC:CRS84` vs `EPSG:4326` CRS tag | ❌ re-tagging as `EPSG:4326` still crashes |
+| Plain DuckDB `COPY` re-write | ❌ still crashes |
+| A single pathological geometry | ❌ local read of same file returns all rows |
+
+### Prevention (the real fix)
+
+**Keep row groups small enough that no single geometry column chunk exceeds ~1 GB compressed.** For large-feature geometry (complex multipolygons, national-scale data), the default `--row-group-size 100000` can pack a single chunk well past the 2.8 GB cliff. Use `--row-group-size 2000` as a safe default for geometry-heavy datasets, or estimate `avg(octet_length(ST_AsWKB(geom)))` on a sample and size accordingly. Tracked in cng-datasets [#106](https://github.com/boettiger-lab/datasets/issues/106).
+
+### Mitigation if a published file already crashes
+
+Use `s3://` (internal endpoint, not `https://`) inside cluster jobs — the httpfs path is the public endpoint only. For MCP queries (which always go over https), re-publish the file with smaller row groups via a cluster DuckDB job:
+
+```sql
+COPY (SELECT * FROM read_parquet('s3://bucket/file.parquet'))
+TO 's3://bucket/file-rg2000.parquet'
+(FORMAT PARQUET, ROW_GROUP_SIZE 2000, COMPRESSION ZSTD);
+```
+
+### geopandas-written files
+
+Still avoid publishing geopandas-written GeoParquet — use the cng-datasets DuckDB-native path. But the failure mode is different (geoarrow extension type, any DuckDB version; upstream [duckdb/duckdb#21691](https://github.com/duckdb/duckdb/issues/21691)) and orthogonal to the httpfs chunk-size crash above.
 
 ## ⛔ HARD BOUNDARY 1: NRP S3 is Canonical for STAC and Data
 
