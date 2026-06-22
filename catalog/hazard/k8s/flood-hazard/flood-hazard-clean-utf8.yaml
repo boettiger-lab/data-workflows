@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flood-hazard-clean-utf8
+  labels:
+    k8s-app: flood-hazard-clean-utf8
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 21600
+  template:
+    metadata:
+      labels:
+        k8s-app: flood-hazard-clean-utf8
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: clean
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '4', memory: 64Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '4', memory: 64Gi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: flood-hazard-clean
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch
+          echo "localizing parquet..."
+          rclone copyto nrp:public-hazard/flood-hazard.parquet /scratch/in.parquet -P
+          python3 - <<'PY'
+          import pyarrow as pa, pyarrow.parquet as pq
+          t = pq.read_table('/scratch/in.parquet')
+          meta = t.schema.metadata  # preserve GeoParquet 'geo' kv
+          # FEMA DBFs are byte-width-limited and truncate trailing multibyte chars,
+          # leaving invalid UTF-8 in text fields (e.g. STUDY_TYP "... less than 1\xE2").
+          # DuckDB rejects such strings on read; repair every string column by decoding
+          # the raw bytes with errors='replace' (geometry/numeric columns pass through).
+          fixed = 0
+          for i, field in enumerate(t.schema):
+              if pa.types.is_string(field.type) or pa.types.is_large_string(field.type):
+                  raw = t.column(i).cast(pa.binary())
+                  cleaned = pa.array(
+                      [None if v is None else v.decode('utf-8', 'replace') for v in raw.to_pylist()],
+                      type=field.type)
+                  t = t.set_column(i, field, cleaned)
+                  fixed += 1
+          t = t.replace_schema_metadata(meta)
+          pq.write_table(t, '/scratch/out.parquet', compression='zstd', compression_level=15,
+                         row_group_size=100000)
+          print(f"cleaned {fixed} string columns, {t.num_rows} rows", flush=True)
+          PY
+          echo "uploading cleaned parquet to staging key..."
+          rclone copyto /scratch/out.parquet nrp:public-hazard/flood-hazard-clean.parquet -P
+          echo "Done."
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch

@@ -1,0 +1,207 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flood-hazard-harvest
+  labels:
+    k8s-app: flood-hazard-harvest
+spec:
+  backoffLimit: 4
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 21600
+  template:
+    metadata:
+      labels:
+        k8s-app: flood-hazard-harvest
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      # cluster CoreDNS fails to resolve external hosts (hazards.fema.gov) on some nodes;
+      # append public resolvers as fallback. ClusterFirst still resolves the internal .rook S3 endpoint.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+        options:
+        - name: timeout
+          value: '2'
+        - name: attempts
+          value: '3'
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: harvest
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: 32Gi
+            cpu: '8'
+            ephemeral-storage: 10Gi
+          limits:
+            memory: 32Gi
+            cpu: '8'
+            ephemeral-storage: 10Gi
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-hazard
+        - name: TMPDIR
+          value: /scratch/tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: flood-hazard-harvest
+        command:
+        - bash
+        - -c
+        - |
+          set -uo pipefail
+          mkdir -p /scratch/tmp /scratch/zips /scratch/ex
+          MERGED=/scratch/flood_hazard.gpkg
+          rm -f "$MERGED"
+
+          # FEMA NFHL — national bulk harvest of the canonical effective-FIRM County products.
+          # NOT a REST crawl: one POST to the portal product index returns every county's current
+          # dated filename; each product is a static zip at nfhlv2/output/County/<file> containing
+          # the standard S_FLD_HAZ_AR shapefile (flood-hazard-zone polygons, NAD83). Download all,
+          # extract S_FLD_HAZ_AR.shp, merge -> DuckDB-native GeoParquet (OGC:CRS84).
+          # Mirrors the Census "download per-region zips -> merge shapefiles" pattern.
+          python3 - <<'PY'
+          import os, re, subprocess, sys, time, urllib.parse, urllib.request
+          from concurrent.futures import ThreadPoolExecutor
+
+          INDEX  = "https://hazards.fema.gov/femaportal/NFHL/searchResult.action"
+          COUNTY = "https://hazards.fema.gov/nfhlv2/output/County/"
+          ZIPDIR = "/scratch/zips"
+
+          def http(url, data=None, timeout=180):
+              last = None
+              for attempt in range(8):
+                  try:
+                      req = urllib.request.Request(url, data=data,
+                          headers={"User-Agent": "Mozilla/5.0 (data-workflows NFHL harvest)"})
+                      with urllib.request.urlopen(req, timeout=timeout) as r:
+                          return r.read()
+                  except Exception as e:  # noqa: BLE001
+                      last = e
+                      time.sleep(min(5 * (attempt + 1), 30))
+              raise RuntimeError(f"http failed {url}: {last}")
+
+          # 1) national product index (one POST; returns ALL states regardless of filter)
+          print("fetching national product index ...", flush=True)
+          body = urllib.parse.urlencode({"stateName": "", "stateFips": "",
+                                         "countyName": "", "countyFips": ""}).encode()
+          html = http(INDEX, data=body).decode("latin1")
+          files = sorted(set(re.findall(r"fileName=([^\"&]+\.zip)", html)))
+          print(f"index lists {len(files)} county products", flush=True)
+          if len(files) < 2000:
+              sys.exit(f"product index too small ({len(files)}) -- aborting")
+
+          # 2) download (parallel), reusing any staged raw/county copy
+          def get(fn):
+              dest = os.path.join(ZIPDIR, fn)
+              if os.path.exists(dest) and os.path.getsize(dest) > 0:
+                  return fn, True
+              staged = subprocess.run(["rclone", "lsf", f"nrp:public-hazard/raw/county/{fn}"],
+                                      capture_output=True, text=True).stdout.strip()
+              if staged:
+                  subprocess.run(["rclone", "copyto", f"nrp:public-hazard/raw/county/{fn}", dest], check=False)
+                  if os.path.exists(dest) and os.path.getsize(dest) > 0:
+                      return fn, True
+              try:
+                  data = http(COUNTY + urllib.parse.quote(fn), timeout=300)
+              except Exception as e:  # noqa: BLE001
+                  print(f"  DOWNLOAD FAILED {fn}: {e}", flush=True)
+                  return fn, False
+              with open(dest, "wb") as fh:
+                  fh.write(data)
+              subprocess.run(["rclone", "copyto", dest, f"nrp:public-hazard/raw/county/{fn}"], check=False)
+              return fn, True
+
+          print("downloading county products ...", flush=True)
+          ok = []
+          with ThreadPoolExecutor(max_workers=12) as ex:
+              for i, (fn, good) in enumerate(ex.map(get, files), 1):
+                  if good:
+                      ok.append(fn)
+                  if i % 200 == 0:
+                      print(f"  {i}/{len(files)} fetched", flush=True)
+          print(f"downloaded {len(ok)}/{len(files)}", flush=True)
+
+          # 3) extract S_FLD_HAZ_AR + merge into one gpkg (reproject NAD83 -> OGC:CRS84)
+          merged = "/scratch/flood_hazard.gpkg"
+          FIELDS = ("DFIRM_ID,VERSION_ID,FLD_AR_ID,STUDY_TYP,FLD_ZONE,ZONE_SUBTY,SFHA_TF,"
+                    "STATIC_BFE,V_DATUM,DEPTH,LEN_UNIT,VELOCITY,VEL_UNIT,DUAL_ZONE,SOURCE_CIT")
+          merged_n = 0
+          for i, fn in enumerate(ok, 1):
+              exd = "/scratch/ex/cur"
+              subprocess.run(["rm", "-rf", exd]); os.makedirs(exd, exist_ok=True)
+              rc = subprocess.run(["unzip", "-o", "-q", os.path.join(ZIPDIR, fn),
+                                   "S_FLD_HAZ_AR.*", "-d", exd], capture_output=True, text=True)
+              shp = os.path.join(exd, "S_FLD_HAZ_AR.shp")
+              if not os.path.exists(shp):
+                  print(f"  [{fn}] no S_FLD_HAZ_AR (skip)", flush=True)
+                  continue
+              r = subprocess.run(
+                  ["ogr2ogr", "-f", "GPKG", "-append", "-update", merged, shp,
+                   "-nln", "flood", "-t_srs", "OGC:CRS84",
+                   "-sql", f"SELECT {FIELDS} FROM S_FLD_HAZ_AR"],
+                  capture_output=True, text=True)
+              if r.returncode != 0:
+                  print(f"  [{fn}] ogr2ogr FAILED: {r.stderr[:300]}", flush=True)
+                  continue
+              merged_n += 1
+              if i % 200 == 0:
+                  print(f"  merged {merged_n} counties ({i}/{len(ok)})", flush=True)
+          print(f"=== merged {merged_n} county layers ===", flush=True)
+          PY
+
+          echo "=== merged feature count ==="
+          ogrinfo -so "$MERGED" flood | grep -i 'Feature Count'
+
+          echo "=== convert merged gpkg -> DuckDB-native GeoParquet (OGC:CRS84) ==="
+          cng-convert-to-parquet \
+            "$MERGED" \
+            s3://public-hazard/flood-hazard.parquet \
+            --layer flood \
+            --target-crs OGC:CRS84 \
+            --compression ZSTD \
+            --compression-level 15 \
+            --row-group-size 100000
+
+          echo "Done."
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch

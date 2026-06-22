@@ -1,0 +1,108 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flood-hazard-pmtiles
+  labels:
+    k8s-app: flood-hazard-pmtiles
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: flood-hazard-pmtiles
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: pmtiles-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp
+        - name: BUCKET
+          value: public-hazard
+        - name: DATASET
+          value: flood-hazard
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: flood-hazard-pmtiles
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          mkdir -p /scratch/tmp
+          # tippecanoe opens many temp tile-shard files; raise the fd limit to avoid
+          # "Too many open files" on large national inputs.
+          ulimit -n 1048576 2>/dev/null || ulimit -n 65536 2>/dev/null || true
+          # GeoJSONSeq + PMTiles intermediates go on the rechunk-scratch PVC, not /tmp,
+          # so the 50Gi ephemeral cap is never a barrier for large vector inputs.
+          # GDAL reads the (simplified, queryable) parquet via vsicurl.
+          # Reuse a previously-built GeoJSONSeq on the PVC if present (saves the ~10-min export).
+          if [ ! -s /scratch/$DATASET.geojsonl ]; then
+            ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /scratch/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-hazard/flood-hazard.parquet -progress
+          fi
+
+          # Generate PMTiles from GeoJSONSeq. tippecanoe temp (-t) on the PVC too.
+          # Bounded to max zoom 13 (street-level for the simplified ~10 m display layer; precise
+          # queries use the GeoParquet). --extend-zooms-if-still-dropping is intentionally OMITTED:
+          # on dense national Zone-X tiles it thrashes for hours adding ever-higher zooms.
+          # --coalesce-densest-as-needed + --drop-densest-as-needed bound each zoom's tile size.
+          # TIPPECANOE_MAX_THREADS must be a power of 2 (felt/tippecanoe#216).
+          TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          tippecanoe -o /scratch/$DATASET.pmtiles -l $DATASET -t /scratch/tmp -z13 --coalesce-densest-as-needed --drop-densest-as-needed --force /scratch/$DATASET.geojsonl
+
+          # Upload to S3 using rclone
+          rclone copy /scratch/$DATASET.pmtiles nrp:public-hazard/
+          rm /scratch/$DATASET.geojsonl /scratch/$DATASET.pmtiles
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

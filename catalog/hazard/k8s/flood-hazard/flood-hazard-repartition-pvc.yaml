@@ -1,0 +1,103 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flood-hazard-repartition-pvc
+  labels:
+    k8s-app: flood-hazard-repartition-pvc
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 21600
+  template:
+    metadata:
+      labels:
+        k8s-app: flood-hazard-repartition-pvc
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: repartition
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '8', memory: 64Gi, ephemeral-storage: 10Gi}
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: TMPDIR
+          value: /scratch/tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: flood-hazard-repartition
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp /scratch/out
+          python3 - <<'PY'
+          import os, subprocess, duckdb
+          CHUNKS = "s3://public-hazard/flood-hazard/chunks/*.parquet"
+          SRC    = "s3://public-hazard/flood-hazard.parquet"
+          ATTRS  = ("fid,DFIRM_ID,VERSION_ID,FLD_AR_ID,STUDY_TYP,FLD_ZONE,ZONE_SUBTY,SFHA_TF,"
+                    "STATIC_BFE,V_DATUM,DEPTH,LEN_UNIT,VELOCITY,VEL_UNIT,DUAL_ZONE,SOURCE_CIT")
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET memory_limit='40GB'")
+          con.execute("SET threads=8")
+          con.execute("SET preserve_insertion_order=false")
+          con.execute("SET temp_directory='/scratch/tmp'")   # spill to PVC, not RAM/ephemeral
+          con.execute("SET max_temp_directory_size='1500GB'")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'")
+          con.execute("SET s3_url_style='path'")
+          con.execute("SET s3_use_ssl=false")
+          con.execute("SET s3_region='us-east-1'")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}'")
+          con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}'")
+
+          con.execute(f"CREATE OR REPLACE VIEW src AS SELECT {ATTRS} FROM read_parquet('{SRC}')")
+          h0s = [r[0] for r in con.execute(
+              f"SELECT DISTINCT h0 FROM read_parquet('{CHUNKS}') ORDER BY h0").fetchall()]
+          print(f"{len(h0s)} h0 partitions", flush=True)
+          for h0 in h0s:
+              local = f"/scratch/out/data_0.parquet"
+              con.execute(f"""
+                COPY (
+                  SELECT s.*, c.* EXCLUDE (fid)
+                  FROM read_parquet('{CHUNKS}') c
+                  INNER JOIN src s ON c.fid = s.fid
+                  WHERE c.h0 = {h0}
+                ) TO '{local}' (FORMAT PARQUET, COMPRESSION ZSTD, COMPRESSION_LEVEL 15, ROW_GROUP_SIZE 100000)
+              """)
+              subprocess.run(["rclone", "copyto", local,
+                              f"nrp:public-hazard/flood-hazard/hex/h0={h0}/data_0.parquet",
+                              "--s3-upload-concurrency", "16", "--s3-chunk-size", "64M"], check=True)
+              os.remove(local)
+              print(f"  h0={h0} done", flush=True)
+          print("=== repartition complete ===", flush=True)
+          PY
+          echo "purging chunks/ (intermediate)..."
+          rclone purge nrp:public-hazard/flood-hazard/chunks 2>/dev/null || true
+          echo "Done."
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: scratch
+        persistentVolumeClaim: {claimName: rechunk-scratch}
