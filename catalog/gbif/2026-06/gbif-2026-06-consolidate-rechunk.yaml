@@ -1,0 +1,98 @@
+# GBIF 2026-06 Stage 2 RECHUNK — the dense h0 partitions that OOM'd the standard
+# 120Gi consolidate job (sorted-h0 indices 4,12,15,19,20,21,34,39,68,76,95;
+# the densest done partition is ~134M rows, these are larger).
+#
+# Fix per project guidance: BIG RAM is the primary lever (in-memory dedup+sort is
+# much faster than PVC spill); fewer threads keeps peak memory efficient; the
+# rechunk-scratch PVC is only a spill backstop (per-pod /scratch/<index> subdir).
+# REMAP maps this job's completion index -> the original sorted-h0 index.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2026-06-consolidate-rechunk
+  namespace: biodiversity
+  labels:
+    k8s-app: gbif-2026-06-consolidate-rechunk
+spec:
+  completions: 11
+  parallelism: 3
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 11
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2026-06-consolidate-rechunk
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: consolidate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+        - name: scratch
+          mountPath: /scratch
+        env:
+        - name: REMAP
+          value: "4,12,15,19,20,21,34,39,68,76,95"
+        - name: DUCKDB_MEMORY_LIMIT
+          value: "440GB"
+        - name: DUCKDB_THREADS
+          value: "8"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: JOB_COMPLETION_INDEX
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+        resources:
+          requests: {cpu: "8", memory: 480Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: "8", memory: 480Gi, ephemeral-storage: 50Gi}
+        command:
+        - bash
+        - -lc
+        - |
+          set -e
+          export DUCKDB_TEMP=/scratch/consolidate-$JOB_COMPLETION_INDEX
+          mkdir -p "$DUCKDB_TEMP"
+          rm -rf "$DUCKDB_TEMP"/* || true
+          pip install -q boto3
+          python3 -u /scripts/consolidate_h0_partitions.py
+      volumes:
+      - name: scripts
+        configMap:
+          name: gbif-2026-06-scripts
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
