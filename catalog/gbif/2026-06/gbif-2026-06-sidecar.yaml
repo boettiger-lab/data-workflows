@@ -1,0 +1,79 @@
+# GBIF 2026-06 — per-species (specieskey, species, h0) partition-index sidecar (#281 pattern).
+# Run AFTER Stage 2 (consolidate) completes. Mirrors the IUCN sidecar: a tiny lookup
+# that lets WHERE species=… / specieskey=… prune the h0-partitioned hex via dynamic
+# partition filtering. Build over the internal endpoint.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2026-06-sidecar
+  namespace: biodiversity
+  labels:
+    k8s-app: gbif-2026-06-sidecar
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2026-06-sidecar
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: build-index
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: "8", memory: 48Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: "8", memory: 48Gi, ephemeral-storage: 50Gi}
+        env:
+        - name: SRC_HEX
+          value: 's3://public-gbif/2026-06/hex/h0=*/data_0.parquet'
+        - name: DST_SIDECAR
+          value: 's3://public-gbif/2026-06/species-h0-index.parquet'
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          python3 - <<'PYEOF'
+          import duckdb, os
+          src=os.environ["SRC_HEX"]; dst=os.environ["DST_SIDECAR"]
+          key=os.environ["AWS_ACCESS_KEY_ID"]; secret=os.environ["AWS_SECRET_ACCESS_KEY"]
+          endpoint=os.environ.get("AWS_S3_ENDPOINT","rook-ceph-rgw-nautiluss3.rook")
+          con=duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute(f"CREATE SECRET s3_secret (TYPE S3, KEY_ID '{key}', SECRET '{secret}', ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false)")
+          # distinct (specieskey, species, h0); species can be NULL (genus-level records) -> kept.
+          con.execute(f"""
+              COPY (
+                  SELECT DISTINCT specieskey, species, h0
+                  FROM read_parquet('{src}', hive_partitioning=true)
+                  WHERE specieskey IS NOT NULL
+                  ORDER BY specieskey
+              ) TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD)
+          """)
+          n, sp = con.execute(f"SELECT COUNT(*), COUNT(DISTINCT specieskey) FROM read_parquet('{dst}')").fetchone()
+          print(f"  sidecar rows={n} species={sp}")
+          assert n > 100000, "sidecar suspiciously small"
+          print("  OK")
+          PYEOF
