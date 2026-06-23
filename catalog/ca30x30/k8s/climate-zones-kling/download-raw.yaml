@@ -1,0 +1,78 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ca-climate-zones-download-raw
+  labels:
+    k8s-app: ca-climate-zones-download-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ca-climate-zones-download-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: download-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "Downloading clusters_10.tif from matthewkling/climclust..."
+          curl -fL --retry 5 -o /tmp/clusters_10.tif \
+            "https://raw.githubusercontent.com/matthewkling/climclust/master/hclust/clusters_10.tif"
+          echo "Upload to S3 raw..."
+          rclone copyto /tmp/clusters_10.tif nrp:public-ca30x30/raw/clusters_10.tif -v
+          echo "Pre-flight: gdalinfo"
+          gdalinfo /tmp/clusters_10.tif
+          echo "Done."
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
