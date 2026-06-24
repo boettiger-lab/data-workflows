@@ -122,16 +122,50 @@ def lint(source: str) -> list[str]:
                             "geometry", "geom", "shape", "_cng_fid", "bbox"):
                 continue
 
-            # Skip identifier columns — these are unique keys, not categorical classes,
-            # even though their names often end in "num"/"id" or types are integer.
-            # Discriminator: the description calls it a number/identifier, NOT a code/class.
-            mentions_code = bool(re.search(r"\bcode\b|\bclass\b|categor", desc, re.I))
-            looks_like_identifier = (
-                bool(re.search(r"\b(number|identifier|unique id|object\s*id)\b", desc, re.I))
-                or bool(re.fullmatch(r"(?i).*(_id|objectid|fid|guid|uuid)", col_name))
-            )
-            if looks_like_identifier and not mentions_code:
-                continue
+            # The exclusions below only decide whether to *demand* a values array for a
+            # column that lacks one. A column that already declares `values` is an
+            # explicit opt-in to categorical validation and is never skipped here.
+            if values_arr is None:
+                desc_l = desc.lower()
+
+                # Skip date columns — a date is never a categorical class, even when its
+                # description names the "code" it dates (e.g. "Date the GAP Status Code
+                # was assigned in YYYYMMDD"). Signals: name ends in dt/date, or a date-ish
+                # description.
+                is_date = (
+                    bool(re.fullmatch(r"(?i).*(dt|date)", col_name))
+                    or (bool(re.search(r"\bdate\b", desc_l)) and "yyyy" in desc_l)
+                )
+                if is_date:
+                    continue
+
+                # Skip source/provenance columns — free-text "source document used to
+                # assign the X code" fields, not codes themselves. Signals: name ends in
+                # src/source, or a source-provenance phrase in the description.
+                is_source = (
+                    bool(re.fullmatch(r"(?i).*(src|source)", col_name))
+                    or bool(re.search(r"\bsource (document|used|data)\b|used to assign", desc_l))
+                )
+                if is_source:
+                    continue
+
+                # Skip identifier columns — unique keys / external record codes, not
+                # categorical classes, even though their names often end in "num"/"id"/"cd"
+                # or their types are integer. Discriminator: the description calls it a
+                # number/identifier/site-or-record code, NOT a class/categorical. A strong
+                # identifier phrase ("site code") wins even when the word "code" is present.
+                mentions_class = bool(re.search(r"\bclass\b|categor", desc, re.I))
+                strong_identifier = bool(
+                    re.search(r"\b(site code|record code|unique (id|identifier)|object\s*id)\b", desc_l)
+                )
+                if strong_identifier:
+                    continue
+                looks_like_identifier = (
+                    bool(re.search(r"\b(number|identifier|unique id|object\s*id)\b", desc, re.I))
+                    or bool(re.fullmatch(r"(?i).*(_id|objectid|fid|guid|uuid)", col_name))
+                )
+                if looks_like_identifier and not mentions_class:
+                    continue
 
             # Detect coded categorical columns:
             # - has a "values" array already (opt-in explicit)
