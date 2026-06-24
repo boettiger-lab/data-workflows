@@ -115,6 +115,24 @@ def lint(source: str) -> list[str]:
             desc = col.get("description", "")
             values_arr = col.get("values")
 
+            # Skip pure index/geometry columns up front
+            if col_type in ("uint64", "int64", "geometry") and col_name.startswith("h"):
+                continue
+            if col_name in ("h0", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9", "h10",
+                            "geometry", "geom", "shape", "_cng_fid", "bbox"):
+                continue
+
+            # Skip identifier columns — these are unique keys, not categorical classes,
+            # even though their names often end in "num"/"id" or types are integer.
+            # Discriminator: the description calls it a number/identifier, NOT a code/class.
+            mentions_code = bool(re.search(r"\bcode\b|\bclass\b|categor", desc, re.I))
+            looks_like_identifier = (
+                bool(re.search(r"\b(number|identifier|unique id|object\s*id)\b", desc, re.I))
+                or bool(re.fullmatch(r"(?i).*(_id|objectid|fid|guid|uuid)", col_name))
+            )
+            if looks_like_identifier and not mentions_code:
+                continue
+
             # Detect coded categorical columns:
             # - has a "values" array already (opt-in explicit)
             # - or the description mentions "categorical", "code", or "class code"
@@ -128,16 +146,11 @@ def lint(source: str) -> list[str]:
             if not is_coded:
                 continue
 
-            # Skip pure index/geometry columns
-            if col_type in ("uint64", "int64", "geometry") and col_name.startswith("h"):
-                continue
-            if col_name in ("h0", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9", "h10",
-                            "geometry", "geom", "shape", "_cng_fid", "bbox"):
-                continue
-
-            # Check for inline CODE=Definition list in description
-            # Pattern: one or more "digits=Word" tokens separated by commas
-            has_inline_codes = bool(re.search(r"\d+=\w", desc))
+            # Check for an inline CODE=Definition list in the description.
+            # Accepts numeric codes (1=Lightning) and alphanumeric/string codes
+            # (USF=US Forest Service, OGC:CRS84-style excluded). A single TOKEN=word
+            # pair is a strong signal once the column is already known to be coded.
+            has_inline_codes = bool(re.search(r"[A-Za-z0-9][\w/.-]*\s*=\s*\w", desc))
             if not has_inline_codes:
                 errors.append(
                     f"[{collection_id}] asset '{asset_key}', column '{col_name}': "
@@ -152,9 +165,16 @@ def lint(source: str) -> list[str]:
                     f"coded categorical column missing 'values' array."
                 )
 
-            # Cross-check hex values ⊆ COG classification:classes
-            if values_arr is not None and cog_classes:
-                hex_set = set(int(v) for v in values_arr)
+            # Cross-check hex values ⊆ COG classification:classes.
+            # Only meaningful for numeric codes that line up with raster class values.
+            numeric_vals = None
+            if values_arr is not None:
+                try:
+                    numeric_vals = set(int(v) for v in values_arr)
+                except (ValueError, TypeError):
+                    numeric_vals = None  # string-coded enum (e.g. AGENCY) — no COG to cross-check
+            if numeric_vals is not None and cog_classes:
+                hex_set = numeric_vals
                 for cog_key, cog_map in cog_classes.items():
                     cog_set = set(cog_map.keys())
                     extra = hex_set - cog_set
