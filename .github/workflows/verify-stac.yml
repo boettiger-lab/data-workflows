@@ -1,0 +1,97 @@
+name: Verify STAC
+
+# Enforce the STAC-correctness check suite (AGENTS.md Step 5) on every recipe PR.
+#
+# The gate evaluates the PRODUCED artifact, not the proposal: a recipe's STAC + data
+# are published to NRP S3 by the cluster run, which lands AFTER the PR is opened but
+# BEFORE merge. So this workflow runs against the LIVE S3 STAC.
+#
+#   - On pull_request: derive the affected collection(s) from the s3:// paths in the
+#     changed catalog/** workflow YAMLs and verify each. RED at PR-open (recipe hasn't
+#     run yet → STAC 404s) is correct — do not merge before the recipe has produced
+#     valid output. It goes GREEN once the cluster run publishes a conformant STAC.
+#   - GitHub status checks don't auto-refresh from S3, so RE-RUN this workflow via
+#     workflow_dispatch after the cluster jobs finish. Merge requires it green.
+#
+# The data-backed checks POST SQL to the public duckdb-geo MCP endpoint (no auth), so
+# they are not bound by runner resources or the slow public S3 endpoint.
+
+on:
+  pull_request:
+    paths:
+      - 'catalog/**'
+    # sync/audit jobs aren't dataset recipes; they reference buckets via rclone (nrp:)
+    # not s3://, so they derive no targets anyway — excluded here for clarity/speed.
+    paths-ignore:
+      - 'catalog/sync/**'
+      - 'catalog/audit/**'
+  workflow_dispatch:
+    inputs:
+      collection:
+        description: 'Collection STAC URL to verify (overrides bucket/dataset)'
+        required: false
+        type: string
+      bucket:
+        description: 'Bucket, e.g. public-census (with dataset)'
+        required: false
+        type: string
+      dataset:
+        description: 'Dataset path under the bucket, e.g. census-2024/tract'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-stac-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      # Optional bearer token, only if the MCP endpoint is ever locked down.
+      MCP_AUTH_TOKEN: ${{ secrets.MCP_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need the base ref to diff changed files
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify STAC for affected collection(s)
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "${{ inputs.collection }}" ]; then
+              echo "Manual dispatch: verifying ${{ inputs.collection }}"
+              python3 scripts/verify-stac.py "${{ inputs.collection }}"
+            elif [ -n "${{ inputs.bucket }}" ]; then
+              echo "Manual dispatch: verifying --bucket ${{ inputs.bucket }} --dataset ${{ inputs.dataset }}"
+              python3 scripts/verify-stac.py --bucket "${{ inputs.bucket }}" --dataset "${{ inputs.dataset }}"
+            else
+              echo "Dispatch with no collection/bucket input — verifying catalog/** changed vs origin/${{ github.event.repository.default_branch }}."
+              FILES=$(git diff --name-only "origin/${{ github.event.repository.default_branch }}" HEAD -- catalog/ \
+                | grep -E '\.ya?ml$' | grep -vE '^catalog/(sync|audit)/' || true)
+              [ -z "$FILES" ] && { echo "No changed catalog YAMLs."; exit 0; }
+              echo "$FILES"
+              python3 scripts/verify-stac.py --yaml $FILES
+            fi
+            exit $?
+          fi
+
+          # pull_request: verify collections derived from the changed workflow YAMLs.
+          BASE="origin/${{ github.base_ref }}"
+          FILES=$(git diff --name-only "$BASE" HEAD -- catalog/ \
+            | grep -E '\.ya?ml$' | grep -vE '^catalog/(sync|audit)/' || true)
+          if [ -z "$FILES" ]; then
+            echo "No changed dataset workflow YAMLs under catalog/** — nothing to verify."
+            exit 0
+          fi
+          echo "Changed workflow YAMLs:"
+          echo "$FILES"
+          python3 scripts/verify-stac.py --yaml $FILES

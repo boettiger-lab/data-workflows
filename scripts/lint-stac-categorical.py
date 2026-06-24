@@ -149,6 +149,19 @@ def lint(source: str) -> list[str]:
                 if is_source:
                     continue
 
+                # Skip FIPS / fixed-width geographic identifier codes — GEOID-component
+                # keys (STATEFP/COUNTYFP/TRACTCE/SLDLST/SLDUST…) and FIPS/STCNTY/iso3.
+                # These are identifier components, not enumerable classes (#303). The
+                # discriminator is a "FIPS code" or "<thing> code (N digits)" description
+                # (a fixed-width numeric key) or a known identifier name; genuine small
+                # enums (MTFCC, CLASSFP, FUNCSTAT) carry neither signal and still flag.
+                is_geo_identifier = (
+                    bool(re.search(r"\bfips code\b|\bcode \(\d+\s*digits?\)", desc_l))
+                    or bool(re.fullmatch(r"(?i)(fips|stcnty|iso3|geoid\w*)", col_name))
+                )
+                if is_geo_identifier:
+                    continue
+
                 # Skip identifier columns — unique keys / external record codes, not
                 # categorical classes, even though their names often end in "num"/"id"/"cd"
                 # or their types are integer. Discriminator: the description calls it a

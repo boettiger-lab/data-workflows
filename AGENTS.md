@@ -306,6 +306,34 @@ rclone copyto /tmp/README.md nrp:<bucket>/README.md
 rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.json
 ```
 
+#### ⛔ Verify the STAC — don't hand-check the rules
+
+Every STAC rule below is enforced by **`scripts/verify-stac.py`** (license, nav links,
+asset keys, hex glob, `h3:*` resolutions, `vector:layers`, `table:columns` placement,
+per-feature-dup warnings, categorical completeness + PMTiles fields via the two
+sibling linters, and a **data-backed `values` == ingested `DISTINCT`** check via the
+MCP that automates the #114/#294 lesson). Do not re-verify these by hand or by
+spending agent context on MCP `SELECT DISTINCT` sweeps — run the gate.
+
+```bash
+# 1. PRE-PUBLISH (static, against the /tmp file you just wrote):
+scripts/verify-stac.py --no-data /tmp/stac-collection.json
+#    Fix every HARD finding before rclone copyto. (Data checks need the data live, so
+#    they run post-publish; --no-data skips them here.)
+
+# 2. POST-CLUSTER (full, against the live S3 STAC, once data + STAC are published):
+scripts/verify-stac.py --bucket <bucket> --dataset <dataset>
+#    Must exit 0 (no HARD findings). ADVISORY lines are informational.
+```
+
+CI runs the same verifier on the PR (`.github/workflows/verify-stac.yml`), deriving the
+collection(s) from the `s3://` paths in the changed `catalog/**` YAMLs. **The gate
+evaluates the produced artifact, not the proposal:** the cluster run lands after the PR
+opens, so a RED check at PR-open (STAC not published yet) is correct — don't merge
+before the recipe has actually produced valid output. GitHub status checks don't
+auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (Actions
+→ Verify STAC → *Run workflow*, or it re-runs on the next push). Merge requires it green.
+
 **README.md MUST include:**
 - A MapLibre GL JS example with the correct `source-layer` (= last segment of `--dataset`), documented prominently
 - A DuckDB example with the full public parquet URL
