@@ -6,11 +6,11 @@ metadata:
   labels:
     k8s-app: nlcd-2024-conus-hex
 spec:
-  completions: 3
+  completions: 122
   parallelism: 2
   completionMode: Indexed
-  backoffLimitPerIndex: 1
-  maxFailedIndexes: 3
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 5
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
@@ -54,12 +54,14 @@ spec:
         - -c
         - |-
           set -e
-          CHUNK_MAP=(12 50 71)   # remaining CONUS h0 indices (20 done by the probe)
-          H0=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
-          echo "=== NLCD CONUS res-10 mode, h0-index $H0, 256Gi, Berkeley ==="
+          # Re-hex full CONUS NLCD 2024 from the rebuilt full-extent COG (data-workflows #307).
+          # One indexed pod per H3 res-0 base cell (0..121); ocean/empty cells skip silently.
+          # Domain grows from 4 -> ~30 partitions, all valid, so no stale-partition purge needed.
+          H0=${JOB_COMPLETION_INDEX}
+          echo "=== NLCD CONUS res-10 mode, h0-index $H0 ==="
           cng-datasets raster \
-            --input "s3://public-wyoming/nlcd-2024-cog-4326.tif" \
-            --output-parquet s3://public-land-cover/nlcd-2024/hex-staging/ \
+            --input "s3://public-land-cover/nlcd-2024-cog.tif" \
+            --output-parquet s3://public-land-cover/nlcd-2024/hex/ \
             --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,7,6,5,0 \
             --value-column nlcd --hex-resampling mode --nodata "250"
         resources:
