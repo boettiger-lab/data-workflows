@@ -1,7 +1,14 @@
 # source.coop repos (account: cboettig)
 
-**Scope: 27 repos** (all created in the web UI as of 2026-06-17). Create with **visibility: public**.
+**Scope: 28 repos** (27 created in the web UI as of 2026-06-17; **`facts` pending creation**). Create with **visibility: public**.
 ⚠️ = non-commercial (label NC). See `license-inventory.md` + `README.md`.
+
+## ⏳ To create (in scope, repo not yet created)
+
+- **`facts`** (public-domain) — USFS FACTS Common Attributes (data-workflows #299). Added to
+  `gen-source-sync.sh` scope + the `source-sync` CronJob ConfigMap. **Create `cboettig/facts`
+  (visibility: public) in the source.coop web UI**; the weekly `source-sync` CronJob then mirrors it.
+  Until created, the cron's `facts` step fails harmlessly (continue-on-error).
 
 > Note: `public-wyoming` is intentionally NOT mirrored — a Wyoming-clipped collection whose datasets now live in full-extent buckets; kept on NRP, migration tracked in #225.
 

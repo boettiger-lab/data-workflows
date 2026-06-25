@@ -1,0 +1,121 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: common-attributes-2026-06-schema-check
+  namespace: biodiversity
+  labels:
+    k8s-app: common-attributes-2026-06-schema-check
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: common-attributes-2026-06-schema-check
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: schema-check
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+            ephemeral-storage: "45Gi"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+            ephemeral-storage: "50Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-facts"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          REGIONS="01 02 03 04 05 06 08 09 10"
+          mkdir -p /tmp/out
+          : > /tmp/out/summary.tsv
+
+          for r in $REGIONS; do
+            echo "=== Region ${r}: fetch + inspect ==="
+            rclone copyto "nrp:${BUCKET}/raw/Actv_CommonAttribute_PL_Region${r}.zip" "/tmp/R${r}.zip"
+            mkdir -p "/tmp/x${r}"
+            unzip -q -o "/tmp/R${r}.zip" -d "/tmp/x${r}"
+            G=$(find "/tmp/x${r}" -iname '*.gpkg' | head -1)
+            L=$(ogrinfo -q "$G" | head -1 | sed -E 's/^[0-9]+: ([^ ]+).*/\1/')
+            echo "R${r}: layer=${L}"
+            ogrinfo -so "$G" "$L" > "/tmp/out/info_${r}.txt"
+            # normalized field list: "NAME: Type" (strip width/precision), sorted
+            grep -E ': (String|Integer|Integer64|Real|Date|DateTime|Time|Binary)' "/tmp/out/info_${r}.txt" \
+              | sed -E 's/ \([0-9.]+\)//' | sed -E 's/^ +//' | sort > "/tmp/out/schema_${r}.txt"
+            FC=$(grep -i 'Feature Count' "/tmp/out/info_${r}.txt" | sed -E 's/[^0-9]//g')
+            echo "R${r}: feature count = ${FC}"
+            echo "R${r}: ADMIN_REGION distribution ->"
+            ogrinfo -q -sql "SELECT ADMIN_REGION, COUNT(*) AS n FROM \"${L}\" GROUP BY ADMIN_REGION ORDER BY n DESC" "$G" \
+              | grep -iE 'ADMIN_REGION|^\s*[0-9]' | sed "s/^/    R${r}  /" || true
+            NREG=$(ogrinfo -q -sql "SELECT COUNT(DISTINCT ADMIN_REGION) AS d FROM \"${L}\"" "$G" | grep -iE 'd \(' | sed -E 's/[^0-9]//g' || echo "?")
+            printf "R%s\t%s\t%s\n" "$r" "${FC:-?}" "${NREG:-?}" >> /tmp/out/summary.tsv
+            rm -rf "/tmp/x${r}" "/tmp/R${r}.zip"
+          done
+
+          echo
+          echo "########## SCHEMA CONSISTENCY (vs R01) ##########"
+          for r in 02 03 04 05 06 08 09 10; do
+            if diff -q /tmp/out/schema_01.txt "/tmp/out/schema_${r}.txt" >/dev/null; then
+              echo "R${r}: IDENTICAL to R01 ($(wc -l < /tmp/out/schema_${r}.txt) fields)"
+            else
+              echo "R${r}: DIFFERS from R01 ----------------------"
+              diff <(sed 's/^/R01 /' /tmp/out/schema_01.txt) <(sed "s/^/R${r} /" "/tmp/out/schema_${r}.txt") || true
+            fi
+          done
+
+          echo
+          echo "########## FULL FIELD SCHEMA (R01): $(wc -l < /tmp/out/schema_01.txt) fields ##########"
+          cat /tmp/out/schema_01.txt
+          echo
+          echo "########## GEOMETRY / FID INFO (R01) ##########"
+          grep -iE 'Geometry|FID Column|Geometry Column|Feature Count|Extent' /tmp/out/info_01.txt | head -20
+
+          echo
+          echo "########## PER-REGION SUMMARY (region / feature_count / distinct_ADMIN_REGION) ##########"
+          cat /tmp/out/summary.tsv
+          echo "---- national total features ----"
+          awk -F'\t' '{s+=$2} END{printf "TOTAL = %d\n", s}' /tmp/out/summary.tsv
+          echo "=== DONE ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

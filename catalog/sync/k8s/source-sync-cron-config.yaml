@@ -19,6 +19,7 @@ data:
     cpad sync 
     ecoregion sync 
     epa-water sync 
+    facts sync 
     fire sync 
     gbif sync 
     gfw sync 

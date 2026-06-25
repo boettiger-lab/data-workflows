@@ -1,0 +1,115 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: common-attributes-2026-06-stage-raw
+  namespace: biodiversity
+  labels:
+    k8s-app: common-attributes-2026-06-stage-raw
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: common-attributes-2026-06-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "8"
+            ephemeral-storage: "45Gi"
+          limits:
+            memory: "8Gi"
+            cpu: "8"
+            ephemeral-storage: "50Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-facts"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          echo "=== 1. Set up public-facts bucket (public access + CORS) ==="
+          cng-datasets storage setup-bucket --bucket "${BUCKET}" --remote nrp --verify
+
+          REGIONS="01 02 03 04 05 06 08 09 10"
+          BASE="https://data.fs.usda.gov/geodata/edw/edw_resources/gpkg"
+          mkdir -p /tmp/dl
+          cd /tmp/dl
+
+          echo "=== 2. Download 9 region GeoPackage zips (parallel) ==="
+          for r in $REGIONS; do
+            ( curl -fsSL --retry 5 --retry-delay 5 -o "Region${r}.zip" \
+                "${BASE}/Actv_CommonAttribute_PL_Region${r}.zip" \
+              && echo "downloaded R${r} ($(du -h Region${r}.zip | cut -f1))" ) &
+          done
+          wait
+          echo "--- downloaded files ---"; ls -lh /tmp/dl
+
+          echo "=== 3. Mirror raw zips to s3://${BUCKET}/raw/ (restartable source) ==="
+          for r in $REGIONS; do
+            rclone copyto "/tmp/dl/Region${r}.zip" \
+              "nrp:${BUCKET}/raw/Actv_CommonAttribute_PL_Region${r}.zip" \
+              --s3-no-check-bucket
+          done
+          echo "--- raw listing ---"; rclone ls "nrp:${BUCKET}/raw/"
+
+          echo "=== 4. Inspect schema of smallest region (R10) ==="
+          mkdir -p /tmp/r10 && cd /tmp/r10
+          unzip -q -o /tmp/dl/Region10.zip
+          GPKG=$(find /tmp/r10 -iname '*.gpkg' | head -1)
+          echo "GPKG file: ${GPKG}"
+          echo "--- layers ---"; ogrinfo -q "${GPKG}"
+          echo "--- full field schema (summary) ---"
+          LAYER=$(ogrinfo -q "${GPKG}" | head -1 | sed -E 's/^[0-9]+: ([^ ]+).*/\1/')
+          echo "detected layer: ${LAYER}"
+          ogrinfo -so "${GPKG}" "${LAYER}"
+          echo "--- feature count R10 ---"
+          ogrinfo -q -summary "${GPKG}" "${LAYER}" | grep -i 'Feature Count' || true
+
+          echo "=== DONE ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

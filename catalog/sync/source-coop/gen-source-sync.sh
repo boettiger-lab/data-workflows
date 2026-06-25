@@ -46,7 +46,7 @@ DEST_BUCKET="us-west-2.opendata.source.coop"
 # Catalogued, license-clear repos (== NRP public-<repo>).
 REPOS=(
   ca-dac calenviroscreen carbon census cgs cpad ecoregion epa-water
-  fire gbif gfw high-seas inat indigenous land-cover mappinginequality mobi ncp
+  facts fire gbif gfw high-seas inat indigenous land-cover mappinginequality mobi ncp
   overturemaps padus population rap rivers social-vulnerability trails usfws
   wetlands
 )

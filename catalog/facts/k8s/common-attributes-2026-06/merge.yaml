@@ -1,0 +1,120 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: common-attributes-2026-06-merge
+  namespace: biodiversity
+  labels:
+    k8s-app: common-attributes-2026-06-merge
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: common-attributes-2026-06-merge
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: merge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "64Gi"
+            cpu: "16"
+            ephemeral-storage: "20Gi"
+          limits:
+            memory: "64Gi"
+            cpu: "16"
+            ephemeral-storage: "30Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-facts"
+        - name: TMPDIR
+          value: "/scratch/tmp"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: common-attributes-2026-06-merge
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          REGIONS="01 02 03 04 05 06 08 09 10"
+          mkdir -p /scratch/zips /scratch/gpkg /scratch/tmp
+          rm -rf /scratch/gpkg/* /scratch/zips/* /scratch/tmp/* || true
+
+          echo "=== 1. Fetch 9 raw zips from s3://${BUCKET}/raw/ to PVC ==="
+          for r in $REGIONS; do
+            rclone copyto "nrp:${BUCKET}/raw/Actv_CommonAttribute_PL_Region${r}.zip" \
+              "/scratch/zips/Region${r}.zip"
+            echo "fetched R${r}"
+          done
+
+          echo "=== 2. Unzip all 9 ==="
+          for r in $REGIONS; do
+            unzip -q -o "/scratch/zips/Region${r}.zip" -d /scratch/gpkg
+          done
+          rm -rf /scratch/zips
+          mapfile -t GPKGS < <(find /scratch/gpkg -iname '*.gpkg' | sort)
+          echo "found ${#GPKGS[@]} GeoPackages:"
+          printf '  %s\n' "${GPKGS[@]}"
+          if [ "${#GPKGS[@]}" -ne 9 ]; then
+            echo "ERROR: expected 9 GeoPackages, found ${#GPKGS[@]}" >&2
+            exit 1
+          fi
+
+          echo "=== 3. Convert + merge -> national GeoParquet (UNION ALL, reproject to EPSG:4326) ==="
+          # row-group-size 2000: geometry-heavy national data; stays under the DuckDB httpfs stoi cliff.
+          # All 9 share layer 'Actv_CommonAttribute_PL'; ADMIN_REGION carries the region (01..10).
+          cng-convert-to-parquet "${GPKGS[@]}" \
+            "s3://${BUCKET}/common-attributes-2026-06.parquet" \
+            --layer Actv_CommonAttribute_PL \
+            --target-crs EPSG:4326 \
+            --compression ZSTD \
+            --compression-level 15 \
+            --row-group-size 2000 \
+            --verbose
+
+          echo "=== 4. Verify output exists ==="
+          rclone ls "nrp:${BUCKET}/" | grep 'common-attributes-2026-06.parquet'
+
+          rm -rf /scratch/gpkg /scratch/tmp || true
+          echo "=== DONE ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
