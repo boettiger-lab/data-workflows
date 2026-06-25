@@ -60,6 +60,17 @@ SKIP_COL = re.compile(
     r"^(_cng_fid|ogc_fid|fid|bbox|geometry|geom|shape|h\d+)$", re.I)
 NUMERIC = re.compile(r"int|double|float|decimal|real|hugeint|numeric", re.I)
 
+# cng-datasets assigns `_cng_fid` (and the older `_fid`) as a synthetic id that is
+# monotonically increasing — ONE PER INPUT ROW, never derived from a source id.
+# It is the canonical key for the feature→H3-cell expansion (one polygon → many
+# cells), so COUNT(DISTINCT _cng_fid) collapses hexing. It is NOT a logical-entity
+# key: if the *source file* already holds several rows per logical entity (a Ramsar
+# site split into parcels; a ballot measure spanning counties), `_cng_fid` is still
+# unique per row and CANNOT reveal that upstream duplication. Only an upstream
+# domain id (ramsarid, landvote_id, WDPA SITE_ID) can. Auditing on a per-row id
+# therefore always looks "clean" — a false all-clear.
+PER_ROW_ID = re.compile(r"^(_cng_fid|_fid|ogc_fid|fid)$", re.I)
+
 
 def q(name: str) -> str:
     """Double-quote a SQL identifier, escaping embedded quotes (e.g. 'Area (ha)')."""
@@ -131,6 +142,14 @@ def main() -> int:
     key = q(args.key)
     print(f"# Feature-dup audit\n  parquet: {s3}\n  key:     {args.key}\n")
 
+    if PER_ROW_ID.match(args.key):
+        print(f"  ⚠ '{args.key}' is a cng-datasets per-row synthetic id (one per INPUT\n"
+              f"    ROW, not per logical entity). It is the right key for the feature→H3-cell\n"
+              f"    (hex) axis, but it is unique per row, so this audit can only ever report\n"
+              f"    CLEAN — it CANNOT reveal upstream duplication (one entity in many source\n"
+              f"    rows). Re-run with --key <upstream domain id> (e.g. ramsarid, landvote_id,\n"
+              f"    SITE_ID) to check that axis.\n")
+
     # 1) Is there duplication at all?
     base = mcp.query(
         f"SELECT COUNT(*) AS rows, COUNT(DISTINCT {key}) AS distinct_key, "
@@ -145,8 +164,15 @@ def main() -> int:
         print(f"  ⚠ {blank_key:,} rows have a blank/NULL key — a blank key collapses to one\n"
               f"    group and FAKES duplication. Confirm '{args.key}' is really the feature id.")
     if extra <= 0:
-        print(f"\n✅ CLEAN: one row per {args.key}. COUNT(*) is the feature count; "
-              f"SUM over any column is safe.")
+        print(f"\n✅ CLEAN relative to {args.key}: one row per {args.key}. COUNT(*) is the "
+              f"feature count and SUM over any column is safe —")
+        if PER_ROW_ID.match(args.key):
+            print(f"  but remember {args.key} is unique per row by construction, so this only\n"
+                  f"  rules out duplication *relative to that key*. To rule out UPSTREAM logical\n"
+                  f"  duplication, re-run with the upstream domain id as --key.")
+        else:
+            print(f"  for this key. (A per-row synthetic id like _cng_fid would also look clean;\n"
+                  f"  upstream duplication only shows up under the upstream domain id.)")
         return 0
     print(f"\n  {args.key} repeats across rows ({rows/max(distinct_key,1):.2f}x). "
           f"Classifying each column by whether its value VARIES within {args.key}:\n")

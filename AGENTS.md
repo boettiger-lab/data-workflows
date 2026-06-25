@@ -403,7 +403,13 @@ auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (
   - **REPEATED** — the per-feature value is *copied* onto every row (e.g. a measure's total funds repeated on each county row). A raw `SUM` double-counts → **dedup by the key first** (`SELECT DISTINCT key, col …` or `GROUP BY key`), and `COUNT(DISTINCT key)` is the feature count.
   - **VARIES** — genuinely distinct per-row records that share a key (e.g. one conservation site funded by several *sponsors*, each a *different amount*). Here `SUM` is **correct** and dedup would **undercount** by dropping real rows. A repeated polygon + repeated attributes is NOT proof of duplication — a sponsor split looks identical except the varying amount.
 
-  **The decisive test is data-backed: does the value VARY within the key?** Do NOT guess the key from a column name — a 34%-blank source id (PAD-US `Source_PAID`) or a class label that covers thousands of parcels (Landmark `name`) fakes duplication. Run the auditor (it uses the duckdb-geo MCP, not local duckdb):
+  **Two duplication axes — and `_cng_fid` only fixes one of them.** cng-datasets always assigns `_cng_fid` as a synthetic id that is *one per input row* (never derived from a source id). So:
+  - **Axis 1 — feature → H3 cell** (hexing makes one polygon span many cells). Dedup key = `_cng_fid` (or `h<N>`). `COUNT(DISTINCT _cng_fid)` collapses the cell expansion. This is the standard hex guidance below.
+  - **Axis 2 — upstream source rows** (the *input file* already holds several rows per logical entity). Dedup key = an **upstream domain id** (`ramsarid`, `landvote_id`, WDPA `SITE_ID`). `_cng_fid` is unique per row, so it does NOT collapse this — `COUNT(DISTINCT _cng_fid)` still counts rows/polygons, not entities.
+
+  For most datasets each input row *is* one logical feature, so the two keys coincide and only axis 1 exists — that is why the standard guidance leans on `_cng_fid`. Axis 2 only appears in files with upstream duplication (ramsar, landvote); there the domain id is the dedup key, and **the hex asset must also carry that domain id** or it cannot be deduped to entities (e.g. landvote's hex carries only `_cng_fid`, so it can't be reduced to distinct measures — a gap). Auditing on a per-row id always reports "clean", masking axis 2.
+
+  **The decisive test is data-backed: does the value VARY within the key?** Do NOT guess the key from a column name — a 34%-blank source id (PAD-US `Source_PAID`) or a class label that covers thousands of parcels (Landmark `name`) fakes duplication, and a per-row id (`_cng_fid`) hides it. Run the auditor with the *upstream domain id* as `--key` (it uses the duckdb-geo MCP, not local duckdb):
   ```bash
   scripts/audit-feature-dup.py <parquet-url|stac-url --asset KEY> --key <feature-id-col>
   ```
