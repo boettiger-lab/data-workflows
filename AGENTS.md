@@ -467,6 +467,11 @@ auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (
   }
   ```
 
+- **Per-feature row duplication / NULL finest-parent cells / no-data sentinels (data-workflows #309, gated by #311).** Three aggregation traps the geo-agent accuracy sweep surfaced — document each on the relevant asset:
+  - **Repeated features (polygon/point assets).** If the source file has multiple rows per feature (a site split into parcels, multipart polygons), the asset description MUST say so, name the feature id, and give a dedup recipe (`COUNT(DISTINCT <id>)` for counts; dedup by `<id>` before summing per-feature values). e.g. Ramsar: 8,347 rows / 2,551 `ramsarid`. `verify-stac.py` surfaces candidates as **ADVISORY** — the `rows > COUNT(DISTINCT id)` signal over-flags (the column may be a label or provenance key, not the feature id), so confirm against the data before writing the note (see [[per-feature-dup-audit-heuristic]]).
+  - **NULL finest-parent cells.** If the hex build caps very large features at a coarser native resolution (WDPA: `h9` is NULL for the 1,297 biggest features, `h8` is complete), the hex asset description MUST name the complete column and say joins should use the coarsest shared resolution (or `h3_cell_to_parent()`), not the finest. `verify-stac.py` **HARD**-flags an undocumented NULL finest hex column.
+  - **No-data sentinels.** Document sentinel/fill codes (e.g. land-cover `0`/`200`) so consumers `WHERE col NOT IN (...)` before `SUM`/`AVG` — an undocumented sentinel poisons aggregates to `NaN`.
+
 - **Point datasets:** `description` or `"processing:notes"` MUST state each point resolved to one H3 cell at the processing resolution, and name the resolution. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 
 ### Step 6: Register in the parent sub-catalog

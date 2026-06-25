@@ -27,13 +27,17 @@ Static checks (no data; just the STAC JSON):
   - categorical column completeness (values + inline CODE=Name)  [reuses lint-stac-categorical]
   - PMTiles tile-accurate table:columns                          [reuses lint-stac-pmtiles-fields]
 
-Data-backed check (delegated to the duckdb-geo MCP server, --no-data to skip):
+Data-backed checks (delegated to the duckdb-geo MCP server, --no-data to skip):
   - every coded column's `values` array == the ingested DISTINCT set (automates the
     #114/#294 lesson; column-projected, never decodes the geometry chunk)
+  - HARD: hex asset with an undocumented NULL finest-parent column (a coarser column
+    is fully populated) — joining on it silently drops the largest features (#309 §2)
+  - ADVISORY: polygon/point asset where a candidate feature-id column has rows ≫
+    DISTINCT — possible per-feature row duplication (#309 §1; FP-prone, so advisory)
 
-Advisory recall pass (never blocks):
-  - candidate string-categorical columns with a low DISTINCT count and no `values`
-    array — catches the recall gap that missed PAD-US IUCN_Cat / Pub_Access
+Advisory passes (never block):
+  - recall: candidate string-categorical columns with a low DISTINCT count and no
+    `values` array — catches the recall gap that missed PAD-US IUCN_Cat / Pub_Access
 
 Usage:
     scripts/verify-stac.py <collection-url-or-path> [...]
@@ -716,6 +720,125 @@ def recall_pass(doc: dict, mcp: MCPClient) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
+# #309 §2 — NULL finest-parent-cell on very large features (HARD, clean signal)
+# ---------------------------------------------------------------------------
+
+_HEX_RE = re.compile(r"^h(\d{1,2})$")
+_NULL_JOIN_NOTE = re.compile(
+    r"null.{0,40}(parent|finest|coarse|join)|join.{0,40}(coarse|parent|null)|"
+    r"h3_cell_to_parent|largest features.{0,40}null", re.I)
+
+
+def check_null_hex_index(doc: dict, mcp: MCPClient) -> list[Finding]:
+    """A hex column with NULLs where a coarser column is fully populated means joining
+    at that resolution silently drops the very large features that have no finer cell
+    (WDPA: ~38% of rows have NULL h9 while h8/h0 are complete). HARD unless the asset
+    or collection description documents the NULL-parent / join-at-coarsest caveat."""
+    out = []
+    coll_desc = doc.get("description", "") or ""
+    for key, asset in doc.get("assets", {}).items():
+        if not (is_parquet(asset) and is_hex_asset(key, asset)):
+            continue
+        s3 = _to_s3(asset.get("href", ""))
+        if not s3:
+            continue
+        hcols = sorted((c.get("name") for c in asset.get("table:columns", [])
+                        if _HEX_RE.match(c.get("name", ""))),
+                       key=lambda n: int(_HEX_RE.match(n).group(1)))
+        if len(hcols) < 2:
+            continue
+        sel = ", ".join(f'COUNT("{h}") AS {h}' for h in hcols)
+        try:
+            rows = mcp.query(f"SELECT COUNT(*) AS total, {sel} FROM read_parquet('{s3}')")
+            r = rows[0]
+            total = int(r["total"])
+            nn = {h: int(r[h]) for h in hcols}
+        except (MCPError, ValueError, KeyError, IndexError) as e:
+            out.append(Finding(ADVISORY, "null-hex-check-failed",
+                               f"asset '{key}': could not check hex-index NULLs ({e})."))
+            continue
+        if not total:
+            continue
+        # finest = highest resolution; flag if it has NULLs a coarser col doesn't
+        finest = hcols[-1]
+        coarsest_full = next((h for h in hcols if nn[h] == total), None)
+        if nn[finest] < total and coarsest_full and coarsest_full != finest:
+            desc = (asset.get("description", "") or "") + " " + coll_desc
+            if not _NULL_JOIN_NOTE.search(desc):
+                pct = 100.0 * (total - nn[finest]) / total
+                out.append(Finding(HARD, "hex-null-parent-undocumented",
+                    f"asset '{key}': column '{finest}' is NULL for {pct:.0f}% of rows "
+                    f"while '{coarsest_full}' is fully populated — joining on '{finest}' "
+                    f"silently drops the largest features. Document in the description: "
+                    f"join at the coarsest shared resolution (or via h3_cell_to_parent), "
+                    f"not '{finest}'."))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# #309 §1 — per-feature row duplication on polygon assets (ADVISORY, FP-prone)
+# ---------------------------------------------------------------------------
+
+# A column that *should* be one-row-per-feature. Row-unique keys (_cng_fid, OGC_FID)
+# are excluded — they never repeat, so they carry no duplication signal.
+_FEATURE_ID_RE = re.compile(r"(?i).+(id|gid|uid)$")
+_ROWUNIQUE = {"_cng_fid", "ogc_fid", "objectid", "fid", "gid", "uid"}
+# Not feature ids — provenance/source/metadata keys that repeat by design (e.g. WDPA
+# METADATAID = the source dataset, 314 distinct over 307k rows). Excluded to cut the FP.
+_NOT_FEATURE_ID = re.compile(r"(?i)(metadata|source|src|provider|dataset|batch|import)")
+_DEDUP_NOTE = re.compile(r"distinct|dedup|one row per|multiple rows|repeat", re.I)
+
+
+def check_polygon_row_dup(doc: dict, mcp: MCPClient) -> list[Finding]:
+    """Surface non-hex (polygon/point) assets where a candidate feature-id column has
+    many fewer DISTINCT values than rows — i.e. the file may repeat features (ramsar:
+    8,347 rows / 2,551 ramsarid). ADVISORY only: the naive rows>distinct signal
+    over-flags (#309 found 4 of 5 were false positives — the column was a label not a
+    key, had a high NULL fraction, or the dup rows were genuinely distinct multiparts),
+    so this names the candidate + the discriminators to check rather than asserting a
+    defect. Skipped when the description already documents a dedup recipe."""
+    out = []
+    for key, asset in doc.get("assets", {}).items():
+        if not is_parquet(asset) or is_hex_asset(key, asset):
+            continue
+        s3 = _to_s3(asset.get("href", ""))
+        if not s3:
+            continue
+        if _DEDUP_NOTE.search(asset.get("description", "") or ""):
+            continue
+        cands = [c.get("name") for c in asset.get("table:columns", [])
+                 if c.get("name") and _FEATURE_ID_RE.match(c["name"])
+                 and c["name"].lower() not in _ROWUNIQUE and not _is_geom_col(c["name"])
+                 and not _NOT_FEATURE_ID.search(c["name"])]
+        if not cands:
+            continue
+        sel = ", ".join(f'COUNT(DISTINCT "{c}") AS d_{i}, COUNT("{c}") AS n_{i}'
+                        for i, c in enumerate(cands))
+        try:
+            rows = mcp.query(f"SELECT COUNT(*) AS total, {sel} FROM read_parquet('{s3}')")
+            r = rows[0]
+            total = int(r["total"])
+        except (MCPError, ValueError, KeyError, IndexError):
+            continue
+        if total < 2:
+            continue
+        for i, c in enumerate(cands):
+            try:
+                distinct = int(r[f"d_{i}"]); nonnull = int(r[f"n_{i}"])
+            except (ValueError, KeyError):
+                continue
+            # need a meaningful repeat AND mostly-populated to be worth surfacing
+            if distinct and nonnull >= 0.5 * total and total >= 1.2 * distinct:
+                out.append(Finding(ADVISORY, "polygon-row-dup-candidate",
+                    f"asset '{key}': COUNT(*)={total:,} but COUNT(DISTINCT \"{c}\")="
+                    f"{distinct:,} (null frac {1 - nonnull/total:.0%}). If '{c}' is the "
+                    f"feature id, the file repeats features — verify before documenting "
+                    f"(is it a key vs a label? are the duplicate rows identical?), then "
+                    f"add a dedup note naming '{c}'. FP-prone — confirm against data."))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -748,6 +871,8 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
         if client is not None:
             if do_data:
                 findings.extend(check_values_match_distinct(doc, client))
+                findings.extend(check_null_hex_index(doc, client))      # #309 §2 (hard)
+                findings.extend(check_polygon_row_dup(doc, client))     # #309 §1 (advisory)
             if do_recall:
                 findings.extend(recall_pass(doc, client))
 
