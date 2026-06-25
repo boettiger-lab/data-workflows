@@ -399,6 +399,16 @@ auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (
 
 - **Hex assets MUST declare their H3 resolutions explicitly** via `h3:native_resolution` and `h3:parent_resolutions` on the asset itself. Column-name presence (`h10`, `h9`, …) is not enough — downstream tools shouldn't have to enumerate `table:columns` to find out what resolutions exist. `h3:native_resolution` is the finest resolution (one row per feature-cell at this res); `h3:parent_resolutions` is the list of rollup resolutions, which MUST include `0` (the partition key).
 
+- **Vector (GeoParquet/PMTiles) assets MUST flag per-feature ROW duplication — and you MUST first decide whether it is *true* duplication or *real* multi-row data.** A source file often stores one logical feature as several rows sharing a feature id (a Ramsar site split into polygon parcels; a ballot measure spanning multiple counties). Two opposite causes demand opposite rules, and confusing them silently corrupts answers (data-workflows #309):
+  - **REPEATED** — the per-feature value is *copied* onto every row (e.g. a measure's total funds repeated on each county row). A raw `SUM` double-counts → **dedup by the key first** (`SELECT DISTINCT key, col …` or `GROUP BY key`), and `COUNT(DISTINCT key)` is the feature count.
+  - **VARIES** — genuinely distinct per-row records that share a key (e.g. one conservation site funded by several *sponsors*, each a *different amount*). Here `SUM` is **correct** and dedup would **undercount** by dropping real rows. A repeated polygon + repeated attributes is NOT proof of duplication — a sponsor split looks identical except the varying amount.
+
+  **The decisive test is data-backed: does the value VARY within the key?** Do NOT guess the key from a column name — a 34%-blank source id (PAD-US `Source_PAID`) or a class label that covers thousands of parcels (Landmark `name`) fakes duplication. Run the auditor (it uses the duckdb-geo MCP, not local duckdb):
+  ```bash
+  scripts/audit-feature-dup.py <parquet-url|stac-url --asset KEY> --key <feature-id-col>
+  ```
+  It reports rows vs `COUNT(DISTINCT key)`, warns on blank keys, classifies each column REPEATED vs VARIES, and quantifies raw-vs-deduped `SUM` inflation. Then document the verdict in the asset's `table:columns`: name the key, mark REPEATED columns "dedup before SUM", and (if any) note VARIES columns are safe to SUM. A clean one-row-per-feature file needs no note.
+
 - **Hex assets MUST flag per-feature duplication on any attribute a consumer might aggregate.** One hex row = one (feature, cell) pair, so any column that represents a per-feature total — area (`GIS_Acres`, `SHAPE_Area`), length (`SHAPE_Length`), population, count, amount, funding, intensity — is repeated on every cell the feature covers. The column description on the hex asset MUST state this and give a dedup recipe. Use one of:
   - **Area/length from hex count** (never SUM the source value): `COUNT(DISTINCT h<N>) × cell_area_at_resolution_N`. Per-resolution H3 cell areas are H3-standard constants — do not inline them in column descriptions. The agent reads them from `mcp-data-server/h3-guide.md`.
   - **SUM after dedup** (when the attribute is a real per-feature value): `SELECT DISTINCT <feature_key>, <attr> …` or `ROW_NUMBER() OVER (PARTITION BY <feature_key>)` before aggregating.
