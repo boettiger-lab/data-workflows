@@ -831,10 +831,11 @@ def check_polygon_row_dup(doc: dict, mcp: MCPClient) -> list[Finding]:
             if distinct and nonnull >= 0.5 * total and total >= 1.2 * distinct:
                 out.append(Finding(ADVISORY, "polygon-row-dup-candidate",
                     f"asset '{key}': COUNT(*)={total:,} but COUNT(DISTINCT \"{c}\")="
-                    f"{distinct:,} (null frac {1 - nonnull/total:.0%}). If '{c}' is the "
-                    f"feature id, the file repeats features — verify before documenting "
-                    f"(is it a key vs a label? are the duplicate rows identical?), then "
-                    f"add a dedup note naming '{c}'. FP-prone — confirm against data."))
+                    f"{distinct:,} (null frac {1 - nonnull/total:.0%}). Possible per-feature "
+                    f"row duplication on '{c}'. Run `scripts/audit-feature-dup.py "
+                    f"--key {c}` to classify REPEATED vs VARIES and confirm before "
+                    f"documenting ('{c}' may be a label/provenance key, not the feature "
+                    f"id — this signal over-flags), then record the verdict on the asset."))
     return out
 
 
