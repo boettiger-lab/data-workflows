@@ -157,9 +157,19 @@ def lint(source: str) -> list[str]:
                 # enums (MTFCC, CLASSFP, FUNCSTAT) carry neither signal and still flag.
                 is_geo_identifier = (
                     bool(re.search(r"\bfips code\b|\bcode \(\d+\s*digits?\)", desc_l))
-                    or bool(re.fullmatch(r"(?i)(fips|stcnty|iso3|geoid\w*)", col_name))
+                    or bool(re.fullmatch(r"(?i)(fips|stcnty|iso3|geoid\w*|sld[lu]st)", col_name))
                 )
                 if is_geo_identifier:
+                    continue
+
+                # Skip standardized sibling-coded geographic codes — ISO-3166 country
+                # codes (ISO_SOV*/ISO_TER*), UN M49 codes (UN_SOV*/UN_TER*), and MEOW
+                # ecoregion codes (ECO_CODE/ECO_CODE_X). These are universal external code
+                # systems, not dataset-specific enums, and the marineregions/MEOW sources
+                # always ship a sibling human-readable column (SOVEREIGN1, TERRITORY1,
+                # ECOREGION) — so the geo-agent resolves names via the sibling, not an
+                # inline values map. Confirmed false positives in #294 (iho/ecs/meow).
+                if re.fullmatch(r"(?i)(iso|un)_(sov|ter)\d*|eco_code(_x)?", col_name):
                     continue
 
                 # Skip identifier columns — unique keys / external record codes, not
