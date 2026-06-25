@@ -18,13 +18,13 @@ name: Verify STAC
 
 on:
   pull_request:
+    # sync/audit jobs aren't dataset recipes; they reference buckets via rclone (nrp:)
+    # not s3://, so they derive no targets anyway — negated here for clarity/speed.
+    # (GitHub forbids combining `paths` with `paths-ignore`; use `!` negation instead.)
     paths:
       - 'catalog/**'
-    # sync/audit jobs aren't dataset recipes; they reference buckets via rclone (nrp:)
-    # not s3://, so they derive no targets anyway — excluded here for clarity/speed.
-    paths-ignore:
-      - 'catalog/sync/**'
-      - 'catalog/audit/**'
+      - '!catalog/sync/**'
+      - '!catalog/audit/**'
   workflow_dispatch:
     inputs:
       collection:
