@@ -632,6 +632,8 @@ spec:
       - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
 ```
 
+⛔ **This pin is a *reactive last resort* for observed, recurring preemption — NEVER a default.** By default let the k8s scheduler place pods (just the GPU-excluding `nodeAffinity` the convert/cog jobs use). Many nodes across the cluster can service big requests (256/512 GB, multi-cpu) — the Berkeley node is only one of them. **Pinning a large-memory job to one node serializes it:** a 256Gi/8cpu pod fills the node, so `parallelism: N` becomes 1-at-a-time while the rest sit `Pending: Insufficient cpu` (this turned a CONUS res-10 hex from hours into 30-50h — #307). The cluster headroom is there to *request when a job genuinely needs it*, used respectfully and only when needed; reach for `backoffLimitPerIndex` retries to absorb the occasional preemption before you ever reach for a node pin.
+
 **Pod keeps getting evicted (`ContainerStatusUnknown`) → diagnose BEFORE resubmitting.** Never resubmit a failing job without `kubectl describe pod <pod>` — same resources will fail the same way.
 ```bash
 kubectl -n biodiversity describe pod <pod-name> | grep -A5 "Reason:\|Message:\|Events:"
@@ -696,6 +698,7 @@ For chunks that fail (e.g. DuckDB parquet page-size limits on complex geometries
 - **Do not modify `cng_datasets/` source.** File an issue (see Hard Boundary 2).
 - **Do not request more than 50Gi ephemeral-storage.** The namespace caps it at 50Gi; generated YAMLs default to 250Gi — reduce to 50Gi and add `limits.ephemeral-storage: 50Gi` before applying.
 - **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
+- **Do not record operational/how-to-work lessons in agent memory (`~/.claude/.../memory`).** This repo is cloned and run by students — and soon by always-on headless agents (Hermes/openclaw). Anything that should shape how tasks run here belongs in **this AGENTS.md or a local skill (`.claude/skills/`)**, so every clone and headless run behaves the same. A lesson saved only to one VM's memory silently diverges your experience from everyone else's. (Memory remains fine for genuinely personal, non-shareable session context.)
 
 ## Reference Examples
 
