@@ -16,8 +16,10 @@ Checks enforced (per AGENTS.md "PMTiles assets" standard):
    (non-empty list of source-layer ids).
 2. Every PMTiles asset MUST have a non-empty `table:columns` listing the
    tile-accurate fields, each with a `name` and `type`.
-3. Each PMTiles column SHOULD have a non-empty `description` (warning, not error,
-   unless --strict).
+3. PMTiles columns intentionally carry NO prose `description` under the lean policy
+   (#320): tile fields = GeoParquet attrs − geometry + `_cng_fid`, so each column
+   mirrors name + type + `values` and the canonical prose lives on the GeoParquet
+   asset. Missing descriptions are expected and not flagged.
 
 Discover the real tile fields with:
 
@@ -82,7 +84,14 @@ def lint(source: str, strict: bool = False) -> list[str]:
             )
             continue
 
-        # 3. each column needs name + type (+ description, soft unless --strict)
+        # 3. each column needs name + type. Per the LEAN policy (#320): PMTiles tile
+        #    fields are just the GeoParquet attributes (minus geometry, plus _cng_fid),
+        #    so each PMTiles column mirrors name + type + `values`, and the prose
+        #    `description` stays CANONICAL on the GeoParquet asset (not duplicated here —
+        #    that would triple the column prose across the 3 assets and bloat agent
+        #    context). A missing description on a PMTiles column is therefore expected,
+        #    NOT a finding. The styling value column / nodata sentinel are documented on
+        #    the relevant column when the layer is continuous.
         for col in columns:
             name = col.get("name", "")
             if not name:
@@ -96,15 +105,6 @@ def lint(source: str, strict: bool = False) -> list[str]:
                     f"[{collection_id}] asset '{asset_key}', column '{name}': "
                     f"missing 'type'."
                 )
-            if not col.get("description"):
-                msg = (
-                    f"[{collection_id}] asset '{asset_key}', column '{name}': "
-                    f"missing 'description'."
-                )
-                if strict:
-                    errors.append(msg)
-                else:
-                    print("[WARN] " + msg, file=sys.stderr)
 
     return errors
 
@@ -116,7 +116,8 @@ def main():
     parser.add_argument("sources", nargs="+", help="Path(s) or URL(s) to stac-collection.json files")
     parser.add_argument(
         "--strict", action="store_true",
-        help="Treat missing column descriptions as errors (default: warning).",
+        help="Reserved (no-op). Descriptions are intentionally absent under the lean "
+             "policy; the only hard requirements are name + type.",
     )
     args = parser.parse_args()
 
