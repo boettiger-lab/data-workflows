@@ -68,12 +68,36 @@ def footer_fields(pmtiles_url: str) -> dict:
 _FOOTER_TYPE = {"String": "string", "Number": "double", "Boolean": "boolean"}
 
 
+def _is_geoparquet(key: str, a: dict) -> bool:
+    return ("parquet" in a.get("type", "")
+            and "hex" not in key and "hex" not in a.get("href", ""))
+
+
 def geoparquet_asset(doc: dict):
-    """Return (key, asset) for the canonical GeoParquet asset (non-hex parquet)."""
+    """Return (key, asset) for the first canonical GeoParquet asset (non-hex parquet)."""
     for key, a in doc.get("assets", {}).items():
-        if "parquet" in a.get("type", "") and "hex" not in key and "hex" not in a.get("href", ""):
+        if _is_geoparquet(key, a):
             return key, a
     return None, None
+
+
+def sibling_parquet(doc: dict, pmtiles_key: str):
+    """Resolve the GeoParquet asset that corresponds to one PMTiles asset.
+
+    Multi-sub-dataset collections (e.g. rfmo's rfb-*/vme-*, ca-dac-eda's
+    blockgroup/tract/place, cpad's holdings/units) carry several parquet+pmtiles
+    pairs. Match by the asset-key stem so `vme-pmtiles` mirrors `vme-parquet`,
+    not whatever parquet happens to be first. Falls back to the lone GeoParquet.
+    """
+    assets = doc.get("assets", {})
+    base = pmtiles_key[:-len("-pmtiles")] if pmtiles_key.endswith("-pmtiles") else pmtiles_key
+    cand = assets.get(base + "-parquet")
+    if cand and _is_geoparquet(base + "-parquet", cand):
+        return base + "-parquet", cand
+    for k, a in assets.items():
+        if _is_geoparquet(k, a) and k.startswith(base):
+            return k, a
+    return geoparquet_asset(doc)
 
 
 def lean_columns(tile_field_names, gp_cols_by_name):
@@ -97,19 +121,24 @@ def lean_columns(tile_field_names, gp_cols_by_name):
 def mirror(doc: dict) -> list:
     """Mutate doc in place; return a list of report strings."""
     report = []
-    gpk, gp = geoparquet_asset(doc)
-    if gp is None:
+    if geoparquet_asset(doc)[1] is None:
         report.append("ERROR: no GeoParquet asset to mirror from")
         return report
-    gp_cols = gp.get("table:columns") or []
-    gp_by_name = {c["name"]: c for c in gp_cols}
-    report.append(f"canonical schema: '{gpk}' ({len(gp_cols)} columns)")
 
     found_pmtiles = False
     for key, a in doc.get("assets", {}).items():
         if "pmtiles" not in a.get("type", ""):
             continue
         found_pmtiles = True
+        # Never clobber an already-populated PMTiles asset — it may carry curated
+        # viz hints (nodata sentinel / value column) we don't want to lose. Only
+        # fill assets whose table:columns is empty/absent.
+        if a.get("table:columns"):
+            report.append(f"  [{key}] already populated ({len(a['table:columns'])} cols) — skipped")
+            continue
+        gpk, gp = sibling_parquet(doc, key)
+        gp_cols = (gp.get("table:columns") or []) if gp else []
+        gp_by_name = {c["name"]: c for c in gp_cols}
         href = a.get("href")
         try:
             ff = footer_fields(href)
@@ -137,7 +166,7 @@ def mirror(doc: dict) -> list:
         a["table:columns"] = cols
         if "vector:layers" not in a:
             a["vector:layers"] = list(ff.keys())
-        msg = f"  [{key}] {len(cols)} tile fields mirrored (layers {list(ff.keys())})"
+        msg = f"  [{key}] {len(cols)} tile fields mirrored from '{gpk}' (layers {list(ff.keys())})"
         if subset:
             msg += f"\n      ⚠ GENUINE SUBSET — in GeoParquet but NOT in tiles: {subset}"
         if extra:
