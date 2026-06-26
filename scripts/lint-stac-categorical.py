@@ -204,6 +204,15 @@ def lint(source: str) -> list[str]:
                 mentions_class = bool(re.search(r"\bclass\b|categor", desc, re.I))
                 strong_identifier = bool(
                     re.search(r"\b(site code|record code|unique (id|identifier)|object\s*id)\b", desc_l)
+                    # Per-entity foreign-key codes — a code that identifies/joins one
+                    # specific species/office/entity record (a high-cardinality key),
+                    # not an enumerable thematic class. e.g. usfws critical-habitat
+                    # `spcode` "4-character species code (joins to ECOS species records)"
+                    # is 1:1 with species (724 codes); `leadoffice` "regional office code"
+                    # is an FK to FWS field offices (55 codes). Listing these as `values`
+                    # would be a per-record key dump, not a class enumeration (#303).
+                    or re.search(r"\b(species|office|entity)\s+code\b", desc_l)
+                    or re.search(r"\bjoins?\s+to\b", desc_l)
                 )
                 if strong_identifier:
                     continue
