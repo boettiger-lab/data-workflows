@@ -384,18 +384,14 @@ auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (
   - **Hex asset**: exclude the geometry column; include H3 index columns (`h0`, `h8`, `h9`, `h10` etc.) and `_cng_fid`/`bbox` if present
   - **COG assets**: no `table:columns` needed (not SQL-queryable)
 
-- **PMTiles assets MUST carry tile-accurate `table:columns` (data-workflows #283).** tippecanoe selects a *subset* of source columns at tile-build time, so the PMTiles fields differ from the GeoParquet schema — the parquet's `table:columns` does NOT tell a consumer what's actually in the tiles. Without tile-level schema the geo-agent (and human app authors) cannot discover which fields are stylable/filterable in MapLibre except by byte-ranging the `.pmtiles` footer. So:
-  - List the **actual tile fields** (not the parquet schema) with `name` + `type`, read from the footer's `vector_layers[].fields`. The geometry column is excluded (it's the tile geometry, not a field).
-  - Keep `vector:layers` (the source-layer id list) as well.
-  - **Document nodata sentinels** on the relevant column (e.g. SVI `RPL_THEMES = -999`) and flag the **intended value column** for continuous styling — neither is inferable from the tiles.
-  - Read the footer fields with:
-    ```bash
-    python3 -c 'import urllib.request,json,struct,gzip; u="https://.../layer.pmtiles"; \
-      r=lambda a,b: urllib.request.urlopen(urllib.request.Request(u,headers={"Range":f"bytes={a}-{b}"})).read(); \
-      h=r(0,126); o=struct.unpack_from("<Q",h,24)[0]; n=struct.unpack_from("<Q",h,32)[0]; \
-      m=json.loads(gzip.decompress(r(o,o+n-1)).decode()); print([(L["id"],L.get("fields")) for L in m["vector_layers"]])'
-    ```
-  - Gate with `scripts/lint-stac-pmtiles-fields.py <stac-collection.json|url>` (companion to `lint-stac-categorical.py`).
+- **PMTiles assets MUST carry tile-accurate `table:columns` (data-workflows #283/#320), in LEAN form.** The geo-agent (and human app authors) can only learn which fields are stylable/filterable in MapLibre from the PMTiles asset's own schema — an empty `table:columns` forces them to byte-range the `.pmtiles` footer. **Empirically, our tippecanoe step keeps ALL attribute columns: the tile field set is just `GeoParquet attrs − geometry + _cng_fid`** (types coarsened to String/Number/Boolean). So the standard is to **mirror the canonical GeoParquet schema onto the PMTiles asset** — do NOT hand-scrape thin metadata from the footer, and do NOT duplicate the prose:
+  - **Lean columns:** each PMTiles column carries **`name` + `type` + `values`** (the `values` enumeration is the styling-critical part for categoricals) — copied from the GeoParquet column of the same name. **Omit the prose `description`** — it stays CANONICAL on the GeoParquet asset (duplicating it across 3 assets just bloats agent context; the agent reads definitions there).
+  - Drop the geometry column; include `_cng_fid` (present in tiles).
+  - Keep `vector:layers` (the source-layer id list).
+  - **Continuous (choropleth) layers only:** add the **nodata sentinel** and flag the **intended value column** for styling, as a short `description` on that one column (e.g. SVI `RPL_THEMES = -999`) — these are viz-specific and not inferable from the GeoParquet schema.
+  - **Generate it** with `scripts/mirror-pmtiles-columns.py <stac-url>` — it reads the footer to *validate* the field set (and flags the rare genuine-subset case, e.g. SVI, where tippecanoe really did drop columns), mirrors the GeoParquet `name`/`type`/`values`, and writes the updated STAC to `/tmp`. Then `rclone copyto` to S3.
+  - Because PMTiles mirrors the GeoParquet, **fix the GeoParquet/hex categoricals FIRST** (the #303 work), then mirror — otherwise you copy incomplete `values`.
+  - Gate with `scripts/lint-stac-pmtiles-fields.py <stac-collection.json|url>` (companion to `lint-stac-categorical.py`); it requires `name` + `type` and does NOT require descriptions.
 
 - **Hex assets MUST declare their H3 resolutions explicitly** via `h3:native_resolution` and `h3:parent_resolutions` on the asset itself. Column-name presence (`h10`, `h9`, …) is not enough — downstream tools shouldn't have to enumerate `table:columns` to find out what resolutions exist. `h3:native_resolution` is the finest resolution (one row per feature-cell at this res); `h3:parent_resolutions` is the list of rollup resolutions, which MUST include `0` (the partition key).
 
