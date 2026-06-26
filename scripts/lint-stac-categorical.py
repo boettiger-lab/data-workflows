@@ -54,10 +54,12 @@ def values_self_describing(values_arr) -> bool:
     inline CODE=Definition map would be redundant.
 
     A value is self-describing when it contains whitespace (a multi-word phrase like
-    'North Pacific' or '1.5M - 2M km2') or carries a lowercase letter and is longer
-    than four characters ('Mediterranean', 'NotApplicable'). Opaque codes — all-caps
-    acronyms (CCAMLR, RFB), short tokens (LSAD '00', MTFCC 'G4000'), and numeric codes
-    — are NOT self-describing and still require an inline map.
+    'North Pacific' or '1.5M - 2M km2') or carries a lowercase letter and is at least
+    four characters ('Park', 'Lake', 'Mediterranean', 'NotApplicable'). Opaque codes —
+    all-caps acronyms (CCAMLR, RFB), short tokens (LSAD '00', MTFCC 'G4000', vipcode
+    'V13'), and numeric codes — are NOT self-describing (the lowercase requirement
+    excludes all-caps/numeric codes; the 4-char floor still rejects 3-char tokens like
+    'ANT') and still require an inline map.
 
     Used to fold a precision false-positive class: label enums that ship a `values`
     array but legitimately have no code→name mapping to write (#303)."""
@@ -66,7 +68,7 @@ def values_self_describing(values_arr) -> bool:
     for v in values_arr:
         s = str(v)
         has_space = bool(re.search(r"\s", s))
-        descriptive_word = bool(re.search(r"[a-z]", s)) and len(s) > 4
+        descriptive_word = bool(re.search(r"[a-z]", s)) and len(s) >= 4
         if not (has_space or descriptive_word):
             return False
     return True
