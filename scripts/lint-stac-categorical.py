@@ -54,10 +54,12 @@ def values_self_describing(values_arr) -> bool:
     inline CODE=Definition map would be redundant.
 
     A value is self-describing when it contains whitespace (a multi-word phrase like
-    'North Pacific' or '1.5M - 2M km2') or carries a lowercase letter and is longer
-    than four characters ('Mediterranean', 'NotApplicable'). Opaque codes — all-caps
-    acronyms (CCAMLR, RFB), short tokens (LSAD '00', MTFCC 'G4000'), and numeric codes
-    — are NOT self-describing and still require an inline map.
+    'North Pacific' or '1.5M - 2M km2') or carries a lowercase letter and is at least
+    four characters ('Park', 'Lake', 'Mediterranean', 'NotApplicable'). Opaque codes —
+    all-caps acronyms (CCAMLR, RFB), short tokens (LSAD '00', MTFCC 'G4000', vipcode
+    'V13'), and numeric codes — are NOT self-describing (the lowercase requirement
+    excludes all-caps/numeric codes; the 4-char floor still rejects 3-char tokens like
+    'ANT') and still require an inline map.
 
     Used to fold a precision false-positive class: label enums that ship a `values`
     array but legitimately have no code→name mapping to write (#303)."""
@@ -66,7 +68,7 @@ def values_self_describing(values_arr) -> bool:
     for v in values_arr:
         s = str(v)
         has_space = bool(re.search(r"\s", s))
-        descriptive_word = bool(re.search(r"[a-z]", s)) and len(s) > 4
+        descriptive_word = bool(re.search(r"[a-z]", s)) and len(s) >= 4
         if not (has_space or descriptive_word):
             return False
     return True
@@ -211,6 +213,45 @@ def lint(source: str) -> list[str]:
                 # ECOREGION) — so the geo-agent resolves names via the sibling, not an
                 # inline values map. Confirmed false positives in #294 (iho/ecs/meow).
                 if re.fullmatch(r"(?i)(iso|un)_(sov|ter)\d*|eco_code(_x)?", col_name):
+                    continue
+
+                # Skip US state/territory two-letter POSTAL abbreviations — a universal
+                # external standard (CA=California, …) the geo-agent resolves natively,
+                # not a dataset-specific enum (same rationale as the ISO/UN codes above).
+                # Signal: a "two-letter US state/territory abbreviation" description, or a
+                # state-abbreviation column name. FIPS state *numbers* (STATEFP) are caught
+                # by the geo-identifier rule above; this is the alpha postal code.
+                if (re.search(r"two-letter\s+(us\s+)?state|state\b.*\babbreviat|postal abbreviat", desc_l)
+                        or re.fullmatch(r"(?i)(state_code|st_abbr|state_abbr|st_code)", col_name)):
+                    continue
+
+                # Skip compositional / published-classification codes — a value built by
+                # concatenating sub-codes per a named published classification standard
+                # (NWI Cowardin 'L1UBH', etc.), with thousands of valid combinations. A
+                # flat CODE=Definition enumeration is infeasible and the meaning is defined
+                # by the upstream standard, not a dataset value list. Signal: the
+                # description names the classification system / calls the code compositional.
+                if re.search(r"\bcowardin\b|\bcompositional\b|concatenat|"
+                             r"code following the .{0,40}classification|"
+                             r"classification system \(e\.g", desc_l):
+                    continue
+
+                # Skip multi-value / delimited code columns — each value is a
+                # comma/semicolon-separated COMBINATION of atomic codes, so the distinct
+                # set is the explosion of combinations (USGS WBD humod: 'AW,RC,WD'), not a
+                # clean enum. A flat values array can't enumerate the combinations; the
+                # atomic-code domain belongs in the description. Signal: the description
+                # says the value is delimited / 'code(s)' / one-or-more.
+                if re.search(r"comma-separated|semicolon-separated|comma separated|"
+                             r"\bcode\(s\)|\bone or more\b|combination of", desc_l):
+                    continue
+
+                # Skip routing / downstream-reference identifier codes — a code that points
+                # to ANOTHER record (the downstream hydrologic unit), i.e. a foreign key,
+                # not an enumerable class. e.g. WBD hu12 `tohuc` "downstream HUC12 code that
+                # this subwatershed flows to". High-cardinality (one per upstream unit).
+                if (re.search(r"downstream\b.{0,30}\b(code|huc)|\bflows? to\b|\brouting\b", desc_l)
+                        or re.fullmatch(r"(?i)tohuc|to_huc", col_name)):
                     continue
 
                 # Skip identifier columns — unique keys / external record codes, not
