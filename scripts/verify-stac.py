@@ -118,7 +118,11 @@ def targets_from_yaml(text: str) -> set[tuple[str, str]]:
         rest = rest.strip("/")
         if not rest or rest == "raw" or rest.startswith("raw/"):
             continue  # bucket-level / raw inputs aren't a dataset collection
-        rest = re.sub(r"\.(parquet|pmtiles|tif|tiff|gpkg|geojson)$", "", rest)
+        if re.search(r"\.(tif|tiff)$", rest, re.I):
+            continue  # a COG raster (`<name>-cog.tif`, `…-cog-4326.tif`, …) is an asset
+                      # of a collection, not a collection itself; the collection is
+                      # derived from the dataset's hex/parquet path elsewhere in the YAML
+        rest = re.sub(r"\.(parquet|pmtiles|gpkg|geojson)$", "", rest)
         for marker in ("/hex/", "/hex", "/chunks/", "/chunks", "/temp_versions"):
             i = rest.find(marker)
             if i >= 0:
