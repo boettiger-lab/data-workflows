@@ -173,6 +173,23 @@ def lint(source: str) -> list[str]:
                 if is_source:
                     continue
 
+                # Skip heterogeneous, unnormalized source-passthrough columns — raw values
+                # copied verbatim from multiple upstream sources with no harmonization
+                # (mixed casing, agency-specific code systems, free-text all in one column).
+                # These are NOT a controlled vocabulary: an authoritative CODE=Definition
+                # map does not exist, and enumerating every casing/source variant as
+                # `values` documents data-quality noise rather than a domain. e.g. trails
+                # federal-trails-2026 trail_class/trail_surface/trail_type fuse USFS numeric
+                # codes, NPS descriptive labels, and BLM passthrough strings. Signal: the
+                # description explicitly says the values are heterogeneous / unnormalized /
+                # raw across sources (an author writes this deliberately, like is_source).
+                is_heterogeneous_source = bool(re.search(
+                    r"heterogeneous|unharmoni|unnormali[sz]ed|not normali[sz]ed|"
+                    r"verbatim across|raw .*(source|agenc)|treat as informational|"
+                    r"unnormalized across|across (agencies|sources)", desc_l))
+                if is_heterogeneous_source:
+                    continue
+
                 # Skip FIPS / fixed-width geographic identifier codes — GEOID-component
                 # keys (STATEFP/COUNTYFP/TRACTCE/SLDLST/SLDUST…) and FIPS/STCNTY/iso3.
                 # These are identifier components, not enumerable classes (#303). The

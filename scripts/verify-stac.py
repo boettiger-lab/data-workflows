@@ -650,9 +650,17 @@ def check_values_match_distinct(doc: dict, mcp: MCPClient) -> list[Finding]:
         # `values` array ("11"). Genuine string codes ('FED', 'STAT') and real
         # fractional codes ('11.5') are left untouched.
         norm = lambda e: f"regexp_replace(CAST({e} AS VARCHAR), '\\.0+$', '')"
+        # Treat missing-value artifacts as absence, like NULL: an empty/whitespace string
+        # and the literal conversion tokens 'null'/'nan'/'none' (pandas/str(None) leakage,
+        # case-insensitive) are not real category codes. Requiring them in a `values`
+        # array pollutes the schema and breaks the self-describing fold — so exclude them
+        # from the ingested DISTINCT set, the same way SQL NULL is already excluded.
+        # Real "unknown" categories (UNK, Unknown, N/A) are intentional codes and stay.
         sql = (
             f'WITH ingested AS (SELECT DISTINCT {norm(chr(34)+col+chr(34))} AS v '
-            f"  FROM read_parquet('{s3}') WHERE \"{col}\" IS NOT NULL), "
+            f"  FROM read_parquet('{s3}') WHERE \"{col}\" IS NOT NULL "
+            f"    AND trim(CAST(\"{col}\" AS VARCHAR)) <> '' "
+            f"    AND lower(trim(CAST(\"{col}\" AS VARCHAR))) NOT IN ('null','nan','none')), "
             f"declared AS (SELECT {norm('v')} AS v FROM (VALUES {decl_rows}) t(v)) "
             f"SELECT 'missing' AS kind, v FROM ingested WHERE v NOT IN (SELECT v FROM declared) "
             f"UNION ALL "
