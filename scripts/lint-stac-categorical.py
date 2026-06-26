@@ -215,6 +215,45 @@ def lint(source: str) -> list[str]:
                 if re.fullmatch(r"(?i)(iso|un)_(sov|ter)\d*|eco_code(_x)?", col_name):
                     continue
 
+                # Skip US state/territory two-letter POSTAL abbreviations — a universal
+                # external standard (CA=California, …) the geo-agent resolves natively,
+                # not a dataset-specific enum (same rationale as the ISO/UN codes above).
+                # Signal: a "two-letter US state/territory abbreviation" description, or a
+                # state-abbreviation column name. FIPS state *numbers* (STATEFP) are caught
+                # by the geo-identifier rule above; this is the alpha postal code.
+                if (re.search(r"two-letter\s+(us\s+)?state|state\b.*\babbreviat|postal abbreviat", desc_l)
+                        or re.fullmatch(r"(?i)(state_code|st_abbr|state_abbr|st_code)", col_name)):
+                    continue
+
+                # Skip compositional / published-classification codes — a value built by
+                # concatenating sub-codes per a named published classification standard
+                # (NWI Cowardin 'L1UBH', etc.), with thousands of valid combinations. A
+                # flat CODE=Definition enumeration is infeasible and the meaning is defined
+                # by the upstream standard, not a dataset value list. Signal: the
+                # description names the classification system / calls the code compositional.
+                if re.search(r"\bcowardin\b|\bcompositional\b|concatenat|"
+                             r"code following the .{0,40}classification|"
+                             r"classification system \(e\.g", desc_l):
+                    continue
+
+                # Skip multi-value / delimited code columns — each value is a
+                # comma/semicolon-separated COMBINATION of atomic codes, so the distinct
+                # set is the explosion of combinations (USGS WBD humod: 'AW,RC,WD'), not a
+                # clean enum. A flat values array can't enumerate the combinations; the
+                # atomic-code domain belongs in the description. Signal: the description
+                # says the value is delimited / 'code(s)' / one-or-more.
+                if re.search(r"comma-separated|semicolon-separated|comma separated|"
+                             r"\bcode\(s\)|\bone or more\b|combination of", desc_l):
+                    continue
+
+                # Skip routing / downstream-reference identifier codes — a code that points
+                # to ANOTHER record (the downstream hydrologic unit), i.e. a foreign key,
+                # not an enumerable class. e.g. WBD hu12 `tohuc` "downstream HUC12 code that
+                # this subwatershed flows to". High-cardinality (one per upstream unit).
+                if (re.search(r"downstream\b.{0,30}\b(code|huc)|\bflows? to\b|\brouting\b", desc_l)
+                        or re.fullmatch(r"(?i)tohuc|to_huc", col_name)):
+                    continue
+
                 # Skip identifier columns — unique keys / external record codes, not
                 # categorical classes, even though their names often end in "num"/"id"/"cd"
                 # or their types are integer. Discriminator: the description calls it a
