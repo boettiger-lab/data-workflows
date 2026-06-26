@@ -48,6 +48,30 @@ def is_abbrev_name(name: str, value) -> bool:
     return False
 
 
+def values_self_describing(values_arr) -> bool:
+    """Return True if every value in the array is already a human-readable label
+    rather than an opaque code — i.e. the value text IS its own definition, so an
+    inline CODE=Definition map would be redundant.
+
+    A value is self-describing when it contains whitespace (a multi-word phrase like
+    'North Pacific' or '1.5M - 2M km2') or carries a lowercase letter and is longer
+    than four characters ('Mediterranean', 'NotApplicable'). Opaque codes — all-caps
+    acronyms (CCAMLR, RFB), short tokens (LSAD '00', MTFCC 'G4000'), and numeric codes
+    — are NOT self-describing and still require an inline map.
+
+    Used to fold a precision false-positive class: label enums that ship a `values`
+    array but legitimately have no code→name mapping to write (#303)."""
+    if not isinstance(values_arr, list) or not values_arr:
+        return False
+    for v in values_arr:
+        s = str(v)
+        has_space = bool(re.search(r"\s", s))
+        descriptive_word = bool(re.search(r"[a-z]", s)) and len(s) > 4
+        if not (has_space or descriptive_word):
+            return False
+    return True
+
+
 def lint(source: str) -> list[str]:
     """Return a list of error strings (empty = pass)."""
     try:
@@ -208,7 +232,11 @@ def lint(source: str) -> list[str]:
             # (USF=US Forest Service, OGC:CRS84-style excluded). A single TOKEN=word
             # pair is a strong signal once the column is already known to be coded.
             has_inline_codes = bool(re.search(r"[A-Za-z0-9][\w/.-]*\s*=\s*\w", desc))
-            if not has_inline_codes:
+            # Self-describing label enums (values are full words/phrases, not codes)
+            # carry no code→name mapping, so an inline CODE=Definition list would be
+            # redundant. Skip the inline requirement for them — but still require the
+            # `values` array below (a documented value set is always useful). #303.
+            if not has_inline_codes and not values_self_describing(values_arr):
                 errors.append(
                     f"[{collection_id}] asset '{asset_key}', column '{col_name}': "
                     f"coded categorical column missing inline CODE=Definition list in description. "
