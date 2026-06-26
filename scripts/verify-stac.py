@@ -118,7 +118,11 @@ def targets_from_yaml(text: str) -> set[tuple[str, str]]:
         rest = rest.strip("/")
         if not rest or rest == "raw" or rest.startswith("raw/"):
             continue  # bucket-level / raw inputs aren't a dataset collection
-        rest = re.sub(r"\.(parquet|pmtiles|tif|tiff|gpkg|geojson)$", "", rest)
+        if re.search(r"\.(tif|tiff)$", rest, re.I):
+            continue  # a COG raster (`<name>-cog.tif`, `…-cog-4326.tif`, …) is an asset
+                      # of a collection, not a collection itself; the collection is
+                      # derived from the dataset's hex/parquet path elsewhere in the YAML
+        rest = re.sub(r"\.(parquet|pmtiles|gpkg|geojson)$", "", rest)
         for marker in ("/hex/", "/hex", "/chunks/", "/chunks", "/temp_versions"):
             i = rest.find(marker)
             if i >= 0:
@@ -640,10 +644,16 @@ def check_values_match_distinct(doc: dict, mcp: MCPClient) -> list[Finding]:
             continue
         seen.add((s3, col))
         decl_rows = _sql_str_tuples(declared)
+        # Normalize a trailing ".0" so an integer class code stored as a float
+        # (the cng-datasets raster `mode` reducer emits the value column as DOUBLE,
+        # so code 11 reads back as "11.0") compares equal to the int declared in the
+        # `values` array ("11"). Genuine string codes ('FED', 'STAT') and real
+        # fractional codes ('11.5') are left untouched.
+        norm = lambda e: f"regexp_replace(CAST({e} AS VARCHAR), '\\.0+$', '')"
         sql = (
-            f'WITH ingested AS (SELECT DISTINCT CAST("{col}" AS VARCHAR) AS v '
+            f'WITH ingested AS (SELECT DISTINCT {norm(chr(34)+col+chr(34))} AS v '
             f"  FROM read_parquet('{s3}') WHERE \"{col}\" IS NOT NULL), "
-            f"declared AS (SELECT * FROM (VALUES {decl_rows}) t(v)) "
+            f"declared AS (SELECT {norm('v')} AS v FROM (VALUES {decl_rows}) t(v)) "
             f"SELECT 'missing' AS kind, v FROM ingested WHERE v NOT IN (SELECT v FROM declared) "
             f"UNION ALL "
             f"SELECT 'extra' AS kind, v FROM declared WHERE v NOT IN (SELECT v FROM ingested) "
