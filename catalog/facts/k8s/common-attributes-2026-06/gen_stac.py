@@ -66,11 +66,11 @@ COLS = [
     ("NBR_UNITS_ACCOMPLISHED", "DOUBLE", "Number of units (per UOM) accomplished/completed by the activity.", None),
     ("EXCLUDE_ACCOMPLISHMENT", "VARCHAR", "Whether the record is excluded from accomplishment reporting. Values: Y=Excluded (not reported as accomplishment), N=Not excluded (reported).", "YN"),
     ("TREATMENT_NAME", "VARCHAR", "Treatment name.", None),
-    ("FUELS_KEYPOINT_AREA", "VARCHAR", "NFPORS fuels keypoint-area grouping. Values: 2=Post Wildfire Restoration Activities, 3=Primary Fuels Reduction Treatments, 6=Secondary Fuels Reduction Treatments.", "FUELS_KEYPOINT_AREA"),
+    ("FUELS_KEYPOINT_AREA", "VARCHAR", "NFPORS fuels keypoint-area grouping. Values: 0=Not a fuels keypoint area (none), 2=Post Wildfire Restoration Activities, 3=Primary Fuels Reduction Treatments, 6=Secondary Fuels Reduction Treatments.", "FUELS_KEYPOINT_AREA"),
     ("ISWUI", "VARCHAR", "Whether the activity is within the Wildland-Urban Interface. Values: Y=Yes, N=No.", "YN"),
     ("FIREREGIME", "INTEGER", "Historic fire-regime group (integer 1-5) for the activity location.", None),
     ("CWPP", "VARCHAR", "Community Wildfire Protection Plan name associated with the activity, if any.", None),
-    ("BIOMASS_UTILIZATION", "VARCHAR", "Whether biomass was utilized. Values: Y=Yes (biomass utilized), N=No.", "YN"),
+    ("BIOMASS_UTILIZATION", "VARCHAR", "Whether biomass was utilized. Values: Y=Yes (biomass utilized), N=No, U=Unknown.", "YNU"),
     ("NFPORS_CATEGORY", "VARCHAR", "NFPORS treatment grouping (free-text, e.g. 'Fuels Management').", None),
     ("NFPORS_TREATMENT", "VARCHAR", "NFPORS treatment type (free-text).", None),
     ("PURPOSE_CODE", "VARCHAR", "Activity purpose. Values: FUEL=Fuels, TMBR=Timber Management, TSI=Timber Stand Improvement, RF=Reforestation, FIRE=Fire, FTI=Fuel Treatment Initial, FTM=Fuel Treatment Maintenance, FTF=Fuel Treatment Final, WILD=Wildlife, INV=Invasive Species, INS=Insects, DIS=Disease, REC=Recreation, SOIL=Soil, TES=Threatened/Endangered Species, RNGE=Range, ANML=Animal Damage, BOT=Botany, WA=Watershed/Air, AIR=Air, SS=Special Status, ENG=Engineering, CLTR=Cultural, BD=Brush Disposal, FE=Forest Health. See the FACTS data dictionary for authoritative definitions.", "PURPOSE_CODE"),
@@ -148,9 +148,11 @@ COLS = [
     ("geom", "GEOMETRY", "Feature geometry (GeoParquet, EPSG:4326). Polygon/MultiPolygon. ~17% of source records are aspatial (NULL geometry) and are absent from the hex/PMTiles assets.", None),
 ]
 
-# Y/N shared values + other small enums not in _codes.json
+# Y/N shared values + other small enums not in _codes.json.
+# Value sets are the ACTUAL ingested distinct values (verify-stac requires declared >= ingested).
 CODES["YN"] = ["Y", "N"]
-CODES["FUELS_KEYPOINT_AREA"] = ["2", "3", "6"]
+CODES["YNU"] = ["Y", "N", "U"]
+CODES["FUELS_KEYPOINT_AREA"] = ["0", "2", "3", "6"]
 
 def col_entry(name, dtype, desc, vkey, *, on_hex=False):
     e = {"name": name, "type": TYPE_MAP[dtype], "description": desc}
