@@ -648,8 +648,12 @@ def check_values_match_distinct(doc: dict, mcp: MCPClient) -> list[Finding]:
         # (the cng-datasets raster `mode` reducer emits the value column as DOUBLE,
         # so code 11 reads back as "11.0") compares equal to the int declared in the
         # `values` array ("11"). Genuine string codes ('FED', 'STAT') and real
-        # fractional codes ('11.5') are left untouched.
-        norm = lambda e: f"regexp_replace(CAST({e} AS VARCHAR), '\\.0+$', '')"
+        # fractional codes ('11.5') are left untouched. Also strip leading/trailing
+        # whitespace before comparing — surrounding whitespace is never a meaningful
+        # category distinction (WDPA NO_TAKE ships 'All ' with a trailing space), and
+        # requiring the declared `values` array to carry the wart would pollute the
+        # schema. Applied to both sides, same spirit as the .0 / null normalizations.
+        norm = lambda e: f"regexp_replace(trim(CAST({e} AS VARCHAR)), '\\.0+$', '')"
         # Treat missing-value artifacts as absence, like NULL: an empty/whitespace string
         # and the literal conversion tokens 'null'/'nan'/'none' (pandas/str(None) leakage,
         # case-insensitive) are not real category codes. Requiring them in a `values`
