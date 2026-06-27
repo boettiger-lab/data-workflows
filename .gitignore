@@ -23,8 +23,6 @@ Thumbs.db
 !.claude/hooks/
 # git worktrees (relocated out of .claude/)
 .worktrees/
-# Private datasets — keep off public GitHub
-catalog/wyoming/
 **/*.min..css
 **/*.min..js
 .ipynb_checkpoints/.gitignore-checkpoint
