@@ -1,0 +1,52 @@
+# Cluster profile: private MinIO (minio.carlboettiger.info), bucket-scoped write creds.
+#
+# Retargets the standard `cng-datasets workflow` generator at a PRIVATE MinIO bucket
+# instead of NRP. Pass with `--profile catalog/wyoming/k8s/gye-parcels/private-wyoming.profile.yaml`.
+#
+# ---------------------------------------------------------------------------
+# PREREQUISITE SECRETS — minted control-plane-side (laptop + root `mc`), NOT in git.
+# No privileged MinIO credential is kept on the cluster; mint scoped, run, revoke.
+#
+#   # 1) Least-privilege svcacct scoped to ONLY this bucket (root used locally, never on cluster):
+#   cat > /tmp/pw.json <<'JSON'
+#   {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],
+#     "Resource":["arn:aws:s3:::private-wyoming","arn:aws:s3:::private-wyoming/*"]}]}
+#   JSON
+#   read AK SK < <(mc admin user svcacct add minio root --policy /tmp/pw.json --json \
+#                  | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["accessKey"],d["secretKey"])')
+#
+#   # 2) S3 secret (standard AWS_* key names the YAMLs reference):
+#   kubectl -n biodiversity create secret generic private-wyoming-rw \
+#     --from-literal=AWS_ACCESS_KEY_ID="$AK" --from-literal=AWS_SECRET_ACCESS_KEY="$SK"
+#
+#   # 3) rclone secret — remote name MUST be [nrp] (the generated YAMLs use `nrp:`):
+#   printf '[nrp]\ntype = s3\nprovider = Other\naccess_key_id = %s\nsecret_access_key = %s\nendpoint = https://minio.carlboettiger.info\nforce_path_style = true\n' "$AK" "$SK" > /tmp/rc.conf
+#   kubectl -n biodiversity create secret generic rclone-config-private-wyoming-rw --from-file=rclone.conf=/tmp/rc.conf
+#
+#   # 4) After the run, revoke (keys are job-scoped; clean up):
+#   mc admin user svcacct rm minio "$AK"
+#   kubectl -n biodiversity delete secret private-wyoming-rw rclone-config-private-wyoming-rw
+#
+# ---------------------------------------------------------------------------
+# DIVERGENCES from the standard NRP recipe (already baked into the sibling step YAMLs):
+#   - AWS_HTTPS: 'true'             (MinIO is https-only; NRP internal is http)
+#   - NO setup-bucket step          (it sets public-read + CORS — never on a PRIVATE bucket)
+#   - convert localizes the raw via rclone first, then converts from disk
+#       (GDAL/ST_Read cannot open s3:// on MinIO — there is no anon https path)
+#   - pmtiles reads the parquet via /vsis3 (authenticated), not anon /vsicurl
+#   - parquet + pmtiles land under gye-parcels/ (matches the app's STAC/configmap paths)
+#
+# RUN ORDER (apply step YAMLs directly; there is no orchestrator for the private path):
+#   kubectl -n biodiversity apply -f gye-parcels-convert.yaml      # wait for Complete
+#   kubectl -n biodiversity apply -f gye-parcels-hex.yaml \
+#                                 -f gye-parcels-pmtiles.yaml      # parallel; wait for hex
+#   kubectl -n biodiversity apply -f gye-parcels-repartition.yaml  # merges chunks -> hex/
+# ---------------------------------------------------------------------------
+name: private-wyoming-minio
+s3_endpoint: minio.carlboettiger.info
+s3_public_endpoint: minio.carlboettiger.info
+s3_secret_name: private-wyoming-rw
+rclone_secret_name: rclone-config-private-wyoming-rw
+rclone_remote: nrp
+priority_class: opportunistic
+node_affinity: gpu-avoid
