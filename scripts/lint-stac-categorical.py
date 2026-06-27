@@ -139,6 +139,7 @@ def lint(source: str) -> list[str]:
             col_name = col.get("name", "")
             col_type = col.get("type", "")
             desc = col.get("description", "")
+            desc_l = desc.lower()
             values_arr = col.get("values")
 
             # Skip pure index/geometry columns up front
@@ -152,8 +153,6 @@ def lint(source: str) -> list[str]:
             # column that lacks one. A column that already declares `values` is an
             # explicit opt-in to categorical validation and is never skipped here.
             if values_arr is None:
-                desc_l = desc.lower()
-
                 # Skip date columns — a date is never a categorical class, even when its
                 # description names the "code" it dates (e.g. "Date the GAP Status Code
                 # was assigned in YYYYMMDD"). Signals: name ends in dt/date, or a date-ish
@@ -184,11 +183,18 @@ def lint(source: str) -> list[str]:
                 # federal-trails-2026 trail_class/trail_surface/trail_type fuse USFS numeric
                 # codes, NPS descriptive labels, and BLM passthrough strings. Signal: the
                 # description explicitly says the values are heterogeneous / unnormalized /
-                # raw across sources (an author writes this deliberately, like is_source).
+                # raw across sources (an author writes this deliberately, like is_source),
+                # or that the column is free-text with uncontrolled source variants (e.g.
+                # epa-sab-v3-cws Data_Provider_Type "Free-text — values include
+                # typographical variants from the source"). A "free-text" declaration on a
+                # column that ships no `values` array is the author asserting it is not a
+                # controlled vocabulary — enumerating its typo/casing variants documents
+                # noise, not a domain.
                 is_heterogeneous_source = bool(re.search(
                     r"heterogeneous|unharmoni|unnormali[sz]ed|not normali[sz]ed|"
                     r"verbatim across|raw .*(source|agenc)|treat as informational|"
-                    r"unnormalized across|across (agencies|sources)", desc_l))
+                    r"unnormalized across|across (agencies|sources)|"
+                    r"free[\s-]?text|typographical variant", desc_l))
                 if is_heterogeneous_source:
                     continue
 
@@ -299,11 +305,40 @@ def lint(source: str) -> list[str]:
             # (USF=US Forest Service, OGC:CRS84-style excluded). A single TOKEN=word
             # pair is a strong signal once the column is already known to be coded.
             has_inline_codes = bool(re.search(r"[A-Za-z0-9][\w/.-]*\s*=\s*\w", desc))
+
+            # Geographic proper-name columns — the description identifies the values as
+            # geographic NAMES (county/state/country/territory/ecoregion/region/place …
+            # "name"), which are self-describing external identifiers needing no code→name
+            # map. values_self_describing() already folds mixed-case names ('Mojave
+            # Desert'), but source data often ships them ALL-CAPS ('ALAMEDA', ace County's
+            # 58 CA counties), which the lowercase requirement there rejects — yet they are
+            # no less self-describing. Key on the deliberate "<geo-word> name" phrasing so
+            # opaque all-caps acronyms (CCAMLR, RFB) still flag. Still requires `values`.
+            is_geo_name = bool(re.search(
+                r"\b(count(y|ies)|state|province|country|territor\w+|ecoregion|"
+                r"region|place|borough|parish|municipalit\w+|island)\s+names?\b", desc_l))
+
+            # COG-classification-defined numeric codes — for a raster→hex dataset, the
+            # authoritative code→name legend lives in the COG asset's
+            # classification:classes, which the geo-agent reads directly. When every
+            # numeric value of this column is defined there, an inline map on the hex
+            # column would just duplicate the legend (e.g. ca-climate-zones `zone` 1–10,
+            # each defined as "Zone N" in the COG). Completeness is still enforced by the
+            # data check (values == DISTINCT) and the hex⊆COG cross-check below.
+            cog_defined = False
+            if cog_classes and values_arr:
+                try:
+                    vnums = set(int(v) for v in values_arr)
+                    cog_defined = any(vnums <= set(m.keys()) for m in cog_classes.values())
+                except (ValueError, TypeError):
+                    cog_defined = False
+
             # Self-describing label enums (values are full words/phrases, not codes)
             # carry no code→name mapping, so an inline CODE=Definition list would be
             # redundant. Skip the inline requirement for them — but still require the
             # `values` array below (a documented value set is always useful). #303.
-            if not has_inline_codes and not values_self_describing(values_arr):
+            if (not has_inline_codes and not values_self_describing(values_arr)
+                    and not is_geo_name and not cog_defined):
                 errors.append(
                     f"[{collection_id}] asset '{asset_key}', column '{col_name}': "
                     f"coded categorical column missing inline CODE=Definition list in description. "
