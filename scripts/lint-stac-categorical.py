@@ -221,6 +221,18 @@ def lint(source: str) -> list[str]:
                 if re.fullmatch(r"(?i)(iso|un)_(sov|ter)\d*|eco_code(_x)?", col_name):
                     continue
 
+                # Skip ISO 3166 country codes (alpha-2/alpha-3) — a universal external
+                # standard (~250 codes) the geo-agent resolves natively, not a dataset
+                # enum. Listing 226+ codes as `values` is a key dump, and the canonical
+                # CODE=Name map is the published ISO standard, not a dataset value list.
+                # Same rationale as the ISO/UN sibling-code fold above. Signal: the
+                # description names ISO 3166, or the column is an unambiguous country-code
+                # field (countrycode / iso_a2 / iso_a3 — a bare `country` only folds via
+                # the ISO-3166 description, since `country` can also be a full-name column).
+                if (re.search(r"iso[\s-]?3166", desc_l)
+                        or re.fullmatch(r"(?i)(countrycode|country_code|iso_a[23]|iso3166[\w-]*)", col_name)):
+                    continue
+
                 # Skip US state/territory two-letter POSTAL abbreviations — a universal
                 # external standard (CA=California, …) the geo-agent resolves natively,
                 # not a dataset-specific enum (same rationale as the ISO/UN codes above).
@@ -258,6 +270,25 @@ def lint(source: str) -> list[str]:
                 # this subwatershed flows to". High-cardinality (one per upstream unit).
                 if (re.search(r"downstream\b.{0,30}\b(code|huc)|\bflows? to\b|\brouting\b", desc_l)
                         or re.fullmatch(r"(?i)tohuc|to_huc", col_name)):
+                    continue
+
+                # Skip Linnaean taxonomic-rank columns — scientific nomenclature (class,
+                # order, family, genus, kingdom, phylum, scientific name) is an OPEN
+                # external naming system maintained by taxonomic authorities (the GBIF
+                # backbone, IUCN, Catalogue of Life), not a dataset-controlled enum. The
+                # values are self-describing taxon names (Mammalia, Actinopterygii) and
+                # high-cardinality (GBIF carries 650+ classes incl. provisional codes), so
+                # neither an inline CODE=Definition map nor a finite `values` array applies
+                # — the meaning is defined by the nomenclature, not a dataset value list.
+                # Distinct from a dataset's OWN taxon-grouping vocabulary (e.g. MegaMove
+                # `taxon`'s 8 fixed groups), which IS enumerable and keeps its `values`
+                # array. Signal: the description names it a taxonomic/Linnaean rank or a
+                # scientific name (a deliberate author signal, like is_source/heterogeneous).
+                is_taxonomic_rank = bool(re.search(
+                    r"\blinnaean\b|\btaxonomic\s+(class|rank|order|family|genus|kingdom|"
+                    r"phylum|division)\b|\bscientific name\b|open (scientific )?nomenclature|"
+                    r"taxonomic authorit|gbif backbone|catalogue of life", desc_l))
+                if is_taxonomic_rank:
                     continue
 
                 # Skip identifier columns — unique keys / external record codes, not
