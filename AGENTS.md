@@ -460,6 +460,13 @@ auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (
   ```
   Missing definitions cause LLM agents to guess values (e.g. `WHERE owner_type = 'Federal'` instead of `'FED'`) and return empty results.
 
+  **Authoring `values`/inline-map gotchas** (all enforced by `verify-stac.py`'s data-backed check — these are the footguns that make a *published* array silently RED):
+  - **Use a FLAT `values` array + inline `CODE=Name` in the description.** Object-form (`[{"value":…,"description":…}]`) is NOT supported — the data check `str(dict)`s it and fails on every row.
+  - **Inline `CODE=Name` tokens must be UNQUOTED** (`T=Tidal`, `8=Region 8`) — quoting the code (`'T'=Tidal`) breaks the inline-map regex, so the column reads as "missing inline map".
+  - **`values` must equal the *ingested* DISTINCT exactly** — source the map authoritatively, then confirm against the data (the gate does this for you; don't hand-trust an upstream standard's full list — a column often uses a subset).
+  - **The check trims whitespace and treats `''`/`null`/`nan`/`none` (case-insensitive) as absence.** So a data wart like WDPA `NO_TAKE`'s `'All '` (trailing space) matches a clean declared `All`; and a *genuine* `None` category (e.g. "no no-take zone") is dropped from the ingested set, surfacing only a benign `values-extra` ADVISORY — keep documenting it.
+  - **Many "coded" columns should FOLD, not enumerate** (ISO-3166 country codes, Linnaean taxonomy, free-text, semicolon-/comma-delimited compositional codes, self-describing label enums). The fold is triggered by *wording the description* to match `lint-stac-categorical.py`'s skip rules — read that file's inline comments rather than dumping thousands of combinations as `values`.
+
 - **Categorical rasters (COG assets with discrete pixel-value classes):** the COG asset's `raster:bands[0]` MUST include `classification:classes` (STAC classification extension v2.0.0). Each entry: `{ value, name, description, color_hint }` where `color_hint` is a 6-character RGB hex (no leading `#`). Add `https://stac-extensions.github.io/classification/v2.0.0/schema.json` to `stac_extensions`. Do **not** use the legacy `class_values` field from the raster extension — geo-agent reads `classification:classes` and `color_hint` to build both the discrete legend swatches and the titiler categorical colormap; without those colors the layer falls back to a continuous gradient. Use the dataset's standard published palette where one exists (NLCD MRLC colors, etc.); otherwise pick distinguishable accessible colors and note the choice in the asset description.
   ```json
   "stac_extensions": [
