@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: carbon-cog-integral-validate
+  namespace: biodiversity
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: integral
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 45Gi}
+          limits: {cpu: '4', memory: 16Gi, ephemeral-storage: 45Gi}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cd /tmp
+          echo "aW1wb3J0IHN5cywgbnVtcHkgYXMgbnAKZnJvbSBvc2dlbyBpbXBvcnQgZ2RhbApnZGFsLlVzZUV4Y2VwdGlvbnMoKQpzdGVtPXN5cy5hcmd2WzFdOyBwYXRoPSIvdG1wLyVzLnRpZiIlc3RlbQpkcz1nZGFsLk9wZW4ocGF0aCk7IGI9ZHMuR2V0UmFzdGVyQmFuZCgxKQpub2Q9Yi5HZXROb0RhdGFWYWx1ZSgpCmd0PWRzLkdldEdlb1RyYW5zZm9ybSgpOyBXLEg9ZHMuUmFzdGVyWFNpemUsZHMuUmFzdGVyWVNpemUKUj02MzcxMDA3LjE4MTsgZGxvbj1hYnMoZ3RbMV0pKm5wLnBpLzE4MC4wCnRvdGFsPTAuMDsgdmFsaWQ9MDsgYmxrPTUxMgpmb3IgeTAgaW4gcmFuZ2UoMCxILGJsayk6CiAgICByb3dzPW1pbihibGssSC15MCkKICAgIGE9Yi5SZWFkQXNBcnJheSgwLHkwLFcscm93cykuYXN0eXBlKCdmbG9hdDY0JykKICAgIGx0PWd0WzNdK2d0WzVdKm5wLmFyYW5nZSh5MCx5MCtyb3dzKQogICAgbGI9Z3RbM10rZ3RbNV0qbnAuYXJhbmdlKHkwKzEseTArcm93cysxKQogICAgYXJlYV9oYT0oUipSKmRsb24qbnAuYWJzKG5wLnNpbihucC5yYWRpYW5zKGx0KSktbnAuc2luKG5wLnJhZGlhbnMobGIpKSkvMWU0KVs6LE5vbmVdCiAgICBtPWE8MWUzMAogICAgdG90YWwrPW5wLndoZXJlKG0sYSphcmVhX2hhLDAuMCkuc3VtKCk7IHZhbGlkKz1pbnQobS5zdW0oKSkKcHJpbnQoIlJFU1VMVCAlcyAlLjNmICVkICUuM2UiJShzdGVtLHRvdGFsLzFlOSx2YWxpZCxub2QpKQo=" | base64 -d > /tmp/integral.py
+          ENDPOINT="http://rook-ceph-rgw-nautiluss3.rook"
+          STEMS="irrecoverable_c_total_2018 irrecoverable_c_total_2022 irrecoverable_c_total_2023 irrecoverable_c_total_2024 vulnerable_c_total_2010 vulnerable_c_total_2018 vulnerable_c_total_2024 manageable_c_total_2010 manageable_c_total_2018 manageable_c_total_2024"
+          for STEM in $STEMS; do
+            echo ">>> ${STEM}: download $(date +%T)"
+            aws s3 cp "s3://public-carbon/v2/cogs/${STEM}.tif" "/tmp/${STEM}.tif" --endpoint-url "$ENDPOINT" --no-progress
+            echo ">>> ${STEM}: integrate $(date +%T)"
+            python3 -u /tmp/integral.py "$STEM"
+            rm -f "/tmp/${STEM}.tif"
+          done
+          echo "=== DONE ==="
