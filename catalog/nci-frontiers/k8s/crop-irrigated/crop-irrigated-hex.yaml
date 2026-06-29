@@ -8,7 +8,6 @@ spec:
   completions: 122
   parallelism: 50
   completionMode: Indexed
-  backoffLimit: 0
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -57,10 +56,13 @@ spec:
         command:
         - bash
         - -c
-        - |-
-          set -e
+        - 'set -e
 
-          cng-datasets raster --input "s3://public-nci-frontiers/raw/inputs/cropland/oil_palm_split/totalproductionvalueirrigated_NoPalmOilRevR_nolabor_machinerycosts.tif" --output-parquet s3://public-nci-frontiers/crop-irrigated/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 5 --parent-resolutions 4,3,0 --value-column crop_irrig_usd_ha --hex-resampling mean --nodata 0.0
+
+          cng-datasets raster --input "s3://public-nci-frontiers/raw/inputs/cropland/oil_palm_split/totalproductionvalueirrigated_NoPalmOilRevR_nolabor_machinerycosts.tif"
+          --output-parquet s3://public-nci-frontiers/crop-irrigated/hex/ --h0-index
+          ${JOB_COMPLETION_INDEX} --resolution 5 --parent-resolutions 4,3,0 --value-column
+          crop_irrig_usd_ha --hex-resampling mean --nodata 0.0'
         resources:
           requests:
             cpu: '4'
@@ -80,7 +82,10 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
+              - key: kubernetes.io/hostname
                 operator: NotIn
                 values:
-                - 'true'
+                - hpc-nrp-g1.nmsu.edu
+      activeDeadlineSeconds: 1200
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 10

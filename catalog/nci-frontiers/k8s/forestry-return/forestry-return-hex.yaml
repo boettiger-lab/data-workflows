@@ -58,10 +58,13 @@ spec:
         command:
         - bash
         - -c
-        - |-
-          set -e
+        - 'set -e
 
-          cng-datasets raster --input "s3://public-nci-frontiers/raw/inputs/forestry/forestry_land_share_return_tcost_before_2022_07_23.tif" --output-parquet s3://public-nci-frontiers/forestry-return/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 7,6,5,0 --value-column forestry_usd_ha --hex-resampling mean --nodata -99999.0
+
+          cng-datasets raster --input "s3://public-nci-frontiers/raw/inputs/forestry/forestry_land_share_return_tcost_before_2022_07_23.tif"
+          --output-parquet s3://public-nci-frontiers/forestry-return/hex/ --h0-index
+          ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 7,6,5,0 --value-column
+          forestry_usd_ha --hex-resampling mean --nodata -99999.0'
         resources:
           requests:
             cpu: '4'
@@ -81,7 +84,9 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
+              - key: kubernetes.io/hostname
                 operator: NotIn
                 values:
-                - 'true'
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
+      activeDeadlineSeconds: 1200
