@@ -15,6 +15,10 @@ generates YAML; apply to cluster).
 Res 5 matches our IUCN biodiversity grid and the paper's ~8 000-ha parcel; the 300 m layers carry an `h5`
 parent column so everything rolls up to a common res-5 decision unit.
 
+> **⚠️ Memory:** res-8 hex of a 300 m global raster needs **`--hex-memory 64Gi`** — `exact_extract` on the
+> densest h0 cells (~5.76 M cells) OOMs at 32Gi (`exit 137`) and can blow `maxFailedIndexes` and fail the
+> job (observed on `flii` and `forestry-return`). The res-5 economic layers are fine at 16–32Gi.
+
 ## Reducers + nodata (per pre-flight)
 
 | Layer(s) | `--value-column` | reducer | `--nodata` |

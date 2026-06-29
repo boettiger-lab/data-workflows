@@ -580,7 +580,7 @@ Counterintuitive result: 10,000 small features at 8Gi can be fine, while a singl
 | Param | Default | When to change |
 |---|---|---|
 | `--h3-resolution` | auto (from pixel size) | Override if auto is wrong |
-| `--hex-memory` | 32Gi | Raise if OOM |
+| `--hex-memory` | 32Gi | Raise if OOM. **Res-8 hex of a 300 m global raster needs 64Gi** — `exact_extract` on the densest h0 cells (~5.76 M cells/h0) OOMs at 32Gi (`exit 137`); with `backoffLimit: 0` it silently retries forever, with `backoffLimitPerIndex` it can blow `maxFailedIndexes` and **fail the job** (observed on nci-frontiers `flii`/forestry). Use 64Gi for res-8 300 m layers; coarser res or coarser source can stay at 32Gi. |
 | `--max-parallelism` | 61 | k8s only; reduce on quota hit; cap 122 |
 | `--parent-resolutions` | "0" | Add intermediate (e.g. `"7,0"`) if needed |
 | `--value-column` | "value" | Use meaningful name (`carbon`, `arte`, `nlcd`) |

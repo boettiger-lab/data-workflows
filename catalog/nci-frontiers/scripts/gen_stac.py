@@ -72,5 +72,12 @@ coll={"stac_version":"1.0.0",
    {"rel":"parent","href":ROOT,"type":"application/json"},
    {"rel":"license","href":"https://creativecommons.org/publicdomain/zero/1.0/","type":"text/html"}],
  "assets":assets}
+# READY_LAYERS (comma-sep dataset names) → publish only assets whose data is live (interim STAC).
+import os
+_ready=os.environ.get("READY_LAYERS","").strip()
+if _ready:
+    keep=set(_ready.split(","))
+    coll["assets"]={k:v for k,v in assets.items() if k[:-4] in keep}  # asset key = "<dataset>-hex"
+    coll["description"]+=f"  [Interim publish: {len(coll['assets'])} of {len(assets)} layers live; remainder land as the hex campaign completes.]"
 json.dump(coll,open("/tmp/nci-frontiers-stac.json","w"),indent=2)
-print("wrote /tmp/nci-frontiers-stac.json with",len(assets),"assets")
+print("wrote /tmp/nci-frontiers-stac.json with",len(coll["assets"]),"assets")
