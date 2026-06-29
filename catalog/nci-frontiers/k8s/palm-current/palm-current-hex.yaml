@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: palm-current-hex
+  labels:
+    k8s-app: palm-current-hex
+spec:
+  completions: 122
+  parallelism: 50
+  completionMode: Indexed
+  backoffLimit: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: palm-current-hex
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: BUCKET
+          value: public-nci-frontiers
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+
+          cng-datasets raster --input "s3://public-nci-frontiers/raw/inputs/cropland/oil_palm_split/totalproductionvaluecurrent_OnlyPalmOilRevR_nolabor_machinerycosts.tif" --output-parquet s3://public-nci-frontiers/palm-current/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 5 --parent-resolutions 4,3,0 --value-column palm_current_usd_ha --hex-resampling mean --nodata 0.0
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

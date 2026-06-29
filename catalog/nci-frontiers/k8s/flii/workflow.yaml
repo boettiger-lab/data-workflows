@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flii-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "set -e\n\necho \"Starting flii raster workflow...\"\n\n# Step 0: Setup\
+          \ bucket\necho \"Step 0: Setting up bucket...\"\nkubectl apply -f /yamls/flii-setup-bucket.yaml\
+          \ -n biodiversity\nkubectl wait --for=condition=complete --timeout=600s\
+          \ job/flii-setup-bucket -n biodiversity\n\n# Step 1: H3 hexagonal tiling\n\
+          echo \"Step 1: H3 hexagonal tiling...\"\nkubectl apply -f /yamls/flii-hex.yaml\
+          \ -n biodiversity\nkubectl wait --for=condition=complete --timeout=7200s\
+          \ job/flii-hex -n biodiversity\n\necho \"\u2713 Workflow complete!\"\necho\
+          \ \"Clean up with:\"\necho \"  kubectl delete jobs flii-setup-bucket flii-hex\
+          \ flii-workflow -n biodiversity\"\necho \"  kubectl delete configmap flii-yamls\
+          \ -n biodiversity\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: flii-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
