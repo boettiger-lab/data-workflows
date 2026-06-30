@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crop-rainfed-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "set -e\n\necho \"Starting crop-rainfed raster workflow...\"\n\n# Step 0:\
+          \ Setup bucket\necho \"Step 0: Setting up bucket...\"\nkubectl apply -f\
+          \ /yamls/crop-rainfed-setup-bucket.yaml -n biodiversity\nkubectl wait --for=condition=complete\
+          \ --timeout=600s job/crop-rainfed-setup-bucket -n biodiversity\n\n# Step\
+          \ 1: H3 hexagonal tiling\necho \"Step 1: H3 hexagonal tiling...\"\nkubectl\
+          \ apply -f /yamls/crop-rainfed-hex.yaml -n biodiversity\nkubectl wait --for=condition=complete\
+          \ --timeout=7200s job/crop-rainfed-hex -n biodiversity\n\necho \"\u2713\
+          \ Workflow complete!\"\necho \"Clean up with:\"\necho \"  kubectl delete\
+          \ jobs crop-rainfed-setup-bucket crop-rainfed-hex crop-rainfed-workflow\
+          \ -n biodiversity\"\necho \"  kubectl delete configmap crop-rainfed-yamls\
+          \ -n biodiversity\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: crop-rainfed-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
