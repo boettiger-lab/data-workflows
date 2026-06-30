@@ -59,6 +59,36 @@ k,a=asset("esa-lc-2025-hex","ESA CCI Land Cover 2025 (current land-use mask)",8,
      "190 urban / 200–202 bare / 210 water / 220 ice → no production. Codes: "+", ".join(f"{c}={_ESA[c]}" for c in _esa_codes)+". "+SRC),
    "values":_esa_codes}); assets[k]=a
 
+# Wave 4 — allowed-alternative constraint masks (binary 0/1) + carbon zones (res 8, mode reducer)
+# Masks gate which land-use alternatives are admissible per parcel in the Polasky et al. frontier.
+for key,title,col,nd,m0,m1 in [
+  ("mask-irrigation-hex","Mask: irrigated cropland suitability","irrigation_suit",7,
+     "not suitable for irrigated cropland","suitable for irrigated cropland"),
+  ("mask-rainfed-hex","Mask: rainfed cropland suitability","rainfed_suit",7,
+     "not suitable for rainfed cropland","suitable for rainfed cropland"),
+  ("mask-sustainable-irrig-hex","Mask: sustainable irrigation potential","sustain_irrig",7,
+     "no sustainable irrigation potential","has sustainable irrigation potential"),
+  ("mask-expansion-suit-hex","Mask: agricultural expansion suitability","expansion_suit",7,
+     "not suitable for natural-to-agriculture expansion","suitable for natural-to-agriculture expansion"),
+  ("mask-slope-expansion-hex","Mask: slope allows agricultural expansion","slope_exp_ok",255,
+     "excluded by slope (too steep for expansion)","slope permits agricultural expansion"),
+  ("mask-slope-intensif-hex","Mask: slope allows agricultural intensification","slope_int_ok",255,
+     "excluded by slope (too steep for intensification)","slope permits agricultural intensification")]:
+    k,a=asset(key,title,8,col,
+      {"name":col,"type":"int64",
+       "description":(f"Binary scenario-construction constraint mask, dominant value per H3 cell (reducer=mode). "
+         f"Values: 0={m0}, 1={m1}. nodata {nd} (no data / not applicable) excluded before aggregation. "
+         "Restricts which land-use alternatives are admissible per parcel in the Polasky et al. frontier. "+SRC),
+       "values":[0,1]}); assets[k]=a
+# carbon zones (new_ecoregions.tif) — ecoregion-based zone ID; the Spawn et al. carbon_table join key (res 8, mode)
+k,a=asset("carbon-zones-hex","Carbon zones (new_ecoregions)",8,"carbon_zone",
+  {"name":"carbon_zone","type":"int64",
+   "description":("Integer carbon-zone ID, dominant zone per H3 cell (reducer=mode; 830 distinct zones, range 1–846). "
+     "A high-cardinality identifier that joins to the Spawn et al. carbon_table lookup (per-zone x land-use "
+     "above/below-ground carbon density), used to derive graded per-land-use carbon for each frontier alternative — "
+     "not an enumerable thematic vocabulary, so no `values` array is listed. nodata 0 (no zone / ocean) excluded "
+     "before aggregation. "+SRC)}); assets[k]=a
+
 # COG assets (visualization) for any economic layer that has a published <dataset>-cog.tif (COG_LAYERS env)
 import os as _os
 _COGMETA={
@@ -86,7 +116,10 @@ coll={"stac_version":"1.0.0",
    "unit (~8000 ha, the paper's parcel). Revenue/methane/FLII are per-ha/index DENSITIES (mean reducer — aggregate "
    "with AVG, never SUM); transition costs are per-cell USD TOTALS (sum reducer). Sourced from the CC0 Dryad deposit "
    "(doi:10.5061/dryad.qjq2bvqw5); see also iucn-richness-2025, wwf-ecoregions-2017, irrecoverable-carbon for the "
-   "biodiversity and carbon objectives, and wdpa for the IUCN I–IV constraint."),
+   "biodiversity and carbon objectives, and wdpa for the IUCN I–IV constraint. Also included are the "
+   "scenario-construction constraint masks (binary suitability/slope eligibility, mode reducer, res 8) that "
+   "restrict admissible land-use alternatives per parcel, and the carbon-zone ID raster (mode reducer, res 8) "
+   "that keys the Spawn et al. carbon_table for graded per-land-use carbon."),
  "license":"CC0-1.0",
  "keywords":["land use","biodiversity","carbon","agriculture","ecosystem services","H3","Polasky","efficiency frontier"],
  "extent":{"spatial":{"bbox":[[-180,-90,180,90]]},"temporal":{"interval":[["2010-01-01T00:00:00Z","2022-12-31T00:00:00Z"]]}},
