@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: carbon-zones-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "set -e\n\necho \"Starting carbon-zones raster workflow...\"\n\n# Step 0:\
+          \ Setup bucket\necho \"Step 0: Setting up bucket...\"\nkubectl apply -f\
+          \ /yamls/carbon-zones-setup-bucket.yaml -n biodiversity\nkubectl wait --for=condition=complete\
+          \ --timeout=600s job/carbon-zones-setup-bucket -n biodiversity\n\n# Step\
+          \ 1: H3 hexagonal tiling\necho \"Step 1: H3 hexagonal tiling...\"\nkubectl\
+          \ apply -f /yamls/carbon-zones-hex.yaml -n biodiversity\nkubectl wait --for=condition=complete\
+          \ --timeout=7200s job/carbon-zones-hex -n biodiversity\n\necho \"\u2713\
+          \ Workflow complete!\"\necho \"Clean up with:\"\necho \"  kubectl delete\
+          \ jobs carbon-zones-setup-bucket carbon-zones-hex carbon-zones-workflow\
+          \ -n biodiversity\"\necho \"  kubectl delete configmap carbon-zones-yamls\
+          \ -n biodiversity\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: carbon-zones-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
