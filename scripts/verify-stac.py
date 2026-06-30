@@ -145,6 +145,15 @@ def derive_url(bucket: str, dataset: str) -> str:
     return f"{NRP}/{path}/stac-collection.json"
 
 
+def _collection_exists(url: str) -> bool:
+    """True if a STAC doc loads at url (used to fall back to a bucket-level collection)."""
+    try:
+        load_doc(url)
+        return True
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Reuse the two existing standalone linters (filenames have dashes → import by path)
 # ---------------------------------------------------------------------------
@@ -648,12 +657,8 @@ def check_values_match_distinct(doc: dict, mcp: MCPClient) -> list[Finding]:
         # (the cng-datasets raster `mode` reducer emits the value column as DOUBLE,
         # so code 11 reads back as "11.0") compares equal to the int declared in the
         # `values` array ("11"). Genuine string codes ('FED', 'STAT') and real
-        # fractional codes ('11.5') are left untouched. Also strip leading/trailing
-        # whitespace before comparing — surrounding whitespace is never a meaningful
-        # category distinction (WDPA NO_TAKE ships 'All ' with a trailing space), and
-        # requiring the declared `values` array to carry the wart would pollute the
-        # schema. Applied to both sides, same spirit as the .0 / null normalizations.
-        norm = lambda e: f"regexp_replace(trim(CAST({e} AS VARCHAR)), '\\.0+$', '')"
+        # fractional codes ('11.5') are left untouched.
+        norm = lambda e: f"regexp_replace(CAST({e} AS VARCHAR), '\\.0+$', '')"
         # Treat missing-value artifacts as absence, like NULL: an empty/whitespace string
         # and the literal conversion tokens 'null'/'nan'/'none' (pandas/str(None) leakage,
         # case-insensitive) are not real category codes. Requiring them in a `values`
@@ -933,7 +938,17 @@ def main():
             except OSError as e:
                 print(f"[warn] could not read {path}: {e}", file=sys.stderr)
         for bucket, dataset in sorted(targets):
-            sources.append(derive_url(bucket, dataset))
+            url = derive_url(bucket, dataset)
+            # Bucket-level collections: many datasets can share ONE collection at the
+            # bucket root (e.g. public-carbon, public-nci-frontiers) instead of a
+            # per-dataset stac-collection.json. If the per-dataset STAC 404s but a
+            # bucket-level one exists, verify that instead. De-dup (below) then collapses
+            # all the bucket's datasets to the single bucket-level collection. If NEITHER
+            # exists (recipe not run yet at PR-open), keep the per-dataset URL so the
+            # load-error RED still fires (the intended pre-publish state).
+            if not _collection_exists(url) and _collection_exists(derive_url(bucket, "")):
+                url = derive_url(bucket, "")
+            sources.append(url)
         if not targets:
             print("No dataset collection targets derived from the given YAML(s) — "
                   "nothing to verify.", file=sys.stderr)

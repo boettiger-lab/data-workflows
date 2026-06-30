@@ -49,8 +49,34 @@ for key,title,col,scn in [
     k,a=asset(key,title,8,col,
       {"name":col,"type":"double","description":f"Total one-time land-use transition cost in USD per H3 cell for the **{scn}** alternative (reducer=sum of per-pixel USD). Safe to SUM across cells at the SAME resolution; do not sum across resolutions. "+SRC}); assets[k]=a
 
+# ESA CCI land cover (current land-use mask for the economic overlay) — categorical, res 8
+_ESA={10:"Cropland rainfed",11:"Cropland rainfed herbaceous",12:"Cropland rainfed tree/shrub",20:"Cropland irrigated",30:"Mosaic cropland>50%/natural",40:"Mosaic natural>50%/cropland",50:"Tree broadleaved evergreen",60:"Tree broadleaved deciduous",61:"Tree broadleaved deciduous closed",62:"Tree broadleaved deciduous open",70:"Tree needleleaved evergreen",71:"Tree needleleaved evergreen closed",72:"Tree needleleaved evergreen open",80:"Tree needleleaved deciduous",81:"Tree needleleaved deciduous closed",82:"Tree needleleaved deciduous open",90:"Tree mixed",100:"Mosaic tree-shrub>50%/herbaceous",110:"Mosaic herbaceous>50%/tree-shrub",120:"Shrubland",121:"Shrubland evergreen",122:"Shrubland deciduous",130:"Grassland",140:"Lichens/mosses",150:"Sparse vegetation",151:"Sparse tree",152:"Sparse shrub",153:"Sparse herbaceous",160:"Tree flooded fresh/brackish",170:"Tree flooded saline",180:"Shrub/herbaceous flooded",190:"Urban",200:"Bare areas",201:"Bare consolidated",202:"Bare unconsolidated",210:"Water",220:"Permanent snow/ice"}
+_esa_codes=[10,11,12,20,30,40,50,60,61,62,70,71,72,80,81,82,90,100,110,120,121,122,130,140,150,151,152,153,160,170,180,190,200,201,202,210,220]
+k,a=asset("esa-lc-2025-hex","ESA CCI Land Cover 2025 (current land-use mask)",8,"esa_lc",
+  {"name":"esa_lc","type":"int64",
+   "description":("ESA CCI land-cover class, dominant (mode) per cell. **Current land-use mask for the economic overlay:** "
+     "cropland 10–40 → crop value; grass/shrub/sparse 110–153,180 → grazing; forest 50–100,160,170 → forestry; "
+     "190 urban / 200–202 bare / 210 water / 220 ice → no production. Codes: "+", ".join(f"{c}={_ESA[c]}" for c in _esa_codes)+". "+SRC),
+   "values":_esa_codes}); assets[k]=a
+
+# COG assets (visualization) for any economic layer that has a published <dataset>-cog.tif (COG_LAYERS env)
+import os as _os
+_COGMETA={
+ 'crop-current':('crop_current_usd_ha','float32',0,'Current crop revenue (visualization COG)'),
+ 'crop-irrigated':('crop_irrig_usd_ha','float32',0,'Potential irrigated crop revenue (visualization COG)'),
+ 'crop-rainfed':('crop_rainfed_usd_ha','float32',0,'Potential rainfed crop revenue (visualization COG)'),
+ 'palm-current':('palm_current_usd_ha','float32',0,'Current oil-palm revenue (visualization COG)'),
+ 'grazing-return':('grazing_usd_ha','float64',-9999,'Potential grazing revenue (visualization COG)'),
+ 'forestry-return':('forestry_usd_ha','float32',-99999,'Potential forestry revenue (visualization COG)')}
+for _ds in [x for x in _os.environ.get("COG_LAYERS","").split(",") if x]:
+    _col,_dt,_nd,_title=_COGMETA[_ds]
+    assets[f"{_ds}-cog"]={"href":f"{BASE}/{_ds}/{_ds}-cog.tif",
+      "type":"image/tiff; application=geotiff; profile=cloud-optimized","title":_title,"roles":["data","visual"],
+      "raster:bands":[{"name":_col,"data_type":_dt,"nodata":_nd,"unit":"USD/ha","description":"Net production value density (USD/ha); negative = net loss. "+SRC}]}
+
 coll={"stac_version":"1.0.0",
- "stac_extensions":["https://stac-extensions.github.io/table/v1.2.0/schema.json"],
+ "stac_extensions":["https://stac-extensions.github.io/table/v1.2.0/schema.json",
+   "https://stac-extensions.github.io/raster/v1.1.0/schema.json"],
  "type":"Collection","id":"nci-frontiers",
  "title":"Sustainable Landscape Efficiency Frontiers — Input Layers (Polasky et al. 2026)",
  "description":("H3-hexed input layers for the sustainable landscape efficiency frontier analysis of Polasky et al. "
