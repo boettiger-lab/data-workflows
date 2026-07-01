@@ -89,6 +89,25 @@ k,a=asset("carbon-zones-hex","Carbon zones (new_ecoregions)",8,"carbon_zone",
      "not an enumerable thematic vocabulary, so no `values` array is listed. nodata 0 (no zone / ocean) excluded "
      "before aggregation. "+SRC)}); assets[k]=a
 
+# Reference lookup table (non-hex, non-geometry) — atomic, joinable in any context.
+# carbon_table reshaped long: one row per (carbon_zone, land-use class), value = carbon density.
+assets["carbon-by-zone-lulc-parquet"]={
+  "href":f"{BASE}/lookups/carbon-by-zone-lulc.parquet","type":"application/x-parquet",
+  "title":"Carbon density by carbon-zone × land-use class (Spawn/Polasky lookup)","roles":["data"],
+  "table:columns":[
+    {"name":"carbon_zone","type":"int64",
+     "description":"Carbon-zone ID (1–846; 830 zones). Joins to the carbon-zones-hex `carbon_zone` column (verified 1:1 key match). "+SRC},
+    {"name":"lulc_code","type":"int64",
+     "description":("Land-use / land-cover class code — ESA CCI classes plus Polasky et al. custom "
+       "intensification / oil-palm / plantation / grazing / forestry codes. Identifier that joins to the "
+       "ESA/PREDICTS land-use classes; full code→name definitions ship in the deposit `predicts` crosswalk "
+       "(published with the biodiversity layers). "+SRC)},
+    {"name":"carbon_mg_ha","type":"double",
+     "description":("Carbon density in metric tons of carbon per hectare (t C ha⁻¹ = Mg C ha⁻¹) for this "
+       "land-use class within this carbon zone (Spawn et al. via Polasky et al.). **Density, not a total — do NOT "
+       "SUM densities.** For a carbon stock multiply by ground area (paper: ×100 ha/km² × pixel_area_km²; on hex: "
+       "× the H3 cell area). Zero where there is no land use. "+SRC)}]}
+
 # COG assets (visualization) for any economic layer that has a published <dataset>-cog.tif (COG_LAYERS env)
 import os as _os
 _COGMETA={
