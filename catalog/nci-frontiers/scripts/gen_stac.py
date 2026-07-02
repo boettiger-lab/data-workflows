@@ -39,15 +39,33 @@ k,a=asset("grazing-methane-hex","Potential grazing methane",5,"methane_kg_ha_yr"
 k,a=asset("forestry-return-hex","Potential forestry revenue",8,"forestry_usd_ha",dens("forestry_usd_ha","potential forestry net return",-99999)); assets[k]=a
 k,a=asset("flii-hex","Forest Landscape Integrity Index",8,"flii",
   {"name":"flii","type":"double","description":"Area-weighted MEAN Forest Landscape Integrity Index, 0–10000 (÷10000 → 0–1; higher = more intact forest). reducer=mean. **Intensity — AVG not SUM.** Source: Grantham et al. 2020 (doi:10.1038/s41467-020-19493-3), provided CC0 via "+SRC}); assets[k]=a
-# Wave 3 — transition costs (res 8, USD/cell totals, SUM-able)
-for key,title,col,scn in [
-  ("tran-cost-restoration-hex","Transition cost: restoration","tcost_restoration_usd","restoration to natural habitat"),
-  ("tran-cost-sustainable-current-hex","Transition cost: sustainable current","tcost_sustainable_current_usd","sustainable current land use"),
-  ("tran-cost-extensification-intensified-irrigated-hex","Transition cost: extensification+intensified irrigated","tcost_ext_intens_irrig_usd","cropland expansion + intensified irrigated"),
-  ("tran-cost-extensification-intensified-rainfed-hex","Transition cost: extensification+intensified rainfed","tcost_ext_intens_rainfed_usd","cropland expansion + intensified rainfed"),
-  ("tran-cost-grazing-expansion-hex","Transition cost: grazing expansion","tcost_grazing_expansion_usd","grazing expansion")]:
-    k,a=asset(key,title,8,col,
-      {"name":col,"type":"double","description":f"Total one-time land-use transition cost in USD per H3 cell for the **{scn}** alternative (reducer=sum of per-pixel USD). Safe to SUM across cells at the SAME resolution; do not sum across resolutions. "+SRC}); assets[k]=a
+# Wave 3 — transition costs: all 13 land-use alternatives (res 8, sum of per-pixel USD).
+# Units are ANNUALIZED USD 2015 per year (SI §7), NOT one-time. 4 alternatives have a genuine
+# model zero (management/sustainable-use change on existing cover — no land conversion); verified
+# against the authors' results (Brazil+USA sums, Brazil ModelResults pixels). base_lulc is the
+# baseline reference (not an alternative) and is intentionally excluded.
+for key,title,col,scn,zero in [
+  ("tran-cost-restoration-hex","Transition cost: restoration","tcost_restoration_usd","restoration to natural habitat",0),
+  ("tran-cost-extensification-intensified-irrigated-hex","Transition cost: extensification+intensified irrigated","tcost_ext_intens_irrig_usd","cropland expansion, intensified, irrigated",0),
+  ("tran-cost-extensification-intensified-rainfed-hex","Transition cost: extensification+intensified rainfed","tcost_ext_intens_rainfed_usd","cropland expansion, intensified, rainfed",0),
+  ("tran-cost-extensification-bmps-irrigated-hex","Transition cost: extensification+BMPs irrigated","tcost_ext_bmps_irrig_usd","cropland expansion, best-management-practices, irrigated",0),
+  ("tran-cost-extensification-bmps-rainfed-hex","Transition cost: extensification+BMPs rainfed","tcost_ext_bmps_rainfed_usd","cropland expansion, best-management-practices, rainfed",0),
+  ("tran-cost-extensification-current-practices-hex","Transition cost: extensification current practices","tcost_ext_current_usd","cropland expansion, current practices",0),
+  ("tran-cost-fixedarea-bmps-irrigated-hex","Transition cost: fixed-area BMPs irrigated","tcost_fixedarea_bmps_irrig_usd","fixed-area cropland, best-management-practices, irrigated",0),
+  ("tran-cost-fixedarea-bmps-rainfed-hex","Transition cost: fixed-area BMPs rainfed","tcost_fixedarea_bmps_rainfed_usd","fixed-area cropland, best-management-practices, rainfed",0),
+  ("tran-cost-fixedarea-intensified-irrigated-hex","Transition cost: fixed-area intensified irrigated","tcost_fixedarea_intens_irrig_usd","fixed-area cropland, intensified, irrigated",0),
+  ("tran-cost-sustainable-current-hex","Transition cost: sustainable current","tcost_sustainable_current_usd","sustainable current land use",1),
+  ("tran-cost-grazing-expansion-hex","Transition cost: grazing expansion","tcost_grazing_expansion_usd","sustainable grazing expansion",1),
+  ("tran-cost-forestry-expansion-hex","Transition cost: forestry expansion","tcost_forestry_expansion_usd","sustainable forestry expansion",1),
+  ("tran-cost-fixedarea-intensified-rainfed-hex","Transition cost: fixed-area intensified rainfed","tcost_fixedarea_intens_rainfed_usd","fixed-area cropland, intensified, rainfed",1)]:
+    base=(f"Annualized land-use transition cost (USD 2015 per year) for the **{scn}** alternative, "
+          "summed over source pixels in each H3 cell (reducer=sum). Safe to SUM across cells at the SAME "
+          "resolution; do not sum across resolutions. ")
+    znote=("**This alternative incurs zero transition cost in the model** (management / sustainable-use change "
+           "on existing land cover — no land conversion or new infrastructure); every cell is 0. Verified against "
+           "the authors' results (Brazil+USA country sums and Brazil ModelResults pixels). Published for a complete "
+           "13-alternative set. " if zero else "")
+    k,a=asset(key,title,8,col,{"name":col,"type":"double","description":base+znote+SRC}); assets[k]=a
 
 # ESA CCI land cover (current land-use mask for the economic overlay) — categorical, res 8
 _ESA={10:"Cropland rainfed",11:"Cropland rainfed herbaceous",12:"Cropland rainfed tree/shrub",20:"Cropland irrigated",30:"Mosaic cropland>50%/natural",40:"Mosaic natural>50%/cropland",50:"Tree broadleaved evergreen",60:"Tree broadleaved deciduous",61:"Tree broadleaved deciduous closed",62:"Tree broadleaved deciduous open",70:"Tree needleleaved evergreen",71:"Tree needleleaved evergreen closed",72:"Tree needleleaved evergreen open",80:"Tree needleleaved deciduous",81:"Tree needleleaved deciduous closed",82:"Tree needleleaved deciduous open",90:"Tree mixed",100:"Mosaic tree-shrub>50%/herbaceous",110:"Mosaic herbaceous>50%/tree-shrub",120:"Shrubland",121:"Shrubland evergreen",122:"Shrubland deciduous",130:"Grassland",140:"Lichens/mosses",150:"Sparse vegetation",151:"Sparse tree",152:"Sparse shrub",153:"Sparse herbaceous",160:"Tree flooded fresh/brackish",170:"Tree flooded saline",180:"Shrub/herbaceous flooded",190:"Urban",200:"Bare areas",201:"Bare consolidated",202:"Bare unconsolidated",210:"Water",220:"Permanent snow/ice"}
