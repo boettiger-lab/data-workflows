@@ -108,7 +108,7 @@ spec:
           volumes:
             - name: rclone-config
               secret:
-                secretName: rclone-config
+                secretName: rclone-backup
             - name: scope
               configMap:
                 name: source-sync-scope
