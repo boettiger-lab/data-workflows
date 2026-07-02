@@ -126,6 +126,46 @@ assets["carbon-by-zone-lulc-parquet"]={
        "SUM densities.** For a carbon stock multiply by ground area (paper: ×100 ha/km² × pixel_area_km²; on hex: "
        "× the H3 cell area). Zero where there is no land use. "+SRC)}]}
 
+# PREDICTS lookup tables (reference; drive the species-richness biodiversity sub-index).
+# predicts-crosswalk: each LULC code -> PREDICTS land-use class + intensity (+ Grazed/Forestry flags),
+# and pcode = code0(class*100) + code1(intensity*10). Add habitat age (0/1/2) to pcode to form the
+# predicts_code that joins to predicts-sr-response for the biodiversity response ratio.
+assets["predicts-crosswalk-parquet"]={
+  "href":f"{BASE}/lookups/predicts-crosswalk.parquet","type":"application/x-parquet",
+  "title":"PREDICTS crosswalk: LULC class -> land-use class/intensity","roles":["data"],
+  "table:columns":[
+    {"name":"lulc_code","type":"int64","description":"ESA/custom land-use class code; identifier that joins to the carbon-by-zone-lulc and esa-lc-2025 land-use classes. "+SRC},
+    {"name":"description","type":"string","description":"Human-readable land-cover class name (from the PREDICTS input table). "+SRC},
+    {"name":"source","type":"string","description":"Provenance of the class row: ESA (standard ESA CCI class) or Custom (Polasky et al. scenario-construction class). "+SRC},
+    {"name":"grazed","type":"string","description":"Whether the class represents a grazed land use (Yes/No). "+SRC},
+    {"name":"forestry","type":"string","description":"Whether the class represents a forestry land use (Yes/No). "+SRC},
+    {"name":"predicts_class","type":"string",
+     "description":("PREDICTS land-use class. Values: natural=natural vegetation, plantation=plantation forestry, "
+       "cropland=cropland, pasture=pasture/grazing, urban=urban/developed, n/a=not applicable (nodata). "+SRC),
+     "values":["natural","plantation","cropland","pasture","urban","n/a"]},
+    {"name":"predicts_intensity","type":"string",
+     "description":("PREDICTS land-use intensity. Values: light=minimal/light use, moderate=moderate use, "
+       "intense=intense use, n/a=not applicable (nodata). "+SRC),
+     "values":["light","moderate","intense","n/a"]},
+    {"name":"code0","type":"int64","description":"PREDICTS class component (class x 100: natural=100, plantation=200, cropland=300, pasture=400, urban=500, nodata=-100); combine with code1 and habitat age to form predicts_code that joins to predicts-sr-response. "+SRC},
+    {"name":"code1","type":"int64","description":"PREDICTS intensity component (intensity x 10: light=10, moderate=20, intense=30, nodata=-100); combine with code0 and habitat age to form predicts_code that joins to predicts-sr-response. "+SRC},
+    {"name":"pcode","type":"int64","description":"code0 + code1 (class+intensity composite). Add habitat age (0=primary, 1=intermediate, 2=young secondary) to form the predicts_code that joins to predicts-sr-response. "+SRC}]}
+
+# predicts-sr-response: for each class*100 + intensity*10 + habitat-age composite, the PREDICTS
+# biodiversity response as % of the primary/pristine reference (code 112 = 100). Both species
+# richness (sr) and total abundance (abund), with low/high CIs -- expose both.
+assets["predicts-sr-response-parquet"]={
+  "href":f"{BASE}/lookups/predicts-sr-response.parquet","type":"application/x-parquet",
+  "title":"PREDICTS biodiversity response: relative species richness & abundance","roles":["data"],
+  "table:columns":[
+    {"name":"predicts_code","type":"int64","description":"Composite key = class x 100 + intensity x 10 + habitat-age(0/1/2); identifier that joins to predicts-crosswalk pcode + age. Reference (natural, light, mature) = 112. "+SRC},
+    {"name":"mean_sr","type":"double","description":"Mean relative species richness, % of the primary/pristine reference (112=100). Multiply the species-pool richness by mean_sr/100 for the land-use-modulated richness. "+SRC},
+    {"name":"low_sr","type":"double","description":"Lower CI bound of relative species richness (% of reference). "+SRC},
+    {"name":"high_sr","type":"double","description":"Upper CI bound of relative species richness (% of reference). "+SRC},
+    {"name":"mean_abund","type":"double","description":"Mean relative total abundance, % of the primary/pristine reference (112=100). "+SRC},
+    {"name":"low_abund","type":"double","description":"Lower CI bound of relative total abundance (% of reference). "+SRC},
+    {"name":"high_abund","type":"double","description":"Upper CI bound of relative total abundance (% of reference). "+SRC}]}
+
 # COG assets (visualization) for any economic layer that has a published <dataset>-cog.tif (COG_LAYERS env)
 import os as _os
 _COGMETA={
