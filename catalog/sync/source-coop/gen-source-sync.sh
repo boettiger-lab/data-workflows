@@ -124,7 +124,11 @@ spec:
                 "source:${DEST_BUCKET}/${ACCOUNT}/"?*) : ;;
                 *) echo "REFUSING: dest '\$DEST' is not a cboettig/<repo> sub-path" >&2; exit 1 ;;
               esac
-              RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 120s -v"
+              # --max-delete 150: circuit-breaker — abort if a run would delete
+              # more than 150 objects at the dest (stops a propagated wipe from an
+              # emptied/corrupted source). 150 covers overturemaps' ~122 H0
+              # partitions + assets; tune per hardening plan (geo-agent-ops#21).
+              RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --max-delete 150 --stats 120s -v"
               # DRYRUN=true (env) lists changes without writing. Default: real sync.
               if [ "\${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="\$RCLONE_FLAGS --dry-run"; fi
               echo "${verb^}ing: \$SRC -> \$DEST  (DRYRUN=\${DRYRUN:-false})"
@@ -133,7 +137,7 @@ spec:
       volumes:
         - name: rclone-config
           secret:
-            secretName: rclone-config
+            secretName: rclone-backup
 YAML
   echo "wrote source-sync-${repo}.yaml  [${verb}]${excl:+  (excludes:${excl})}"
 done
@@ -237,7 +241,10 @@ spec:
                                               # stay literal and a HOLD path can't accidentally expand away.
                   ACCOUNT="cboettig"
                   DEST_BUCKET="us-west-2.opendata.source.coop"
-                  RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 300s -v"
+                  # --max-delete 150: circuit-breaker (see per-repo job comment) —
+                  # aborts a run that would delete >150 objects at dest, so an
+                  # emptied/corrupted source can't propagate a wipe to source.coop.
+                  RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --max-delete 150 --stats 300s -v"
                   if [ "${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="$RCLONE_FLAGS --dry-run"; fi
                   fail=0 ; n=0
                   while read -r repo verb excludes; do
@@ -283,7 +290,7 @@ spec:
           volumes:
             - name: rclone-config
               secret:
-                secretName: rclone-config
+                secretName: rclone-backup
             - name: scope
               configMap:
                 name: source-sync-scope
