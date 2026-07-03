@@ -62,7 +62,10 @@ spec:
                                               # stay literal and a HOLD path can't accidentally expand away.
                   ACCOUNT="cboettig"
                   DEST_BUCKET="us-west-2.opendata.source.coop"
-                  RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 300s -v"
+                  # --max-delete 150: circuit-breaker (see per-repo job comment) —
+                  # aborts a run that would delete >150 objects at dest, so an
+                  # emptied/corrupted source can't propagate a wipe to source.coop.
+                  RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --max-delete 150 --stats 300s -v"
                   if [ "${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="$RCLONE_FLAGS --dry-run"; fi
                   fail=0 ; n=0
                   while read -r repo verb excludes; do
