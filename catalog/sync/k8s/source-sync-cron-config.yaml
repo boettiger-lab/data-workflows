@@ -5,7 +5,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: source-sync-scope
-  namespace: biodiversity
+  namespace: boettiger-lab
   labels:
     app: source-sync
 data:
