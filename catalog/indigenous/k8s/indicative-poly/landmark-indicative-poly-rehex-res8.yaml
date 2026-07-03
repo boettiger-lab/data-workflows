@@ -1,0 +1,92 @@
+# Fix #179 — STEP 2 of 3 (run AFTER landmark-indicative-poly-rehex.yaml, the res-10 build).
+#
+# The res-10 full build writes every feasible chunk to .../indicative-poly/chunks-rehex.
+# Continent-scale claims (>50 deg^2; a single 849 deg^2 polygon ~= 700M cells at res 10)
+# OOM at res 10 and produce NO output for their chunk. This job reprocesses ONLY those
+# giant-containing chunks at res 8 into the SAME chunks-rehex dir, filling the gaps.
+#
+# ⚠️ DO NOT hardcode the chunk map blindly. After the res-10 job completes, identify the
+#    chunks that produced no output empirically, e.g.:
+#      for i in $(seq 0 199); do
+#        rclone lsf nrp:public-indigenous/landmark/indicative-poly/chunks-rehex/ | grep -q "chunk-${i}\b" \
+#          || echo "empty: $i"
+#      done
+#    (or list the chunks-rehex dir and diff against 0..199). cboettig verified 2026-06-26
+#    that giants fall in chunks {0, 6, 197, 198} by (_cng_fid-1)//88 — used as the default
+#    below — but this MUST be reconciled against the actual empty-output set, and BOTH
+#    `completions` and CHUNK_MAP updated to match if it differs.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landmark-indicative-poly-rehex-res8
+  labels:
+    k8s-app: landmark-indicative-poly-rehex-res8
+spec:
+  completions: 4          # == len(CHUNK_MAP); update if the empirical empty-chunk set differs
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: landmark-indicative-poly-rehex-res8
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          CHUNK_MAP=(0 6 197 198)
+          CHUNK_ID=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
+          echo "Reprocessing giant chunk $CHUNK_ID at resolution 8 -> chunks-rehex"
+          cng-datasets vector --input s3://public-indigenous/landmark/indicative-poly.parquet --output s3://public-indigenous/landmark/indicative-poly/chunks-rehex --chunk-id $CHUNK_ID --chunk-size 88 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
+        resources:
+          requests:
+            cpu: '4'
+            memory: 48Gi
+          limits:
+            cpu: '4'
+            memory: 48Gi
