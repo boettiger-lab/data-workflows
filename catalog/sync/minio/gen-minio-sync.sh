@@ -18,8 +18,10 @@
 #                          minio:backup-archive/public-<bucket>/<runstamp>/
 #                          (private bucket, 90-day expiry lifecycle) instead
 #                          of being destroyed = rclone-layer recovery window
-#   - no STAC-href rewrite phase (this is a backup mirror, not a public
-#     re-host: content stays byte-identical to NRP)
+#   - Phase 2 STAC-href rewrite (#354): MinIO is a public-read, SERVED DR
+#     endpoint, so after each sync a host-swap rewrite makes the mirrored STAC
+#     fully self-contained (all hrefs incl. root/parent -> minio.carlboettiger.info),
+#     navigable with no link back to NRP. See rewrite-stac-hrefs.py in this dir.
 #
 # SCOPE = the NRP catalog buckets (the former hand-maintained
 # sync-public-*.yaml set). `shared-*` is OUT OF SCOPE (other lab projects'
@@ -261,6 +263,21 @@ spec:
                     rclone mkdir "$DEST" || true
                     if rclone "${args[@]}" ; then echo "OK: $bucket" ; else echo "FAILED: $bucket (rc=$?)" >&2 ; fail=1 ; fi
                   done < /config/buckets.txt
+                  # Phase 2 (#354): the sync above makes MinIO an exact copy of
+                  # NRP, so the mirrored STAC carries NRP hrefs. Re-apply the
+                  # host-swap rewrite so MinIO stays a fully self-contained,
+                  # navigable DR catalog (all hrefs incl. root/parent point at
+                  # minio.carlboettiger.info). Idempotent; fetched from main;
+                  # scope comes from the mounted ConfigMap.
+                  echo "=== rewriting STAC hrefs on MinIO (phase 2) ==="
+                  RW_URL="https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/catalog/sync/minio/rewrite-stac-hrefs.py"
+                  if curl -fsSL "$RW_URL" -o /tmp/rewrite-stac-hrefs.py ; then
+                    rwflags="" ; [ "${DRYRUN:-false}" = "true" ] && rwflags="--dry-run"
+                    SCOPE_FILE=/config/buckets.txt python3 /tmp/rewrite-stac-hrefs.py $rwflags \
+                      || { echo "STAC rewrite FAILED" >&2 ; fail=1 ; }
+                  else
+                    echo "could not fetch STAC rewrite script from $RW_URL" >&2 ; fail=1
+                  fi
                   echo "=== minio-sync complete: $n buckets attempted, fail=$fail ==="
                   exit $fail
           volumes:
