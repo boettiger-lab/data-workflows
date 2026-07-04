@@ -285,6 +285,25 @@ spec:
                   else
                     echo "could not fetch STAC rewrite script from $RW_URL" >&2 ; fail=1
                   fi
+                  # Phase 3 (#351): publish the unified GLEN root catalog +
+                  # landing-page README at cboettig/glen. Child list = NRP root's
+                  # top-level children filtered to the mirror scope (this same
+                  # ConfigMap), hrefs rewritten to source.coop — so it links only
+                  # the license-clear subset. Runs AFTER phase 2 so the linked
+                  # collections are already source.coop-consistent. gen-root-catalog.py
+                  # imports rewrite-stac-hrefs.py from its own dir (both in /tmp).
+                  echo "=== publishing GLEN root catalog (phase 3) ==="
+                  BASE="https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/catalog/sync/source-coop"
+                  if curl -fsSL "$BASE/gen-root-catalog.py"    -o /tmp/gen-root-catalog.py \
+                     && curl -fsSL "$BASE/rewrite-stac-hrefs.py" -o /tmp/rewrite-stac-hrefs.py \
+                     && curl -fsSL "$BASE/glen-README.md"        -o /tmp/glen-README.md ; then
+                    genflags="" ; [ "${DRYRUN:-false}" = "true" ] && genflags="--dry-run"
+                    SCOPE_FILE=/config/repos.txt python3 /tmp/gen-root-catalog.py $genflags \
+                      --readme /tmp/glen-README.md \
+                      || { echo "GLEN root catalog FAILED" >&2 ; fail=1 ; }
+                  else
+                    echo "could not fetch GLEN generator scripts from $BASE" >&2 ; fail=1
+                  fi
                   echo "=== source-sync complete: $n repos attempted, fail=$fail ==="
                   exit $fail
           volumes:

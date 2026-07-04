@@ -184,9 +184,36 @@ identically on a laptop and in-pod.
 
 **Why it's wired into the weekly CronJob:** a plain `rclone sync` makes source.coop an exact copy of
 NRP, so the weekly data mirror would clobber the rewrite back to NRP-pointing hrefs. The
-`source-sync` CronJob therefore runs this script **as its final step** (fetched from `main`, scope
+`source-sync` CronJob therefore runs this script after each sync (fetched from `main`, scope
 from the mounted ConfigMap), re-applying it after each sync. So source.coop self-consistency is
 maintained automatically — no manual re-run needed.
+
+## Phase 3 — unified GLEN root catalog (#351; runs after phase 2)
+
+Phase 2 makes each mirrored collection self-consistent, but nothing ties them together into a
+navigable catalog. **`gen-root-catalog.py`** publishes the root: `cboettig/glen/{catalog.json,
+README.md}` — the source.coop analog of NRP's `public-data/stac/catalog.json`.
+
+- **Child list = the NRP root's top-level `child` links, filtered to the mirror scope, hrefs
+  rewritten to source.coop.** The STAC catalog is a tree: this root links only the curated
+  top-level collections; nested/cross-collection nodes (e.g. `gfw` under `high-seas`, the CAL FIRE
+  leaves under `fire-perimeters`) are reached by descending. The scope (`repos.txt`) is the license
+  gate, so restricted collections (wdpa/iucn/hydrobasins/icca/tpl/…) can never leak in — enforced
+  by construction. It reuses phase-2's `mirrored_repos()` + `rewrite_string()` (imported from
+  `rewrite-stac-hrefs.py`).
+- Navigation is **downward-only by design**: mirrored collections keep their `root`/`parent`
+  pointing at canonical NRP (#158). glen is an entry point you descend from.
+- Fails hard (won't publish) if the NRP root can't be fetched or yields fewer than `--min-children`
+  (default 15) in-scope collections — a circuit-breaker against a truncated catalog.
+- **One-time owner step:** register `cboettig/glen` on source.coop (web UI — the create-repo API
+  is disabled). Writes fail until the repo exists; the account-wide-cred guard already scopes writes
+  to `cboettig/`.
+
+```bash
+SCOPE_FILE=/config/repos.txt ./gen-root-catalog.py --dry-run --readme glen-README.md   # preview
+SCOPE_FILE=/config/repos.txt ./gen-root-catalog.py --readme glen-README.md             # publish
+./gen-root-catalog.py --dry-run --nrp-root /tmp/cached-root.json  # test offline / when Ceph is down
+```
 
 ## Existing-content audit (2026-06-16)
 
