@@ -81,7 +81,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: source-sync-${repo}
-  namespace: biodiversity
+  namespace: boettiger-lab
 spec:
   backoffLimit: 1
   ttlSecondsAfterFinished: 86400
@@ -162,7 +162,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: source-sync-scope
-  namespace: biodiversity
+  namespace: boettiger-lab
   labels:
     app: source-sync
 data:
@@ -184,13 +184,13 @@ cat > "${CRON}" <<'YAML'
 # source-sync-<repo>.yaml jobs. continue-on-error: one bad repo doesn't block
 # the rest, but the Job still exits non-zero so the failure is visible.
 #   Apply:      kubectl apply -f source-sync-cron-config.yaml -f source-sync-cron.yaml
-#   Manual run: kubectl -n biodiversity create job --from=cronjob/source-sync source-sync-manual
+#   Manual run: kubectl -n boettiger-lab create job --from=cronjob/source-sync source-sync-manual
 #   Dry run:    edit env DRYRUN=true on the manual Job (lists changes, writes nothing)
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: source-sync
-  namespace: biodiversity
+  namespace: boettiger-lab
   labels:
     app: source-sync
 spec:

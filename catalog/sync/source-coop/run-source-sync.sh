@@ -15,7 +15,7 @@
 # currently 501/disabled.
 set -euo pipefail
 K8S="$(cd "$(dirname "$0")/../k8s" && pwd)"
-NS=biodiversity
+NS=boettiger-lab
 
 ORDER=(
   mobi mappinginequality cgs ncp usfws calenviroscreen trails
