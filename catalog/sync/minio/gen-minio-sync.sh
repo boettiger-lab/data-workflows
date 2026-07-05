@@ -36,11 +36,11 @@ ARCHIVE_BUCKET="backup-archive"
 
 # NRP catalog buckets backed up to MinIO (== NRP public-<bucket>).
 BUCKETS=(
-  ca30x30 calenviroscreen carbon ca-wolves cdfw census cgs connectivity cpad
-  data datacenters ecoregion epa-water fire gbif gfw grids hazard high-seas
+  ca30x30 ca-dac calenviroscreen carbon ca-wolves cdfw census cgs connectivity cpad
+  data datacenters ecoregion epa-water facts fire gbif gfw grids hazard high-seas
   hydrobasins icca im3 inat indigenous iucn land-cover mappinginequality mobi
-  ncp overturemaps padus rap rivers social-vulnerability tpl trails usfws
-  usgs-nhd usgs-wbd wdpa wetlands wyoming
+  nci-frontiers ncp overturemaps padus population rap rivers social-vulnerability
+  tpl trails usfws usgs-nhd usgs-wbd wdpa wetlands wyoming
 )
 
 # Per-bucket sub-path excludes (rclone --exclude patterns, bucket-root-relative).

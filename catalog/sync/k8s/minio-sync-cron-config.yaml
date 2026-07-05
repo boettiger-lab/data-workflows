@@ -12,6 +12,7 @@ data:
   buckets.txt: |
     # <bucket> <verb> [exclude globs...]
     ca30x30 sync 
+    ca-dac sync 
     calenviroscreen sync 
     carbon sync 
     ca-wolves sync 
@@ -24,6 +25,7 @@ data:
     datacenters sync 
     ecoregion sync 
     epa-water sync 
+    facts sync 
     fire sync 
     gbif sync 
     gfw sync 
@@ -39,9 +41,11 @@ data:
     land-cover sync 
     mappinginequality sync 
     mobi sync 
+    nci-frontiers sync 
     ncp sync 
     overturemaps sync 
     padus sync 
+    population sync 
     rap sync 
     rivers sync 
     social-vulnerability sync 
