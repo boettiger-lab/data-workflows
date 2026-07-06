@@ -104,6 +104,56 @@ print(c.execute(\"SELECT ST_AsText(ST_Envelope(geom)) FROM read_parquet('/tmp/ou
 # → wrong: xmin=38.32 (lat) instead of -120.07 (lon)
 ```
 
+## ⛔ HARD BOUNDARY 3: Jobs run in `geo-workflows`, not `biodiversity`
+
+**Status (2026-07-05): MIGRATION IN PROGRESS** (geo-agent-ops#21). `geo-workflows`
+is provisioned as the least-privilege job-submission namespace; `biodiversity` keeps
+the fleet apps + MCP + LLM proxy (and its 26 app/LLM/private secrets). Existing
+`biodiversity` job manifests are **legacy artifacts** — reshape them by regenerating
+with `--namespace geo-workflows` (below). The hardcoded `-n biodiversity` and the
+"Namespace Pod Quota (`biodiversity`)" references elsewhere in this file are legacy;
+prefer `geo-workflows` for all new and re-run work.
+
+**Why.** `geo-workflows` holds ONLY NRP-canonical credentials (`aws` + `rclone-config`).
+A confused or compromised job there can damage only *recoverable* NRP-canonical data —
+it cannot reach the app / LLM / oauth / private-data secrets that live in
+`biodiversity`. That confinement is the whole point; **never reintroduce other
+credentials into `geo-workflows`.**
+
+**How to target it — the CLI already supports it, just pass the flag:**
+```bash
+cng-datasets workflow        --namespace geo-workflows  ...   # all other args unchanged
+cng-datasets raster-workflow --namespace geo-workflows  ...
+```
+It stamps the namespace on every generated manifest (and, for armada, the queue).
+Apply and monitor with `-n geo-workflows`:
+```bash
+kubectl apply -n geo-workflows -f catalog/<dataset>/k8s/<name>/workflow-rbac.yaml   # once
+kubectl apply -n geo-workflows -f .../configmap.yaml -f .../workflow.yaml
+kubectl -n geo-workflows get jobs | grep <name>
+```
+
+**What's already provisioned there** (manifest: geo-agent-ops `k8s/geo-workflows-provisioning.yaml`):
+- Secrets `aws` (NRP S3) + `rclone-config` (nrp-only). **Nothing else.**
+- Orchestrator SAs `cng-datasets-workflow` / `workflow-runner` (create/watch/delete child Jobs).
+- Child job pods run as the `default` SA, **hardened to mount no k8s token** (they need only S3).
+- `rechunk-scratch` PVC (2Ti RWX) for >50Gi scratch (binds once Ceph is healthy).
+- **No enforced ResourceQuota** — but keep the good-practice targets anyway:
+  **≤200 simultaneous pods** and **≤50Gi ephemeral per job** (`limits.ephemeral-storage`),
+  especially on large-completion fan-out jobs. Oversubscribing is antisocial on shared nodes.
+
+**Credential rule — three data classes (the redistribution axis is NOT the credential axis):**
+- **Classes 1 & 2 — public-bucket data.** Includes the *non-redistributable* sets
+  (WDPA / WD-OECM, IUCN, ICCA, HydroBASINS): those are ordinary `public-*` buckets on
+  NRP + MinIO backup, merely **excluded from the source.coop mirror** (a mirror-scope
+  policy, not a credential boundary). Their build jobs **read/write NRP only.** Stage raw
+  under `s3://<bucket>/raw/` (Step 1b); **never** write intermediates to MinIO with a
+  personal key; reading public data needs **no** credential. No MinIO cred in `geo-workflows`.
+- **Class 3 — strictly private data** (`private-wyoming`, `private-tpl`): single-homed on
+  MinIO, **not on any NRP bucket**. Mount a **scoped, single-bucket, on-demand EXPIRING
+  MinIO mint** for that one bucket (`mc admin user svcacct add <parent> --policy <one-bucket>
+  --expiry …`; the `wyoming-publish` model) — **never** a standing broad MinIO key.
+
 ## What You Produce
 
 **Vector datasets (GDB, Shapefile, GeoPackage, GeoParquet):**
