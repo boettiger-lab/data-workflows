@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
 # Generate the cluster job YAMLs for the CBN plant-richness family (issue #229).
 #
-# Two Kling et al. (2018) CBN rasters, each processed 3 ways from ONE WGS84
+# Two Kling et al. (2018) CBN rasters, each processed from ONE WGS84
 # reprojection of the EPSG:3310 source:
 #   1. full continuous COG  + hex-max  (reducer=max  — peak richness per cell)
 #   2. (same COG)           + hex-mean (reducer=mean — area-weighted mean per cell)
-#   3. 80th-percentile hotspot COG (pixels >= P80) + p80-hex (reducer=max)
+#   3. 80th-percentile hotspot: p80-cog (raster pixel mask, pixels >= P80) AND
+#      p80-hex = the cells whose area-weighted MEAN (hex-mean) is >= the
+#      reproducible P80-by-area threshold (quantile_cont(value, 0.8) over the
+#      hex-mean cell distribution), derived by a DuckDB threshold of hex-mean.
+#
+# NOTE (issue #345): p80-hex was ORIGINALLY built by hexing p80-cog with
+# reducer=max, which flagged any cell touching a single >=P80 pixel and
+# overstated the top-20%-by-area footprint ~30% (26.6M vs ~19.3M ac), dragging
+# down the ca-30x30 "% protected" answer (validated vs the TNC 2025 Biodiversity
+# Assessment). It is now derived from hex-mean (Option 1); p80-cog is retained
+# as the standalone raster hotspot artifact but is no longer p80-hex's input.
 #
 # Per dataset the build order is: cog -> hex-max -> hex-mean -> p80-cog -> p80-hex.
 # Hex jobs read the WGS84 COG (so hex MAX validates exactly against the COG).
@@ -137,13 +147,91 @@ ${VOL_AFFINITY}
 EOF
 }
 
+# ---- single-pod DuckDB job: corrected p80-hex derived from hex-mean (#345) --
+# The true top-20%-by-area hotspot = cells whose area-weighted MEAN (hex-mean)
+# is >= the reproducible P80-by-area threshold (quantile_cont(value,0.8) over the
+# hex-mean cell distribution). Builds to a p80-hex-staging/ prefix, asserts the
+# staged count is ~20% of the covered cells (guards a partial write from ever
+# triggering the destructive flip), then swaps staging -> p80-hex.
+# args: $1 dataset-segment  $2 value-column -> stdout
+duckdb_p80_job() {
+  local ds=$1 val=$2
+  cat <<EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${ds}-p80-hex
+  labels: {k8s-app: ${ds}-p80-hex}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels: {k8s-app: ${ds}-p80-hex}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: p80-hex
+        image: ${IMAGE}
+        imagePullPolicy: Always
+${ENV_BLOCK}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "=== #345 corrected p80-hex for ${ds}: threshold hex-mean at P80-by-area ==="
+          python3 - <<'PYEOF'
+          import duckdb, os
+          SRC = 's3://${BUCKET}/${ds}/hex-mean/h0=*/data_0.parquet'
+          STAGING = 's3://${BUCKET}/${ds}/p80-hex-staging/'
+          VAL = '${val}'
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute(
+              "CREATE SECRET s3_secret (TYPE S3, KEY_ID '{}', SECRET '{}', "
+              "ENDPOINT '{}', URL_STYLE 'path', USE_SSL false)".format(
+                  os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'],
+                  os.environ.get('AWS_S3_ENDPOINT', 'rook-ceph-rgw-nautiluss3.rook')))
+          total = con.execute(
+              "SELECT COUNT(*) FROM read_parquet('{}', hive_partitioning=false)".format(SRC)
+          ).fetchone()[0]
+          # reproducible P80-by-area threshold on the area-weighted mean surface (#345)
+          p80 = con.execute(
+              "SELECT quantile_cont({}, 0.8) FROM read_parquet('{}', hive_partitioning=false)".format(VAL, SRC)
+          ).fetchone()[0]
+          print('TOTAL_CELLS={}  P80_THRESHOLD({})={!r}'.format(total, VAL, p80))
+          con.execute(
+              "COPY (SELECT {v}, h8, h0 FROM read_parquet('{s}', hive_partitioning=false) "
+              "WHERE {v} >= {p}) TO '{o}' "
+              "(FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (h0), OVERWRITE_OR_IGNORE)".format(v=VAL, s=SRC, p=p80, o=STAGING))
+          hot = con.execute(
+              "SELECT COUNT(*) FROM read_parquet('{}**/*.parquet', hive_partitioning=false)".format(STAGING)
+          ).fetchone()[0]
+          exp = round(0.2 * total)
+          print('HOTSPOT_CELLS={}  EXPECTED_TOP20%~={}'.format(hot, exp))
+          assert abs(hot - exp) <= 0.01 * total, 'staged count off from expected top-20%'
+          open('/tmp/ok', 'w').write('ok')
+          PYEOF
+          test -f /tmp/ok || { echo 'staging validation failed; NOT flipping'; exit 1; }
+          echo 'staging validated; flipping p80-hex-staging -> p80-hex'
+          rclone delete nrp:${BUCKET}/${ds}/p80-hex/
+          rclone move  nrp:${BUCKET}/${ds}/p80-hex-staging/ nrp:${BUCKET}/${ds}/p80-hex/
+          echo '=== #345 p80-hex rebuild complete ==='
+        resources:
+          requests: {cpu: '2', memory: 16Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 16Gi, ephemeral-storage: 10Gi}
+${VOL_AFFINITY}
+EOF
+}
+
 for entry in "${DATASETS[@]}"; do
   IFS='|' read -r DS SRC VAL <<<"$entry"
   DIR="$DS"; mkdir -p "$DIR"
   PFX="s3://${BUCKET}/${DS}"
   RAW="${PFX}/raw/${SRC}"
   COG="${PFX}/${DS}-cog.tif"
-  P80COG="${PFX}/${DS}-p80-cog.tif"
 
   # 1. full continuous WGS84 COG (reproject) + fill normalization.
   #    The 3310->4326 warp emits a SECOND near-nodata value (~-3.3999997e38)
@@ -223,12 +311,10 @@ rclone copyto /tmp/p80-value.txt nrp:${BUCKET}/${DS}/p80-value.txt
 echo 'P80 build done'" \
     > "${DIR}/${DS}-p80-cog.yaml"
 
-  # 5. p80-hex (peak richness per cell, hotspot footprint only)
-  hex_job "${DS}-p80-hex" \
-"set -e
-cng-datasets raster --input \"${P80COG}\" --output-parquet ${PFX}/p80-hex/ \\
-  --h0-index \${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 \\
-  --value-column ${VAL} --hex-resampling max --nodata -3.4e38" \
+  # 5. p80-hex (#345): the true top-20%-by-area hotspot = cells whose
+  #    area-weighted MEAN (hex-mean) >= the reproducible P80-by-area threshold.
+  #    Derived from hex-mean via DuckDB (NOT hexing p80-cog with max).
+  duckdb_p80_job "${DS}" "${VAL}" \
     > "${DIR}/${DS}-p80-hex.yaml"
 
   echo "generated ${DIR}/ ($(ls "${DIR}"/*.yaml | wc -l) job yamls)"

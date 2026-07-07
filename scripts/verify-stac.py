@@ -337,11 +337,13 @@ def check_hex_assets(doc: dict) -> list[Finding]:
         if not (is_parquet(asset) and is_hex_asset(key, asset)):
             continue
         href = asset.get("href", "")
-        # hive glob, not a bare directory
-        if not re.search(r"/hex/h0=\*/[^/]+\.parquet$", href):
+        # hive glob, not a bare directory. Any partition-dir name is valid
+        # (hex, hex-max, hex-mean, p80-hex, …) — the requirement is the
+        # h0=* partition glob + a filename, which is what rejects a bare dir.
+        if not re.search(r"/h0=\*/[^/]+\.parquet$", href):
             out.append(Finding(HARD, "hex-href-not-glob",
                                 f"asset '{key}' hex href must be the hive glob "
-                                f"…/hex/h0=*/data_0.parquet, got {href!r}."))
+                                f"…/h0=*/data_0.parquet (not a bare directory), got {href!r}."))
         # h3 resolutions declared
         native = asset.get("h3:native_resolution")
         parents = asset.get("h3:parent_resolutions")
