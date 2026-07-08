@@ -45,10 +45,10 @@ DEST_BUCKET="us-west-2.opendata.source.coop"
 
 # Catalogued, license-clear repos (== NRP public-<repo>).
 REPOS=(
-  ca-dac calenviroscreen carbon census cgs cpad ecoregion epa-water
-  fire gbif gfw high-seas inat indigenous land-cover mappinginequality mobi ncp
-  overturemaps padus population rap rivers social-vulnerability trails usfws
-  wetlands
+  ca-dac calenviroscreen carbon census cgs connectivity cpad ecoregion epa-water
+  facts fire gbif gfw hazard high-seas inat indigenous land-cover mappinginequality
+  mobi nci-frontiers ncp overturemaps padus population rap rivers
+  social-vulnerability trails usfws usgs-nhd usgs-wbd wetlands
 )
 
 # Per-repo sub-path excludes (HOLD: license unconfirmed for these collections).
@@ -56,6 +56,13 @@ REPOS=(
 declare -A EXCLUDES=(
   [rivers]="american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**"
   [high-seas]="mpa-candidates/**"
+  # hazard: flood-hazard (FEMA) + sea-level-rise (NOAA) are public-domain and mirror.
+  # mid-century-habitat-climate-exposure (Thorne et al. 2016, CDFW-commissioned) is NOT a
+  # Dryad/Zenodo deposit and its STAC states redistribution terms "are not explicitly
+  # published with the source and require confirmation" (license: other). BIOS-general is
+  # CC-BY, but this dataset ships no explicit license — HOLD (don't assert one) until CDFW/
+  # Thorne terms are confirmed, then set its STAC license + drop this exclude.
+  [hazard]="mid-century-habitat-climate-exposure/**"
 )
 
 # Per-repo rclone verb. Default "sync" (mirror-with-delete: dest becomes an exact
