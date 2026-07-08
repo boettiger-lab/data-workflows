@@ -8,7 +8,10 @@ spec:
   completions: 105
   parallelism: 50
   completionMode: Indexed
-  backoffLimit: 0
+  # #325: CCAMLR (index for a valid, mid-size polygon) dropped because backoffLimit:0
+  # never retried its transient chunk failure. Per-index retry fixes that.
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 10
   podFailurePolicy:
     rules:
     - action: Ignore
