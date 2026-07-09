@@ -11,6 +11,7 @@ metadata:
 data:
   buckets.txt: |
     # <bucket> <verb> [exclude globs...]
+    barred-owl sync 
     ca30x30 sync 
     ca-dac sync 
     calenviroscreen sync 

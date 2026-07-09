@@ -1,0 +1,130 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: barred-owl-download-raw
+  labels:
+    k8s-app: barred-owl-download-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: barred-owl-download-raw
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: download-raw-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          BASE=https://barredowltool.russell.wisc.edu
+          curl -sSL --retry 5 "$BASE/catalog.json" -o /tmp/catalog.json
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error, time
+          BASE = "https://barredowltool.russell.wisc.edu"
+          rows = json.load(open("/tmp/catalog.json"))
+          print(f"{len(rows)} result pages in catalog", flush=True)
+
+          def get(url, out):
+              urllib.request.urlretrieve(url, out)
+
+          def fetch_required(url, out):
+              for attempt in range(5):
+                  try:
+                      get(url, out); return
+                  except Exception:
+                      time.sleep(2 * (attempt + 1))
+              raise RuntimeError(f"failed after retries: {url}")
+
+          def fetch_optional(url, out):
+              # returns True if downloaded; False (and cleans up) on any HTTP error
+              try:
+                  get(url, out); return True
+              except urllib.error.HTTPError:
+                  if os.path.exists(out): os.remove(out)
+                  return False
+              except Exception:
+                  try:
+                      get(url, out); return True
+                  except Exception:
+                      if os.path.exists(out): os.remove(out)
+                      return False
+
+          total = 0
+          for i, r in enumerate(rows):
+              d = r["page_dir_rel"]
+              outdir = f"/tmp/dl/{d}"
+              os.makedirs(outdir, exist_ok=True)
+              # Every page has exactly 3 scenarios (low/med/high weight). 01-03 required;
+              # probe 04-06 defensively and stop at the first that is not served.
+              for n in (1, 2, 3):
+                  fn = f"priority_map_Scenario_{n:02d}.gpkg"
+                  fetch_required(f"{BASE}/{d}/{fn}", os.path.join(outdir, fn))
+                  total += 1
+              for n in (4, 5, 6):
+                  fn = f"priority_map_Scenario_{n:02d}.gpkg"
+                  if fetch_optional(f"{BASE}/{d}/{fn}", os.path.join(outdir, fn)):
+                      total += 1
+                  else:
+                      break
+              if i % 100 == 0:
+                  print(f"  page {i}/{len(rows)} ... {total} files so far", flush=True)
+          print(f"downloaded {total} GeoPackages", flush=True)
+          PY
+          echo "Syncing to s3://public-barred-owl/raw/scenarios/ ..."
+          rclone copy /tmp/dl nrp:public-barred-owl/raw/scenarios/ --transfers 16 --checkers 16
+          rclone copyto /tmp/catalog.json nrp:public-barred-owl/raw/catalog.json
+          echo "Raw staging complete."
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
