@@ -20,6 +20,9 @@ Static checks (no data; just the STAC JSON):
   - vector:layers on every PMTiles asset
   - table:columns on each parquet asset (NOT collection-level); geometry column
     included on the geoparquet asset, excluded on the hex asset
+  - universal `_cng_fid` on vector assets (#369): HARD for a flat GeoParquet-with-
+    geometry or a vector hex lacking it; raster-derived hex (no vector source in the
+    collection) is exempt; a non-spatial table is ADVISORY (see the advisory list)
   - per-feature-duplication warning on aggregatable hex columns (area/length/
     count/amount/…)
   - categorical raster COG classification:classes completeness  [reuses lint-stac-categorical]
@@ -38,6 +41,8 @@ Data-backed checks (delegated to the duckdb-geo MCP server, --no-data to skip):
 Advisory passes (never block):
   - recall: candidate string-categorical columns with a low DISTINCT count and no
     `values` array — catches the recall gap that missed PAD-US IUCN_Cat / Pub_Access
+  - non-spatial parquet table with no `_cng_fid` — may be a feature fact table that
+    should carry it, or a legit lookup/crosswalk/scores table (#369; human judgment)
 
 Usage:
     scripts/verify-stac.py <collection-url-or-path> [...]
@@ -449,6 +454,107 @@ def check_point_note(doc: dict) -> list[Finding]:
     return out
 
 
+_H0_PARTITION = re.compile(r"/h0=\*/")
+
+
+def _asset_has_geom(asset: dict) -> bool:
+    return any(_is_geom_col(c.get("name", "")) for c in asset.get("table:columns", []))
+
+
+def _is_hex_like(key: str, asset: dict) -> bool:
+    """A hive-partitioned H3 reduction. `is_hex_asset` only matches the …/hex/ path or a
+    `-hex` key suffix; broaden here to ANY `h0=*` partition glob so raster reductions
+    published under a variant partition dir — …/hex-max/h0=*/, …/hex-fractions/h0=*/,
+    …/taxonomy/h0=*/ (plant-richness, cwhr13, gbif) — are recognised as hexes (hence
+    exempted for a raster collection) rather than mistaken for flat non-spatial tables.
+    A single-file `…-index.parquet` with only an h0 column is NOT partitioned, so it
+    stays a table (correctly advisory)."""
+    return is_hex_asset(key, asset) or bool(_H0_PARTITION.search(asset.get("href", "")))
+
+
+def _collection_has_vector_source(doc: dict) -> bool:
+    """True if the collection carries a geometry-bearing feature source — a flat
+    GeoParquet with a geometry column, or a PMTiles asset. This (not COG-presence) is
+    the robust signal for a *vector* collection: a raster reduce to H3 has neither, even
+    when it ships no COG in the same collection (the richness / cwhr / gbif hexes)."""
+    for key, asset in doc.get("assets", {}).items():
+        if is_pmtiles(asset):
+            return True
+        if is_parquet(asset) and not is_hex_asset(key, asset) and _asset_has_geom(asset):
+            return True
+    return False
+
+
+def check_cng_fid(doc: dict) -> list[Finding]:
+    """Enforce the universal `_cng_fid` contract (#369).
+
+    cng-datasets `convert_to_parquet` synthesizes `_cng_fid` on every conversion —
+    always, additive, row-unique — so it is meant to be present on *every* vector
+    parquet asset, flat GeoParquet and hex alike. A single uniform key then works for
+    dedup / COUNT(DISTINCT) across all datasets, instead of per-dataset id discovery
+    (the over-count failures behind #309 / open-llm-proxy#68). Source ids (`ramsarid`,
+    `tpl_id`, `GEOID`) may accompany `_cng_fid` for cross-collection joins, but they do
+    not replace it.
+
+    The catalog holds three kinds of `_cng_fid`-free parquet, only one of which is a
+    defect, so the severity is scoped to the issue's exact wording — a *vector asset
+    (polygon/point/line, flat or hex)*:
+
+      HARD — a vector feature conversion that is missing its id:
+        - flat GeoParquet WITH a geometry column, or
+        - a vector hex (a hex asset in a collection that has a geometry-bearing / PMTiles
+          source). This is a `convert_to_parquet` product; `_cng_fid` must be there.
+
+      exempt (silent) — raster-derived hex: a raster reduce into H3, not a feature
+        conversion, so it correctly has no per-feature id. Detected as a hex asset whose
+        collection has NO vector source (COG-independent — covers carbon/ghs-pop which
+        ship a COG *and* richness/cwhr/gbif which do not).
+
+      ADVISORY — a non-spatial parquet table (no geometry, not a vector hex): could be a
+        fact table that SHOULD carry `_cng_fid` (tpl `…-funding`, keyed by tpl_id) or a
+        legitimate lookup / crosswalk / coefficient / long-form scores table that never
+        went through `convert_to_parquet` (nci `predicts-crosswalk`, barred-owl `scores`,
+        `taxa-list`). Only a human can tell those apart, so surface it — don't block CI.
+
+    Non-parquet assets (COG, PMTiles, readme) are never checked. Assets with no
+    `table:columns` are skipped — `parquet-no-table-columns` already HARD-flags those.
+
+    Schema-level check on the asset's documented `table:columns` (which must mirror the
+    real schema); the named offenders omit `_cng_fid` there because the data lacks it.
+    """
+    out = []
+    has_vector_source = _collection_has_vector_source(doc)
+    for key, asset in doc.get("assets", {}).items():
+        if not is_parquet(asset):
+            continue
+        cols = asset.get("table:columns", [])
+        if not cols:
+            continue  # parquet-no-table-columns already HARD-flags a missing schema
+        if "_cng_fid" in {c.get("name", "").lower() for c in cols}:
+            continue
+        hex_ = _is_hex_like(key, asset)
+        common = ("cng-datasets synthesizes '_cng_fid' as the universal per-feature id "
+                  "on every vector asset (flat + hex); reprocess through cng-datasets so "
+                  "one key works for dedup / COUNT(DISTINCT) across datasets. A source id "
+                  "(ramsarid, tpl_id, GEOID) may accompany _cng_fid but does not replace it.")
+        if hex_:
+            if not has_vector_source:
+                continue  # raster-derived hex → no per-feature id by design
+            out.append(Finding(HARD, "cng-fid-missing",
+                f"vector hex asset '{key}' does not document '_cng_fid'. " + common))
+        elif _asset_has_geom(asset):
+            out.append(Finding(HARD, "cng-fid-missing",
+                f"vector flat GeoParquet asset '{key}' does not document '_cng_fid'. "
+                + common))
+        else:
+            out.append(Finding(ADVISORY, "cng-fid-missing-nonspatial",
+                f"non-spatial parquet asset '{key}' has no '_cng_fid'. If it is a feature "
+                f"fact table (e.g. per-record funding keyed to a site), it should carry "
+                f"_cng_fid — reprocess through cng-datasets. If it is a lookup / crosswalk "
+                f"/ coefficient / long-form table, this is expected; leave it."))
+    return out
+
+
 def run_sibling_linter(mod, doc_source: str, code: str) -> list[Finding]:
     """Wrap an existing linter's `lint()` (returns list[str]) as HARD findings."""
     if mod is None:
@@ -470,6 +576,7 @@ STATIC_CHECKS = [
     check_hex_assets,
     check_vector_layers,
     check_table_columns_placement,
+    check_cng_fid,
     check_hex_dup_warning,
     check_point_note,
 ]
