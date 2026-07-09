@@ -33,6 +33,9 @@ spec:
         - name: rclone-config
           mountPath: /root/.config/rclone
           readOnly: true
+        - name: script
+          mountPath: /opt/scripts
+          readOnly: true
         command:
         - bash
         - -c
@@ -41,14 +44,8 @@ spec:
           for t in targets strategies sgcn-species sgcn-species-units; do
             echo "=== $t ==="
             rclone copyto "nrp:public-cdfw/raw/swap-2025-$t.json" "/tmp/$t.json" -v
-            # ArcGIS attribute rows (newline-delimited JSON) -> parquet, with a
-            # universal per-row _cng_fid (fact tables; #369 uniform key intent).
-            duckdb -c "COPY (
-              SELECT row_number() OVER () AS _cng_fid, *
-              FROM read_json('/tmp/$t.json', format='newline_delimited', auto_detect=true)
-            ) TO '/tmp/$t.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);"
+            python3 /opt/scripts/tables2parquet.py "/tmp/$t.json" "/tmp/$t.parquet"
             rclone copyto "/tmp/$t.parquet" "nrp:public-cdfw/swap-2025/$t.parquet" -v
-            echo "rows:"; duckdb -c "SELECT COUNT(*) FROM read_parquet('/tmp/$t.parquet');"
           done
           echo "DONE"
         resources:
@@ -62,3 +59,6 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
+      - name: script
+        configMap:
+          name: swap-2025-scripts
