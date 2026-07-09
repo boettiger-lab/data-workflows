@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flood-hex-idattach
+  labels: {k8s-app: flood-hex-idattach}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels: {k8s-app: flood-hex-idattach}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: idattach
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        command:
+        - python
+        - -u
+        - -c
+        - |
+          import duckdb, os
+          FLAT="s3://public-hazard/flood-hazard.cngfid.parquet"
+          HEX="s3://public-hazard/flood-hazard/hex"
+          OUT="s3://public-hazard/flood-hazard/hex-new"
+          KEY="fid"
+          con=duckdb.connect(config={"memory_limit":"40GB","temp_directory":"/scratch/duck"})
+          con.execute("INSTALL spatial;LOAD spatial;INSTALL httpfs;LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';SET s3_url_style='path';SET s3_use_ssl=false;")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+          con.execute(f"CREATE TEMP TABLE m AS SELECT {KEY}, _cng_fid FROM read_parquet('{FLAT}')")
+          n_map=con.execute("SELECT COUNT(*),COUNT(DISTINCT _cng_fid) FROM m").fetchone()
+          print("mapping rows / distinct _cng_fid:", n_map, flush=True)
+          h0s=[r[0] for r in con.execute(f"SELECT DISTINCT h0 FROM read_parquet('{HEX}/h0=*/data_0.parquet')").fetchall()]
+          print(f"{len(h0s)} h0 partitions", flush=True)
+          total_in=total_out=total_nullfid=0
+          for h0 in h0s:
+              src=f"{HEX}/h0={h0}/data_0.parquet"
+              dst=f"{OUT}/h0={h0}/data_0.parquet"
+              con.execute(f"""COPY (
+                SELECT h.*, m._cng_fid
+                FROM read_parquet('{src}') h
+                LEFT JOIN m ON h.{KEY}=m.{KEY}
+              ) TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)""")
+              ci=con.execute(f"SELECT COUNT(*) FROM read_parquet('{src}')").fetchone()[0]
+              co,cn=con.execute(f"SELECT COUNT(*), COUNT(*) FILTER (WHERE _cng_fid IS NULL) FROM read_parquet('{dst}')").fetchone()
+              total_in+=ci; total_out+=co; total_nullfid+=cn
+              print(f"h0={h0}: in={ci} out={co} null_cngfid={cn}", flush=True)
+          print(f"TOTAL in={total_in} out={total_out} null_cngfid={total_nullfid}", flush=True)
+          assert total_in==total_out, "row count mismatch!"
+          assert total_nullfid==0, "some hex rows had no matching flat _cng_fid!"
+          print("FLOOD_HEX_IDATTACH_OK", flush=True)
+        resources:
+          requests: {cpu: '8', memory: 48Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '8', memory: 48Gi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - {name: scratch, mountPath: /scratch, subPath: flood-hex-idattach}
+      volumes:
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

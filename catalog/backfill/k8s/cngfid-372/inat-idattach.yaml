@@ -1,0 +1,79 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inat-idattach
+  labels: {k8s-app: inat-idattach}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels: {k8s-app: inat-idattach}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: idattach
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        command:
+        - python
+        - -u
+        - -c
+        - |
+          import duckdb, os
+          TAXON="s3://public-inat/taxon"
+          TAXON_NEW="s3://public-inat/taxon-new"
+          HEX="s3://public-inat/range-maps/hex"
+          HEX_NEW="s3://public-inat/range-maps/hex-new"
+          con=duckdb.connect(config={"memory_limit":"48GB","temp_directory":"/scratch/duck"})
+          con.execute("INSTALL spatial;LOAD spatial;INSTALL httpfs;LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';SET s3_url_style='path';SET s3_use_ssl=false;")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+          # 1) global mapping taxon_id -> _cng_fid (taxon_id unique per feature)
+          con.execute(f"CREATE TEMP TABLE m AS SELECT taxon_id, CAST(row_number() OVER () AS BIGINT) AS _cng_fid FROM read_parquet('{TAXON}/**/*.parquet')")
+          nm,dm=con.execute("SELECT COUNT(*), COUNT(DISTINCT _cng_fid) FROM m").fetchone()
+          print(f"mapping: rows={nm} distinct_fid={dm}", flush=True); assert nm==dm
+          # 2) FLAT rewrite, preserving hive partitioning by iconic_taxon_name (path-only key)
+          con.execute(f"""COPY (
+            SELECT t.*, m._cng_fid
+            FROM read_parquet('{TAXON}/**/*.parquet', hive_partitioning=true) t
+            JOIN m ON t.taxon_id=m.taxon_id
+          ) TO '{TAXON_NEW}' (FORMAT PARQUET, PARTITION_BY(iconic_taxon_name), ROW_GROUP_SIZE 2000, COMPRESSION ZSTD, OVERWRITE_OR_IGNORE)""")
+          fr,ff=con.execute(f"SELECT COUNT(*), COUNT(DISTINCT _cng_fid) FROM read_parquet('{TAXON_NEW}/**/*.parquet')").fetchone()
+          print(f"flat-new: rows={fr} distinct_fid={ff}", flush=True); assert fr==nm and ff==nm
+          # 3) HEX rewrite per h0 (read physical schema, add _cng_fid via taxon_id)
+          h0s=[r[0] for r in con.execute(f"SELECT DISTINCT h0 FROM read_parquet('{HEX}/h0=*/data_0.parquet')").fetchall()]
+          print(f"{len(h0s)} hex h0 partitions", flush=True)
+          ti=to=tn=0
+          for h0 in h0s:
+              src=f"{HEX}/h0={h0}/data_0.parquet"; dst=f"{HEX_NEW}/h0={h0}/data_0.parquet"
+              con.execute(f"""COPY (
+                SELECT h.*, m._cng_fid
+                FROM read_parquet('{src}', hive_partitioning=false) h
+                LEFT JOIN m ON h.taxon_id=m.taxon_id
+              ) TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)""")
+              ci=con.execute(f"SELECT COUNT(*) FROM read_parquet('{src}',hive_partitioning=false)").fetchone()[0]
+              co,cn=con.execute(f"SELECT COUNT(*), COUNT(*) FILTER (WHERE _cng_fid IS NULL) FROM read_parquet('{dst}',hive_partitioning=false)").fetchone()
+              ti+=ci; to+=co; tn+=cn
+          print(f"HEX TOTAL in={ti} out={to} null_cngfid={tn}", flush=True)
+          assert ti==to, "hex row count mismatch"; assert tn==0, "unmatched hex rows"
+          print("INAT_IDATTACH_OK", flush=True)
+        resources:
+          requests: {cpu: '8', memory: 56Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '8', memory: 56Gi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - {name: scratch, mountPath: /scratch, subPath: inat-idattach}
+      volumes:
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
