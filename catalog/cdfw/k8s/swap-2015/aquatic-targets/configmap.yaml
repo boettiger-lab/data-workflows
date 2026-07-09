@@ -66,7 +66,7 @@ data:
             - |
               set -e
               cng-convert-to-parquet \
-                https://hub.arcgis.com/api/v3/datasets/a2f3f5ddf7f140d9b948fdc1a9a86c44_0/downloads/data?format=shp&spatialRefId=3857&where=1%3D1 \
+                "https://hub.arcgis.com/api/v3/datasets/a2f3f5ddf7f140d9b948fdc1a9a86c44_0/downloads/data?format=shp&spatialRefId=3857&where=1%3D1" \
                 s3://public-cdfw/swap-2015/aquatic-targets.parquet \
                 --row-group-size 100000
             resources:
