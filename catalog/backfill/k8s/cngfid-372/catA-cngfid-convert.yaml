@@ -1,0 +1,66 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cngfid-backfill-cata
+  labels:
+    k8s-app: cngfid-backfill-cata
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: cngfid-backfill-cata
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # (source, staging) pairs — staging is a sibling; promotion happens after validation.
+          PAIRS="
+          s3://public-high-seas/seafloor-geomorphology.parquet|s3://public-high-seas/seafloor-geomorphology.cngfid.parquet
+          s3://public-high-seas/hydrothermal-vents.parquet|s3://public-high-seas/hydrothermal-vents.cngfid.parquet
+          s3://public-iucn/iucn-ranges-2025.parquet|s3://public-iucn/iucn-ranges-2025.cngfid.parquet
+          s3://public-ca30x30/fmmp-2022.parquet|s3://public-ca30x30/fmmp-2022.cngfid.parquet
+          s3://public-social-vulnerability/2022/SVI2022_US_county.parquet|s3://public-social-vulnerability/2022/SVI2022_US_county.cngfid.parquet
+          s3://public-social-vulnerability/2022/SVI2022_US_tract.parquet|s3://public-social-vulnerability/2022/SVI2022_US_tract.cngfid.parquet
+          s3://public-social-vulnerability/2022/SVI2022_TRIBAL_TRACTS.parquet|s3://public-social-vulnerability/2022/SVI2022_TRIBAL_TRACTS.cngfid.parquet
+          s3://public-wdpa/wdoecm-may-2026/wdoecm-may-2026.parquet|s3://public-wdpa/wdoecm-may-2026/wdoecm-may-2026.cngfid.parquet
+          s3://public-trails/federal-trails-2026.parquet|s3://public-trails/federal-trails-2026.cngfid.parquet
+          s3://public-overturemaps/2026-02-18.0/regions.parquet|s3://public-overturemaps/2026-02-18.0/regions.cngfid.parquet
+          "
+          echo "$PAIRS" | while IFS='|' read -r SRC DST; do
+            [ -z "$SRC" ] && continue
+            echo "==================== $SRC -> $DST ===================="
+            cng-convert-to-parquet "$SRC" "$DST" --row-group-size 2000
+          done
+          echo "ALL CONVERTS DONE"
+        resources:
+          requests: {cpu: '4', memory: 32Gi}
+          limits: {cpu: '4', memory: 32Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
