@@ -6,7 +6,7 @@ metadata:
 spec:
   completions: 1
   parallelism: 1
-  backoffLimit: 1
+  backoffLimit: 4
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
@@ -30,23 +30,31 @@ spec:
           TAXON_NEW="s3://public-inat/taxon-new"
           HEX="s3://public-inat/range-maps/hex"
           HEX_NEW="s3://public-inat/range-maps/hex-new"
-          con=duckdb.connect(config={"memory_limit":"48GB","temp_directory":"/scratch/duck"})
+          con=duckdb.connect(config={"memory_limit":"12GB","temp_directory":"/tmp/duck"})
           con.execute("INSTALL spatial;LOAD spatial;INSTALL httpfs;LOAD httpfs;")
+          # INTERNAL endpoint (fast, 100Gb/s). Reachable only from region-labeled
+          # nodes; the job is pinned to us-west (co-located with the s3-west Ceph)
+          # via nodeAffinity below, since region-less remote sites can't route to it.
           con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';SET s3_url_style='path';SET s3_use_ssl=false;")
           con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
-          # 1) global mapping taxon_id -> _cng_fid (taxon_id unique per feature)
-          con.execute(f"CREATE TEMP TABLE m AS SELECT taxon_id, CAST(row_number() OVER () AS BIGINT) AS _cng_fid FROM read_parquet('{TAXON}/**/*.parquet')")
+          con.execute("SET http_retries=10;SET http_retry_wait_ms=3000;")
+          con.execute(f"""CREATE TEMP TABLE m AS
+            SELECT taxon_id, CAST(row_number() OVER (ORDER BY taxon_id) AS BIGINT) AS _cng_fid
+            FROM (
+              SELECT DISTINCT taxon_id FROM read_parquet('{TAXON}/**/*.parquet')
+              UNION
+              SELECT DISTINCT taxon_id FROM read_parquet('{HEX}/h0=*/data_0.parquet')
+            )""")
           nm,dm=con.execute("SELECT COUNT(*), COUNT(DISTINCT _cng_fid) FROM m").fetchone()
-          print(f"mapping: rows={nm} distinct_fid={dm}", flush=True); assert nm==dm
-          # 2) FLAT rewrite, preserving hive partitioning by iconic_taxon_name (path-only key)
+          print(f"mapping(union): rows={nm} distinct_fid={dm}", flush=True); assert nm==dm
           con.execute(f"""COPY (
             SELECT t.*, m._cng_fid
             FROM read_parquet('{TAXON}/**/*.parquet', hive_partitioning=true) t
             JOIN m ON t.taxon_id=m.taxon_id
           ) TO '{TAXON_NEW}' (FORMAT PARQUET, PARTITION_BY(iconic_taxon_name), ROW_GROUP_SIZE 2000, COMPRESSION ZSTD, OVERWRITE_OR_IGNORE)""")
+          fsrc=con.execute(f"SELECT COUNT(*) FROM read_parquet('{TAXON}/**/*.parquet')").fetchone()[0]
           fr,ff=con.execute(f"SELECT COUNT(*), COUNT(DISTINCT _cng_fid) FROM read_parquet('{TAXON_NEW}/**/*.parquet')").fetchone()
-          print(f"flat-new: rows={fr} distinct_fid={ff}", flush=True); assert fr==nm and ff==nm
-          # 3) HEX rewrite per h0 (read physical schema, add _cng_fid via taxon_id)
+          print(f"flat-new: rows={fr} distinct_fid={ff} (src={fsrc})", flush=True); assert fr==fsrc and ff==fsrc
           h0s=[r[0] for r in con.execute(f"SELECT DISTINCT h0 FROM read_parquet('{HEX}/h0=*/data_0.parquet')").fetchall()]
           print(f"{len(h0s)} hex h0 partitions", flush=True)
           ti=to=tn=0
@@ -64,12 +72,8 @@ spec:
           assert ti==to, "hex row count mismatch"; assert tn==0, "unmatched hex rows"
           print("INAT_IDATTACH_OK", flush=True)
         resources:
-          requests: {cpu: '8', memory: 56Gi, ephemeral-storage: 10Gi}
-          limits: {cpu: '8', memory: 56Gi, ephemeral-storage: 10Gi}
-        volumeMounts:
-        - {name: scratch, mountPath: /scratch, subPath: inat-idattach}
-      volumes:
-      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 40Gi}
+          limits: {cpu: '4', memory: 16Gi, ephemeral-storage: 40Gi}
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:
@@ -77,3 +81,6 @@ spec:
             nodeSelectorTerms:
             - matchExpressions:
               - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              # Require us-west: region-less remote sites (sdsc/fresnostate/internet2)
+              # cannot route to the internal rook endpoint (see data-workflows#375).
+              - {key: topology.kubernetes.io/region, operator: In, values: ['us-west']}
