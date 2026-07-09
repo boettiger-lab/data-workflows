@@ -5,8 +5,8 @@ metadata:
   labels:
     k8s-app: swap-2015-terrestrial-targets-hex
 spec:
-  completions: 200
-  parallelism: 50
+  completions: 1
+  parallelism: 1
   completionMode: Indexed
   backoffLimit: 0
   podFailurePolicy:
