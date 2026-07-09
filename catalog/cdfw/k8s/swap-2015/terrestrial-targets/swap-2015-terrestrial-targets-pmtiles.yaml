@@ -55,6 +55,7 @@ spec:
           set -e
           # Use optimized GeoParquet (has ID column) from convert job
           # GDAL can read parquet via vsicurl
+          ulimit -n 65536 || true
           ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-cdfw/swap-2015/terrestrial-targets.parquet -progress
 
           # Generate PMTiles from GeoJSONSeq
