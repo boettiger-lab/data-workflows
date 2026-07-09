@@ -11,7 +11,8 @@ enforced gate. Runs three tiers of checks against a published STAC collection:
 
 Static checks (no data; just the STAC JSON):
   - license present + a recognized SPDX id, or other/various/proprietary WITH a
-    license link
+    license link — EXCEPT a meta-collection (has child links) may use various/other
+    with no link, since the licenses live on (and are gated per) its children
   - nav links: self/root/parent present + well-formed; child (if any) well-formed
   - asset keys follow {last-segment}-{format}; no generic keys
     (pmtiles/geoparquet/hex/parquet/cog/h3-parquet)
@@ -262,9 +263,23 @@ def check_license(doc: dict) -> list[Finding]:
 
     if lic in NON_SPDX_OK:
         if lic in NEED_LICENSE_LINK and not has_license_link:
-            out.append(Finding(HARD, "license-link-missing",
-                                f"license is '{lic}' but there is no "
-                                f"{{'rel':'license'}} link to the canonical terms URL."))
+            # A meta-collection (one that has child links) may declare 'various' or
+            # 'other' WITHOUT its own license link: the real licenses live on the
+            # child collections — each verified individually — and downstream gating
+            # (source.coop redistribution excludes, per-dataset decisions) keys on
+            # those per-child licenses, not the parent. A single parent-level link
+            # would be misleading for genuinely mixed children. 'proprietary' is NOT
+            # exempted (it asserts specific restrictive terms, not "see children"),
+            # and a LEAF collection (no children) still needs the link — that catches
+            # the lazy-'various'-default case.
+            is_meta = lic in {"various", "other"} and any(
+                l.get("rel") == "child" for l in links)
+            if not is_meta:
+                out.append(Finding(HARD, "license-link-missing",
+                                    f"license is '{lic}' but there is no "
+                                    f"{{'rel':'license'}} link to the canonical terms URL "
+                                    f"(exempt only for a meta-collection with child links, "
+                                    f"whose per-child licenses govern; this is a leaf)."))
         return out
 
     if lic in KNOWN_SPDX:
