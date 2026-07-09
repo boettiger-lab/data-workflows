@@ -48,9 +48,18 @@ spec:
         - bash
         - -c
         - |
-          set -e
+          set -euo pipefail
+          URL="https://hub.arcgis.com/api/v3/datasets/076ccc71fc1143a69cd90df79802b9a0_0/downloads/data?format=shp&spatialRefId=3857&where=1%3D1"
+          echo "Downloading SWAP provinces shapefile zip..."
+          curl -L --retry 5 -o /tmp/provinces.zip "$URL"
+          unzip -t /tmp/provinces.zip > /dev/null && echo "zip OK"
+          rclone copyto /tmp/provinces.zip nrp:public-cdfw/raw/swap-2015-provinces.zip -v
+          mkdir -p /tmp/provinces
+          unzip -q -o /tmp/provinces.zip -d /tmp/provinces
+          SHP=$(find /tmp/provinces -name "*.shp" | head -1)
+          echo "Converting shapefile: $SHP"
           cng-convert-to-parquet \
-            "https://hub.arcgis.com/api/v3/datasets/076ccc71fc1143a69cd90df79802b9a0_0/downloads/data?format=shp&spatialRefId=3857&where=1%3D1" \
+            "$SHP" \
             s3://public-cdfw/swap-2015/provinces.parquet \
             --row-group-size 100000
         resources:

@@ -64,9 +64,18 @@ data:
             - bash
             - -c
             - |
-              set -e
+              set -euo pipefail
+              URL="https://hub.arcgis.com/api/v3/datasets/b6cb72056e9c49efa1a42dd2e9e4b2cc_0/downloads/data?format=shp&spatialRefId=3857&where=1%3D1"
+              echo "Downloading SWAP terrestrial-targets shapefile zip..."
+              curl -L --retry 5 -o /tmp/terrestrial-targets.zip "$URL"
+              unzip -t /tmp/terrestrial-targets.zip > /dev/null && echo "zip OK"
+              rclone copyto /tmp/terrestrial-targets.zip nrp:public-cdfw/raw/swap-2015-terrestrial-targets.zip -v
+              mkdir -p /tmp/terrestrial-targets
+              unzip -q -o /tmp/terrestrial-targets.zip -d /tmp/terrestrial-targets
+              SHP=$(find /tmp/terrestrial-targets -name "*.shp" | head -1)
+              echo "Converting shapefile: $SHP"
               cng-convert-to-parquet \
-                "https://hub.arcgis.com/api/v3/datasets/b6cb72056e9c49efa1a42dd2e9e4b2cc_0/downloads/data?format=shp&spatialRefId=3857&where=1%3D1" \
+                "$SHP" \
                 s3://public-cdfw/swap-2015/terrestrial-targets.parquet \
                 --row-group-size 100000
             resources:
