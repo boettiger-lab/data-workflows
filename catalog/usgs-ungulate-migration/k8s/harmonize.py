@@ -37,6 +37,40 @@ def is_state_tok(tok):
     if len(t) < 2 or len(t) % 2 != 0: return False
     return all(t[i:i+2] in US_STATES for i in range(0, len(t), 2))
 
+# Tribal/reservation codes that appear in the source `State` field (or as a
+# herd-name prefix when State is blank). We map the feature to its containing
+# US state so `state` is a clean US-state filter, and record the tribal identity
+# separately in `tribal_land` rather than losing it. WRR = Wind River
+# Reservation (WY); WWR herds (Owl Creek Mtns, its northern boundary) are the
+# same reservation; TesuquePueblo = Tesuque Pueblo (NM).
+TRIBAL = {"WRR": ("WY", "Wind River Reservation"),
+          "WWR": ("WY", "Wind River Reservation"),
+          "TesuquePueblo": ("NM", "Tesuque Pueblo")}
+
+def norm_state(raw, herd):
+    """(state, tribal_land): a clean US-state code (or comma-separated codes for
+    multi-state herds) plus the tribal land, if any. Multi-state values in any
+    source spelling ('ID and NV', 'OR-NV', concatenated 'IDNV') collapse to
+    comma-separated 2-letter codes; tribal/reservation codes map to the
+    containing state with the tribal identity recorded separately."""
+    s = None if raw is None or str(raw).strip().lower() in ("", "nan", "none") \
+        else str(raw).strip()
+    if s in TRIBAL:
+        return TRIBAL[s]
+    if s is None:
+        for code, val in TRIBAL.items():
+            if herd and str(herd).startswith(code):
+                return val
+        return None, None
+    toks = [t for t in re.split(r"\s*(?:and|,|/|-|\s)\s*", s) if t]
+    if len(toks) > 1 and all(t.upper() in US_STATES for t in toks):
+        return ",".join(t.upper() for t in toks), None
+    if s.upper() in US_STATES:
+        return s.upper(), None
+    if is_state_tok(s):   # concatenated codes from the filename path (IDNV)
+        return ",".join(s.upper()[i:i+2] for i in range(0, len(s), 2)), None
+    return s, None
+
 def norm_ptype(raw):
     r = str(raw).lower()
     if "route" in r: return "Routes"
@@ -76,13 +110,17 @@ def geom_family(gtypes):
 # The stray GRIDCODE=2 (57 feats, ~0.8%) is ambiguous -> left NULL, not guessed.
 GRIDCODE_USE = {1.0: "Low", 10.0: "Medium", 20.0: "High"}
 
+USE_MAP = {"low": "Low", "medium": "Medium", "high": "High",
+           "very high": "Very high", "one individual": "One individual",
+           "1 individual": "One individual"}
+
 def norm_corridor_contour(row, cols):
     for c in ("Contour", "Use"):
         if c in cols and pd.notna(row.get(c)):
-            v = str(row[c]).strip()
-            return {"low": "Low", "medium": "Medium", "high": "High",
-                    "very high": "Very high", "one individual": "One individual",
-                    "1 individual": "One individual"}.get(v.lower(), v)
+            # Keep only genuine use-intensity classes. Other labels in this field
+            # (e.g. 'CorridorFootprint', the whole-corridor extent polygon) are not
+            # a use level -> NULL, like corridors that ship with no use column.
+            return USE_MAP.get(str(row[c]).strip().lower())
     if "GRIDCODE" in cols and pd.notna(row.get("GRIDCODE")):
         try:
             return GRIDCODE_USE.get(float(row["GRIDCODE"]))
@@ -197,10 +235,18 @@ def main(root, outdir):
         ranges = ranges[ranges.geometry.notna() & ~ranges.geometry.is_empty]
         print(f"repaired {n_inv} invalid polygons; still invalid: "
               f"{int((~ranges.geometry.is_valid).sum())}")
+    # Normalize the state field and split out tribal_land (see norm_state). Done
+    # after concat so both the attribute and filename identity paths converge on
+    # one clean representation.
+    for df in (ranges, routes):
+        sn = df[["state", "herd"]].apply(
+            lambda r: norm_state(r["state"], r["herd"]), axis=1, result_type="expand")
+        df["state"] = sn[0].values
+        df["tribal_land"] = sn[1].values
     # column order
-    ranges = ranges[["state", "species", "herd", "data_type", "contour",
+    ranges = ranges[["state", "tribal_land", "species", "herd", "data_type", "contour",
                      "volume", "source_release_date", "geometry"]]
-    routes = routes[["state", "species", "herd", "data_type", "ind_year",
+    routes = routes[["state", "tribal_land", "species", "herd", "data_type", "ind_year",
                      "first_date", "last_date", "volume", "source_release_date", "geometry"]]
     ranges.to_file(f"{outdir}/ungulate-ranges.gpkg", driver="GPKG", layer="ranges")
     routes.to_file(f"{outdir}/ungulate-routes.gpkg", driver="GPKG", layer="routes")

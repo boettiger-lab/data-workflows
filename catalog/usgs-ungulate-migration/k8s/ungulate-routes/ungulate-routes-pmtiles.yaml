@@ -55,6 +55,10 @@ spec:
         - -c
         - |
           set -e
+          # tippecanoe opens one temp file per feature buffer/shard; for the 263k
+          # route segments this blows past a node's default open-file soft limit
+          # ("/tmp/node.*: Too many open files"). Raise it before tiling.
+          ulimit -n 1048576 2>/dev/null || ulimit -n 65536 2>/dev/null || true
           # GDAL's Parquet driver cannot open over /vsicurl; localize first (internal endpoint).
           rclone copy nrp:public-usgs-ungulate-migration/$DATASET.parquet /tmp/ -P
           ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /tmp/$DATASET.parquet -progress
