@@ -54,6 +54,7 @@ data:
     usfws sync 
     usgs-nhd sync 
     usgs-wbd sync 
+    usgs-ungulate-migration sync 
     wdpa sync 
     wetlands sync 
     wyoming sync 

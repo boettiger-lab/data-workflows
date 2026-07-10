@@ -1,0 +1,54 @@
+# Swap step for the one-time attribute cleanup (see patch-attributes.yaml).
+# After the staged parquets are verified, this promotes them over the live keys
+# and purges the staging prefix. Run only after verifying patch-staging/.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ungulate-patch-swap
+  labels:
+    k8s-app: ungulate-patch-swap
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ungulate-patch-swap
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: swap-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: RCLONE_CONFIG_NRP_ENDPOINT
+          value: http://rook-ceph-rgw-nautiluss3.rook
+        - name: BUCKET
+          value: public-usgs-ungulate-migration
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          for DS in ungulate-ranges ungulate-routes; do
+            rclone copyto nrp:$BUCKET/patch-staging/$DS.parquet nrp:$BUCKET/$DS.parquet -P
+          done
+          rclone purge nrp:$BUCKET/patch-staging
+          echo "SWAP COMPLETE"
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

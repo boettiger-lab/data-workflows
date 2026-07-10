@@ -1,0 +1,108 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: usgs-ungulate-preprocess
+  namespace: biodiversity
+  labels:
+    k8s-app: usgs-ungulate-preprocess
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: usgs-ungulate-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "16Gi"
+            cpu: "4"
+            ephemeral-storage: "10Gi"
+          limits:
+            memory: "16Gi"
+            cpu: "4"
+            ephemeral-storage: "10Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        # Override the rclone `nrp:` remote (public endpoint in the secret) to the
+        # internal NRP S3 gateway so raw transfers use the 100 Gb/s path, not the
+        # ~12 MB/s public endpoint (HARD BOUNDARY 0).
+        - name: RCLONE_CONFIG_NRP_ENDPOINT
+          value: "http://rook-ceph-rgw-nautiluss3.rook"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: harmonize
+          mountPath: /opt/harmonize
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          BUCKET=public-usgs-ungulate-migration
+
+          echo "== deps =="
+          pip install --quiet --no-cache-dir geopandas pyogrio
+
+          echo "== fetch 6 raw volume zips from s3://$BUCKET/raw/ =="
+          mkdir -p /tmp/zips /tmp/vols/vol1 /tmp/vols/vol2 /tmp/vols/vol3 \
+                   /tmp/vols/vol4 /tmp/vols/vol5 /tmp/vols/vol6 /tmp/out
+          rclone copy "nrp:$BUCKET/raw" /tmp/zips --include '*.zip' -P
+
+          echo "== unzip each volume into vol{N}/ =="
+          unzip -q -o /tmp/zips/UngulateMigrations.zip                        -d /tmp/vols/vol1
+          unzip -q -o /tmp/zips/UngulateMigrations_vol2.zip                   -d /tmp/vols/vol2
+          unzip -q -o /tmp/zips/UMRv3_Complete_dataset.zip                    -d /tmp/vols/vol3
+          unzip -q -o /tmp/zips/UngulateMigrationAllChildItems_20241015.zip   -d /tmp/vols/vol4
+          unzip -q -o /tmp/zips/ungulate-migrations-volume-5.zip              -d /tmp/vols/vol5
+          unzip -q -o /tmp/zips/ungulate-migrations-volume-6.zip              -d /tmp/vols/vol6
+
+          echo "== harmonize Vols 1-6 -> 2 GeoPackages =="
+          python /opt/harmonize/harmonize.py /tmp/vols /tmp/out
+
+          echo "== upload harmonized GeoPackages to s3://$BUCKET/raw/ =="
+          rclone copy /tmp/out "nrp:$BUCKET/raw" --include '*.gpkg' -P
+          echo "DONE"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: harmonize
+        configMap:
+          name: usgs-ungulate-harmonize
