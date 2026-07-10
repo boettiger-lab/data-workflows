@@ -22,6 +22,15 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 ## public-carbon
 - **OK-NC** · `CC-BY-NC-4.0` — public-carbon  
 
+## public-cdfw
+CDFW BIOS biogeographic data. **Verified**: the BIOS-published layers (ACE, SWAP 2015) each state CC-BY-4.0 verbatim in their ArcGIS item `licenseInfo` ("This work is licensed under Creative Commons Attribution 4.0 International License … Using the citation standards recommended for BIOS datasets satisfies the attribution requirements"), and data.ca.gov independently lists the SWAP-2015 layers as `cc-by`. Attribution via the BIOS citation standard (https://wildlife.ca.gov/Data/BIOS/Citing-BIOS).
+- **OK** · `CC-BY-4.0` — public-cdfw/ace/terrestrial-biodiversity-summary  · ACE v3.0 ds2739; CC-BY-4.0 verified in item licenseInfo. Contact ACE@wildlife.ca.gov.
+- **OK** · `CC-BY-4.0` — public-cdfw/swap-2015/provinces  · SWAP 2015 ds1900; CC-BY-4.0 verified (item + data.ca.gov).
+- **OK** · `CC-BY-4.0` — public-cdfw/swap-2015/terrestrial-targets  · SWAP 2015 ds1966; CC-BY-4.0 verified.
+- **OK** · `CC-BY-4.0` — public-cdfw/swap-2015/aquatic-targets  · SWAP 2015 ds2733; CC-BY-4.0 verified.
+- **HOLD** · `CC-BY-4.0` (inferred, unconfirmed) — public-cdfw/swap-2025/* (all 10 collections: provinces, conservation-units, sgcn-ranges, marine-bioregions, noaa-esu-dps, bay-delta-conservation-unit, targets, strategies, sgcn-species, sgcn-species-units)  · The SWAP 2025 source items (ArcGIS AGOL owner `cdfwswap`, services `SWAP_target_strategy_v3_gdb` / `SWAP_SGCN_V4_gdb` / `SWAP_Reference_Layers_WFL1`) carry **empty** `licenseInfo`/credits and are **not yet in the formal BIOS / data.ca.gov catalog**, so the CC-BY-4.0 in our STAC is an inference from every peer CDFW/BIOS dataset (ACE, SWAP 2015, CNRA 30×30) + the CA open-data default — **not** an explicit CDFW statement. **Do NOT mirror to source.coop until CDFW confirms.** Confirm with the SWAP Team (SWAP@wildlife.ca.gov) or Biogeographic Data Branch (BDB@wildlife.ca.gov / (916) 322-2493). Tracked: data-workflows #381.
+- **N/A (partial)** — `public-cdfw` is mixed-clearance: ACE + swap-2015 are mirror-eligible, swap-2025 is HOLD. Do **not** add `cdfw` to `REPOS` (gen-source-sync.sh) until the swap-2025 license is confirmed and the whole bucket is clear.
+
 ## public-census
 - **OK** · `public-domain` — public-census/census-2024/cd  
 - **OK** · `public-domain` — public-census/census-2024/county  
