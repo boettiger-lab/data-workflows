@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""Harmonize USGS Ungulate Migrations of the Western US, Vols 1-6, into two
+WGS84 GeoPackages: ungulate-ranges.gpkg (polygons) + ungulate-routes.gpkg (lines).
+
+Handles heterogeneous per-volume schemas:
+  - identity: attribute cols (Vol 3-6) or filename parse (Vol 1-2, species-first)
+  - contour:  Corridors keep use-class (Low/Medium/High/Very high/One individual;
+              NULL for Vol 3 which lacks a use column); ranges normalized to an
+              integer-percent string (legacy fraction*100 when <=1).
+  - CRS:      5070/5072/NAD83-Albers -> EPSG:4326
+Usage: harmonize.py <vols_root> <out_dir>   (vols_root has vol1/ .. vol6/)
+"""
+import geopandas as gpd, pandas as pd, glob, os, re, sys
+
+VOL_YEAR = {1: "2020-01-01", 2: "2022-01-01", 3: "2022-01-01",
+            4: "2024-01-01", 5: "2024-01-01", 6: "2026-01-01"}
+
+SPECIES = {"md": "MuleDeer", "muledeer": "MuleDeer", "deer": "MuleDeer",
+           "elk": "Elk", "pronghorn": "Pronghorn", "pr": "Pronghorn",
+           "moose": "Moose", "bison": "Bison",
+           "whitetaileddeer": "WhiteTailedDeer", "wtd": "WhiteTailedDeer",
+           "bighornsheep": "BighornSheep", "bighorn": "BighornSheep",
+           "mountaingoat": "MountainGoat"}
+
+US_STATES = {"AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL",
+             "IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT",
+             "NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI",
+             "SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"}
+
+def norm_species(s):
+    if s is None or str(s) == "nan": return None
+    return SPECIES.get(str(s).replace(" ", "").lower(), str(s))
+
+def is_state_tok(tok):
+    """A 2-letter state code, or a concatenation of them (IDNV, ORNVCA)."""
+    t = str(tok).upper()
+    if len(t) < 2 or len(t) % 2 != 0: return False
+    return all(t[i:i+2] in US_STATES for i in range(0, len(t), 2))
+
+def norm_ptype(raw):
+    r = str(raw).lower()
+    if "route" in r: return "Routes"
+    if "corridor" in r: return "Corridors"
+    if "winterrange" in r: return "WinterRange"
+    if "stopover" in r: return "Stopovers"
+    if "annualrange" in r: return "AnnualRange"
+    return None
+
+def parse_name(shp):
+    """Parse identity from filename by CLASSIFYING tokens (order-agnostic):
+    species (checked first, so MD/PR abbrevs win over MD/PR state codes),
+    then state, remainder = herd. Product type from the last token."""
+    b = re.sub(r"_Ver\d+_\d{4}$", "", os.path.splitext(os.path.basename(shp))[0])
+    toks = b.split("_")
+    pt = norm_ptype(toks[-1])
+    body = toks[:-1] if pt else toks   # drop product token only if recognized
+    species = state = None
+    herd_parts = []
+    for t in body:
+        if species is None and t.replace(" ", "").lower() in SPECIES:
+            species = norm_species(t)
+        elif state is None and is_state_tok(t):
+            state = str(t).upper()
+        else:
+            herd_parts.append(t)
+    herd = "".join(herd_parts) if herd_parts else None
+    return state, species, herd, pt
+
+def geom_family(gtypes):
+    g = " ".join(gtypes).lower()
+    if "line" in g: return "line"
+    if "polygon" in g: return "polygon"
+    return None
+
+# Legacy corridor use-intensity code (confirmed by Vol2 Use×GRIDCODE cross-tab).
+# The stray GRIDCODE=2 (57 feats, ~0.8%) is ambiguous -> left NULL, not guessed.
+GRIDCODE_USE = {1.0: "Low", 10.0: "Medium", 20.0: "High"}
+
+def norm_corridor_contour(row, cols):
+    for c in ("Contour", "Use"):
+        if c in cols and pd.notna(row.get(c)):
+            v = str(row[c]).strip()
+            return {"low": "Low", "medium": "Medium", "high": "High",
+                    "very high": "Very high", "one individual": "One individual",
+                    "1 individual": "One individual"}.get(v.lower(), v)
+    if "GRIDCODE" in cols and pd.notna(row.get("GRIDCODE")):
+        try:
+            return GRIDCODE_USE.get(float(row["GRIDCODE"]))
+        except (ValueError, TypeError):
+            return None
+    return None
+
+def norm_pct_contour(row, cols):
+    # NB: legacy `layer` is a polygon index, NOT a percentile -> excluded.
+    # Features carrying only `layer` get a NULL contour (honest: source gives
+    # no probability level), rather than a fabricated '100'.
+    for c in ("Contour", "Quantile", "GRIDCODE"):
+        if c in cols and pd.notna(row.get(c)):
+            try:
+                x = float(row[c])
+            except (ValueError, TypeError):
+                return str(row[c])
+            if x <= 1.0: x *= 100.0
+            return str(int(round(x)))
+    return None
+
+def main(root, outdir):
+    poly_frames, line_frames = [], []
+    for vol in range(1, 7):
+        for shp in sorted(glob.glob(f"{root}/vol{vol}/**/*.shp", recursive=True)):
+            try:
+                g = gpd.read_file(shp)
+            except Exception as e:
+                print(f"  !! skip {shp}: {e}"); continue
+            if len(g) == 0: continue
+            cols = set(g.columns)
+            # identity: attributes if present, else filename classification
+            if {"State", "Species", "Herd"} <= cols:
+                state = g["State"].astype(str)
+                species = g["Species"].map(norm_species)
+                herd = g["Herd"].astype(str)
+                pt = norm_ptype(g["DataType"].iloc[0]) if "DataType" in cols else None
+            else:
+                st, sp, hd, pt = parse_name(shp)
+                state = st; species = sp; herd = hd
+            if pt is None:
+                pt = norm_ptype(os.path.basename(shp))
+            # GEOMETRY is the authority for the collection split; the source
+            # label can be wrong (Vol5 "Migration Routes" that are polygons;
+            # malformed Vol2 route filenames with no product suffix).
+            fam = geom_family(list(g.geom_type.astype(str).unique()))
+            if fam == "line":
+                pt = "Routes"
+            elif fam == "polygon":
+                if pt in (None, "Routes"):
+                    print(f"  ~~ polygon labeled '{pt}' -> Corridors: {os.path.basename(shp)}")
+                    pt = "Corridors"
+            else:
+                print(f"  ?? non line/polygon geom, skip: {shp}"); continue
+            g = g.to_crs(4326)
+            g = g[g.geometry.notna() & ~g.geometry.is_empty]
+            if len(g) == 0: continue
+            out = gpd.GeoDataFrame(geometry=g.geometry.values, crs=4326)
+            out["state"] = state
+            out["species"] = species
+            out["herd"] = herd
+            out["data_type"] = pt
+            out["volume"] = vol
+            out["source_release_date"] = VOL_YEAR[vol]
+            if pt == "Routes":
+                out["ind_year"] = (g["IndYear"].astype(str) if "IndYear" in cols
+                                   else g["mig"].astype(str) if "mig" in cols else None)
+                for src, dst in (("FirstDate", "first_date"), ("firstdate", "first_date"),
+                                 ("LastDate", "last_date"), ("lastdate", "last_date")):
+                    if src in cols: out[dst] = g[src].astype(str)
+                if "first_date" not in out: out["first_date"] = None
+                if "last_date" not in out: out["last_date"] = None
+                line_frames.append(out)
+            else:
+                if pt == "Corridors":
+                    out["contour"] = [norm_corridor_contour(r, cols) for _, r in g.iterrows()]
+                else:
+                    out["contour"] = [norm_pct_contour(r, cols) for _, r in g.iterrows()]
+                poly_frames.append(out)
+
+    os.makedirs(outdir, exist_ok=True)
+    ranges = gpd.GeoDataFrame(pd.concat(poly_frames, ignore_index=True), crs=4326)
+    routes = gpd.GeoDataFrame(pd.concat(line_frames, ignore_index=True), crs=4326)
+    # Explode MultiLineStrings -> single LineStrings. A few volumes (some WA herds)
+    # store an entire herd's routes as one ~10^4-part MultiLineString (ind_year null),
+    # which hangs H3 res-10 polyfill. Splitting yields one contiguous track per row
+    # (~263k); `ind_year` (where present) still groups parts back to an animal-migration.
+    n0 = len(routes)
+    # Use shapely.get_parts (version-robust) rather than GeoDataFrame.explode, whose
+    # index_parts path is buggy in some geopandas builds.
+    import shapely
+    parts, src = shapely.get_parts(routes.geometry.values, return_index=True)
+    routes = gpd.GeoDataFrame(
+        routes.drop(columns="geometry").iloc[src].reset_index(drop=True),
+        geometry=gpd.GeoSeries(parts, crs=4326), crs=4326)
+    routes = routes[routes.geom_type == "LineString"].reset_index(drop=True)
+    print(f"exploded routes {n0} -> {len(routes)} single-line segments")
+    # Simplify pathologically dense source vertices. Vol 6 UD polygons reach ~1.8M
+    # points/feature (cm-level spacing from raster-traced contours), which hangs H3
+    # res-10 polyfill and bloats the parquet/pmtiles. Tolerance 0.0001 deg (~11 m) is
+    # below the res-10 cell edge (~15 m), so shape is preserved at hexing fidelity.
+    TOL = 0.0001
+    ranges["geometry"] = ranges.geometry.simplify(TOL, preserve_topology=True)
+    routes["geometry"] = routes.geometry.simplify(TOL, preserve_topology=True)
+    print(f"simplified geometries at tolerance {TOL} deg (~11 m)")
+    # Repair invalid polygons (self-intersections; simplify can also introduce them)
+    # so downstream H3 polyfill doesn't error. buffer(0) preserves (Multi)Polygon type.
+    inv = ~ranges.geometry.is_valid
+    n_inv = int(inv.sum())
+    if n_inv:
+        ranges.loc[inv, "geometry"] = ranges.loc[inv, "geometry"].buffer(0)
+        ranges = ranges[ranges.geometry.notna() & ~ranges.geometry.is_empty]
+        print(f"repaired {n_inv} invalid polygons; still invalid: "
+              f"{int((~ranges.geometry.is_valid).sum())}")
+    # column order
+    ranges = ranges[["state", "species", "herd", "data_type", "contour",
+                     "volume", "source_release_date", "geometry"]]
+    routes = routes[["state", "species", "herd", "data_type", "ind_year",
+                     "first_date", "last_date", "volume", "source_release_date", "geometry"]]
+    ranges.to_file(f"{outdir}/ungulate-ranges.gpkg", driver="GPKG", layer="ranges")
+    routes.to_file(f"{outdir}/ungulate-routes.gpkg", driver="GPKG", layer="routes")
+
+    print("\n=== RANGES ===", len(ranges), "features")
+    print(ranges.drop(columns="geometry").groupby(["data_type"]).size())
+    print("geom types:", sorted(ranges.geom_type.unique()))
+    print("contour by data_type:")
+    for dt, sub in ranges.groupby("data_type"):
+        print(f"  {dt}: {sorted(set(sub['contour'].dropna().astype(str)))[:12]}"
+              f"  (null={sub['contour'].isna().sum()})")
+    print("species:", sorted(ranges["species"].dropna().unique()))
+    print("states:", sorted(ranges["state"].dropna().unique()))
+    print("herds:", ranges["herd"].nunique(), " vols:", sorted(ranges["volume"].unique()))
+    print("corridor contour null by volume:",
+          dict(ranges[(ranges.data_type == "Corridors") & ranges.contour.isna()]
+               .groupby("volume").size()))
+    print("\n=== ROUTES ===", len(routes), "features")
+    print("geom types:", sorted(str(x) for x in routes.geom_type.unique()))
+    print("herds:", routes["herd"].nunique(),
+          " ind_year nulls:", routes["ind_year"].isna().sum())
+    print("sample ind_year:", list(routes["ind_year"].dropna().head(4)))
+    print("bbox ranges:", [round(x, 2) for x in ranges.total_bounds],
+          " routes:", [round(x, 2) for x in routes.total_bounds])
+
+if __name__ == "__main__":
+    main(sys.argv[1], sys.argv[2])

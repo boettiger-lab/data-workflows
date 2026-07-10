@@ -19,6 +19,14 @@
 `social-vulnerability` (public-domain), `trails` (public-domain), `usfws` (public-domain),
 `wetlands` (various: Ramsar PD + GLWD CC-BY-4.0 + NWI PD)
 
+## 🆕 To create (in scope, pending manual web-UI repo creation)
+
+- **`usgs-ungulate-migration`** (`public-domain` — USGS U.S. Government Works) — *Ungulate
+  Migrations of the Western United States* (Vols 1–6): `ungulate-ranges` (polygons) +
+  `ungulate-routes` (lines). License-clear and catalogued. Create `cboettig/usgs-ungulate-migration`
+  (visibility: public) in the web UI, then add `usgs-ungulate-migration` to `REPOS` in
+  `gen-source-sync.sh`, run it, and apply `source-sync-cron-config.yaml`. (data-workflows #153/#225.)
+
 ## ⛔ Not mirrored (held — NOT a license problem)
 
 - **`tpl`** — the only license-clear collection in `public-tpl` was `wcb-approved-projects`
