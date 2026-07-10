@@ -413,9 +413,9 @@ auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (
   ```
   It reports rows vs `COUNT(DISTINCT key)`, warns on blank keys, classifies each column REPEATED vs VARIES, and quantifies raw-vs-deduped `SUM` inflation. Then document the verdict in the asset's `table:columns`: name the key, mark REPEATED columns "dedup before SUM", and (if any) note VARIES columns are safe to SUM. A clean one-row-per-feature file needs no note.
 
-- **Hex assets MUST flag per-feature duplication on any attribute a consumer might aggregate.** One hex row = one (feature, cell) pair, so any column that represents a per-feature total — area (`GIS_Acres`, `SHAPE_Area`), length (`SHAPE_Length`), population, count, amount, funding, intensity — is repeated on every cell the feature covers. The column description on the hex asset MUST state this and give a dedup recipe. Use one of:
-  - **Area/length from hex count** (never SUM the source value): `COUNT(DISTINCT h<N>) × cell_area_at_resolution_N`. Per-resolution H3 cell areas are H3-standard constants — do not inline them in column descriptions. The agent reads them from `mcp-data-server/h3-guide.md`.
-  - **SUM after dedup** (when the attribute is a real per-feature value): `SELECT DISTINCT <feature_key>, <attr> …` or `ROW_NUMBER() OVER (PARTITION BY <feature_key>)` before aggregating.
+- **Hex assets MUST flag per-feature duplication on any attribute a consumer might aggregate.** One hex row = one (feature, cell) pair, so any column that represents a per-feature total — area (`GIS_Acres`, `SHAPE_Area`), length (`SHAPE_Length`), population, count, amount, funding, intensity — is repeated on every cell the feature covers. The column description on the hex asset MUST state this and name the **dedup key**. The two safe patterns:
+  - **SUM after dedup** (the attribute is a real per-feature value): `SELECT DISTINCT <feature_key>, <attr> …` or `ROW_NUMBER() OVER (PARTITION BY <feature_key>)` before aggregating.
+  - **Area/extent from the H3 footprint** (when there is no trustworthy source value): the generic recipe — `SUM(h3_cell_area(h<N>, 'km^2'))` over DISTINCT cells, exact per cell, **never** a nominal per-resolution constant — lives in `mcp-data-server/h3-guide.md`. **Do NOT inline that formula into the column description** — it is generic guidance the geo-agent already reads from the h3-guide, and a copy baked into STAC goes stale and becomes actively harmful (a nominal-constant copy undercounted the ca-30x30 California extent ~6%, mcp-data-server#294 / #389). Just flag the column as a per-feature total not to be SUMmed on hex; the agent derives area from the h3-guide.
 
   Columns that are safe to aggregate on hex (H3 indexes, `_cng_fid`, `bbox`) don't need a warning. If no column on the hex asset is safe to SUM, say so once in the collection description too.
 
@@ -440,7 +440,7 @@ auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (
       "table:columns": [
         {"name": "GEOID", "type": "string", "description": "…"},
         {"name": "ALAND", "type": "int64",
-         "description": "Land area in m² of the source district polygon. **Repeated on every hex row the district covers — never SUM(ALAND) on hex data. Compute area from hex count: COUNT(DISTINCT h10) × cell_area_at_resolution_10** (see h3-guide for per-resolution cell areas)."},
+         "description": "Land area in m² of the source district polygon. **Repeated on every hex row the district covers — never SUM(ALAND) on hex data; dedup first (SELECT DISTINCT GEOID, ALAND).** For area from the H3 footprint see the h3-guide."},
         {"name": "h10", "type": "uint64", "description": "H3 cell ID at resolution 10 (native resolution; one row per (feature, h10) pair)."},
         {"name": "h9",  "type": "uint64", "description": "H3 cell ID at resolution 9."},
         {"name": "h8",  "type": "uint64", "description": "H3 cell ID at resolution 8."},
