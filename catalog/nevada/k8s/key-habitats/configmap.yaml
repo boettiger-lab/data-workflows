@@ -56,6 +56,8 @@ data:
               value: 'FALSE'
             - name: BUCKET
               value: public-nevada
+            - name: OGR_GEOJSON_MAX_OBJ_SIZE
+              value: '0'
             volumeMounts:
             - name: rclone-config
               mountPath: /root/.config/rclone
@@ -143,6 +145,8 @@ data:
               value: /tmp
             - name: BUCKET
               value: public-nevada
+            - name: OGR_GEOJSON_MAX_OBJ_SIZE
+              value: '0'
             - name: DATASET
               value: swap-2022-key-habitats
             command:
@@ -215,6 +219,8 @@ data:
               value: /tmp
             - name: BUCKET
               value: public-nevada
+            - name: OGR_GEOJSON_MAX_OBJ_SIZE
+              value: '0'
             - name: DATASET
               value: key-habitats
             volumeMounts:
@@ -311,6 +317,8 @@ data:
               value: /tmp
             - name: BUCKET
               value: public-nevada
+            - name: OGR_GEOJSON_MAX_OBJ_SIZE
+              value: '0'
             volumeMounts:
             - name: rclone-config
               mountPath: /root/.config/rclone
@@ -387,6 +395,8 @@ data:
               value: 'FALSE'
             - name: BUCKET
               value: public-nevada
+            - name: OGR_GEOJSON_MAX_OBJ_SIZE
+              value: '0'
             volumeMounts:
             - name: rclone-config
               mountPath: /root/.config/rclone

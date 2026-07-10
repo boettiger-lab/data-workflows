@@ -40,6 +40,8 @@ spec:
           value: 'FALSE'
         - name: BUCKET
           value: public-nevada
+        - name: OGR_GEOJSON_MAX_OBJ_SIZE
+          value: '0'
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
