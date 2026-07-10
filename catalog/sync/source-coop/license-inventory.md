@@ -131,6 +131,12 @@ CDFW BIOS biogeographic data. **Verified**: the BIOS-published layers (ACE, SWAP
 - **OK** · `CDLA-Permissive-2.0` — public-overturemaps/2026-02-18.0/regions  
 - **OK** · `CDLA-Permissive-2.0` — public-overturemaps  
 
+## public-missouri
+- **HOLD** · `other` (license pending) — public-missouri/ccs-2022/* (7 Conservation Opportunity Area layers)  · Missouri Dept of Conservation CCS 2022 (MDC ArcGIS Server). MDC states no explicit data license; STAC `license: other` + link to MDC terms, pending confirmation. Do NOT mirror to source.coop until confirmed. data-workflows #384.
+
+## public-nevada
+- **HOLD** · `other` (license pending) — public-nevada/swap-2022/* (species-distributions, key-habitats)  · Nevada Dept of Wildlife SWAP 2022 (NDOW ArcGIS). NDOW states no data license on the SWAP page; STAC `license: other` + link, pending confirmation (ndowinfo@ndow.org). Do NOT mirror to source.coop until confirmed. data-workflows #383.
+
 ## public-padus
 - **OK** · `public-domain` — public-padus/padus-4-1/combined  
 - **OK** · `public-domain` — public-padus/padus-4-1/easement  

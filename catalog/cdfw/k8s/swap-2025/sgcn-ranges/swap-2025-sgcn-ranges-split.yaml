@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+metadata: {name: swap-2025-sgcn-ranges-split, labels: {k8s-app: swap-2025-sgcn-ranges-split}}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: swap-2025-sgcn-ranges-split}}
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: split
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        volumeMounts:
+        - {name: script, mountPath: /opt/scripts, readOnly: true}
+        command: [bash, -c, "set -euo pipefail; python3 /opt/scripts/mixres.py split s3://public-cdfw/swap-2025/sgcn-ranges.parquet 's3://public-cdfw/swap-2025/sgcn-ranges/hex/h0=*/data_0.parquet' s3://public-cdfw/swap-2025/sgcn-ranges-small.parquet 10000"]
+        resources: {requests: {cpu: '2', memory: 16Gi}, limits: {cpu: '2', memory: 16Gi}}
+      volumes:
+      - {name: script, configMap: {name: nvmo-scripts}}
