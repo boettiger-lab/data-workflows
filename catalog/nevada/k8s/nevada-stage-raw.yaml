@@ -43,7 +43,7 @@ spec:
           set -euo pipefail
           B=https://services.arcgis.com/RyxlXSfFi87rAosq/arcgis/rest/services
           FS=/opt/scripts/fs2geojson.py
-          python3 $FS $B/Nevada_State_Wildlife_Action_Plan_Species_Distributions_Layer/FeatureServer/0 /tmp/species-distributions.geojson --page 500
+          python3 $FS $B/Nevada_State_Wildlife_Action_Plan_Species_Distributions_Layer/FeatureServer/0 /tmp/species-distributions.geojson --page 20
           python3 $FS $B/keyhab_merge/FeatureServer/0 /tmp/key-habitats.geojson --page 500
           for f in /tmp/*.geojson; do
             rclone copyto "$f" "nrp:public-nevada/raw/swap-2022-$(basename $f)" -v
