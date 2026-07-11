@@ -51,15 +51,15 @@ spec:
         - -c
         - |
           set -e
-          cng-datasets repartition --chunks-dir s3://public-wui/wui-2020/chunks --output-dir s3://public-wui/wui-2020/hex --source-parquet s3://public-wui/wui-2020.parquet --cleanup --memory-limit 27GiB
+          cng-datasets repartition --chunks-dir s3://public-wui/wui-2020/chunks --output-dir s3://public-wui/wui-2020/hex --source-parquet s3://public-wui/wui-2020.parquet --cleanup --memory-limit 100GiB
         resources:
           requests:
-            cpu: '4'
-            memory: 32Gi
+            cpu: '8'
+            memory: 120Gi
             ephemeral-storage: 50Gi
           limits:
-            cpu: '4'
-            memory: 32Gi
+            cpu: '8'
+            memory: 120Gi
             ephemeral-storage: 50Gi
       volumes:
       - name: rclone-config
