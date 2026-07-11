@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: common-attributes-2026-06-repartition
+  labels:
+    k8s-app: common-attributes-2026-06-repartition
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: common-attributes-2026-06-repartition
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: repartition-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp
+        - name: BUCKET
+          value: public-facts
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: common-attributes-2026-06-repartition
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          mkdir -p /scratch/tmp && rm -rf /scratch/tmp/* || true
+          # National res-10 hex over 7.3M polygons -> large chunks/ + per-h0 sort.
+          # Big RAM + PVC-backed spill (ephemeral capped at 50Gi namespace-wide).
+          cng-datasets repartition --chunks-dir s3://public-facts/common-attributes-2026-06/chunks --output-dir s3://public-facts/common-attributes-2026-06/hex --source-parquet s3://public-facts/common-attributes-2026-06.parquet --cleanup --memory-limit 100GiB
+        resources:
+          requests:
+            cpu: '8'
+            memory: 120Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '8'
+            memory: 120Gi
+            ephemeral-storage: 30Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
