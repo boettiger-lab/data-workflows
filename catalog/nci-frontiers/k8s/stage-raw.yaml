@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nci-frontiers-stage-raw
+  namespace: biodiversity
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values: ["true"]
+      containers:
+        - name: stage
+          image: ghcr.io/boettiger-lab/datasets:latest
+          imagePullPolicy: Always
+          resources:
+            requests: {cpu: "2", memory: "6Gi", ephemeral-storage: "5Gi"}
+            limits:   {cpu: "4", memory: "8Gi", ephemeral-storage: "10Gi"}
+          volumeMounts:
+            - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+            - {name: scratch, mountPath: /scratch, subPath: nci-frontiers}
+          env:
+            - {name: URL_B64, value: "aHR0cHM6Ly9kcnlhZC1hc3NldHN0b3JlLW1lcnJpdHQtd2VzdC5zMy51cy13ZXN0LTIuYW1hem9uYXdzLmNvbS92My80NDUxOTUvZGF0YS9kMWVjMzM3Yi03ZDVmLTQ3ZGItYTU5ZS1mZTA5MWVjZDE1Y2IuemlwP3Jlc3BvbnNlLWNvbnRlbnQtZGlzcG9zaXRpb249YXR0YWNobWVudCUzQiUyMGZpbGVuYW1lJTNEaW5wdXRzX2Zvcl9wdWJsaWNhdGlvbi56aXAmWC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBMktFUkhWNUUzT0lUWFpYQyUyRjIwMjYwNjI5JTJGdXMtd2VzdC0yJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI2MDYyOVQxNzQwMjZaJlgtQW16LUV4cGlyZXM9ODY0MDAmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0JlgtQW16LVNpZ25hdHVyZT05Yzg4ZTNhZWZlZmJkYmRjNGQ3MjM0YzA4OGIyMjdhY2NjY2Y4ODU2OWRhNTAzZjQ0MzViMTQxNWM1MmRmNjU4Cg=="}
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              cd /scratch
+              echo "$(date) downloading inputs zip ..."
+              URL=$(echo "$URL_B64" | base64 -d)
+              curl -L --fail --retry 5 --retry-delay 10 -C - -o inputs.zip "$URL"
+              ls -la inputs.zip
+              echo "$(date) staging zip to S3 (provenance) ..."
+              rclone copyto inputs.zip nrp:public-nci-frontiers/raw/inputs_for_publication.zip --s3-no-check-bucket -v --stats 60s
+              echo "$(date) unzipping ..."
+              python -c "import zipfile; zipfile.ZipFile('inputs.zip').extractall('inputs')"
+              du -sh inputs
+              echo "$(date) staging unzipped tree to S3 ..."
+              rclone copy inputs nrp:public-nci-frontiers/raw/inputs --s3-no-check-bucket --transfers 4 --checkers 8 -v --stats 60s
+              echo "$(date) DONE staging public-nci-frontiers/raw/"
+      volumes:
+        - {name: rclone-config, secret: {secretName: rclone-config}}
+        - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}

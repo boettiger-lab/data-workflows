@@ -1,0 +1,120 @@
+# One-time attribute cleanup for public-usgs-ungulate-migration (PR #388 review).
+# Rewrites the two flat GeoParquets in place (attribute columns only) so that:
+#   - `state` is a clean US-state filter: multi-state -> comma-separated 2-letter
+#     codes (ID,NV / OR,NV / OR,NV,CA); tribal/reservation codes -> containing state
+#     (WRR/WWR -> WY, TesuquePueblo -> NM);
+#   - a new `tribal_land` column records the tribal identity that used to pollute
+#     `state` (Wind River Reservation, Tesuque Pueblo); NULL elsewhere;
+#   - the stray `contour = 'CorridorFootprint'` (1 Vol-6 corridor footprint polygon,
+#     not a use-intensity class) becomes NULL, consistent with honest-null corridors;
+#   - the redundant GPKG `fid` column is dropped (`_cng_fid` is the canonical id, #369).
+# geom + _cng_fid are preserved verbatim, so the H3 hex (keyed by _cng_fid, holding
+# no attribute columns) stays valid and is NOT rebuilt. Output goes to a staging
+# prefix; verify, then swap over the live keys (patch-swap.yaml).
+# The reproducible recipe lives in harmonize.py; this job patches the already-published
+# data without re-running the full harmonize -> convert path (which would reassign
+# _cng_fid and invalidate the hex).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ungulate-patch-attributes
+  labels:
+    k8s-app: ungulate-patch-attributes
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ungulate-patch-attributes
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: patch-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: RCLONE_CONFIG_NRP_ENDPOINT
+          value: http://rook-ceph-rgw-nautiluss3.rook
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-usgs-ungulate-migration
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cat > /tmp/patch.py <<'PY'
+          import sys, duckdb
+          src, dst, ds = sys.argv[1], sys.argv[2], sys.argv[3]
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial;")
+
+          # state normalization + tribal_land derivation (mirrors harmonize.py norm_state)
+          STATE = """CASE
+              WHEN state = 'ID and NV' THEN 'ID,NV'
+              WHEN state = 'OR-NV'     THEN 'OR,NV'
+              WHEN state = 'OR-NV-CA'  THEN 'OR,NV,CA'
+              WHEN state = 'WRR'       THEN 'WY'
+              WHEN state IS NULL AND (herd LIKE 'WRR%' OR herd LIKE 'WWR%') THEN 'WY'
+              WHEN state = 'TesuquePueblo' THEN 'NM'
+              ELSE state END AS state"""
+          TRIBAL = """CASE
+              WHEN state = 'WRR' THEN 'Wind River Reservation'
+              WHEN state IS NULL AND (herd LIKE 'WRR%' OR herd LIKE 'WWR%') THEN 'Wind River Reservation'
+              WHEN state = 'TesuquePueblo' THEN 'Tesuque Pueblo'
+              ELSE NULL END AS tribal_land"""
+
+          if ds == "ungulate-ranges":
+              cols = f"""_cng_fid, {STATE}, {TRIBAL}, species, herd, data_type,
+                  CASE WHEN contour = 'CorridorFootprint' THEN NULL ELSE contour END AS contour,
+                  volume, source_release_date, geom"""
+          else:
+              cols = f"""_cng_fid, {STATE}, {TRIBAL}, species, herd, data_type,
+                  ind_year, first_date, last_date, volume, source_release_date, geom"""
+
+          con.execute(f"""
+              COPY (SELECT {cols} FROM read_parquet('{src}'))
+              TO '{dst}' (FORMAT PARQUET, ROW_GROUP_SIZE 2000, COMPRESSION ZSTD)
+          """)
+          n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{dst}')").fetchone()[0]
+          print(f"{ds}: wrote {n} rows -> {dst}")
+          PY
+
+          for DS in ungulate-ranges ungulate-routes; do
+            rclone copy nrp:$BUCKET/$DS.parquet /tmp/ -P
+            python3 /tmp/patch.py /tmp/$DS.parquet /tmp/$DS-clean.parquet $DS
+            rclone copyto /tmp/$DS-clean.parquet nrp:$BUCKET/patch-staging/$DS.parquet -P
+            rm -f /tmp/$DS.parquet /tmp/$DS-clean.parquet
+          done
+          echo "PATCH STAGING COMPLETE"
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

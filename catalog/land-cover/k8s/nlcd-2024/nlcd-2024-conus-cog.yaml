@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nlcd-2024-conus-cog
+  namespace: biodiversity
+  labels: {k8s-app: nlcd-2024-conus-cog}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: nlcd-2024-conus-cog}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /scratch}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Rebuild the FULL CONUS NLCD 2024 WGS84 COG from the intact raw source.
+          # The prior public-wyoming/nlcd-2024-cog.tif was windowed to the NW quadrant
+          # (data-workflows #307); the raw zip is verified full CONUS (160000x105000).
+          # -r near is REQUIRED: bilinear/average would corrupt categorical class codes.
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          [ -n "$PROJ_DB" ] && export PROJ_DATA="$(dirname $PROJ_DB)" PROJ_LIB="$(dirname $PROJ_DB)"
+          cd /scratch
+          echo "=== download raw zip ==="
+          rclone copy nrp:public-wyoming/raw/Annual_NLCD_LndCov_2024_CU_C1V1.zip /scratch/ -P
+          echo "=== unzip ==="
+          unzip -q -o Annual_NLCD_LndCov_2024_CU_C1V1.zip
+          SRC=$(find /scratch -name "Annual_NLCD_LndCov_2024_CU_C1V1.tif" | head -1)
+          echo "source: $SRC"
+          gdalinfo "$SRC" | grep -E 'Size is|Pixel Size|Origin'
+          echo "=== gdalwarp full-extent -> EPSG:4326 COG ==="
+          gdalwarp -t_srs EPSG:4326 -r near -of COG \
+            -srcnodata 250 -dstnodata 250 \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 4096 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BLOCKSIZE=512 \
+            -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS \
+            "$SRC" /scratch/nlcd-2024-cog-4326.tif
+          echo "=== verify output bounds (expect ~ -124.8,24.5 .. -66.9,49.4) ==="
+          gdalinfo /scratch/nlcd-2024-cog-4326.tif | grep -E 'Size is|Corner|Lower|Upper|Center'
+          echo "=== publish ==="
+          rclone copyto /scratch/nlcd-2024-cog-4326.tif nrp:public-land-cover/nlcd-2024-cog.tif -P
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scratch, mountPath: /scratch, subPath: nlcd-2024-conus-cog}
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}

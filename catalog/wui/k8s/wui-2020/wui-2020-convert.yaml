@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wui-2020-convert
+  labels:
+    k8s-app: wui-2020-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wui-2020-convert
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-wui
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # GDAL/DuckDB ST_Read cannot open a multi-file .gdb *directory* over s3://
+          # ("Could not open GDAL dataset"). Localize the GDB to local disk first,
+          # then convert from the local path.
+          mkdir -p /tmp/wui
+          echo "Localizing GDB from s3 (~7 GB)..."
+          rclone copy nrp:public-wui/raw/US_WUI_block_1990_2020_change_v4.gdb \
+            /tmp/wui/US_WUI_block_1990_2020_change_v4.gdb -P
+          echo "Converting..."
+          # --row-group-size 2000: 11M national-scale features; keeps each geometry
+          # column chunk well under the ~2.8 GB httpfs 'stoi' cliff (see AGENTS.md).
+          cng-convert-to-parquet \
+            /tmp/wui/US_WUI_block_1990_2020_change_v4.gdb \
+            s3://public-wui/wui-2020.parquet \
+            --row-group-size 2000 \
+            --layer US_WUI_block_1990_2020_change_v4
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

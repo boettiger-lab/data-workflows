@@ -48,6 +48,32 @@ def is_abbrev_name(name: str, value) -> bool:
     return False
 
 
+def values_self_describing(values_arr) -> bool:
+    """Return True if every value in the array is already a human-readable label
+    rather than an opaque code — i.e. the value text IS its own definition, so an
+    inline CODE=Definition map would be redundant.
+
+    A value is self-describing when it contains whitespace (a multi-word phrase like
+    'North Pacific' or '1.5M - 2M km2') or carries a lowercase letter and is at least
+    four characters ('Park', 'Lake', 'Mediterranean', 'NotApplicable'). Opaque codes —
+    all-caps acronyms (CCAMLR, RFB), short tokens (LSAD '00', MTFCC 'G4000', vipcode
+    'V13'), and numeric codes — are NOT self-describing (the lowercase requirement
+    excludes all-caps/numeric codes; the 4-char floor still rejects 3-char tokens like
+    'ANT') and still require an inline map.
+
+    Used to fold a precision false-positive class: label enums that ship a `values`
+    array but legitimately have no code→name mapping to write (#303)."""
+    if not isinstance(values_arr, list) or not values_arr:
+        return False
+    for v in values_arr:
+        s = str(v)
+        has_space = bool(re.search(r"\s", s))
+        descriptive_word = bool(re.search(r"[a-z]", s)) and len(s) >= 4
+        if not (has_space or descriptive_word):
+            return False
+    return True
+
+
 def lint(source: str) -> list[str]:
     """Return a list of error strings (empty = pass)."""
     try:
@@ -113,6 +139,7 @@ def lint(source: str) -> list[str]:
             col_name = col.get("name", "")
             col_type = col.get("type", "")
             desc = col.get("description", "")
+            desc_l = desc.lower()
             values_arr = col.get("values")
 
             # Skip pure index/geometry columns up front
@@ -122,16 +149,174 @@ def lint(source: str) -> list[str]:
                             "geometry", "geom", "shape", "_cng_fid", "bbox"):
                 continue
 
-            # Skip identifier columns — these are unique keys, not categorical classes,
-            # even though their names often end in "num"/"id" or types are integer.
-            # Discriminator: the description calls it a number/identifier, NOT a code/class.
-            mentions_code = bool(re.search(r"\bcode\b|\bclass\b|categor", desc, re.I))
-            looks_like_identifier = (
-                bool(re.search(r"\b(number|identifier|unique id|object\s*id)\b", desc, re.I))
-                or bool(re.fullmatch(r"(?i).*(_id|objectid|fid|guid|uuid)", col_name))
-            )
-            if looks_like_identifier and not mentions_code:
-                continue
+            # The exclusions below only decide whether to *demand* a values array for a
+            # column that lacks one. A column that already declares `values` is an
+            # explicit opt-in to categorical validation and is never skipped here.
+            if values_arr is None:
+                # Skip date columns — a date is never a categorical class, even when its
+                # description names the "code" it dates (e.g. "Date the GAP Status Code
+                # was assigned in YYYYMMDD"). Signals: name ends in dt/date, or a date-ish
+                # description.
+                is_date = (
+                    bool(re.fullmatch(r"(?i).*(dt|date)", col_name))
+                    or (bool(re.search(r"\bdate\b", desc_l)) and "yyyy" in desc_l)
+                )
+                if is_date:
+                    continue
+
+                # Skip source/provenance columns — free-text "source document used to
+                # assign the X code" fields, not codes themselves. Signals: name ends in
+                # src/source, or a source-provenance phrase in the description.
+                is_source = (
+                    bool(re.fullmatch(r"(?i).*(src|source)", col_name))
+                    or bool(re.search(r"\bsource (document|used|data)\b|used to assign", desc_l))
+                )
+                if is_source:
+                    continue
+
+                # Skip heterogeneous, unnormalized source-passthrough columns — raw values
+                # copied verbatim from multiple upstream sources with no harmonization
+                # (mixed casing, agency-specific code systems, free-text all in one column).
+                # These are NOT a controlled vocabulary: an authoritative CODE=Definition
+                # map does not exist, and enumerating every casing/source variant as
+                # `values` documents data-quality noise rather than a domain. e.g. trails
+                # federal-trails-2026 trail_class/trail_surface/trail_type fuse USFS numeric
+                # codes, NPS descriptive labels, and BLM passthrough strings. Signal: the
+                # description explicitly says the values are heterogeneous / unnormalized /
+                # raw across sources (an author writes this deliberately, like is_source),
+                # or that the column is free-text with uncontrolled source variants (e.g.
+                # epa-sab-v3-cws Data_Provider_Type "Free-text — values include
+                # typographical variants from the source"). A "free-text" declaration on a
+                # column that ships no `values` array is the author asserting it is not a
+                # controlled vocabulary — enumerating its typo/casing variants documents
+                # noise, not a domain.
+                is_heterogeneous_source = bool(re.search(
+                    r"heterogeneous|unharmoni|unnormali[sz]ed|not normali[sz]ed|"
+                    r"verbatim across|raw .*(source|agenc)|treat as informational|"
+                    r"unnormalized across|across (agencies|sources)|"
+                    r"free[\s-]?text|typographical variant", desc_l))
+                if is_heterogeneous_source:
+                    continue
+
+                # Skip FIPS / fixed-width geographic identifier codes — GEOID-component
+                # keys (STATEFP/COUNTYFP/TRACTCE/SLDLST/SLDUST…) and FIPS/STCNTY/iso3.
+                # These are identifier components, not enumerable classes (#303). The
+                # discriminator is a "FIPS code" or "<thing> code (N digits)" description
+                # (a fixed-width numeric key) or a known identifier name; genuine small
+                # enums (MTFCC, CLASSFP, FUNCSTAT) carry neither signal and still flag.
+                is_geo_identifier = (
+                    bool(re.search(r"\bfips code\b|\bcode \(\d+\s*digits?\)", desc_l))
+                    or bool(re.fullmatch(r"(?i)(fips|stcnty|iso3|geoid\w*|sld[lu]st)", col_name))
+                )
+                if is_geo_identifier:
+                    continue
+
+                # Skip standardized sibling-coded geographic codes — ISO-3166 country
+                # codes (ISO_SOV*/ISO_TER*), UN M49 codes (UN_SOV*/UN_TER*), and MEOW
+                # ecoregion codes (ECO_CODE/ECO_CODE_X). These are universal external code
+                # systems, not dataset-specific enums, and the marineregions/MEOW sources
+                # always ship a sibling human-readable column (SOVEREIGN1, TERRITORY1,
+                # ECOREGION) — so the geo-agent resolves names via the sibling, not an
+                # inline values map. Confirmed false positives in #294 (iho/ecs/meow).
+                if re.fullmatch(r"(?i)(iso|un)_(sov|ter)\d*|eco_code(_x)?", col_name):
+                    continue
+
+                # Skip ISO 3166 country codes (alpha-2/alpha-3) — a universal external
+                # standard (~250 codes) the geo-agent resolves natively, not a dataset
+                # enum. Listing 226+ codes as `values` is a key dump, and the canonical
+                # CODE=Name map is the published ISO standard, not a dataset value list.
+                # Same rationale as the ISO/UN sibling-code fold above. Signal: the
+                # description names ISO 3166, or the column is an unambiguous country-code
+                # field (countrycode / iso_a2 / iso_a3 — a bare `country` only folds via
+                # the ISO-3166 description, since `country` can also be a full-name column).
+                if (re.search(r"iso[\s-]?3166", desc_l)
+                        or re.fullmatch(r"(?i)(countrycode|country_code|iso_a[23]|iso3166[\w-]*)", col_name)):
+                    continue
+
+                # Skip US state/territory two-letter POSTAL abbreviations — a universal
+                # external standard (CA=California, …) the geo-agent resolves natively,
+                # not a dataset-specific enum (same rationale as the ISO/UN codes above).
+                # Signal: a "two-letter US state/territory abbreviation" description, or a
+                # state-abbreviation column name. FIPS state *numbers* (STATEFP) are caught
+                # by the geo-identifier rule above; this is the alpha postal code.
+                if (re.search(r"two-letter\s+(us\s+)?state|state\b.*\babbreviat|postal abbreviat", desc_l)
+                        or re.fullmatch(r"(?i)(state_code|st_abbr|state_abbr|st_code)", col_name)):
+                    continue
+
+                # Skip compositional / published-classification codes — a value built by
+                # concatenating sub-codes per a named published classification standard
+                # (NWI Cowardin 'L1UBH', etc.), with thousands of valid combinations. A
+                # flat CODE=Definition enumeration is infeasible and the meaning is defined
+                # by the upstream standard, not a dataset value list. Signal: the
+                # description names the classification system / calls the code compositional.
+                if re.search(r"\bcowardin\b|\bcompositional\b|concatenat|"
+                             r"code following the .{0,40}classification|"
+                             r"classification system \(e\.g", desc_l):
+                    continue
+
+                # Skip multi-value / delimited code columns — each value is a
+                # comma/semicolon-separated COMBINATION of atomic codes, so the distinct
+                # set is the explosion of combinations (USGS WBD humod: 'AW,RC,WD'), not a
+                # clean enum. A flat values array can't enumerate the combinations; the
+                # atomic-code domain belongs in the description. Signal: the description
+                # says the value is delimited / 'code(s)' / one-or-more.
+                if re.search(r"comma-separated|semicolon-separated|comma separated|"
+                             r"\bcode\(s\)|\bone or more\b|combination of", desc_l):
+                    continue
+
+                # Skip routing / downstream-reference identifier codes — a code that points
+                # to ANOTHER record (the downstream hydrologic unit), i.e. a foreign key,
+                # not an enumerable class. e.g. WBD hu12 `tohuc` "downstream HUC12 code that
+                # this subwatershed flows to". High-cardinality (one per upstream unit).
+                if (re.search(r"downstream\b.{0,30}\b(code|huc)|\bflows? to\b|\brouting\b", desc_l)
+                        or re.fullmatch(r"(?i)tohuc|to_huc", col_name)):
+                    continue
+
+                # Skip Linnaean taxonomic-rank columns — scientific nomenclature (class,
+                # order, family, genus, kingdom, phylum, scientific name) is an OPEN
+                # external naming system maintained by taxonomic authorities (the GBIF
+                # backbone, IUCN, Catalogue of Life), not a dataset-controlled enum. The
+                # values are self-describing taxon names (Mammalia, Actinopterygii) and
+                # high-cardinality (GBIF carries 650+ classes incl. provisional codes), so
+                # neither an inline CODE=Definition map nor a finite `values` array applies
+                # — the meaning is defined by the nomenclature, not a dataset value list.
+                # Distinct from a dataset's OWN taxon-grouping vocabulary (e.g. MegaMove
+                # `taxon`'s 8 fixed groups), which IS enumerable and keeps its `values`
+                # array. Signal: the description names it a taxonomic/Linnaean rank or a
+                # scientific name (a deliberate author signal, like is_source/heterogeneous).
+                is_taxonomic_rank = bool(re.search(
+                    r"\blinnaean\b|\btaxonomic\s+(class|rank|order|family|genus|kingdom|"
+                    r"phylum|division)\b|\bscientific name\b|open (scientific )?nomenclature|"
+                    r"taxonomic authorit|gbif backbone|catalogue of life", desc_l))
+                if is_taxonomic_rank:
+                    continue
+
+                # Skip identifier columns — unique keys / external record codes, not
+                # categorical classes, even though their names often end in "num"/"id"/"cd"
+                # or their types are integer. Discriminator: the description calls it a
+                # number/identifier/site-or-record code, NOT a class/categorical. A strong
+                # identifier phrase ("site code") wins even when the word "code" is present.
+                mentions_class = bool(re.search(r"\bclass\b|categor", desc, re.I))
+                strong_identifier = bool(
+                    re.search(r"\b(site code|record code|unique (id|identifier)|object\s*id)\b", desc_l)
+                    # Per-entity foreign-key codes — a code that identifies/joins one
+                    # specific species/office/entity record (a high-cardinality key),
+                    # not an enumerable thematic class. e.g. usfws critical-habitat
+                    # `spcode` "4-character species code (joins to ECOS species records)"
+                    # is 1:1 with species (724 codes); `leadoffice` "regional office code"
+                    # is an FK to FWS field offices (55 codes). Listing these as `values`
+                    # would be a per-record key dump, not a class enumeration (#303).
+                    or re.search(r"\b(species|office|entity)\s+code\b", desc_l)
+                    or re.search(r"\bjoins?\s+to\b", desc_l)
+                )
+                if strong_identifier:
+                    continue
+                looks_like_identifier = (
+                    bool(re.search(r"\b(number|identifier|unique id|object\s*id)\b", desc, re.I))
+                    or bool(re.fullmatch(r"(?i).*(_id|objectid|fid|guid|uuid)", col_name))
+                )
+                if looks_like_identifier and not mentions_class:
+                    continue
 
             # Detect coded categorical columns:
             # - has a "values" array already (opt-in explicit)
@@ -151,7 +336,40 @@ def lint(source: str) -> list[str]:
             # (USF=US Forest Service, OGC:CRS84-style excluded). A single TOKEN=word
             # pair is a strong signal once the column is already known to be coded.
             has_inline_codes = bool(re.search(r"[A-Za-z0-9][\w/.-]*\s*=\s*\w", desc))
-            if not has_inline_codes:
+
+            # Geographic proper-name columns — the description identifies the values as
+            # geographic NAMES (county/state/country/territory/ecoregion/region/place …
+            # "name"), which are self-describing external identifiers needing no code→name
+            # map. values_self_describing() already folds mixed-case names ('Mojave
+            # Desert'), but source data often ships them ALL-CAPS ('ALAMEDA', ace County's
+            # 58 CA counties), which the lowercase requirement there rejects — yet they are
+            # no less self-describing. Key on the deliberate "<geo-word> name" phrasing so
+            # opaque all-caps acronyms (CCAMLR, RFB) still flag. Still requires `values`.
+            is_geo_name = bool(re.search(
+                r"\b(count(y|ies)|state|province|country|territor\w+|ecoregion|"
+                r"region|place|borough|parish|municipalit\w+|island)\s+names?\b", desc_l))
+
+            # COG-classification-defined numeric codes — for a raster→hex dataset, the
+            # authoritative code→name legend lives in the COG asset's
+            # classification:classes, which the geo-agent reads directly. When every
+            # numeric value of this column is defined there, an inline map on the hex
+            # column would just duplicate the legend (e.g. ca-climate-zones `zone` 1–10,
+            # each defined as "Zone N" in the COG). Completeness is still enforced by the
+            # data check (values == DISTINCT) and the hex⊆COG cross-check below.
+            cog_defined = False
+            if cog_classes and values_arr:
+                try:
+                    vnums = set(int(v) for v in values_arr)
+                    cog_defined = any(vnums <= set(m.keys()) for m in cog_classes.values())
+                except (ValueError, TypeError):
+                    cog_defined = False
+
+            # Self-describing label enums (values are full words/phrases, not codes)
+            # carry no code→name mapping, so an inline CODE=Definition list would be
+            # redundant. Skip the inline requirement for them — but still require the
+            # `values` array below (a documented value set is always useful). #303.
+            if (not has_inline_codes and not values_self_describing(values_arr)
+                    and not is_geo_name and not cog_defined):
                 errors.append(
                     f"[{collection_id}] asset '{asset_key}', column '{col_name}': "
                     f"coded categorical column missing inline CODE=Definition list in description. "

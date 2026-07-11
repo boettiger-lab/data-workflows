@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: palm-current-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "set -e\n\necho \"Starting palm-current raster workflow...\"\n\n# Step 0:\
+          \ Setup bucket\necho \"Step 0: Setting up bucket...\"\nkubectl apply -f\
+          \ /yamls/palm-current-setup-bucket.yaml -n biodiversity\nkubectl wait --for=condition=complete\
+          \ --timeout=600s job/palm-current-setup-bucket -n biodiversity\n\n# Step\
+          \ 1: H3 hexagonal tiling\necho \"Step 1: H3 hexagonal tiling...\"\nkubectl\
+          \ apply -f /yamls/palm-current-hex.yaml -n biodiversity\nkubectl wait --for=condition=complete\
+          \ --timeout=7200s job/palm-current-hex -n biodiversity\n\necho \"\u2713\
+          \ Workflow complete!\"\necho \"Clean up with:\"\necho \"  kubectl delete\
+          \ jobs palm-current-setup-bucket palm-current-hex palm-current-workflow\
+          \ -n biodiversity\"\necho \"  kubectl delete configmap palm-current-yamls\
+          \ -n biodiversity\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: palm-current-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800

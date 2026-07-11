@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: williamson-act-all-years-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "\nset -e\n\necho \"Starting williamson-act-all-years workflow...\"\n\n# Step 0: Setup bucket with public access and CORS\necho \"Step 0: Setting up bucket...\"\nkubectl apply -f /yamls/williamson-act-all-years-setup-bucket.yaml -n biodiversity\n\necho \"Waiting for bucket setup to complete...\"\nkubectl wait --for=condition=complete --timeout=600s job/williamson-act-all-years-setup-bucket -n biodiversity\n\n# Step 1: Convert to optimized GeoParquet (needed by the hex job)\necho \"Step 1: Converting to optimized GeoParquet...\"\nkubectl apply -f /yamls/williamson-act-all-years-convert.yaml -n biodiversity\n\necho \"Waiting for GeoParquet conversion to complete...\"\nkubectl wait --for=condition=complete --timeout=3600s job/williamson-act-all-years-convert -n biodiversity\n\n# Step 2: H3 hexagonal tiling (merged dataset produces hex only)\necho \"Step 2: H3 hexagonal tiling...\"\nkubectl apply -f /yamls/williamson-act-all-years-hex.yaml -n biodiversity\n\necho \"Waiting for hex tiling to complete...\"\necho \"Timeout set to 48 hours (172800s)...\"\nkubectl wait --for=condition=complete --timeout=172800s job/williamson-act-all-years-hex -n biodiversity\n\necho \"Step 3: Repartitioning by h0...\"\nkubectl apply -f /yamls/williamson-act-all-years-repartition.yaml -n biodiversity\n\necho \"Waiting for repartition to complete...\"\nkubectl wait --for=condition=complete --timeout=3600s job/williamson-act-all-years-repartition -n biodiversity\n\necho \"\u2713 Workflow complete!\"\necho \"\"\necho \"Clean up with:\"\necho \"  kubectl delete jobs williamson-act-all-years-setup-bucket williamson-act-all-years-convert williamson-act-all-years-hex williamson-act-all-years-repartition williamson-act-all-years-workflow -n biodiversity\"\necho \"  kubectl delete configmap williamson-act-all-years-yamls -n biodiversity\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: williamson-act-all-years-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800

@@ -1,0 +1,85 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: williamson-act-2024-convert
+  labels:
+    k8s-app: williamson-act-2024-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: williamson-act-2024-convert
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-ca30x30
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # Localize source via rclone (internal endpoint, retried), convert from local disk;
+          # GDAL can't open s3:// and /vsicurl is flaky on bad-egress nodes.
+          rclone copyto nrp:public-ca30x30/williamson-act/raw/williamson-act-2024.geojsonl /tmp/src.geojsonl
+          cng-convert-to-parquet \
+            /tmp/src.geojsonl \
+            s3://public-ca30x30/williamson-act/2024.parquet \
+            --row-group-size 100000
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              # Exclude nodes with observed broken egress/S3 connectivity (AGENTS.md).
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

@@ -45,10 +45,10 @@ DEST_BUCKET="us-west-2.opendata.source.coop"
 
 # Catalogued, license-clear repos (== NRP public-<repo>).
 REPOS=(
-  ca-dac calenviroscreen carbon census cgs cpad ecoregion epa-water
-  facts fire gbif gfw high-seas inat indigenous land-cover mappinginequality mobi ncp
-  overturemaps padus population rap rivers social-vulnerability trails usfws
-  wetlands
+  ca-dac calenviroscreen carbon census cgs connectivity cpad ecoregion epa-water
+  facts fire gbif gfw hazard high-seas inat indigenous land-cover mappinginequality
+  mobi nci-frontiers ncp overturemaps padus population rap rivers
+  social-vulnerability trails usfws usgs-nhd usgs-wbd wetlands
 )
 
 # Per-repo sub-path excludes (HOLD: license unconfirmed for these collections).
@@ -56,6 +56,13 @@ REPOS=(
 declare -A EXCLUDES=(
   [rivers]="american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**"
   [high-seas]="mpa-candidates/**"
+  # hazard: flood-hazard (FEMA) + sea-level-rise (NOAA) are public-domain and mirror.
+  # mid-century-habitat-climate-exposure (Thorne et al. 2016, CDFW-commissioned) is NOT a
+  # Dryad/Zenodo deposit and its STAC states redistribution terms "are not explicitly
+  # published with the source and require confirmation" (license: other). BIOS-general is
+  # CC-BY, but this dataset ships no explicit license — HOLD (don't assert one) until CDFW/
+  # Thorne terms are confirmed, then set its STAC license + drop this exclude.
+  [hazard]="mid-century-habitat-climate-exposure/**"
 )
 
 # Per-repo rclone verb. Default "sync" (mirror-with-delete: dest becomes an exact
@@ -81,7 +88,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: source-sync-${repo}
-  namespace: biodiversity
+  namespace: boettiger-lab
 spec:
   backoffLimit: 1
   ttlSecondsAfterFinished: 86400
@@ -124,7 +131,11 @@ spec:
                 "source:${DEST_BUCKET}/${ACCOUNT}/"?*) : ;;
                 *) echo "REFUSING: dest '\$DEST' is not a cboettig/<repo> sub-path" >&2; exit 1 ;;
               esac
-              RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 120s -v"
+              # --max-delete 150: circuit-breaker — abort if a run would delete
+              # more than 150 objects at the dest (stops a propagated wipe from an
+              # emptied/corrupted source). 150 covers overturemaps' ~122 H0
+              # partitions + assets; tune per hardening plan (geo-agent-ops#21).
+              RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --max-delete 150 --stats 120s -v"
               # DRYRUN=true (env) lists changes without writing. Default: real sync.
               if [ "\${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="\$RCLONE_FLAGS --dry-run"; fi
               echo "${verb^}ing: \$SRC -> \$DEST  (DRYRUN=\${DRYRUN:-false})"
@@ -133,7 +144,7 @@ spec:
       volumes:
         - name: rclone-config
           secret:
-            secretName: rclone-config
+            secretName: rclone-backup
 YAML
   echo "wrote source-sync-${repo}.yaml  [${verb}]${excl:+  (excludes:${excl})}"
 done
@@ -158,7 +169,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: source-sync-scope
-  namespace: biodiversity
+  namespace: boettiger-lab
   labels:
     app: source-sync
 data:
@@ -180,13 +191,13 @@ cat > "${CRON}" <<'YAML'
 # source-sync-<repo>.yaml jobs. continue-on-error: one bad repo doesn't block
 # the rest, but the Job still exits non-zero so the failure is visible.
 #   Apply:      kubectl apply -f source-sync-cron-config.yaml -f source-sync-cron.yaml
-#   Manual run: kubectl -n biodiversity create job --from=cronjob/source-sync source-sync-manual
+#   Manual run: kubectl -n boettiger-lab create job --from=cronjob/source-sync source-sync-manual
 #   Dry run:    edit env DRYRUN=true on the manual Job (lists changes, writes nothing)
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: source-sync
-  namespace: biodiversity
+  namespace: boettiger-lab
   labels:
     app: source-sync
 spec:
@@ -237,7 +248,10 @@ spec:
                                               # stay literal and a HOLD path can't accidentally expand away.
                   ACCOUNT="cboettig"
                   DEST_BUCKET="us-west-2.opendata.source.coop"
-                  RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 300s -v"
+                  # --max-delete 150: circuit-breaker (see per-repo job comment) —
+                  # aborts a run that would delete >150 objects at dest, so an
+                  # emptied/corrupted source can't propagate a wipe to source.coop.
+                  RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --max-delete 150 --stats 300s -v"
                   if [ "${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="$RCLONE_FLAGS --dry-run"; fi
                   fail=0 ; n=0
                   while read -r repo verb excludes; do
@@ -278,12 +292,31 @@ spec:
                   else
                     echo "could not fetch STAC rewrite script from $RW_URL" >&2 ; fail=1
                   fi
+                  # Phase 3 (#351): publish the unified GLEN root catalog +
+                  # landing-page README at cboettig/glen. Child list = NRP root's
+                  # top-level children filtered to the mirror scope (this same
+                  # ConfigMap), hrefs rewritten to source.coop — so it links only
+                  # the license-clear subset. Runs AFTER phase 2 so the linked
+                  # collections are already source.coop-consistent. gen-root-catalog.py
+                  # imports rewrite-stac-hrefs.py from its own dir (both in /tmp).
+                  echo "=== publishing GLEN root catalog (phase 3) ==="
+                  BASE="https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/catalog/sync/source-coop"
+                  if curl -fsSL "$BASE/gen-root-catalog.py"    -o /tmp/gen-root-catalog.py \
+                     && curl -fsSL "$BASE/rewrite-stac-hrefs.py" -o /tmp/rewrite-stac-hrefs.py \
+                     && curl -fsSL "$BASE/glen-README.md"        -o /tmp/glen-README.md ; then
+                    genflags="" ; [ "${DRYRUN:-false}" = "true" ] && genflags="--dry-run"
+                    SCOPE_FILE=/config/repos.txt python3 /tmp/gen-root-catalog.py $genflags \
+                      --readme /tmp/glen-README.md \
+                      || { echo "GLEN root catalog FAILED" >&2 ; fail=1 ; }
+                  else
+                    echo "could not fetch GLEN generator scripts from $BASE" >&2 ; fail=1
+                  fi
                   echo "=== source-sync complete: $n repos attempted, fail=$fail ==="
                   exit $fail
           volumes:
             - name: rclone-config
               secret:
-                secretName: rclone-config
+                secretName: rclone-backup
             - name: scope
               configMap:
                 name: source-sync-scope

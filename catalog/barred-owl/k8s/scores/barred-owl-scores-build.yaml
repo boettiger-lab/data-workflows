@@ -1,0 +1,121 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: barred-owl-scores-build
+  labels:
+    k8s-app: barred-owl-scores-build
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: barred-owl-scores-build
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: scores-build-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "Localizing raw scenario GeoPackages ..."
+          rclone copy nrp:public-barred-owl/raw/scenarios /tmp/dl --transfers 16 --checkers 16
+          rclone copyto nrp:public-barred-owl/raw/catalog.json /tmp/catalog.json
+          python3 - <<'PY'
+          import duckdb, json, os, glob
+          con = duckdb.connect()
+          con.execute("INSTALL sqlite; LOAD sqlite;")
+          rows = json.load(open("/tmp/catalog.json"))
+          by_dir = {r["page_dir_rel"]: r for r in rows}
+          con.execute("""
+            CREATE TABLE scores(
+              unit_type VARCHAR, unit_id BIGINT, unit_name VARCHAR,
+              mode VARCHAR, tune VARCHAR, scenario_id VARCHAR, weight_col VARCHAR,
+              HEXID VARCHAR, prio_score DOUBLE)
+          """)
+          files = sorted(glob.glob("/tmp/dl/**/priority_map_Scenario_*.gpkg", recursive=True))
+          print(f"{len(files)} GeoPackages to ingest", flush=True)
+          missing = 0
+          for i, path in enumerate(files):
+              rel = os.path.relpath(os.path.dirname(path), "/tmp/dl")
+              r = by_dir.get(rel)
+              if r is None:
+                  missing += 1
+                  print("  NO CATALOG ROW for", rel, flush=True)
+                  continue
+              tbl = os.path.basename(path)[:-5]
+              ut = r["unit_type"]; uid = r["unit_id"]; uname = r["unit_name"]
+              mode = r["mode"]; tune = r["tune_folder"].split("tune-")[-1]
+              con.execute(
+                  f"INSERT INTO scores SELECT ?, ?, ?, ?, ?, scenario_id, weight_col, HEXID, prio_score "
+                  f"FROM sqlite_scan('{path}','{tbl}')",
+                  [ut, uid, uname, mode, tune],
+              )
+              if i % 250 == 0:
+                  print(f"  {i}/{len(files)} {rel}", flush=True)
+          n = con.execute("SELECT COUNT(*) FROM scores").fetchone()[0]
+          nd = con.execute("SELECT COUNT(DISTINCT (unit_type,unit_id,mode,tune,scenario_id)) FROM scores").fetchone()[0]
+          print(f"missing catalog rows: {missing}", flush=True)
+          print(f"total score rows: {n}  distinct scenarios: {nd}", flush=True)
+          con.execute("""
+            COPY (SELECT * FROM scores
+                  ORDER BY mode, unit_type, unit_id, tune, scenario_id, HEXID)
+            TO '/tmp/scores.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 100000, COMPRESSION ZSTD)
+          """)
+          print("wrote /tmp/scores.parquet", flush=True)
+          PY
+          echo "Uploading scores.parquet ..."
+          rclone copyto /tmp/scores.parquet nrp:public-barred-owl/scores.parquet -P
+          echo "Scores build complete."
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 30Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 30Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

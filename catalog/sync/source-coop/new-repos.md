@@ -1,14 +1,18 @@
 # source.coop repos (account: cboettig)
 
-**Scope: 28 repos** (27 created in the web UI as of 2026-06-17; **`facts` pending creation**). Create with **visibility: public**.
+**Scope: 33 repos** (27 created 2026-06-17; **6 new below still to create**). Create with **visibility: public**.
 ⚠️ = non-commercial (label NC). See `license-inventory.md` + `README.md`.
 
-## ⏳ To create (in scope, repo not yet created)
+## 🆕 To create in the web UI (6 new, 2026-07)
 
-- **`facts`** (public-domain) — USFS FACTS Common Attributes (data-workflows #299). Added to
-  `gen-source-sync.sh` scope + the `source-sync` CronJob ConfigMap. **Create `cboettig/facts`
-  (visibility: public) in the source.coop web UI**; the weekly `source-sync` CronJob then mirrors it.
-  Until created, the cron's `facts` step fails harmlessly (continue-on-error).
+All catalogued + license-verified (see `license-inventory.md`). Create `cboettig/<repo>`, visibility public, then `kubectl apply -f catalog/sync/k8s/source-sync-cron-config.yaml` so the weekly cron picks them up (do NOT apply before the repos exist — the sync fails on a missing dest).
+
+- `usgs-nhd` (public-domain — USGS National Hydrography)
+- `usgs-wbd` (public-domain — USGS Watershed Boundary Dataset)
+- `facts` (public-domain — USFS FACTS Common Attributes)
+- `nci-frontiers` (CC0-1.0 — Polasky et al. 2026 / Natural Capital Project)
+- `connectivity` (CC-BY-4.0 + CC0 — CDFW BIOS ds419/ds2867 + Schloss/Cameron et al.)
+- `hazard` (public-domain — FEMA flood + NOAA SLR; `mid-century-habitat-climate-exposure/**` **excluded**, terms unconfirmed)
 
 > Note: `public-wyoming` is intentionally NOT mirrored — a Wyoming-clipped collection whose datasets now live in full-extent buckets; kept on NRP, migration tracked in #225.
 
@@ -25,6 +29,14 @@
 `rivers` (various; `american-rivers/{campaigns,ira-watersheds,roo-cjest}` excluded; legacy `us-rivers` kept),
 `social-vulnerability` (public-domain), `trails` (public-domain), `usfws` (public-domain),
 `wetlands` (various: Ramsar PD + GLWD CC-BY-4.0 + NWI PD)
+
+## 🆕 To create (in scope, pending manual web-UI repo creation)
+
+- **`usgs-ungulate-migration`** (`public-domain` — USGS U.S. Government Works) — *Ungulate
+  Migrations of the Western United States* (Vols 1–6): `ungulate-ranges` (polygons) +
+  `ungulate-routes` (lines). License-clear and catalogued. Create `cboettig/usgs-ungulate-migration`
+  (visibility: public) in the web UI, then add `usgs-ungulate-migration` to `REPOS` in
+  `gen-source-sync.sh`, run it, and apply `source-sync-cron-config.yaml`. (data-workflows #153/#225.)
 
 ## ⛔ Not mirrored (held — NOT a license problem)
 

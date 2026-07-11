@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: sync-shared-ca30x30-app
-  namespace: biodiversity
+  namespace: boettiger-lab
 spec:
   backoffLimit: 1
   ttlSecondsAfterFinished: 86400
@@ -45,4 +45,4 @@ spec:
       volumes:
         - name: rclone-config
           secret:
-            secretName: rclone-config
+            secretName: rclone-backup

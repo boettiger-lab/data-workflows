@@ -23,8 +23,12 @@ Thumbs.db
 !.claude/hooks/
 # git worktrees (relocated out of .claude/)
 .worktrees/
-# Private datasets — keep off public GitHub
-catalog/wyoming/
+# Private-dataset STAC/README must never land on public GitHub (canonical copy
+# lives on the private MinIO bucket). k8s recipe YAMLs disclose no data and ARE tracked.
+catalog/wyoming/**/stac/
+catalog/wyoming/**/*stac*.json
+catalog/wyoming/**/collection.json
+catalog/wyoming/**/README.md
 **/*.min..css
 **/*.min..js
 .ipynb_checkpoints/.gitignore-checkpoint

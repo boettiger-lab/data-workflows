@@ -1,0 +1,72 @@
+# Step 1b: fetch the SILVIS Lab Wildland-Urban Interface (WUI) national geodatabase
+# and stage it at s3://public-wui/raw/ for the vector convert step.
+# Source: SILVIS WUI change 1990-2020 v4, national FGDB (US_WUI_block_1990_2020_change_v4_gdb.zip, ~5 GB).
+# Layer confirmed via pyogrio: US_WUI_block_1990_2020_change_v4 (MultiPolygon, ~11M census blocks).
+# Run this BEFORE wui-2020-convert.yaml (or the workflow orchestrator). Requires Ceph/s3-west up.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wui-2020-download-raw
+  namespace: biodiversity
+  labels:
+    k8s-app: wui-2020-download-raw
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wui-2020-download-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: download
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "50Gi"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "50Gi"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cd /tmp
+          echo "Downloading national WUI FGDB (~5 GB)..."
+          curl -L --retry 5 -o wui.zip \
+            "https://geoserver.silvis.forest.wisc.edu/geodata/wui_change_2020_v4/zip/fgdb/US_WUI_block_1990_2020_change_v4_gdb.zip"
+          echo "Unzipping..."
+          unzip -q -o wui.zip
+          # the .gdb directory name inside the zip:
+          GDB=$(find . -maxdepth 2 -type d -name "*.gdb" | head -1)
+          echo "Found GDB: $GDB"
+          echo "Staging to s3://public-wui/raw/ ..."
+          rclone mkdir nrp:public-wui/raw
+          rclone copy "$GDB" nrp:public-wui/raw/US_WUI_block_1990_2020_change_v4.gdb -P
+          echo "✓ Complete"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

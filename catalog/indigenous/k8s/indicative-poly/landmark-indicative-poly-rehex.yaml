@@ -1,0 +1,79 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landmark-indicative-poly-rehex
+  labels:
+    k8s-app: landmark-indicative-poly-rehex
+spec:
+  completions: 200
+  parallelism: 50
+  completionMode: Indexed
+  # Giant continent-scale claims OOM at res 10 and produce no output (expected);
+  # tolerate those failed indices instead of failing the whole job, and retry
+  # transient preemptions per index.
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 40
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: landmark-indicative-poly-rehex
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-indigenous
+        - name: DATASET
+          value: landmark-indicative-poly
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          cng-datasets vector --input s3://public-indigenous/landmark/indicative-poly.parquet --output s3://public-indigenous/landmark/indicative-poly/chunks-rehex --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 88 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+        resources:
+          requests:
+            cpu: '4'
+            memory: 48Gi
+          limits:
+            cpu: '4'
+            memory: 48Gi

@@ -1,0 +1,93 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wui-2020-hex
+  labels:
+    k8s-app: wui-2020-hex
+spec:
+  completions: 200
+  parallelism: 100
+  completionMode: Indexed
+  # Per-index retry so a stuck/OOM/bad-node index is retried elsewhere instead
+  # of silently leaving a coverage gap (not backoffLimit:0).
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 12
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wui-2020-hex
+    spec:
+      restartPolicy: Never
+      # 4h: chunks holding the largest features (huge Alaska/water blocks, ~1.6M
+      # res-10 cells) legitimately run 1.5-3h; a tighter deadline kills them and
+      # loops. Still bounds a true bad-node hang. The 8 biggest chunks (49,103,
+      # 104,123,159,169,198,199) needed a 6h one-off rechunk on the first run.
+      activeDeadlineSeconds: 14400
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-wui
+        - name: DATASET
+          value: wui-2020
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # chunk-size MUST cover all features: 200 completions x 46046 = 9,209,200 >= 9,209,091 rows.
+          # (The generated default 1000 x 200 = 200,000 only hexed the first ~2% — the source
+          # feature count was unknown at generation time during the S3 outage.)
+          cng-datasets vector --input s3://public-wui/wui-2020.parquet --output s3://public-wui/wui-2020/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 46046 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 10Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

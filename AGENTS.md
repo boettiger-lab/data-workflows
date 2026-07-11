@@ -306,13 +306,41 @@ rclone copyto /tmp/README.md nrp:<bucket>/README.md
 rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.json
 ```
 
+#### ⛔ Verify the STAC — don't hand-check the rules
+
+Every STAC rule below is enforced by **`scripts/verify-stac.py`** (license, nav links,
+asset keys, hex glob, `h3:*` resolutions, `vector:layers`, `table:columns` placement,
+per-feature-dup warnings, categorical completeness + PMTiles fields via the two
+sibling linters, and a **data-backed `values` == ingested `DISTINCT`** check via the
+MCP that automates the #114/#294 lesson). Do not re-verify these by hand or by
+spending agent context on MCP `SELECT DISTINCT` sweeps — run the gate.
+
+```bash
+# 1. PRE-PUBLISH (static, against the /tmp file you just wrote):
+scripts/verify-stac.py --no-data /tmp/stac-collection.json
+#    Fix every HARD finding before rclone copyto. (Data checks need the data live, so
+#    they run post-publish; --no-data skips them here.)
+
+# 2. POST-CLUSTER (full, against the live S3 STAC, once data + STAC are published):
+scripts/verify-stac.py --bucket <bucket> --dataset <dataset>
+#    Must exit 0 (no HARD findings). ADVISORY lines are informational.
+```
+
+CI runs the same verifier on the PR (`.github/workflows/verify-stac.yml`), deriving the
+collection(s) from the `s3://` paths in the changed `catalog/**` YAMLs. **The gate
+evaluates the produced artifact, not the proposal:** the cluster run lands after the PR
+opens, so a RED check at PR-open (STAC not published yet) is correct — don't merge
+before the recipe has actually produced valid output. GitHub status checks don't
+auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (Actions
+→ Verify STAC → *Run workflow*, or it re-runs on the next push). Merge requires it green.
+
 **README.md MUST include:**
 - A MapLibre GL JS example with the correct `source-layer` (= last segment of `--dataset`), documented prominently
 - A DuckDB example with the full public parquet URL
 
 **stac-collection.json MUST include:**
 
-- **License — REQUIRED on every collection.** Set the top-level STAC `license` field to the **SPDX identifier** of the upstream data license (e.g. `CC-BY-4.0`, `CC-BY-NC-4.0`, `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`). Use `"other"` **only** when no SPDX id applies, and `"various"` **only** for a meta-collection whose children genuinely differ — never as a lazy default. For `other`/`various` (and recommended for all), add a license link: `{"rel": "license", "href": "<canonical terms URL>", "type": "text/html"}`. **Verify the real upstream terms — do not guess `proprietary`.** The license drives redistribution decisions (e.g. whether a dataset may be mirrored to source.coop); a wrong value is a compliance risk. NonCommercial / ShareAlike licenses are fine but MUST be recorded as such (`CC-BY-NC-*`, `CC-BY-SA-*`) so downstream users aren't misled. US federal works = `public-domain`.
+- **License — REQUIRED on every collection.** Set the top-level STAC `license` field to the **SPDX identifier** of the upstream data license (e.g. `CC-BY-4.0`, `CC-BY-NC-4.0`, `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`). Use `"other"` **only** when no SPDX id applies, and `"various"` **only** for a meta-collection whose children genuinely differ — never as a lazy default. For `other`/`various` (and recommended for all), add a license link: `{"rel": "license", "href": "<canonical terms URL>", "type": "text/html"}`. **Exception — a meta-collection (one with `child` links) may use `various`/`other` WITHOUT a license link:** its real licenses live on the child collections (each carrying + verified for its own license), and redistribution gating (source.coop excludes, etc.) keys on those per-child licenses, not the parent. A single parent-level link would misrepresent genuinely mixed children. `verify-stac.py` enforces the link only on **leaf** collections (and always for `proprietary`). **Verify the real upstream terms — do not guess `proprietary`.** The license drives redistribution decisions (e.g. whether a dataset may be mirrored to source.coop); a wrong value is a compliance risk. NonCommercial / ShareAlike licenses are fine but MUST be recorded as such (`CC-BY-NC-*`, `CC-BY-SA-*`) so downstream users aren't misled. US federal works = `public-domain`.
 
 - **Navigation links — every collection needs all four:**
 
@@ -356,24 +384,38 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
   - **Hex asset**: exclude the geometry column; include H3 index columns (`h0`, `h8`, `h9`, `h10` etc.) and `_cng_fid`/`bbox` if present
   - **COG assets**: no `table:columns` needed (not SQL-queryable)
 
-- **PMTiles assets MUST carry tile-accurate `table:columns` (data-workflows #283).** tippecanoe selects a *subset* of source columns at tile-build time, so the PMTiles fields differ from the GeoParquet schema — the parquet's `table:columns` does NOT tell a consumer what's actually in the tiles. Without tile-level schema the geo-agent (and human app authors) cannot discover which fields are stylable/filterable in MapLibre except by byte-ranging the `.pmtiles` footer. So:
-  - List the **actual tile fields** (not the parquet schema) with `name` + `type`, read from the footer's `vector_layers[].fields`. The geometry column is excluded (it's the tile geometry, not a field).
-  - Keep `vector:layers` (the source-layer id list) as well.
-  - **Document nodata sentinels** on the relevant column (e.g. SVI `RPL_THEMES = -999`) and flag the **intended value column** for continuous styling — neither is inferable from the tiles.
-  - Read the footer fields with:
-    ```bash
-    python3 -c 'import urllib.request,json,struct,gzip; u="https://.../layer.pmtiles"; \
-      r=lambda a,b: urllib.request.urlopen(urllib.request.Request(u,headers={"Range":f"bytes={a}-{b}"})).read(); \
-      h=r(0,126); o=struct.unpack_from("<Q",h,24)[0]; n=struct.unpack_from("<Q",h,32)[0]; \
-      m=json.loads(gzip.decompress(r(o,o+n-1)).decode()); print([(L["id"],L.get("fields")) for L in m["vector_layers"]])'
-    ```
-  - Gate with `scripts/lint-stac-pmtiles-fields.py <stac-collection.json|url>` (companion to `lint-stac-categorical.py`).
+- **`_cng_fid` is the universal per-feature id — REQUIRED on every vector asset, flat GeoParquet *and* hex (#369).** cng-datasets `convert_to_parquet` synthesizes it on every conversion (always, additive, row-unique), so one uniform key works for dedup / `COUNT(DISTINCT)` across all datasets instead of per-dataset id discovery (the over-count class behind #309). Source ids (`ramsarid`, `tpl_id`, `GEOID`) may accompany it for cross-collection joins but never replace it. `verify-stac.py` **HARD**-fails a vector flat GeoParquet (has a geometry column) or a vector hex that lacks `_cng_fid`; if the data genuinely lacks it, reprocess through cng-datasets. **Exempt:** raster-derived hex (a raster reduce into H3, not a feature conversion — detected as a hex/`h0=*`-partitioned asset in a collection with no vector source; covers carbon/ghs-pop *and* the richness/cwhr/gbif reductions). A **non-spatial** parquet table (no geometry, not a hex) is **ADVISORY** — it may be a feature fact table that should carry `_cng_fid` (e.g. tpl `…-funding`) or a legit lookup/crosswalk/coefficient/scores table; use judgment.
+
+- **PMTiles assets MUST carry tile-accurate `table:columns` (data-workflows #283/#320), in LEAN form.** The geo-agent (and human app authors) can only learn which fields are stylable/filterable in MapLibre from the PMTiles asset's own schema — an empty `table:columns` forces them to byte-range the `.pmtiles` footer. **Empirically, our tippecanoe step keeps ALL attribute columns: the tile field set is just `GeoParquet attrs − geometry + _cng_fid`** (types coarsened to String/Number/Boolean). So the standard is to **mirror the canonical GeoParquet schema onto the PMTiles asset** — do NOT hand-scrape thin metadata from the footer, and do NOT duplicate the prose:
+  - **Lean columns:** each PMTiles column carries **`name` + `type` + `values`** (the `values` enumeration is the styling-critical part for categoricals) — copied from the GeoParquet column of the same name. **Omit the prose `description`** — it stays CANONICAL on the GeoParquet asset (duplicating it across 3 assets just bloats agent context; the agent reads definitions there).
+  - Drop the geometry column; include `_cng_fid` (present in tiles).
+  - Keep `vector:layers` (the source-layer id list).
+  - **Continuous (choropleth) layers only:** add the **nodata sentinel** and flag the **intended value column** for styling, as a short `description` on that one column (e.g. SVI `RPL_THEMES = -999`) — these are viz-specific and not inferable from the GeoParquet schema.
+  - **Generate it** with `scripts/mirror-pmtiles-columns.py <stac-url>` — it reads the footer to *validate* the field set (and flags the rare genuine-subset case, e.g. SVI, where tippecanoe really did drop columns), mirrors the GeoParquet `name`/`type`/`values`, and writes the updated STAC to `/tmp`. Then `rclone copyto` to S3.
+  - Because PMTiles mirrors the GeoParquet, **fix the GeoParquet/hex categoricals FIRST** (the #303 work), then mirror — otherwise you copy incomplete `values`.
+  - Gate with `scripts/lint-stac-pmtiles-fields.py <stac-collection.json|url>` (companion to `lint-stac-categorical.py`); it requires `name` + `type` and does NOT require descriptions.
 
 - **Hex assets MUST declare their H3 resolutions explicitly** via `h3:native_resolution` and `h3:parent_resolutions` on the asset itself. Column-name presence (`h10`, `h9`, …) is not enough — downstream tools shouldn't have to enumerate `table:columns` to find out what resolutions exist. `h3:native_resolution` is the finest resolution (one row per feature-cell at this res); `h3:parent_resolutions` is the list of rollup resolutions, which MUST include `0` (the partition key).
 
-- **Hex assets MUST flag per-feature duplication on any attribute a consumer might aggregate.** One hex row = one (feature, cell) pair, so any column that represents a per-feature total — area (`GIS_Acres`, `SHAPE_Area`), length (`SHAPE_Length`), population, count, amount, funding, intensity — is repeated on every cell the feature covers. The column description on the hex asset MUST state this and give a dedup recipe. Use one of:
-  - **Area/length from hex count** (never SUM the source value): `COUNT(DISTINCT h<N>) × cell_area_at_resolution_N`. Per-resolution H3 cell areas are H3-standard constants — do not inline them in column descriptions. The agent reads them from `mcp-data-server/h3-guide.md`.
-  - **SUM after dedup** (when the attribute is a real per-feature value): `SELECT DISTINCT <feature_key>, <attr> …` or `ROW_NUMBER() OVER (PARTITION BY <feature_key>)` before aggregating.
+- **Vector (GeoParquet/PMTiles) assets MUST flag per-feature ROW duplication — and you MUST first decide whether it is *true* duplication or *real* multi-row data.** A source file often stores one logical feature as several rows sharing a feature id (a Ramsar site split into polygon parcels; a ballot measure spanning multiple counties). Two opposite causes demand opposite rules, and confusing them silently corrupts answers (data-workflows #309):
+  - **REPEATED** — the per-feature value is *copied* onto every row (e.g. a measure's total funds repeated on each county row). A raw `SUM` double-counts → **dedup by the key first** (`SELECT DISTINCT key, col …` or `GROUP BY key`), and `COUNT(DISTINCT key)` is the feature count.
+  - **VARIES** — genuinely distinct per-row records that share a key (e.g. one conservation site funded by several *sponsors*, each a *different amount*). Here `SUM` is **correct** and dedup would **undercount** by dropping real rows. A repeated polygon + repeated attributes is NOT proof of duplication — a sponsor split looks identical except the varying amount.
+
+  **Two duplication axes — and `_cng_fid` only fixes one of them.** cng-datasets always assigns `_cng_fid` as a synthetic id that is *one per input row* (never derived from a source id). So:
+  - **Axis 1 — feature → H3 cell** (hexing makes one polygon span many cells). Dedup key = `_cng_fid` (or `h<N>`). `COUNT(DISTINCT _cng_fid)` collapses the cell expansion. This is the standard hex guidance below.
+  - **Axis 2 — upstream source rows** (the *input file* already holds several rows per logical entity). Dedup key = an **upstream domain id** (`ramsarid`, `landvote_id`, WDPA `SITE_ID`). `_cng_fid` is unique per row, so it does NOT collapse this — `COUNT(DISTINCT _cng_fid)` still counts rows/polygons, not entities.
+
+  For most datasets each input row *is* one logical feature, so the two keys coincide and only axis 1 exists — that is why the standard guidance leans on `_cng_fid`. Axis 2 only appears in files with upstream duplication (ramsar, landvote); there the domain id is the dedup key, and **the hex asset must also carry that domain id** or it cannot be deduped to entities (e.g. landvote's hex carries only `_cng_fid`, so it can't be reduced to distinct measures — a gap). Auditing on a per-row id always reports "clean", masking axis 2.
+
+  **The decisive test is data-backed: does the value VARY within the key?** Do NOT guess the key from a column name — a 34%-blank source id (PAD-US `Source_PAID`) or a class label that covers thousands of parcels (Landmark `name`) fakes duplication, and a per-row id (`_cng_fid`) hides it. Run the auditor with the *upstream domain id* as `--key` (it uses the duckdb-geo MCP, not local duckdb):
+  ```bash
+  scripts/audit-feature-dup.py <parquet-url|stac-url --asset KEY> --key <feature-id-col>
+  ```
+  It reports rows vs `COUNT(DISTINCT key)`, warns on blank keys, classifies each column REPEATED vs VARIES, and quantifies raw-vs-deduped `SUM` inflation. Then document the verdict in the asset's `table:columns`: name the key, mark REPEATED columns "dedup before SUM", and (if any) note VARIES columns are safe to SUM. A clean one-row-per-feature file needs no note.
+
+- **Hex assets MUST flag per-feature duplication on any attribute a consumer might aggregate.** One hex row = one (feature, cell) pair, so any column that represents a per-feature total — area (`GIS_Acres`, `SHAPE_Area`), length (`SHAPE_Length`), population, count, amount, funding, intensity — is repeated on every cell the feature covers. The column description on the hex asset MUST state this and name the **dedup key**. The two safe patterns:
+  - **SUM after dedup** (the attribute is a real per-feature value): `SELECT DISTINCT <feature_key>, <attr> …` or `ROW_NUMBER() OVER (PARTITION BY <feature_key>)` before aggregating.
+  - **Area/extent from the H3 footprint** (when there is no trustworthy source value): the generic recipe — `SUM(h3_cell_area(h<N>, 'km^2'))` over DISTINCT cells, exact per cell, **never** a nominal per-resolution constant — lives in `mcp-data-server/h3-guide.md`. **Do NOT inline that formula into the column description** — it is generic guidance the geo-agent already reads from the h3-guide, and a copy baked into STAC goes stale and becomes actively harmful (a nominal-constant copy undercounted the ca-30x30 California extent ~6%, mcp-data-server#294 / #389). Just flag the column as a per-feature total not to be SUMmed on hex; the agent derives area from the h3-guide.
 
   Columns that are safe to aggregate on hex (H3 indexes, `_cng_fid`, `bbox`) don't need a warning. If no column on the hex asset is safe to SUM, say so once in the collection description too.
 
@@ -398,7 +440,7 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
       "table:columns": [
         {"name": "GEOID", "type": "string", "description": "…"},
         {"name": "ALAND", "type": "int64",
-         "description": "Land area in m² of the source district polygon. **Repeated on every hex row the district covers — never SUM(ALAND) on hex data. Compute area from hex count: COUNT(DISTINCT h10) × cell_area_at_resolution_10** (see h3-guide for per-resolution cell areas)."},
+         "description": "Land area in m² of the source district polygon. **Repeated on every hex row the district covers — never SUM(ALAND) on hex data; dedup first (SELECT DISTINCT GEOID, ALAND).** For area from the H3 footprint see the h3-guide."},
         {"name": "h10", "type": "uint64", "description": "H3 cell ID at resolution 10 (native resolution; one row per (feature, h10) pair)."},
         {"name": "h9",  "type": "uint64", "description": "H3 cell ID at resolution 9."},
         {"name": "h8",  "type": "uint64", "description": "H3 cell ID at resolution 8."},
@@ -439,6 +481,11 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
   }
   ```
 
+- **Per-feature row duplication / NULL finest-parent cells / no-data sentinels (data-workflows #309, gated by #311).** Three aggregation traps the geo-agent accuracy sweep surfaced — document each on the relevant asset:
+  - **Repeated features (polygon/point assets).** Handled by the REPEATED-vs-VARIES per-feature row-duplication rule above — run `scripts/audit-feature-dup.py` to get the verdict and document it. `verify-stac.py`'s `polygon-row-dup-candidate` **ADVISORY** is just the automatic CI tripwire that flags a `rows ≫ COUNT(DISTINCT id)` candidate; treat it as a prompt to run that auditor, not a defect on its own (the signal over-flags — the column may be a label or provenance key, not the feature id).
+  - **NULL finest-parent cells.** If the hex build caps very large features at a coarser native resolution (WDPA: `h9` is NULL for the 1,297 biggest features, `h8` is complete), the hex asset description MUST name the complete column and say joins should use the coarsest shared resolution (or `h3_cell_to_parent()`), not the finest. `verify-stac.py` **HARD**-flags an undocumented NULL finest hex column.
+  - **No-data sentinels.** Document sentinel/fill codes (e.g. land-cover `0`/`200`) so consumers `WHERE col NOT IN (...)` before `SUM`/`AVG` — an undocumented sentinel poisons aggregates to `NaN`.
+
 - **Point datasets:** `description` or `"processing:notes"` MUST state each point resolved to one H3 cell at the processing resolution, and name the resolution. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 
 ### Step 6: Register in the parent sub-catalog
@@ -477,7 +524,7 @@ kubectl delete job sync-<bucket> -n biodiversity && kubectl apply -f .../sync-<b
 kubectl logs job/sync-<bucket>                        # monitor
 ```
 
-MinIO is the **private backup** of every `public-*` bucket — and the *only* off-NRP copy for datasets whose license forbids public redistribution.
+MinIO is the **private backup** of every `public-*` bucket — and the *only* off-NRP copy for datasets whose license forbids public redistribution. A weekly **`minio-sync` CronJob** (Saturdays 08:00 UTC) keeps it current, then runs a **phase-2 host-swap STAC rewrite** (`catalog/sync/minio/rewrite-stac-hrefs.py`, #354) so MinIO is a **fully self-contained, navigable DR catalog** — every href, *including `root`/`parent`*, points at `minio.carlboettiger.info` (unlike source.coop, which stays NRP-canonical). Scope lives in the `minio-sync-scope` ConfigMap regenerated by `gen-minio-sync.sh`.
 
 ### Step 7b: source.coop public mirror
 
@@ -486,7 +533,7 @@ Public datasets are *also* mirrored to **Source Cooperative** (`us-west-2.openda
 - **`catalog/sync/source-coop/README.md`** — campaign plan: scope policy (catalogued **and** license-clear only), the add-a-repo loop, the **account-wide-credentials safety guard**, and the phase-2 STAC href-rewrite.
 - **`gen-source-sync.sh`** (`REPOS` + `EXCLUDES`) is the scope source-of-truth; **`license-inventory.md`** has per-collection license verdicts; **`new-repos.md`** lists repos still to create (creation is manual in the web UI — the API is disabled).
 - Some datasets **must not** be mirrored — WDPA/WD-OECM/ICCA/IUCN/HydroBASINS forbid redistribution (MinIO-only). Every collection needs a correct STAC `license` (see the License requirement above) before it can be classified.
-- **Backup cadence:** a weekly **`source-sync` CronJob** (Sundays 08:00 UTC, `catalog/sync/k8s/source-sync-cron.yaml`) keeps every in-scope repo current automatically. It loops the generated `source-sync-scope` ConfigMap (`repos.txt`) sequentially at 50 MB/s, continue-on-error, then **re-applies the Phase 2 STAC href-rewrite** as its final step. Scope lives in that ConfigMap (regenerated by `gen-source-sync.sh`), so after a scope change run `./gen-source-sync.sh` and `kubectl apply -f catalog/sync/k8s/source-sync-cron-config.yaml`. The per-repo `source-sync-<repo>.yaml` jobs + `run-source-sync.sh` remain for manual/backfill runs.
+- **Backup cadence:** a weekly **`source-sync` CronJob** (Sundays 08:00 UTC, `catalog/sync/k8s/source-sync-cron.yaml`) keeps every in-scope repo current automatically. It loops the generated `source-sync-scope` ConfigMap (`repos.txt`) sequentially at 50 MB/s, continue-on-error, then **re-applies the Phase 2 STAC href-rewrite** and finally **publishes the Phase 3 unified GLEN root catalog** (`cboettig/glen/{catalog.json,README.md}`, #351). Scope lives in that ConfigMap (regenerated by `gen-source-sync.sh`), so after a scope change run `./gen-source-sync.sh` and `kubectl apply -f catalog/sync/k8s/source-sync-cron-config.yaml`. The per-repo `source-sync-<repo>.yaml` jobs + `run-source-sync.sh` remain for manual/backfill runs.
 - **STAC self-consistency (Phase 2, done):** `catalog/sync/source-coop/rewrite-stac-hrefs.py` rewrites the mirrored STAC hrefs to `data.source.coop/cboettig/<repo>/…` (leaving `root`/`parent`→NRP canonical), drops dangling HOLD `child` links, and is idempotent. The data sync would clobber it, so the CronJob runs it after every mirror; run it manually with `--dry-run` first if editing.
 - Status & decisions: **issue #158**.
 
@@ -519,6 +566,34 @@ Counterintuitive result: 10,000 small features at 8Gi can be fine, while a singl
 | Points | 10 | Each point → one cell; coarser = aggregation |
 | Lines | 8 | Buffered by H3 circumradius; default 8 auto-detected |
 
+#### ⭐ H3 resolution & parent convention (join compatibility — pick native res AND parents deliberately)
+
+Native resolution alone is not the whole decision — the **parent-resolution set** is what
+makes a dataset joinable to the rest of the catalog. Two datasets join cheaply only at a
+resolution they **both physically carry** (`h<N> = h<N>`); otherwise a consumer must
+`h3_cell_to_parent()` on the fly, which LLM agents do unreliably (wrong direction, skipped,
+empty joins). So encode the joins into the data, don't hope the model derives them.
+
+- **`h8` is the catalog's universal join key. Default native resolution is 8**, and **every
+  dataset finer than 8 (native `h9`/`h10`) MUST carry `h8`** as a parent. Rationale: raster
+  hexes (carbon, GHS-POP, richness) are native `h8`, and vector hexes (native `h10`) carry
+  `h8` — so nearly everything meets at `h8`. A one-off native `h7` (e.g. the gHM 1 km raster
+  before this rule) is an **outlier with no `h8`** and silently breaks those joins — don't do it.
+- **`h0` always** — it is the hive partition key and the coarsest common join; every hex asset
+  carries it (it must be in `--parent-resolutions`).
+- **`h10` is currently our finest.** Small features (parcels, tracts, points) → native `h10`,
+  parents `9,8,0` (the generator default) so they carry `h8`.
+- **Coarser than 8 only when features are genuinely huge** — continent- or ocean-scale polygons
+  (e.g. large marine areas hexed at `h5`) to keep hex cell-count/RAM sane. Such a dataset
+  *cannot* carry `h8` (finer than native); consumers roll finer data **up** to `h5` to join it.
+  Use a coarse native res because the feature size forces it, never as a cost shortcut on data
+  that should be `h8`.
+- **A dataset may declare a *set* of parents** (e.g. native `h8` with `--parent-resolutions
+  "5,4,0"` → columns `h8,h5,h4,h0`) so it joins at several standard resolutions at once. Pick the
+  parent set from the resolutions of the datasets it will be joined against.
+- Always record the chosen native + parents in the issue (scope) and in the hex asset's
+  `h3:native_resolution` / `h3:parent_resolutions` (STAC).
+
 ### Vector workflow parameters
 
 | Param | Default | When to change |
@@ -535,7 +610,7 @@ Counterintuitive result: 10,000 small features at 8Gi can be fine, while a singl
 | Param | Default | When to change |
 |---|---|---|
 | `--h3-resolution` | auto (from pixel size) | Override if auto is wrong |
-| `--hex-memory` | 32Gi | Raise if OOM |
+| `--hex-memory` | 32Gi | Raise if OOM. **Res-8 hex of a 300 m global raster needs 64Gi** — `exact_extract` on the densest h0 cells (~5.76 M cells/h0) OOMs at 32Gi (`exit 137`); with `backoffLimit: 0` it silently retries forever, with `backoffLimitPerIndex` it can blow `maxFailedIndexes` and **fail the job** (observed on nci-frontiers `flii`/forestry). Use 64Gi for res-8 300 m layers; coarser res or coarser source can stay at 32Gi. |
 | `--max-parallelism` | 61 | k8s only; reduce on quota hit; cap 122 |
 | `--parent-resolutions` | "0" | Add intermediate (e.g. `"7,0"`) if needed |
 | `--value-column` | "value" | Use meaningful name (`carbon`, `arte`, `nlcd`) |
@@ -604,6 +679,16 @@ spec:
       - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
 ```
 
+⛔ **This pin is a *reactive last resort* for observed, recurring preemption — NEVER a default.** By default let the k8s scheduler place pods. Many nodes across the cluster can service big requests (256/512 GB, multi-cpu) — the Berkeley node is only one of them. **Pinning a large-memory job to one node serializes it:** a 256Gi/8cpu pod fills the node, so `parallelism: N` becomes 1-at-a-time while the rest sit `Pending: Insufficient cpu` (this turned a CONUS res-10 hex from hours into 30-50h — #307). The cluster headroom is there to *request when a job genuinely needs it*; reach for `backoffLimitPerIndex` retries to absorb the occasional preemption before you ever reach for a node pin.
+
+✅ **You do NOT need to exclude GPU nodes for CPU-only jobs.** The generated `nodeAffinity` excludes GPU nodes (`feature.node.kubernetes.io/pci-10de.present NotIn true`), but GPU nodes usually have plenty of **spare CPU/RAM** that our hex/convert/COG jobs can use. Dropping the GPU exclusion **widens the schedulable pool**, which finishes fan-out jobs faster and — importantly — reduces the chance of pods piling onto a flaky node. Keep the exclusion only if a job genuinely needs to avoid GPU-host contention.
+
+⚠️ **Flaky-node hangs — and ⛔ NEVER `--force`-delete pods.** Some shared nodes (observed: `hpc-nrp-g1.nmsu.edu`, `service-02.nrp.mghpcc.org`) have broken egress/S3 connectivity: pods schedule but **hang on `rclone` localize / external download** ("Localizing input →" with no progress; "Could not resolve host") or sit `Pending` with the container never starting. A `backoffLimit: 0` job never recovers (pod Running/Pending, not Failed) and blocks the whole run.
+
+- ⛔ **Never `kubectl delete pod --grace-period=0 --force`.** It drops the API object while the container may still be running on an unreachable node → split-brain / duplicate S3 writes. (Standing rule from the user.)
+- ✅ **Let the control plane reap it — the safe equivalent.** A graceful `kubectl delete pod` (no `--force`) plus the node-lifecycle controller's eviction marks pods on an unreachable node `Failed` after the eviction timeout (~5 min); with `podReplacementPolicy: Failed` (the default once `backoffLimitPerIndex` is set) the Job then recreates that index on a healthy node. Net cost of *not* forcing is ~5 min, **not** a block — verified: a 4-index hang on `service-02` self-healed to 122/122 with zero force-deletes.
+- **Defenses, in order (prevention beats cure):** (1) exclude known-bad hosts via a `kubernetes.io/hostname NotIn [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org, …]` nodeAffinity term so pods never land there; (2) `activeDeadlineSeconds` on the **pod template** (turns a running-hang into a Failure the Job can retry); (3) `backoffLimitPerIndex` + `maxFailedIndexes` (retry the index elsewhere). Note `activeDeadlineSeconds` only helps a *Running* hang — a `Pending` pod (container never started) is cleared only by control-plane eviction, so (1) is the real fix.
+
 **Pod keeps getting evicted (`ContainerStatusUnknown`) → diagnose BEFORE resubmitting.** Never resubmit a failing job without `kubectl describe pod <pod>` — same resources will fail the same way.
 ```bash
 kubectl -n biodiversity describe pod <pod-name> | grep -A5 "Reason:\|Message:\|Events:"
@@ -668,6 +753,7 @@ For chunks that fail (e.g. DuckDB parquet page-size limits on complex geometries
 - **Do not modify `cng_datasets/` source.** File an issue (see Hard Boundary 2).
 - **Do not request more than 50Gi ephemeral-storage.** The namespace caps it at 50Gi; generated YAMLs default to 250Gi — reduce to 50Gi and add `limits.ephemeral-storage: 50Gi` before applying.
 - **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
+- **Do not record operational/how-to-work lessons in agent memory (`~/.claude/.../memory`).** This repo is cloned and run by students — and soon by always-on headless agents (Hermes/openclaw). Anything that should shape how tasks run here belongs in **this AGENTS.md or a local skill (`.claude/skills/`)**, so every clone and headless run behaves the same. A lesson saved only to one VM's memory silently diverges your experience from everyone else's. (Memory remains fine for genuinely personal, non-shareable session context.)
 
 ## Reference Examples
 

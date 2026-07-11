@@ -22,6 +22,15 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 ## public-carbon
 - **OK-NC** · `CC-BY-NC-4.0` — public-carbon  
 
+## public-cdfw
+CDFW BIOS biogeographic data. **Verified**: the BIOS-published layers (ACE, SWAP 2015) each state CC-BY-4.0 verbatim in their ArcGIS item `licenseInfo` ("This work is licensed under Creative Commons Attribution 4.0 International License … Using the citation standards recommended for BIOS datasets satisfies the attribution requirements"), and data.ca.gov independently lists the SWAP-2015 layers as `cc-by`. Attribution via the BIOS citation standard (https://wildlife.ca.gov/Data/BIOS/Citing-BIOS).
+- **OK** · `CC-BY-4.0` — public-cdfw/ace/terrestrial-biodiversity-summary  · ACE v3.0 ds2739; CC-BY-4.0 verified in item licenseInfo. Contact ACE@wildlife.ca.gov.
+- **OK** · `CC-BY-4.0` — public-cdfw/swap-2015/provinces  · SWAP 2015 ds1900; CC-BY-4.0 verified (item + data.ca.gov).
+- **OK** · `CC-BY-4.0` — public-cdfw/swap-2015/terrestrial-targets  · SWAP 2015 ds1966; CC-BY-4.0 verified.
+- **OK** · `CC-BY-4.0` — public-cdfw/swap-2015/aquatic-targets  · SWAP 2015 ds2733; CC-BY-4.0 verified.
+- **HOLD** · `CC-BY-4.0` (inferred, unconfirmed) — public-cdfw/swap-2025/* (all 10 collections: provinces, conservation-units, sgcn-ranges, marine-bioregions, noaa-esu-dps, bay-delta-conservation-unit, targets, strategies, sgcn-species, sgcn-species-units)  · The SWAP 2025 source items (ArcGIS AGOL owner `cdfwswap`, services `SWAP_target_strategy_v3_gdb` / `SWAP_SGCN_V4_gdb` / `SWAP_Reference_Layers_WFL1`) carry **empty** `licenseInfo`/credits and are **not yet in the formal BIOS / data.ca.gov catalog**, so the CC-BY-4.0 in our STAC is an inference from every peer CDFW/BIOS dataset (ACE, SWAP 2015, CNRA 30×30) + the CA open-data default — **not** an explicit CDFW statement. **Do NOT mirror to source.coop until CDFW confirms.** Confirm with the SWAP Team (SWAP@wildlife.ca.gov) or Biogeographic Data Branch (BDB@wildlife.ca.gov / (916) 322-2493). Tracked: data-workflows #381.
+- **N/A (partial)** — `public-cdfw` is mixed-clearance: ACE + swap-2015 are mirror-eligible, swap-2025 is HOLD. Do **not** add `cdfw` to `REPOS` (gen-source-sync.sh) until the swap-2025 license is confirmed and the whole bucket is clear.
+
 ## public-census
 - **OK** · `public-domain` — public-census/census-2024/cd  
 - **OK** · `public-domain` — public-census/census-2024/county  
@@ -122,6 +131,12 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 - **OK** · `CDLA-Permissive-2.0` — public-overturemaps/2026-02-18.0/regions  
 - **OK** · `CDLA-Permissive-2.0` — public-overturemaps  
 
+## public-missouri
+- **HOLD** · `other` (license pending) — public-missouri/ccs-2022/* (7 Conservation Opportunity Area layers)  · Missouri Dept of Conservation CCS 2022 (MDC ArcGIS Server). MDC states no explicit data license; STAC `license: other` + link to MDC terms, pending confirmation. Do NOT mirror to source.coop until confirmed. data-workflows #384.
+
+## public-nevada
+- **HOLD** · `other` (license pending) — public-nevada/swap-2022/* (species-distributions, key-habitats)  · Nevada Dept of Wildlife SWAP 2022 (NDOW ArcGIS). NDOW states no data license on the SWAP page; STAC `license: other` + link, pending confirmation (ndowinfo@ndow.org). Do NOT mirror to source.coop until confirmed. data-workflows #383.
+
 ## public-padus
 - **OK** · `public-domain` — public-padus/padus-4-1/combined  
 - **OK** · `public-domain` — public-padus/padus-4-1/easement  
@@ -205,4 +220,31 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 - **OK** · `WGFD open-data (other)` — public-wyoming/wgfd-pronghorn-crucial  · WGFD public ArcGIS Open Data; attribution+disclaimer (confirm)
 - **OK** · `WGFD open-data (other)` — public-wyoming/wgfd-pronghorn-seasonal  · WGFD public ArcGIS Open Data; attribution+disclaimer (confirm)
 - **OK** · `public-domain` — public-wyoming/wy-counties  
-- **OK** · `public-domain` — public-wyoming/wyoming-places  
+- **OK** · `public-domain` — public-wyoming/wyoming-places
+
+## Additions 2026-07 (batch: usgs-nhd, usgs-wbd, facts, nci-frontiers, connectivity, hazard)
+
+## public-usgs-nhd
+- **OK** · `public-domain` — public-usgs-nhd/streams-by-order  · USGS National Hydrography Dataset; US federal work (PD).
+- **OK** · `public-domain` — public-usgs-nhd/perennial-streams  · USGS NHD; US federal work (PD).
+
+## public-usgs-wbd
+- **OK** · `public-domain` — public-usgs-wbd/wbd/hu2 · hu4 · hu6 · hu8 · hu10 · hu12  · USGS Watershed Boundary Dataset (all HU levels); US federal work (PD).
+
+## public-facts
+- **OK** · `public-domain` — public-facts/common-attributes-2026-06  · USFS FACTS Common Attributes; US federal work (PD).
+
+## public-nci-frontiers
+- **OK** · `CC0-1.0` — public-nci-frontiers  · Polasky et al. (2026, Science) / Natural Capital Project; CC0 (STAC declares CC0 + CC0 link; confirm against the paper's data deposit on first mirror).
+
+## public-connectivity
+- **OK** · `CC-BY-4.0` — public-connectivity/regional-connectivity-linkages  · South Coast Missing Linkages (Beier et al. 2006) via CDFW BIOS ds419; CC-BY.
+- **OK** · `CC0-1.0` — public-connectivity/climate-migration-routes  · Schloss et al. 2022; CC0.
+- **OK** · `CC0-1.0` — public-connectivity/present-day-connectivity/flow  · Cameron/Schloss/Theobald/Morrison 2022; CC0.
+- **OK** · `CC0-1.0` — public-connectivity/present-day-connectivity/categories  · same; CC0.
+- **OK** · `CC-BY-4.0` — public-connectivity/wildlife-movement-barriers  · CDFW BIOS ds2867; CC-BY.
+
+## public-hazard
+- **OK** · `public-domain` — public-hazard/flood-hazard  · FEMA National Flood Hazard Layer; US federal work (PD).
+- **OK** · `public-domain` — public-hazard/sea-level-rise  · NOAA Office for Coastal Management; US federal work (PD).
+- **HOLD** · `other` — public-hazard/mid-century-habitat-climate-exposure  · Thorne et al. (2016), CDFW-commissioned (SWAP 2015). NOT a Dryad/Zenodo deposit; STAC states redistribution terms "are not explicitly published with the source and require confirmation." BIOS-general is CC-BY and this is not a CNDDB/spotted-owl carve-out, so likely includable — but source ships no explicit license, so do NOT assert one. **Excluded from the `hazard` mirror** until CDFW/Thorne terms are confirmed.  

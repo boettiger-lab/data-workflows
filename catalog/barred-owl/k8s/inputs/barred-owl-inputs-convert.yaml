@@ -1,0 +1,82 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: barred-owl-inputs-convert
+  labels:
+    k8s-app: barred-owl-inputs-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: barred-owl-inputs-convert
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          SRC=raw/scenarios/regional/nwfp/current_threat/01_tune-NSO/priority_map_Scenario_01.gpkg
+          echo "Localizing range-wide source GeoPackage ..."
+          rclone copyto "nrp:public-barred-owl/${SRC}" /tmp/src.gpkg
+          LAYER=$(ogrinfo -q /tmp/src.gpkg | head -1 | sed -E 's/^[0-9]+: ([^ ]+).*/\1/')
+          echo "Source layer: ${LAYER}"
+          # Project to the invariant INPUT layers only (drop prio_score + all scenario/weight/penalty cols).
+          # HEXID = native 5 km2 hex-grid id; the 7 input layers are identical across all scenarios.
+          ogr2ogr -f GPKG /tmp/inputs.gpkg /tmp/src.gpkg "${LAYER}" -nln inputs \
+            -select "HEXID,BO_occ,NSO_occ,NSO_hab,NSO_ccap,fed_res,fire_suit,fire_refu"
+          echo "Converting to GeoParquet ..."
+          cng-convert-to-parquet /tmp/inputs.gpkg s3://public-barred-owl/inputs.parquet --row-group-size 2000
+          echo "Convert complete."
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

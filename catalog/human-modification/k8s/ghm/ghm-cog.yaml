@@ -1,0 +1,105 @@
+# Step 1: create the WGS84 COG deliverable from the raw World-Mollweide gHM.tif.
+# The raw figshare raster is in ESRI:World_Mollweide (EPSG:54009); this warps it
+# to EPSG:4326 and writes a Cloud-Optimized GeoTIFF. The hex step then reads THIS
+# COG (not the raw Mollweide tif), matching the canonical raster workflow
+# (WGS84 COG first, then hex from the COG) and avoiding a per-pod re-warp of the
+# 2.1 GB source in all 122 hex pods. Continuous 0-1 index -> overview resampling
+# 'average' (the tool's default for non-categorical).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ghm-cog
+  labels:
+    k8s-app: ghm-cog
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ghm-cog
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: cog-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: BUCKET
+          value: public-human-modification
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # The raw figshare raster is ESRI:World_Mollweide. cng-datasets' own COG/hex
+          # path crashes on it ("Point outside of projection domain") because a global
+          # Mollweide raster's rectangular-extent corners fall in the projection's
+          # undefined oval corners. The tool's documented remedy is to reproject first
+          # with gdalwarp, which densifies the edges and clamps to the valid domain.
+          # So we build the WGS84 COG deliverable directly with gdalwarp -of COG, and
+          # the hex step reads THIS 4326 COG (its src-bounds transform is then identity).
+          mkdir -p /tmp/ghm
+          echo "Localizing raw Mollweide gHM.tif..."
+          rclone copyto nrp:public-human-modification/raw/gHM.tif /tmp/ghm/gHM.tif -P
+          echo "Reprojecting Mollweide -> EPSG:4326 and writing COG..."
+          gdalwarp -t_srs EPSG:4326 -r bilinear -multi -wo NUM_THREADS=ALL_CPUS \
+            -srcnodata -3.4028234663852886e+38 -dstnodata -3.4028234663852886e+38 \
+            -of COG \
+            -co COMPRESS=DEFLATE -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+            -co OVERVIEW_RESAMPLING=AVERAGE \
+            /tmp/ghm/gHM.tif /tmp/ghm/ghm-cog.tif
+          echo "Publishing COG to s3..."
+          rclone copyto /tmp/ghm/ghm-cog.tif nrp:public-human-modification/ghm-cog.tif -P
+          echo "✓ COG complete"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 40Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

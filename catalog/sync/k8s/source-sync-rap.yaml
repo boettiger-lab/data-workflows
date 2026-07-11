@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: source-sync-rap
-  namespace: biodiversity
+  namespace: boettiger-lab
 spec:
   backoffLimit: 1
   ttlSecondsAfterFinished: 86400
@@ -45,7 +45,11 @@ spec:
                 "source:us-west-2.opendata.source.coop/cboettig/"?*) : ;;
                 *) echo "REFUSING: dest '$DEST' is not a cboettig/<repo> sub-path" >&2; exit 1 ;;
               esac
-              RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 120s -v"
+              # --max-delete 150: circuit-breaker — abort if a run would delete
+              # more than 150 objects at the dest (stops a propagated wipe from an
+              # emptied/corrupted source). 150 covers overturemaps' ~122 H0
+              # partitions + assets; tune per hardening plan (geo-agent-ops#21).
+              RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --max-delete 150 --stats 120s -v"
               # DRYRUN=true (env) lists changes without writing. Default: real sync.
               if [ "${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="$RCLONE_FLAGS --dry-run"; fi
               echo "Syncing: $SRC -> $DEST  (DRYRUN=${DRYRUN:-false})"
@@ -54,4 +58,4 @@ spec:
       volumes:
         - name: rclone-config
           secret:
-            secretName: rclone-config
+            secretName: rclone-backup

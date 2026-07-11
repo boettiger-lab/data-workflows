@@ -5,13 +5,13 @@
 # source-sync-<repo>.yaml jobs. continue-on-error: one bad repo doesn't block
 # the rest, but the Job still exits non-zero so the failure is visible.
 #   Apply:      kubectl apply -f source-sync-cron-config.yaml -f source-sync-cron.yaml
-#   Manual run: kubectl -n biodiversity create job --from=cronjob/source-sync source-sync-manual
+#   Manual run: kubectl -n boettiger-lab create job --from=cronjob/source-sync source-sync-manual
 #   Dry run:    edit env DRYRUN=true on the manual Job (lists changes, writes nothing)
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: source-sync
-  namespace: biodiversity
+  namespace: boettiger-lab
   labels:
     app: source-sync
 spec:
@@ -62,7 +62,10 @@ spec:
                                               # stay literal and a HOLD path can't accidentally expand away.
                   ACCOUNT="cboettig"
                   DEST_BUCKET="us-west-2.opendata.source.coop"
-                  RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --stats 300s -v"
+                  # --max-delete 150: circuit-breaker (see per-repo job comment) —
+                  # aborts a run that would delete >150 objects at dest, so an
+                  # emptied/corrupted source can't propagate a wipe to source.coop.
+                  RCLONE_FLAGS="--transfers 2 --checkers 4 --bwlimit 50M --tpslimit 5 --retries 5 --max-delete 150 --stats 300s -v"
                   if [ "${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="$RCLONE_FLAGS --dry-run"; fi
                   fail=0 ; n=0
                   while read -r repo verb excludes; do
@@ -103,12 +106,31 @@ spec:
                   else
                     echo "could not fetch STAC rewrite script from $RW_URL" >&2 ; fail=1
                   fi
+                  # Phase 3 (#351): publish the unified GLEN root catalog +
+                  # landing-page README at cboettig/glen. Child list = NRP root's
+                  # top-level children filtered to the mirror scope (this same
+                  # ConfigMap), hrefs rewritten to source.coop — so it links only
+                  # the license-clear subset. Runs AFTER phase 2 so the linked
+                  # collections are already source.coop-consistent. gen-root-catalog.py
+                  # imports rewrite-stac-hrefs.py from its own dir (both in /tmp).
+                  echo "=== publishing GLEN root catalog (phase 3) ==="
+                  BASE="https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/catalog/sync/source-coop"
+                  if curl -fsSL "$BASE/gen-root-catalog.py"    -o /tmp/gen-root-catalog.py \
+                     && curl -fsSL "$BASE/rewrite-stac-hrefs.py" -o /tmp/rewrite-stac-hrefs.py \
+                     && curl -fsSL "$BASE/glen-README.md"        -o /tmp/glen-README.md ; then
+                    genflags="" ; [ "${DRYRUN:-false}" = "true" ] && genflags="--dry-run"
+                    SCOPE_FILE=/config/repos.txt python3 /tmp/gen-root-catalog.py $genflags \
+                      --readme /tmp/glen-README.md \
+                      || { echo "GLEN root catalog FAILED" >&2 ; fail=1 ; }
+                  else
+                    echo "could not fetch GLEN generator scripts from $BASE" >&2 ; fail=1
+                  fi
                   echo "=== source-sync complete: $n repos attempted, fail=$fail ==="
                   exit $fail
           volumes:
             - name: rclone-config
               secret:
-                secretName: rclone-config
+                secretName: rclone-backup
             - name: scope
               configMap:
                 name: source-sync-scope

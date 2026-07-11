@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nci-frontiers-unzip-raw
+  namespace: biodiversity
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values: ["true"]
+      containers:
+        - name: unzip
+          image: ghcr.io/boettiger-lab/datasets:latest
+          imagePullPolicy: Always
+          resources:
+            requests: {cpu: "2", memory: "6Gi", ephemeral-storage: "5Gi"}
+            limits:   {cpu: "2", memory: "6Gi", ephemeral-storage: "10Gi"}
+          volumeMounts:
+            - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+            - {name: scratch, mountPath: /scratch, subPath: nci-frontiers}
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              cd /scratch
+              echo "$(date) pulling zip from internal S3 ..."
+              rclone copyto nrp:public-nci-frontiers/raw/inputs_for_publication.zip inputs.zip -v --stats 60s
+              ls -la inputs.zip
+              echo "$(date) unzipping ..."
+              rm -rf inputs && python -c "import zipfile; zipfile.ZipFile('inputs.zip').extractall('inputs')"
+              du -sh inputs; find inputs -name '*.tif' | wc -l
+              echo "$(date) staging unzipped tree to S3 ..."
+              rclone copy inputs nrp:public-nci-frontiers/raw/inputs --s3-no-check-bucket --transfers 4 --checkers 8 -v --stats 60s
+              echo "$(date) DONE: public-nci-frontiers/raw/inputs/"
+      volumes:
+        - {name: rclone-config, secret: {secretName: rclone-config}}
+        - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}

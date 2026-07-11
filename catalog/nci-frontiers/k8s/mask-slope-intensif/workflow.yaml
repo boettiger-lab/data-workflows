@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mask-slope-intensif-workflow
+  namespace: biodiversity
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "set -e\n\necho \"Starting mask-slope-intensif raster workflow...\"\n\n\
+          # Step 0: Setup bucket\necho \"Step 0: Setting up bucket...\"\nkubectl apply\
+          \ -f /yamls/mask-slope-intensif-setup-bucket.yaml -n biodiversity\nkubectl\
+          \ wait --for=condition=complete --timeout=600s job/mask-slope-intensif-setup-bucket\
+          \ -n biodiversity\n\n# Step 1: H3 hexagonal tiling\necho \"Step 1: H3 hexagonal\
+          \ tiling...\"\nkubectl apply -f /yamls/mask-slope-intensif-hex.yaml -n biodiversity\n\
+          kubectl wait --for=condition=complete --timeout=7200s job/mask-slope-intensif-hex\
+          \ -n biodiversity\n\necho \"\u2713 Workflow complete!\"\necho \"Clean up\
+          \ with:\"\necho \"  kubectl delete jobs mask-slope-intensif-setup-bucket\
+          \ mask-slope-intensif-hex mask-slope-intensif-workflow -n biodiversity\"\
+          \necho \"  kubectl delete configmap mask-slope-intensif-yamls -n biodiversity\"\
+          \n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: mask-slope-intensif-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800

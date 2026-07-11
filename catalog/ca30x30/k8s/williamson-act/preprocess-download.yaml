@@ -1,0 +1,132 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: williamson-act-preprocess
+  labels:
+    k8s-app: williamson-act-preprocess
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: williamson-act-preprocess
+    spec:
+      restartPolicy: Never
+      # Downloads from an external ArcGIS server → needs egress; exclude bad-egress nodes.
+      activeDeadlineSeconds: 5400
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - python3
+        - -c
+        - |
+          import urllib.parse, urllib.request, json, subprocess, sys, os
+          BASE = "https://gis.conservation.ca.gov/server/rest/services/DLRP"
+          # (year, enrollment layer id) verified from the FeatureServer directory
+          YEARS = [("2021", 2), ("2022", 3), ("2023", 3), ("2024", 3), ("2025", 9)]
+          PAGE = 2000
+          outdir = "/tmp/wa"
+          os.makedirs(outdir, exist_ok=True)
+
+          def fetch(url):
+              for attempt in range(6):
+                  try:
+                      with urllib.request.urlopen(url, timeout=120) as r:
+                          return json.load(r)
+                  except Exception as e:
+                      sys.stderr.write(f"  retry {attempt} after error: {e}\n")
+              raise SystemExit(f"failed to fetch after retries: {url}")
+
+          def normalize(props):
+              return {
+                  "APN_Number": props.get("APN_Number"),
+                  "County":     props.get("County_Cit") or props.get("County_City"),
+                  "Year":       props.get("Year"),
+                  "WA_Type":    props.get("WA_Type"),
+                  "Acreage":    props.get("Acreage"),
+              }
+
+          totals = {}
+          merged_path = f"{outdir}/williamson-act-all-years.geojsonl"
+          mf = open(merged_path, "w")
+          for year, lid in YEARS:
+              layer = f"{BASE}/CaliforniaWilliamsonActEnrollment_{year}/FeatureServer/{lid}/query"
+              per_path = f"{outdir}/williamson-act-{year}.geojsonl"
+              n = 0
+              with open(per_path, "w") as pf:
+                  offset = 0
+                  while True:
+                      q = {
+                          "where": "1=1", "outFields": "*", "outSR": "4326",
+                          "orderByFields": "OBJECTID", "f": "geojson",
+                          "resultOffset": offset, "resultRecordCount": PAGE,
+                      }
+                      data = fetch(layer + "?" + urllib.parse.urlencode(q))
+                      feats = data.get("features", [])
+                      if not feats:
+                          break
+                      for ft in feats:
+                          props = normalize(ft.get("properties", {}))
+                          geom = ft.get("geometry")
+                          pf.write(json.dumps({"type": "Feature", "properties": props, "geometry": geom}) + "\n")
+                          # merged file stamps the authoritative snapshot (service) year, since the
+                          # upstream 'Year' field is an unreliable per-record value (mixed vintages).
+                          mprops = dict(props); mprops["snapshot_year"] = int(year)
+                          mf.write(json.dumps({"type": "Feature", "properties": mprops, "geometry": geom}) + "\n")
+                          n += 1
+                      offset += len(feats)
+                      sys.stderr.write(f"[{year}] {n} features...\n")
+                      if len(feats) < PAGE:
+                          break
+              totals[year] = n
+              print(f"YEAR {year}: {n} features -> {per_path}", flush=True)
+          mf.close()
+          totals["all-years"] = sum(totals.values())
+          print("COUNTS:", json.dumps(totals), flush=True)
+
+          # upload clean files to raw/
+          subprocess.run(
+              ["rclone", "copy", outdir, "nrp:public-ca30x30/williamson-act/raw/",
+               "--include", "*.geojsonl", "-P"], check=True)
+          print("UPLOAD DONE", flush=True)
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 40Gi}
+          limits: {cpu: '2', memory: 8Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
