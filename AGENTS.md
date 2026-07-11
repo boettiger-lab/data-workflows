@@ -566,6 +566,34 @@ Counterintuitive result: 10,000 small features at 8Gi can be fine, while a singl
 | Points | 10 | Each point → one cell; coarser = aggregation |
 | Lines | 8 | Buffered by H3 circumradius; default 8 auto-detected |
 
+#### ⭐ H3 resolution & parent convention (join compatibility — pick native res AND parents deliberately)
+
+Native resolution alone is not the whole decision — the **parent-resolution set** is what
+makes a dataset joinable to the rest of the catalog. Two datasets join cheaply only at a
+resolution they **both physically carry** (`h<N> = h<N>`); otherwise a consumer must
+`h3_cell_to_parent()` on the fly, which LLM agents do unreliably (wrong direction, skipped,
+empty joins). So encode the joins into the data, don't hope the model derives them.
+
+- **`h8` is the catalog's universal join key. Default native resolution is 8**, and **every
+  dataset finer than 8 (native `h9`/`h10`) MUST carry `h8`** as a parent. Rationale: raster
+  hexes (carbon, GHS-POP, richness) are native `h8`, and vector hexes (native `h10`) carry
+  `h8` — so nearly everything meets at `h8`. A one-off native `h7` (e.g. the gHM 1 km raster
+  before this rule) is an **outlier with no `h8`** and silently breaks those joins — don't do it.
+- **`h0` always** — it is the hive partition key and the coarsest common join; every hex asset
+  carries it (it must be in `--parent-resolutions`).
+- **`h10` is currently our finest.** Small features (parcels, tracts, points) → native `h10`,
+  parents `9,8,0` (the generator default) so they carry `h8`.
+- **Coarser than 8 only when features are genuinely huge** — continent- or ocean-scale polygons
+  (e.g. large marine areas hexed at `h5`) to keep hex cell-count/RAM sane. Such a dataset
+  *cannot* carry `h8` (finer than native); consumers roll finer data **up** to `h5` to join it.
+  Use a coarse native res because the feature size forces it, never as a cost shortcut on data
+  that should be `h8`.
+- **A dataset may declare a *set* of parents** (e.g. native `h8` with `--parent-resolutions
+  "5,4,0"` → columns `h8,h5,h4,h0`) so it joins at several standard resolutions at once. Pick the
+  parent set from the resolutions of the datasets it will be joined against.
+- Always record the chosen native + parents in the issue (scope) and in the hex asset's
+  `h3:native_resolution` / `h3:parent_resolutions` (STAC).
+
 ### Vector workflow parameters
 
 | Param | Default | When to change |

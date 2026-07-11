@@ -1,0 +1,68 @@
+# Step 1b: fetch the Theobald Global Human Modification (gHM) raster and stage it
+# at s3://public-human-modification/raw/gHM.tif for the raster hex workflow.
+# Source: figshare 7283087 (gHM.zip, 415 MB) -> contains gHM/gHM.tif (~1 km, World Mollweide).
+# Run this BEFORE ghm-hex.yaml. Requires Ceph/s3-west to be up.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ghm-download-raw
+  namespace: biodiversity
+  labels:
+    k8s-app: ghm-download-raw
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ghm-download-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: download
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "20Gi"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "20Gi"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cd /tmp
+          echo "Downloading gHM.zip from figshare..."
+          curl -L --retry 5 -o gHM.zip "https://ndownloader.figshare.com/files/13448294"
+          echo "Unzipping..."
+          unzip -q -o gHM.zip
+          ls -la gHM/
+          echo "Staging gHM.tif to s3://public-human-modification/raw/ ..."
+          rclone mkdir nrp:public-human-modification/raw
+          rclone copyto gHM/gHM.tif nrp:public-human-modification/raw/gHM.tif -P
+          echo "✓ Complete"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

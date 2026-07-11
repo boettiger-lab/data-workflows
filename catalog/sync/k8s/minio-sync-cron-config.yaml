@@ -33,6 +33,7 @@ data:
     grids sync 
     hazard sync 
     high-seas sync 
+    human-modification sync 
     hydrobasins sync 
     icca sync 
     im3 sync 
@@ -58,4 +59,5 @@ data:
     usgs-ungulate-migration sync 
     wdpa sync 
     wetlands sync 
+    wui sync 
     wyoming sync 
