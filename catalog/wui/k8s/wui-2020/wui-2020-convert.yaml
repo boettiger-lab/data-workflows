@@ -49,18 +49,30 @@ spec:
         - -c
         - |
           set -e
+          # GDAL/DuckDB ST_Read cannot open a multi-file .gdb *directory* over s3://
+          # ("Could not open GDAL dataset"). Localize the GDB to local disk first,
+          # then convert from the local path.
+          mkdir -p /tmp/wui
+          echo "Localizing GDB from s3 (~7 GB)..."
+          rclone copy nrp:public-wui/raw/US_WUI_block_1990_2020_change_v4.gdb \
+            /tmp/wui/US_WUI_block_1990_2020_change_v4.gdb -P
+          echo "Converting..."
+          # --row-group-size 2000: 11M national-scale features; keeps each geometry
+          # column chunk well under the ~2.8 GB httpfs 'stoi' cliff (see AGENTS.md).
           cng-convert-to-parquet \
-            s3://public-wui/raw/US_WUI_block_1990_2020_change_v4.gdb \
+            /tmp/wui/US_WUI_block_1990_2020_change_v4.gdb \
             s3://public-wui/wui-2020.parquet \
-            --row-group-size 100000 \
+            --row-group-size 2000 \
             --layer US_WUI_block_1990_2020_change_v4
         resources:
           requests:
             cpu: '4'
             memory: 16Gi
+            ephemeral-storage: 50Gi
           limits:
             cpu: '4'
             memory: 16Gi
+            ephemeral-storage: 50Gi
       volumes:
       - name: rclone-config
         secret:
