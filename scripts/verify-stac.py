@@ -38,6 +38,10 @@ Data-backed checks (delegated to the duckdb-geo MCP server, --no-data to skip):
     is fully populated) — joining on it silently drops the largest features (#309 §2)
   - ADVISORY: polygon/point asset where a candidate feature-id column has rows ≫
     DISTINCT — possible per-feature row duplication (#309 §1; FP-prone, so advisory)
+  - HARD: an inline hex-area formula in any column description / prose field — both the
+    nominal-constant recipe (`… × cell_area_at_resolution_N`, a global average that ran
+    the ca-30x30 CA extent ~6% low) and an inlined exact `h3_cell_area()` call; the
+    area method belongs in the h3-guide, not baked into STAC where it goes stale (#389)
 
 Advisory passes (never block):
   - recall: candidate string-categorical columns with a low DISTINCT count and no
@@ -469,6 +473,60 @@ def check_point_note(doc: dict) -> list[Finding]:
     return out
 
 
+# --- #389 — no inline hex-area formula in published STAC -------------------
+# The area-from-hex recipe is generic guidance that lives in
+# `mcp-data-server/h3-guide.md` (which the geo-agent reads). Any copy baked into a
+# column description or prose field goes stale and becomes actively harmful:
+#   * the NOMINAL-CONSTANT form (`… × cell_area_at_resolution_N`) is a global average
+#     that undercounted the ca-30x30 California extent ~6% (mcp-data-server#294 / #389);
+#   * even the EXACT `h3_cell_area(...)` form must not be inlined — a duplicated copy
+#     drifts out of sync with the h3-guide (maintainer's final #389 resolution: the
+#     recipe is REMOVED from STAC, not merely corrected).
+# So the guard HARD-flags either formula anywhere in the doc. A hex column that is a
+# per-feature total should just be flagged "repeated / never SUM on hex / dedup by
+# <key>" and defer the area method to the h3-guide.
+_AREA_FORMULA_PATTERNS = [
+    ("area-recipe-nominal-constant", re.compile(r"cell_area_at_resolution", re.I),
+     "the nominal per-resolution constant (a global average — undercounts real cell "
+     "area by well over ±5% with latitude; ca-30x30 CA extent was ~6% low, #389)"),
+    ("area-recipe-inlined", re.compile(r"h3_cell_area\s*\(", re.I),
+     "an inline h3_cell_area() formula (even the exact recipe must not be baked into "
+     "STAC — it drifts out of sync with the h3-guide; #389)"),
+]
+
+
+def _iter_strings(obj, path="$"):
+    """Yield (json-path, string) for every string leaf in the STAC doc."""
+    if isinstance(obj, str):
+        yield path, obj
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _iter_strings(v, f"{path}.{k}")
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from _iter_strings(v, f"{path}[{i}]")
+
+
+def check_inline_area_formula(doc: dict) -> list[Finding]:
+    """HARD-flag any inline hex-area formula in a column description or prose field.
+
+    The area-from-hex method is generic guidance sourced from the h3-guide; a copy in
+    published STAC goes stale (see #389). Covers both the nominal-constant recipe and
+    an inlined exact `h3_cell_area()` call, wherever they appear in the document.
+    """
+    out = []
+    for path, text in _iter_strings(doc):
+        for code, rx, why in _AREA_FORMULA_PATTERNS:
+            if rx.search(text):
+                out.append(Finding(HARD, code,
+                                   f"inline hex-area formula at {path}: {why}. "
+                                   f"Remove it — flag the column as a per-feature total "
+                                   f"(repeated per hex cell, never SUM on hex, dedup by "
+                                   f"key) and defer the area method to mcp-data-server/"
+                                   f"h3-guide.md; do not inline the formula."))
+    return out
+
+
 _H0_PARTITION = re.compile(r"/h0=\*/")
 
 
@@ -594,6 +652,7 @@ STATIC_CHECKS = [
     check_cng_fid,
     check_hex_dup_warning,
     check_point_note,
+    check_inline_area_formula,
 ]
 
 
