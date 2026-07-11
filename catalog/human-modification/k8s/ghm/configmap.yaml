@@ -1,5 +1,5 @@
 # Auto-generated ConfigMap for raster workflow
-# Regenerated to include ghm-cog.yaml (gdalwarp WGS84 COG step) and COG-sourced hex.
+# Regenerated: gdalwarp WGS84 COG step + COG-sourced hex at res 8 (parent 0).
 apiVersion: v1
 data:
   ghm-cog.yaml: |
@@ -119,7 +119,11 @@ data:
       completions: 122
       parallelism: 61
       completionMode: Indexed
-      backoffLimit: 0
+      # Per-index retry (not backoffLimit:0): a pod stuck on a bad-network node
+      # (image pull never completes, or S3 localize hangs) can be cleared with a
+      # graceful `kubectl delete pod` and the index is retried elsewhere.
+      backoffLimitPerIndex: 2
+      maxFailedIndexes: 12
       podFailurePolicy:
         rules:
         - action: Ignore
@@ -132,6 +136,9 @@ data:
             k8s-app: ghm-hex
         spec:
           restartPolicy: Never
+          # Bound a running hang (e.g. S3 localize wedged on a flaky node) so the
+          # index fails and retries elsewhere instead of blocking the whole job.
+          activeDeadlineSeconds: 2400
           containers:
           - name: hex-task
             image: ghcr.io/boettiger-lab/datasets:latest
@@ -171,7 +178,7 @@ data:
             - |-
               set -e
 
-              cng-datasets raster --input "s3://public-human-modification/ghm-cog.tif" --output-parquet s3://public-human-modification/ghm/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 7 --parent-resolutions 0 --value-column ghm --hex-resampling mean
+              cng-datasets raster --input "s3://public-human-modification/ghm-cog.tif" --output-parquet s3://public-human-modification/ghm/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 --value-column ghm --hex-resampling mean
             resources:
               requests:
                 cpu: '4'
@@ -195,6 +202,13 @@ data:
                     operator: NotIn
                     values:
                     - 'true'
+                  # Keep pods off nodes with known-broken egress (image pull / S3
+                  # localize hang forever there — see AGENTS.md flaky-node notes).
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                    - hpc-nrp-g1.nmsu.edu
+                    - service-02.nrp.mghpcc.org
   ghm-setup-bucket.yaml: |
     apiVersion: batch/v1
     kind: Job
