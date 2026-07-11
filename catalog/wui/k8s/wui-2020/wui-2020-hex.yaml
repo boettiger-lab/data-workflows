@@ -24,7 +24,11 @@ spec:
         k8s-app: wui-2020-hex
     spec:
       restartPolicy: Never
-      activeDeadlineSeconds: 5400
+      # 4h: chunks holding the largest features (huge Alaska/water blocks, ~1.6M
+      # res-10 cells) legitimately run 1.5-3h; a tighter deadline kills them and
+      # loops. Still bounds a true bad-node hang. The 8 biggest chunks (49,103,
+      # 104,123,159,169,198,199) needed a 6h one-off rechunk on the first run.
+      activeDeadlineSeconds: 14400
       containers:
       - name: hex-task
         image: ghcr.io/boettiger-lab/datasets:latest
