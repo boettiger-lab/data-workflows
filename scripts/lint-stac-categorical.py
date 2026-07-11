@@ -153,6 +153,20 @@ def lint(source: str) -> list[str]:
             # column that lacks one. A column that already declares `values` is an
             # explicit opt-in to categorical validation and is never skipped here.
             if values_arr is None:
+                # Skip continuous fractional-coverage columns — the `frac` output of the
+                # categorical `fractions` reducer (datasets#143) is a per-cell areal
+                # weight in [0,1], NOT a coded class, even though its description names
+                # the "class"/"category"/"code" it weights (which otherwise trips the
+                # `is_coded` heuristic below). Signal: float-typed and named `frac` (the
+                # reducer's fixed output name) or described as an areal fraction.
+                is_fraction = (
+                    col_type in ("double", "float", "float32", "float64")
+                    and (col_name == "frac"
+                         or bool(re.search(r"\bareal fraction\b|fraction \(0", desc_l)))
+                )
+                if is_fraction:
+                    continue
+
                 # Skip date columns — a date is never a categorical class, even when its
                 # description names the "code" it dates (e.g. "Date the GAP Status Code
                 # was assigned in YYYYMMDD"). Signals: name ends in dt/date, or a date-ish
