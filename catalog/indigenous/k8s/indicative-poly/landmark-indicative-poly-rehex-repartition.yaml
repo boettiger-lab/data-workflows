@@ -1,0 +1,102 @@
+# Fix #179 — STEP 3 of 3 (run AFTER both landmark-indicative-poly-rehex.yaml [res-10]
+# and landmark-indicative-poly-rehex-res8.yaml [res-8 giants] have completed).
+#
+# Merges the mixed-resolution chunks in chunks-rehex (res-10 for the ~17,512 features
+# <=50 deg^2, res-8 for the ~27 continent-scale claims) into a STAGING hex dir, keyed by
+# h0. --source-parquet rejoins chunk outputs to the flat GeoParquet by _cng_fid, so the
+# original unsorted source MUST be used (do not re-sort — that reassigns _cng_fid and
+# breaks the hex<->flat join).
+#
+# Output goes to hex-staging, NOT the canonical hex/ — do not overwrite the live layer
+# until the hard gate passes.
+#
+# ⚠️ HARD GATE before flipping staging -> canonical (per issue #179, cboettig 2026-06-26):
+#   1. DESCRIBE shows columns h0, h8, h9, h10.
+#   2. COUNT(DISTINCT _cng_fid) == 17539  (the current live build is lossy: only 17,462).
+#   3. The 27 giant features (>50 deg^2) are present (at h8).
+# Only then flip:
+#   rclone purge  nrp:public-indigenous/landmark/indicative-poly/hex        # confirm empty after
+#   rclone copyto nrp:public-indigenous/landmark/indicative-poly/hex-staging \
+#                 nrp:public-indigenous/landmark/indicative-poly/hex
+# then patch the STAC (add h3:native_resolution: 10, h3:parent_resolutions: [9,8,0], drop
+# "mixed" from the title, document that ~27 giants top out at h8).
+#
+# ephemeral-storage is 50Gi (the namespace cap); the original repartition YAML requested
+# 200Gi, which the quota rejects.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landmark-indicative-poly-rehex-repartition
+  labels:
+    k8s-app: landmark-indicative-poly-rehex-repartition
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: landmark-indicative-poly-rehex-repartition
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      restartPolicy: Never
+      containers:
+      - name: repartition-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-indigenous
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cng-datasets repartition --chunks-dir s3://public-indigenous/landmark/indicative-poly/chunks-rehex --output-dir s3://public-indigenous/landmark/indicative-poly/hex-staging --source-parquet s3://public-indigenous/landmark/indicative-poly.parquet --cleanup --memory-limit 27GiB
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
