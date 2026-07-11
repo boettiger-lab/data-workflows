@@ -1,0 +1,102 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fish-passage-pad-stage-raw
+  labels:
+    k8s-app: fish-passage-pad-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: fish-passage-pad-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+
+          BASE = ("https://services2.arcgis.com/Uq9r85Potqm3MfRV/arcgis/rest/services/"
+                  "biosds69_fmu/FeatureServer/0/query")
+          PAGE = 2000
+          feats, offset = [], 0
+          while True:
+              q = {
+                  "where": "1=1",
+                  "outFields": "*",
+                  "outSR": "4326",             # WGS84 lon/lat (source is Web Mercator 3857)
+                  "f": "geojson",
+                  "resultOffset": offset,
+                  "resultRecordCount": PAGE,
+                  "orderByFields": "OBJECTID",  # stable pagination order
+              }
+              url = BASE + "?" + urllib.parse.urlencode(q)
+              with urllib.request.urlopen(url, timeout=120) as r:
+                  fc = json.load(r)
+              batch = fc.get("features", [])
+              feats.extend(batch)
+              print(f"offset {offset}: +{len(batch)} (total {len(feats)})", flush=True)
+              if len(batch) < PAGE:
+                  break
+              offset += PAGE
+
+          out = {"type": "FeatureCollection",
+                 "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
+                 "features": feats}
+          with open("/tmp/fish-passage-pad.geojson", "w") as f:
+              json.dump(out, f)
+          print(f"WROTE {len(feats)} features", flush=True)
+          # fail loudly if the FeatureServer under-delivered vs the known count
+          assert len(feats) >= 28000, f"expected ~28391 features, got {len(feats)}"
+          PY
+          ls -la /tmp/fish-passage-pad.geojson
+          rclone copyto /tmp/fish-passage-pad.geojson nrp:public-cdfw/raw/fish-passage-pad.geojson --s3-no-check-bucket
+          echo "staged raw -> s3://public-cdfw/raw/fish-passage-pad.geojson"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
