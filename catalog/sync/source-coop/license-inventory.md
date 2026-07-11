@@ -220,4 +220,31 @@ CDFW BIOS biogeographic data. **Verified**: the BIOS-published layers (ACE, SWAP
 - **OK** · `WGFD open-data (other)` — public-wyoming/wgfd-pronghorn-crucial  · WGFD public ArcGIS Open Data; attribution+disclaimer (confirm)
 - **OK** · `WGFD open-data (other)` — public-wyoming/wgfd-pronghorn-seasonal  · WGFD public ArcGIS Open Data; attribution+disclaimer (confirm)
 - **OK** · `public-domain` — public-wyoming/wy-counties  
-- **OK** · `public-domain` — public-wyoming/wyoming-places  
+- **OK** · `public-domain` — public-wyoming/wyoming-places
+
+## Additions 2026-07 (batch: usgs-nhd, usgs-wbd, facts, nci-frontiers, connectivity, hazard)
+
+## public-usgs-nhd
+- **OK** · `public-domain` — public-usgs-nhd/streams-by-order  · USGS National Hydrography Dataset; US federal work (PD).
+- **OK** · `public-domain` — public-usgs-nhd/perennial-streams  · USGS NHD; US federal work (PD).
+
+## public-usgs-wbd
+- **OK** · `public-domain` — public-usgs-wbd/wbd/hu2 · hu4 · hu6 · hu8 · hu10 · hu12  · USGS Watershed Boundary Dataset (all HU levels); US federal work (PD).
+
+## public-facts
+- **OK** · `public-domain` — public-facts/common-attributes-2026-06  · USFS FACTS Common Attributes; US federal work (PD).
+
+## public-nci-frontiers
+- **OK** · `CC0-1.0` — public-nci-frontiers  · Polasky et al. (2026, Science) / Natural Capital Project; CC0 (STAC declares CC0 + CC0 link; confirm against the paper's data deposit on first mirror).
+
+## public-connectivity
+- **OK** · `CC-BY-4.0` — public-connectivity/regional-connectivity-linkages  · South Coast Missing Linkages (Beier et al. 2006) via CDFW BIOS ds419; CC-BY.
+- **OK** · `CC0-1.0` — public-connectivity/climate-migration-routes  · Schloss et al. 2022; CC0.
+- **OK** · `CC0-1.0` — public-connectivity/present-day-connectivity/flow  · Cameron/Schloss/Theobald/Morrison 2022; CC0.
+- **OK** · `CC0-1.0` — public-connectivity/present-day-connectivity/categories  · same; CC0.
+- **OK** · `CC-BY-4.0` — public-connectivity/wildlife-movement-barriers  · CDFW BIOS ds2867; CC-BY.
+
+## public-hazard
+- **OK** · `public-domain` — public-hazard/flood-hazard  · FEMA National Flood Hazard Layer; US federal work (PD).
+- **OK** · `public-domain` — public-hazard/sea-level-rise  · NOAA Office for Coastal Management; US federal work (PD).
+- **HOLD** · `other` — public-hazard/mid-century-habitat-climate-exposure  · Thorne et al. (2016), CDFW-commissioned (SWAP 2015). NOT a Dryad/Zenodo deposit; STAC states redistribution terms "are not explicitly published with the source and require confirmation." BIOS-general is CC-BY and this is not a CNDDB/spotted-owl carve-out, so likely includable — but source ships no explicit license, so do NOT assert one. **Excluded from the `hazard` mirror** until CDFW/Thorne terms are confirmed.  

@@ -1,7 +1,18 @@
 # source.coop repos (account: cboettig)
 
-**Scope: 27 repos** (all created in the web UI as of 2026-06-17). Create with **visibility: public**.
+**Scope: 33 repos** (27 created 2026-06-17; **6 new below still to create**). Create with **visibility: public**.
 ⚠️ = non-commercial (label NC). See `license-inventory.md` + `README.md`.
+
+## 🆕 To create in the web UI (6 new, 2026-07)
+
+All catalogued + license-verified (see `license-inventory.md`). Create `cboettig/<repo>`, visibility public, then `kubectl apply -f catalog/sync/k8s/source-sync-cron-config.yaml` so the weekly cron picks them up (do NOT apply before the repos exist — the sync fails on a missing dest).
+
+- `usgs-nhd` (public-domain — USGS National Hydrography)
+- `usgs-wbd` (public-domain — USGS Watershed Boundary Dataset)
+- `facts` (public-domain — USFS FACTS Common Attributes)
+- `nci-frontiers` (CC0-1.0 — Polasky et al. 2026 / Natural Capital Project)
+- `connectivity` (CC-BY-4.0 + CC0 — CDFW BIOS ds419/ds2867 + Schloss/Cameron et al.)
+- `hazard` (public-domain — FEMA flood + NOAA SLR; `mid-century-habitat-climate-exposure/**` **excluded**, terms unconfirmed)
 
 > Note: `public-wyoming` is intentionally NOT mirrored — a Wyoming-clipped collection whose datasets now live in full-extent buckets; kept on NRP, migration tracked in #225.
 

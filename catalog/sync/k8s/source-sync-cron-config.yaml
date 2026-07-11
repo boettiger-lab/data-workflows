@@ -16,18 +16,22 @@ data:
     carbon sync 
     census sync 
     cgs sync 
+    connectivity sync 
     cpad sync 
     ecoregion sync 
     epa-water sync 
+    facts sync 
     fire sync 
     gbif sync 
     gfw sync 
+    hazard sync mid-century-habitat-climate-exposure/**
     high-seas sync mpa-candidates/**
     inat sync 
     indigenous sync 
     land-cover sync 
     mappinginequality sync 
     mobi copy 
+    nci-frontiers sync 
     ncp sync 
     overturemaps sync 
     padus sync 
@@ -37,4 +41,6 @@ data:
     social-vulnerability sync 
     trails sync 
     usfws sync 
+    usgs-nhd sync 
+    usgs-wbd sync 
     wetlands sync 
