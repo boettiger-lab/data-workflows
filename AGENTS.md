@@ -131,8 +131,22 @@ SELECT ST_GeometryType(geom), COUNT(*) FROM read_parquet('s3://...') GROUP BY 1
 **ALWAYS use the k8s workflow. Local env lacks tools and permissions.**
 
 ### Local env (YAML generation only)
+
+`cng-datasets` does `from osgeo import gdal` at **import time**, so even the pure-templating
+`workflow`/`raster-workflow` subcommands won't load without the Python GDAL binding — you get
+`ModuleNotFoundError: No module named 'osgeo'`. libgdal is already installed on the standard
+image (`gdal-config --version` works); you only need the matching Python binding. Use the
+committed bootstrap, which pins the binding to the system libgdal so it works on any clone:
+
+```bash
+scripts/setup-venv.sh          # creates .venv with gdal==$(gdal-config --version) + cng-datasets
+source .venv/bin/activate
+```
+
+Or by hand:
 ```bash
 uv venv && source .venv/bin/activate
+uv pip install "gdal==$(gdal-config --version)"   # match system libgdal (auto-detected via gdal-config)
 uv pip install git+https://github.com/boettiger-lab/datasets.git
 ```
 
