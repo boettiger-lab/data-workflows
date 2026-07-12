@@ -53,7 +53,7 @@ spec:
               # DRYRUN=true (env) lists changes without writing. Default: real sync.
               if [ "${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="$RCLONE_FLAGS --dry-run"; fi
               echo "Syncing: $SRC -> $DEST  (DRYRUN=${DRYRUN:-false})"
-              rclone sync $RCLONE_FLAGS "$SRC" "$DEST"
+              rclone sync $RCLONE_FLAGS --exclude '*/chunks/**' --exclude '*/hex-staging/**' "$SRC" "$DEST"
               echo "Done: cgs"
       volumes:
         - name: rclone-config
