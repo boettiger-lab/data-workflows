@@ -1,0 +1,97 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landvote-dedup
+  labels:
+    k8s-app: landvote-dedup
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: landvote-dedup
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: dedup-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          python3 - <<'PY'
+          import duckdb, os
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false;")
+          con.execute("SET s3_url_style='path';")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';")
+          con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+
+          src = "s3://public-tpl/landvote.parquet"
+          dst = "s3://public-tpl/landvote-dedup.parquet"
+
+          # Non-_cng_fid columns define a logical row; ST_AsWKB(geom) makes geometry comparable.
+          part = ("landvote_id, year, state, county, municipal, jurisdiction, status, "
+                  "percent_yes, percent_no, date, total_funds_at_stake, total_funds_approved, "
+                  "conservation_funds_at_stake, conservation_funds_approved, finance_mechanism, "
+                  "other_comment, purpose, description, notes, voted_acq_measure, election_year, "
+                  "party, ST_AsWKB(geom)")
+
+          n_in = con.execute(f"SELECT COUNT(*) FROM read_parquet('{src}')").fetchone()[0]
+          print(f"input rows: {n_in}", flush=True)
+
+          con.execute(f"""
+            COPY (
+              SELECT * EXCLUDE (rn) FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY {part} ORDER BY _cng_fid) AS rn
+                FROM read_parquet('{src}')
+              ) WHERE rn = 1
+            ) TO '{dst}' (FORMAT PARQUET, ROW_GROUP_SIZE 2000, COMPRESSION ZSTD);
+          """)
+
+          n_out = con.execute(f"SELECT COUNT(*) FROM read_parquet('{dst}')").fetchone()[0]
+          n_fid = con.execute(f"SELECT COUNT(DISTINCT _cng_fid) FROM read_parquet('{dst}')").fetchone()[0]
+          n_lv  = con.execute(f"SELECT COUNT(DISTINCT landvote_id) FROM read_parquet('{dst}')").fetchone()[0]
+          gtype = con.execute(f"SELECT DISTINCT typeof(geom) FROM read_parquet('{dst}') LIMIT 1").fetchone()[0]
+          print(f"output rows: {n_out}  distinct _cng_fid: {n_fid}  distinct landvote_id: {n_lv}  geom type: {gtype}", flush=True)
+
+          assert n_out == 3866, f"expected 3866 rows, got {n_out}"
+          assert n_lv == 3072, f"expected 3072 measures, got {n_lv}"
+          assert n_fid == 3866, f"expected 3866 distinct _cng_fid, got {n_fid}"
+          print("OK dedup verified", flush=True)
+          PY
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
