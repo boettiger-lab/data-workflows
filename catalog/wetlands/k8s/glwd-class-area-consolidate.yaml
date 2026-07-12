@@ -1,0 +1,76 @@
+# Step 4 of the GLWD per-class AREA hex (data-workflows #301).
+# The filter step's parallel PARTITION_BY sharded larger partitions into multiple
+# data_N.parquet files (7,759 objects). This pass rewrites the sparse staging to
+# ONE data_0.parquet per (Z, h0) at the canonical path (threads=1 => single file
+# per partition, per house convention + #332), and re-prints the mass-conservation
+# total + row count for a final check. Pinned to the Berkeley node (#375).
+# Reads:  s3://public-wetlands/glwd/class-area-hex-sparse/  (314.6M sparse rows)
+# Writes: s3://public-wetlands/glwd/class-area-hex/          (canonical, 1 file/partition)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: glwd-class-area-consolidate
+  labels:
+    k8s-app: glwd-class-area-consolidate
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: glwd-class-area-consolidate
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      nodeSelector:
+        kubernetes.io/hostname: stratus1.nrp-espm.berkeley.edu
+      tolerations:
+      - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
+      containers:
+      - name: consolidate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          python3 - <<'PY'
+          import os, duckdb
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute(f"""CREATE SECRET rook (TYPE S3,
+              KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}',
+              ENDPOINT 'rook-ceph-rgw-nautiluss3.rook',
+              USE_SSL false, URL_STYLE 'path');""")
+          # threads=1 -> exactly one output file per (Z, h0) partition
+          con.execute("SET preserve_insertion_order=false; SET memory_limit='100GB'; SET threads=1;")
+          src = "s3://public-wetlands/glwd/class-area-hex-sparse/Z=*/h0=*/*.parquet"
+
+          tot, rows, mn = con.execute(f"""
+            SELECT ROUND(SUM(area_ha_x10),0), COUNT(*), MIN(area_ha_x10)
+            FROM read_parquet('{src}', hive_partitioning=true)""").fetchone()
+          print(f"VALIDATION staging sum_hax10={tot:.0f} rows={rows} min_area={mn} (expect sum=18187432309, min>0)", flush=True)
+
+          con.execute(f"""
+            COPY (
+              SELECT Z, area_ha_x10, h8, h7, h6, h5, h0
+              FROM read_parquet('{src}', hive_partitioning=true)
+              ORDER BY Z, h0
+            ) TO 's3://public-wetlands/glwd/class-area-hex'
+            (FORMAT PARQUET, PARTITION_BY (Z, h0), COMPRESSION ZSTD,
+             FILENAME_PATTERN 'data_{{i}}', OVERWRITE_OR_IGNORE true);""")
+          print("CONSOLIDATE_DONE", flush=True)
+          PY
+        resources:
+          requests: {cpu: '4', memory: 100Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '4', memory: 100Gi, ephemeral-storage: 40Gi}
+      volumes: []

@@ -1,15 +1,24 @@
+# Step 2 of the GLWD per-class AREA hex (data-workflows #301).
+# Sparse sum-hex of the 33 preprocessed per-class rasters (0/255 -> nodata 255),
+# producing a LONG per-(cell, class) table: one row per (h8 cell, wetland class)
+# with area_ha_x10 > 0. Indexed job of 33*122 = 4026 units; index -> (class, h0):
+#   CLASS = 1 + index/122   (1..33)
+#   H0    = index % 122      (0..121)
+# Each unit writes s3://public-wetlands/glwd/class-area-hex/Z=<CLASS>/h0=<cell>/.
+# Empty (class,h0) regions skip fast now that absent cells are nodata.
+# Cross-check: SUM(area_ha_x10) over all classes == glwd-area-hex nonzero total.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: glwd-main-class-hex-fractions
+  name: glwd-class-area-hex
   labels:
-    k8s-app: glwd-main-class-hex-fractions
+    k8s-app: glwd-class-area-hex
 spec:
-  completions: 122
-  parallelism: 30
+  completions: 4026
+  parallelism: 40
   completionMode: Indexed
   backoffLimitPerIndex: 2
-  maxFailedIndexes: 122
+  maxFailedIndexes: 200
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -19,7 +28,7 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: glwd-main-class-hex-fractions
+        k8s-app: glwd-class-area-hex
     spec:
       restartPolicy: Never
       priorityClassName: opportunistic
@@ -32,10 +41,6 @@ spec:
                 operator: NotIn
                 values:
                 - 'true'
-              - key: kubernetes.io/hostname
-                operator: NotIn
-                values:
-                - cph-blade05.humboldt.edu
       containers:
       - name: hex-task
         image: ghcr.io/boettiger-lab/datasets:latest
@@ -67,19 +72,20 @@ spec:
         - |-
           set -e
           PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
-          if [ -n "$PROJ_DB" ]; then
-            export PROJ_DATA="$(dirname $PROJ_DB)"
-            export PROJ_LIB="$PROJ_DATA"
-          fi
+          if [ -n "$PROJ_DB" ]; then export PROJ_DATA="$(dirname $PROJ_DB)"; export PROJ_LIB="$PROJ_DATA"; fi
+          CLASS=$((1 + JOB_COMPLETION_INDEX / 122))    # 1..33
+          H0=$((JOB_COMPLETION_INDEX % 122))           # 0..121
+          CC=$(printf "%02d" $CLASS)
+          echo "=== GLWD class-area hex: class ${CC}, h0-index ${H0} ==="
           cng-datasets raster \
-            --input "s3://public-wetlands/glwd/glwd-main-class-cog.tif" \
-            --output-parquet "s3://public-wetlands/glwd/hex-fractions/" \
-            --h0-index ${JOB_COMPLETION_INDEX} \
-            --resolution 8 --parent-resolutions 7,6,5,0 \
-            --value-column Z --hex-resampling fractions --resampling near --nodata "255"
+            --input "s3://public-wetlands/glwd/class-area-sparse/GLWD_v2_0_class_${CC}_sparse.tif" \
+            --local-cache-dir /tmp/glwd-cache \
+            --output-parquet "s3://public-wetlands/glwd/class-area-hex/Z=${CLASS}/" \
+            --h0-index ${H0} --resolution 8 --parent-resolutions 7,6,5,0 \
+            --value-column area_ha_x10 --hex-resampling sum --resampling near --nodata "255"
         resources:
-          requests: {cpu: '4', memory: 64Gi, ephemeral-storage: 50Gi}
-          limits: {cpu: '4', memory: 64Gi, ephemeral-storage: 50Gi}
+          requests: {cpu: '4', memory: 64Gi, ephemeral-storage: 40Gi}
+          limits: {cpu: '4', memory: 64Gi, ephemeral-storage: 40Gi}
       volumes:
       - name: rclone-config
         secret:
