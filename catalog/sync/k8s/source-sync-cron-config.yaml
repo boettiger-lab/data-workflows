@@ -11,36 +11,36 @@ metadata:
 data:
   repos.txt: |
     # <repo> <verb> [exclude globs...]
-    ca-dac sync 
-    calenviroscreen sync 
-    carbon sync 
-    census sync 
-    cgs sync 
-    connectivity sync 
-    cpad sync 
-    ecoregion sync 
-    epa-water sync 
-    facts sync 
-    fire sync 
-    gbif sync 
-    gfw sync 
-    hazard sync mid-century-habitat-climate-exposure/**
-    high-seas sync mpa-candidates/**
-    inat sync 
-    indigenous sync 
-    land-cover sync 
-    mappinginequality sync 
-    mobi copy 
-    nci-frontiers sync 
-    ncp sync 
-    overturemaps sync 
-    padus sync 
-    population sync 
-    rap sync 
-    rivers sync american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**
-    social-vulnerability sync 
-    trails sync 
-    usfws sync 
-    usgs-nhd sync 
-    usgs-wbd sync 
-    wetlands sync 
+    ca-dac sync */chunks/** */hex-staging/** 
+    calenviroscreen sync */chunks/** */hex-staging/** 
+    carbon sync */chunks/** */hex-staging/** 
+    census sync */chunks/** */hex-staging/** 
+    cgs sync */chunks/** */hex-staging/** 
+    connectivity sync */chunks/** */hex-staging/** 
+    cpad sync */chunks/** */hex-staging/** 
+    ecoregion sync */chunks/** */hex-staging/** 
+    epa-water sync */chunks/** */hex-staging/** 
+    facts sync */chunks/** */hex-staging/** 
+    fire sync */chunks/** */hex-staging/** 
+    gbif sync */chunks/** */hex-staging/** 
+    gfw sync */chunks/** */hex-staging/** 
+    hazard sync */chunks/** */hex-staging/** mid-century-habitat-climate-exposure/**
+    high-seas sync */chunks/** */hex-staging/** mpa-candidates/**
+    inat sync */chunks/** */hex-staging/** 
+    indigenous sync */chunks/** */hex-staging/** 
+    land-cover sync */chunks/** */hex-staging/** 
+    mappinginequality sync */chunks/** */hex-staging/** 
+    mobi copy */chunks/** */hex-staging/** 
+    nci-frontiers sync */chunks/** */hex-staging/** 
+    ncp sync */chunks/** */hex-staging/** 
+    overturemaps sync */chunks/** */hex-staging/** 
+    padus sync */chunks/** */hex-staging/** 
+    population sync */chunks/** */hex-staging/** 
+    rap sync */chunks/** */hex-staging/** 
+    rivers sync */chunks/** */hex-staging/** american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**
+    social-vulnerability sync */chunks/** */hex-staging/** 
+    trails sync */chunks/** */hex-staging/** 
+    usfws sync */chunks/** */hex-staging/** 
+    usgs-nhd sync */chunks/** */hex-staging/** 
+    usgs-wbd sync */chunks/** */hex-staging/** 
+    wetlands sync */chunks/** */hex-staging/** 

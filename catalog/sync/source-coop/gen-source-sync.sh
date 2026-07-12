@@ -65,6 +65,14 @@ declare -A EXCLUDES=(
   [hazard]="mid-century-habitat-climate-exposure/**"
 )
 
+# GLOBAL_EXCLUDES (#374): build intermediates that must NEVER reach the mirror —
+# */chunks/** (pre-repartition hex chunks) and */hex-staging/** (raster re-hex
+# staging). NRP's repartition --cleanup removes them, but a sync racing that
+# cleanup mirrors the stale chunks; removing them later trips --max-delete and
+# wedges the repo. Applied to EVERY repo, prepended to the per-repo HOLD
+# EXCLUDES so both are kept. Only prevents FUTURE mirroring (see #374).
+GLOBAL_EXCLUDES='*/chunks/** */hex-staging/**'
+
 # Per-repo rclone verb. Default "sync" (mirror-with-delete: dest becomes an exact
 # copy of NRP). Override to "copy" (additive: never deletes on dest) for repos
 # that hold content which exists ONLY on source.coop and must be preserved.
@@ -81,7 +89,7 @@ for repo in "${REPOS[@]}"; do
   dest="source:${DEST_BUCKET}/${ACCOUNT}/${repo}"
   # build --exclude flags (single-quoted patterns) for this repo
   excl=""
-  for pat in ${EXCLUDES[$repo]:-}; do excl="${excl} --exclude '${pat}'"; done
+  for pat in ${GLOBAL_EXCLUDES} ${EXCLUDES[$repo]:-}; do excl="${excl} --exclude '${pat}'"; done
   verb="${MODE[$repo]:-sync}"
   cat > "${OUTDIR}/source-sync-${repo}.yaml" <<YAML
 apiVersion: batch/v1
@@ -177,7 +185,7 @@ data:
     # <repo> <verb> [exclude globs...]
 HEAD
   for repo in "${REPOS[@]}"; do
-    printf '    %s %s %s\n' "${repo}" "${MODE[$repo]:-sync}" "${EXCLUDES[$repo]:-}"
+    printf '    %s %s %s\n' "${repo}" "${MODE[$repo]:-sync}" "${GLOBAL_EXCLUDES} ${EXCLUDES[$repo]:-}"
   done
 } > "${CFG}"
 echo "wrote $(basename "${CFG}")  (${#REPOS[@]} repos)"

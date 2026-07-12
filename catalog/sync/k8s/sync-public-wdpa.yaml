@@ -55,7 +55,7 @@ spec:
               if [ "${DRYRUN:-false}" = "true" ]; then RCLONE_FLAGS="$RCLONE_FLAGS --dry-run"; fi
               rclone mkdir "$DEST"
               echo "Syncing: $SRC -> $DEST  (DRYRUN=${DRYRUN:-false})"
-              rclone sync $RCLONE_FLAGS "$SRC" "$DEST"
+              rclone sync $RCLONE_FLAGS --exclude '*/chunks/**' --exclude '*/hex-staging/**' "$SRC" "$DEST"
               echo "Done: public-wdpa"
       volumes:
         - name: rclone-config
