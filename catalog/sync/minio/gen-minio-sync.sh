@@ -54,9 +54,11 @@ BUCKETS=(
   data datacenters ecoregion epa-water facts fire gbif gfw grids hazard high-seas
   human-modification hydrobasins icca im3 inat indigenous iucn land-cover
   mappinginequality mobi nci-frontiers ncp overturemaps padus population rap rivers
-  social-vulnerability tpl trails usfws usgs-nhd usgs-wbd usgs-ungulate-migration
+  social-vulnerability swap tpl trails usfws usgs-nhd usgs-wbd usgs-ungulate-migration
   wdpa wetlands wui wyoming
 )
+# NOTE (#402): public-nevada + public-missouri were CONSOLIDATED into public-swap
+# (per-state SWAP buckets retired). Their per-bucket sync YAMLs were git-rm'd.
 
 # Per-bucket sub-path excludes (rclone --exclude patterns, bucket-root-relative).
 declare -A EXCLUDES=(
