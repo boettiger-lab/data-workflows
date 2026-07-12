@@ -212,6 +212,20 @@ def lint(source: str) -> list[str]:
                 if is_heterogeneous_source:
                     continue
 
+                # Skip cartographic / display-label columns — free-text label strings
+                # rendered on a printed/rendered map, not a controlled vocabulary. The
+                # value is display text (often a typeset variant of a code column), so
+                # neither an inline CODE=Definition map nor a `values` enumeration applies
+                # — enumerating label strings documents typography, not a domain. e.g.
+                # sierra-nevada map-unit-polys `Label` "Cartographic label text displayed
+                # on the printed map (often a Unicode-typeset variant of MapUnit)". Signal:
+                # a deliberate cartographic/display-label phrase in the description.
+                is_display_label = bool(re.search(
+                    r"\bcartographic label\b|\blabel text\b|\bdisplay(ed)? (text|label)\b|"
+                    r"\btext (displayed|shown) on\b|displayed on the .*\bmap\b", desc_l))
+                if is_display_label:
+                    continue
+
                 # Skip FIPS / fixed-width geographic identifier codes — GEOID-component
                 # keys (STATEFP/COUNTYFP/TRACTCE/SLDLST/SLDUST…) and FIPS/STCNTY/iso3.
                 # These are identifier components, not enumerable classes (#303). The
@@ -363,6 +377,19 @@ def lint(source: str) -> list[str]:
                 r"\b(count(y|ies)|state|province|country|territor\w+|ecoregion|"
                 r"region|place|borough|parish|municipalit\w+|island)\s+names?\b", desc_l))
 
+            # Companion / lookup-asset definitions — a coded column whose code→definition
+            # map lives in a NORMALIZED companion asset (a separate lookup/descriptions
+            # parquet the geo-agent joins on), not inline. Duplicating a large map inline is
+            # redundant and often infeasible — e.g. sierra-nevada map-unit-polys `MapUnit`
+            # is 268 geologic codes defined in the `map-unit-polys-descriptions` join asset.
+            # The `values` array still enumerates the domain; the definitions are one join
+            # away. Signal: the description points at a companion / lookup / descriptions
+            # asset (a deliberate author signal). Only folds the inline-map requirement;
+            # the `values` array is still required below.
+            is_companion_defined = bool(re.search(
+                r"\bcompanion\b|\blookup asset\b|\bdescriptions? asset\b|"
+                r"\bin the [`'\"][\w-]+[`'\"]\s+(lookup|descriptions?)\b", desc_l))
+
             # COG-classification-defined numeric codes — for a raster→hex dataset, the
             # authoritative code→name legend lives in the COG asset's
             # classification:classes, which the geo-agent reads directly. When every
@@ -383,7 +410,7 @@ def lint(source: str) -> list[str]:
             # redundant. Skip the inline requirement for them — but still require the
             # `values` array below (a documented value set is always useful). #303.
             if (not has_inline_codes and not values_self_describing(values_arr)
-                    and not is_geo_name and not cog_defined):
+                    and not is_geo_name and not cog_defined and not is_companion_defined):
                 errors.append(
                     f"[{collection_id}] asset '{asset_key}', column '{col_name}': "
                     f"coded categorical column missing inline CODE=Definition list in description. "
