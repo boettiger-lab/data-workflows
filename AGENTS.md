@@ -154,6 +154,49 @@ kubectl -n geo-workflows get jobs | grep <name>
   MinIO mint** for that one bucket (`mc admin user svcacct add <parent> --policy <one-bucket>
   --expiry …`; the `wyoming-publish` model) — **never** a standing broad MinIO key.
 
+### Backups & recovery live in a SEPARATE namespace (why workflow `rclone-config` is nrp-only)
+
+The namespace split is a two-sided security boundary: **workflow/build jobs** run in
+`geo-workflows` (NRP-canonical creds only); **backup/mirror jobs** run in a *different*
+namespace the workflow agent has no membership in, so a confused or compromised build job
+**cannot reach the backup credentials** and therefore cannot propagate a delete/corruption
+into the backups (recovery, not just prevention). Concretely (geo-agent-ops
+`DATA_WORKFLOWS_HARDENING.md`, plan step 3):
+
+- **Secret split.** The `nrp:` remote (internal Ceph RGW) lives in `rclone-config` inside the
+  workflow namespaces (`geo-workflows`, `biodiversity`). The MinIO + source.coop remotes live
+  in a **separate `rclone-backup` secret** that exists **only in `boettiger-lab`** (the
+  Carl-only namespace serving as the interim `backup` ns; a dedicated `backup` ns is planned).
+  **So a workflow-namespace `rclone-config` that contains only `[nrp]` is CORRECT and
+  intentional — not a missing-remote bug.** (Verified 2026-07-12 during #392: `rclone-config`
+  in both `geo-workflows` and `biodiversity` holds `[nrp]` only, internal endpoint
+  `http://rook-ceph-rgw-nautiluss3.rook`, `upload_concurrency=16`, `chunk_size=64Mi`.)
+- **Backup jobs run in `boettiger-lab`.** All ~81 `sync-*` / `source-sync-*` Jobs & CronJobs
+  (`catalog/sync/k8s/**`, Steps 7/7b) declare `namespace: boettiger-lab` and mount
+  `rclone-backup`. **Do not** move a backup job into `geo-workflows`/`biodiversity`, and
+  **never** add a MinIO/source.coop remote or the `rclone-backup` secret to a workflow
+  namespace — that would re-open the boundary this split exists to close.
+- **Data-workflow agents never hold backup creds.** You submit *builds* (NRP) and, for
+  class-3 private inputs, a scoped **expiring** per-bucket MinIO mint (above). You do **not**
+  run the mirror jobs by hand from a build namespace; the backup CronJobs in `boettiger-lab`
+  own that.
+
+**MinIO is NOT "just a backup" — it plays three roles**, and treating it as only-a-backup is a
+recurring, dangerous mistake:
+1. **Canonical / SOLE home for PRIVATE, non-redistributable data** (`private-wyoming`,
+   `private-tpl`, …) — this data lives **nowhere else** (not on NRP, not on source.coop).
+   Losing MinIO loses it. Reading such inputs from MinIO with a *scoped* key is normal.
+2. **Immutable vault / system-of-record backup** for the *public* buckets.
+3. **The fine-grained-IAM tier** (users, per-bucket policies, service-accounts, STS/expiry) —
+   **NRP has none of this** (one omnipotent key, no self-service scoping). This is *why* private
+   data is homed on MinIO and *why* every credential-scoping move targets MinIO.
+
+**Two failure domains.** NRP canonical Ceph S3 and the on-cluster `rustfs` copy share the **same
+rook Ceph cluster** — only **office MinIO** is an independent domain. So MinIO is the true
+off-domain wall (immutable/object-lock); rustfs is a fast hot-restore + cross-domain 2nd copy,
+not an immutability guarantee. Treat **NRP canonical as corruptible** and recoverable from the
+MinIO vault — which is the whole reason the agent is confined to the NRP-only namespace.
+
 ## What You Produce
 
 **Vector datasets (GDB, Shapefile, GeoPackage, GeoParquet):**
