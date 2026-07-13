@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: nlcd-2024-conus-hex
-  namespace: biodiversity
+  namespace: geo-workflows
   labels:
     k8s-app: nlcd-2024-conus-hex
 spec:
@@ -62,7 +62,11 @@ spec:
           set -e
           # Re-hex full CONUS NLCD 2024 from the rebuilt full-extent COG (data-workflows #307).
           # One indexed pod per H3 res-0 base cell (0..121); ocean/empty cells skip silently.
-          # Domain grows from 4 -> ~30 partitions, all valid, so no stale-partition purge needed.
+          # #409 re-run: the 2026-06-25 mode build died/was preempted mid-run and published
+          # only 6 of the 11 CONUS h0 partitions. This is idempotent (each pod overwrites its
+          # own h0 partition); after completion the coverage gate below must confirm 11 h0 ==
+          # the fractions build. The job is only marked Complete when all 122 indexes succeed,
+          # so a partial run now surfaces as a Failed Job (FailedIndexes) instead of silent gaps.
           H0=${JOB_COMPLETION_INDEX}
           echo "=== NLCD CONUS res-10 mode, h0-index $H0 ==="
           cng-datasets raster \
