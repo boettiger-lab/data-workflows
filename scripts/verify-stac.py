@@ -425,8 +425,26 @@ def check_hex_dup_warning(doc: dict) -> list[Finding]:
     """Any aggregatable per-feature column on a hex asset must warn that it is repeated
     per (feature, cell) and give a dedup recipe."""
     out = []
+    # Aggregation guidance may live at the hex ASSET-description level (or the
+    # collection description) rather than per-column. That is in fact the location
+    # the mcp-data-server renderer preserves: get_stac_details dedups per-column
+    # descriptions across assets (mcp-data-server#303), so a per-column note on the
+    # hex that differs from the flat's description is silently dropped from what the
+    # LLM sees — while the per-asset `description` line is always rendered. So a note
+    # on the hex asset (or collection) description satisfies this check. Per-column
+    # notes are still accepted (legacy datasets) — this only ADDS the asset-level path.
+    ASSET_NOTE = re.compile(
+        r"repeated (on|for|across) (every|the)|never (use )?sum|do not sum|don't sum|"
+        r"not safe to sum|per[- ]?feature|count\(distinct|select distinct|dedup|"
+        r"deduplicat|multiply by .*cell area|sum is the .*total|area-weighted|reducer",
+        re.I)
+    coll_desc = doc.get("description", "") or ""
     for key, asset in doc.get("assets", {}).items():
         if not (is_parquet(asset) and is_hex_asset(key, asset)):
+            continue
+        # Asset-level (or collection-level) aggregation note → requirement satisfied
+        # for the whole asset (this is what the renderer surfaces).
+        if ASSET_NOTE.search(asset.get("description", "") or "") or ASSET_NOTE.search(coll_desc):
             continue
         for col in asset.get("table:columns", []):
             name = col.get("name", "")
