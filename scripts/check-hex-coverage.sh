@@ -24,11 +24,18 @@
 # It is a CHEAP metadata listing (rclone lsf of h0=*/*.parquet sizes) — NOT a
 # big-data scan — so it is safe to run from a laptop and cannot trip HARD BOUNDARY 0.
 #
+# Empty-partition hygiene: the gate ALSO reports any empty (0-row, footer-only)
+# partitions found under <hex-prefix> as purge candidates — the same junk that fakes
+# gaps and pollutes ** globs (#409/#410). This is advisory by default (does not change
+# the coverage verdict); pass --fail-on-empty to make a published build gate on being
+# junk-free too.
+#
 # Usage:
 #   scripts/check-hex-coverage.sh <hex-prefix> --reference <ref-hex-prefix>
 #   scripts/check-hex-coverage.sh <hex-prefix> --expect-count <N>
 #   scripts/check-hex-coverage.sh <hex-prefix> --expect-h0 <h0a,h0b,...>
-#   (any form) [--min-bytes <N>]   # populated-partition size threshold, default 4096
+#   (any form) [--min-bytes <N>]     # populated-partition size threshold, default 4096
+#   (any form) [--fail-on-empty]     # exit non-zero if empty partitions are present
 #
 # <hex-prefix> is the parent of the h0=* partitions, as an rclone path or an
 # s3:///https:// URL, e.g.:
@@ -36,7 +43,8 @@
 #   s3://public-land-cover/nlcd-2024/hex/
 #   https://s3-west.nrp-nautilus.io/public-land-cover/nlcd-2024/hex/
 #
-# Exit 0 = coverage complete; exit 1 = missing partitions (prints the set); exit 2 = usage/error.
+# Exit 0 = coverage complete; exit 1 = missing populated partitions (prints the set);
+# exit 2 = usage/error; exit 3 = coverage OK but --fail-on-empty and empties present.
 
 set -euo pipefail
 
@@ -74,16 +82,37 @@ list_h0() {
     | sort -u
 }
 
+# --- list h0 cell ids whose partition EXISTS but is empty (below MIN_BYTES) ---
+# These are 0-row, footer-only parquets (~214 B) that a full-grid reducer leaves for
+# all-nodata cells. They are not coverage — they are junk that pollutes ** globs and
+# fakes gaps in a naive directory comparison — so surface them as purge candidates.
+list_empty_h0() {
+  local prefix; prefix="$(to_rclone "$1")"
+  rclone lsf "$prefix" -R --files-only --format "sp" 2>/dev/null \
+    | awk -F';' -v min="$MIN_BYTES" '
+        {
+          size=$1; path=$2
+          if (match(path, /^h0=[0-9]+/)) {
+            cell=substr(path, RSTART+3, RLENGTH-3)
+            bytes[cell]+=size
+          }
+        }
+        END { for (c in bytes) if (bytes[c] < min) print c }
+      ' \
+    | sort -u
+}
+
 [ $# -ge 1 ] || usage
 HEX="$1"; shift
-REF=""; EXPECT_COUNT=""; EXPECT_H0=""; MIN_BYTES=4096
+REF=""; EXPECT_COUNT=""; EXPECT_H0=""; MIN_BYTES=4096; FAIL_ON_EMPTY=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --reference)    REF="$2"; shift 2 ;;
-    --expect-count) EXPECT_COUNT="$2"; shift 2 ;;
-    --expect-h0)    EXPECT_H0="$2"; shift 2 ;;
-    --min-bytes)    MIN_BYTES="$2"; shift 2 ;;
-    -h|--help)      usage ;;
+    --reference)     REF="$2"; shift 2 ;;
+    --expect-count)  EXPECT_COUNT="$2"; shift 2 ;;
+    --expect-h0)     EXPECT_H0="$2"; shift 2 ;;
+    --min-bytes)     MIN_BYTES="$2"; shift 2 ;;
+    --fail-on-empty) FAIL_ON_EMPTY=1; shift ;;
+    -h|--help)       usage ;;
     *) echo "unknown arg: $1" >&2; usage ;;
   esac
 done
@@ -94,6 +123,27 @@ echo "hex prefix  : $HEX"
 echo "min bytes   : $MIN_BYTES (a partition smaller than this is treated as empty)"
 echo "h0 populated: $ACTUAL_N"
 
+# Hygiene: surface empty (0-row, footer-only) partitions under the target as purge
+# candidates. They are not coverage, but they pollute ** globs and fake gaps in naive
+# directory comparisons (the #409/#410 artifact), so a build should not ship them.
+EMPTY="$(list_empty_h0 "$HEX")"
+EMPTY_N=$(printf '%s\n' "$EMPTY" | grep -c . || true)
+if [ "$EMPTY_N" -gt 0 ]; then
+  echo "h0 empty    : $EMPTY_N (0-row/footer-only < $MIN_BYTES B — purge candidates):"
+  printf '  %s\n' $EMPTY
+  echo "  purge with: for h in <cells>; do rclone purge ${HEX%/}/h0=\$h/; done   # then re-verify empty"
+fi
+
+# Coverage passed — but honor --fail-on-empty so a build can be gated on being junk-free too.
+pass_exit() {
+  echo "$1"
+  if [ -n "$FAIL_ON_EMPTY" ] && [ "$EMPTY_N" -gt 0 ]; then
+    echo "FAIL: --fail-on-empty set and $EMPTY_N empty partition(s) present (purge them first)" >&2
+    exit 3
+  fi
+  exit 0
+}
+
 # Build the expected set from whichever mode was requested.
 EXPECTED=""
 if [ -n "$REF" ]; then
@@ -103,7 +153,7 @@ elif [ -n "$EXPECT_H0" ]; then
   EXPECTED="$(printf '%s\n' "${EXPECT_H0//,/$'\n'}" | sed '/^$/d' | sort -u)"
 elif [ -n "$EXPECT_COUNT" ]; then
   if [ "$ACTUAL_N" -eq "$EXPECT_COUNT" ]; then
-    echo "PASS: $ACTUAL_N == expected $EXPECT_COUNT populated h0 partitions"; exit 0
+    pass_exit "PASS: $ACTUAL_N == expected $EXPECT_COUNT populated h0 partitions"
   fi
   echo "FAIL: $ACTUAL_N populated h0 partitions, expected $EXPECT_COUNT" >&2; exit 1
 else
@@ -115,7 +165,7 @@ MISSING="$(comm -23 <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ACTUAL"))"
 EXTRA="$(comm -13 <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ACTUAL"))"
 [ -n "$EXTRA" ] && { echo "note: h0 populated but not in expected set:"; printf '  %s\n' $EXTRA; }
 if [ -z "$MISSING" ]; then
-  echo "PASS: all $(printf '%s\n' "$EXPECTED" | grep -c .) expected h0 partitions populated"; exit 0
+  pass_exit "PASS: all $(printf '%s\n' "$EXPECTED" | grep -c .) expected h0 partitions populated"
 fi
 echo "FAIL: missing $(printf '%s\n' "$MISSING" | grep -c .) expected h0 partitions:" >&2
 printf '  %s\n' $MISSING >&2
