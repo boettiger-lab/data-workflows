@@ -1,0 +1,99 @@
+# Step 1 of the GLWD per-class AREA hex (data-workflows #301).
+# GLWD v2.0 ships 34 per-class area rasters (ha x10). In the source, a class's
+# absence within the land domain is encoded as 0 (a real zero), and outside the
+# domain as 255 (nodata). A plain `sum` hex of these would write the FULL res-8
+# grid (~669M rows/class, ~86% zeros) — infeasible x33. This step rewrites each
+# wetland class raster (1-33) so BOTH 0 and 255 become nodata (255), leaving only
+# real positive areas. The downstream sum-hex then drops zero cells -> a SPARSE
+# per-(cell,class) long table, and fully-empty h0 regions skip fast.
+# Output: s3://public-wetlands/glwd/class-area-sparse/GLWD_v2_0_class_CC_sparse.tif
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: glwd-class-area-preprocess
+  labels:
+    k8s-app: glwd-class-area-preprocess
+spec:
+  completions: 33
+  parallelism: 15
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 33
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: glwd-class-area-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: GDAL_CACHEMAX
+          value: '2048'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          CLASS=$((JOB_COMPLETION_INDEX + 1))          # 1..33 (skip 0 = Dryland)
+          CC=$(printf "%02d" $CLASS)
+          echo "=== GLWD class ${CC}: 0/255 -> nodata 255 (sparse) ==="
+          mkdir -p /tmp/w
+          rclone copy "nrp:public-wetlands/GLWD_v2_0/GLWD_v2_0_area_by_class_ha/GLWD_v2_0_class_${CC}_ha_x10.tif" /tmp/w/ \
+            --retries 10 --low-level-retries 20
+          python3 - "$CC" <<'PY'
+          import sys, numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          cc = sys.argv[1]
+          inp = f"/tmp/w/GLWD_v2_0_class_{cc}_ha_x10.tif"
+          outp = f"/tmp/w/GLWD_v2_0_class_{cc}_sparse.tif"
+          ds = gdal.Open(inp); b = ds.GetRasterBand(1)
+          xs, ys = ds.RasterXSize, ds.RasterYSize
+          drv = gdal.GetDriverByName("GTiff")
+          out = drv.Create(outp, xs, ys, 1, gdal.GDT_Byte,
+              options=["TILED=YES","COMPRESS=ZSTD","BIGTIFF=YES","BLOCKXSIZE=256","BLOCKYSIZE=256"])
+          out.SetGeoTransform(ds.GetGeoTransform()); out.SetProjection(ds.GetProjection())
+          ob = out.GetRasterBand(1); ob.SetNoDataValue(255)
+          kept = 0
+          for yo in range(0, ys, 1024):
+              h = min(1024, ys - yo)
+              a = b.ReadAsArray(0, yo, xs, h)
+              a = np.where((a == 0) | (a == 255), 255, a).astype(np.uint8)
+              ob.WriteArray(a, 0, yo)
+              kept += int((a != 255).sum())
+          ob.FlushCache(); out.FlushCache(); out = None
+          print(f"class {cc}: {kept} non-nodata pixels", flush=True)
+          PY
+          rclone copyto "/tmp/w/GLWD_v2_0_class_${CC}_sparse.tif" \
+            "nrp:public-wetlands/glwd/class-area-sparse/GLWD_v2_0_class_${CC}_sparse.tif" \
+            --retries 10 --low-level-retries 20
+          echo "=== class ${CC} done ==="
+        resources:
+          requests: {cpu: '2', memory: 32Gi, ephemeral-storage: 30Gi}
+          limits: {cpu: '2', memory: 32Gi, ephemeral-storage: 30Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

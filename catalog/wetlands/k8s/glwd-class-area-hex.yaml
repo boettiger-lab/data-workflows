@@ -1,0 +1,92 @@
+# Step 2 of the GLWD per-class AREA hex (data-workflows #301).
+# Sparse sum-hex of the 33 preprocessed per-class rasters (0/255 -> nodata 255),
+# producing a LONG per-(cell, class) table: one row per (h8 cell, wetland class)
+# with area_ha_x10 > 0. Indexed job of 33*122 = 4026 units; index -> (class, h0):
+#   CLASS = 1 + index/122   (1..33)
+#   H0    = index % 122      (0..121)
+# Each unit writes s3://public-wetlands/glwd/class-area-hex/Z=<CLASS>/h0=<cell>/.
+# Empty (class,h0) regions skip fast now that absent cells are nodata.
+# Cross-check: SUM(area_ha_x10) over all classes == glwd-area-hex nonzero total.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: glwd-class-area-hex
+  labels:
+    k8s-app: glwd-class-area-hex
+spec:
+  completions: 4026
+  parallelism: 40
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 200
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: glwd-class-area-hex
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          if [ -n "$PROJ_DB" ]; then export PROJ_DATA="$(dirname $PROJ_DB)"; export PROJ_LIB="$PROJ_DATA"; fi
+          CLASS=$((1 + JOB_COMPLETION_INDEX / 122))    # 1..33
+          H0=$((JOB_COMPLETION_INDEX % 122))           # 0..121
+          CC=$(printf "%02d" $CLASS)
+          echo "=== GLWD class-area hex: class ${CC}, h0-index ${H0} ==="
+          cng-datasets raster \
+            --input "s3://public-wetlands/glwd/class-area-sparse/GLWD_v2_0_class_${CC}_sparse.tif" \
+            --local-cache-dir /tmp/glwd-cache \
+            --output-parquet "s3://public-wetlands/glwd/class-area-hex/Z=${CLASS}/" \
+            --h0-index ${H0} --resolution 8 --parent-resolutions 7,6,5,0 \
+            --value-column area_ha_x10 --hex-resampling sum --resampling near --nodata "255"
+        resources:
+          requests: {cpu: '4', memory: 64Gi, ephemeral-storage: 40Gi}
+          limits: {cpu: '4', memory: 64Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

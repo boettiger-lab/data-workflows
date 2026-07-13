@@ -1,0 +1,79 @@
+# Step 3 of the GLWD per-class AREA hex (data-workflows #301).
+# The sum-hex (step 2) writes the FULL res-8 grid per class (~669M rows/class,
+# ~99.9% zeros -> ~22B rows, 34.6 GiB). This job filters to SPARSE
+# (area_ha_x10 > 0) -> ~150-200M rows, the per-(cell,class) long table intended.
+# It also prints the mass-conservation total (SUM must == glwd-area-hex 18.19 G
+# ha x10) so validation does not depend on the flaky MCP path (#375).
+# Pinned to the Berkeley node (in-region -> reliable internal rook S3 endpoint).
+# Output: s3://public-wetlands/glwd/class-area-hex-sparse/Z=<c>/h0=<cell>/  (flipped
+# to the canonical class-area-hex/ after validation).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: glwd-class-area-filter
+  labels:
+    k8s-app: glwd-class-area-filter
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: glwd-class-area-filter
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      nodeSelector:
+        kubernetes.io/hostname: stratus1.nrp-espm.berkeley.edu
+      tolerations:
+      - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
+      containers:
+      - name: filter
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          python3 - <<'PY'
+          import os, duckdb
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute(f"""CREATE SECRET rook (TYPE S3,
+              KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}',
+              ENDPOINT 'rook-ceph-rgw-nautiluss3.rook',
+              USE_SSL false, URL_STYLE 'path');""")
+          con.execute("SET preserve_insertion_order=false; SET memory_limit='110GB'; SET threads=8;")
+          src = "s3://public-wetlands/glwd/class-area-hex/Z=*/h0=*/data_0.parquet"
+
+          # 1) mass-conservation + sparsity report (validation, no MCP needed)
+          tot, rows, nz = con.execute(f"""
+            SELECT ROUND(SUM(area_ha_x10),0), COUNT(*), COUNT(*) FILTER (WHERE area_ha_x10>0)
+            FROM read_parquet('{src}', hive_partitioning=true)""").fetchone()
+          print(f"VALIDATION class_area_sum_hax10={tot:.0f}  total_rows={rows}  nonzero_rows={nz}", flush=True)
+          print(f"  expected (glwd-area-hex) = 18187432309", flush=True)
+
+          # 2) write SPARSE long table, partitioned by (Z, h0), one data_0.parquet per partition
+          con.execute(f"""
+            COPY (
+              SELECT Z, area_ha_x10, h8, h7, h6, h5, h0
+              FROM read_parquet('{src}', hive_partitioning=true)
+              WHERE area_ha_x10 > 0
+            ) TO 's3://public-wetlands/glwd/class-area-hex-sparse'
+            (FORMAT PARQUET, PARTITION_BY (Z, h0), COMPRESSION ZSTD,
+             FILENAME_PATTERN 'data_{{i}}', OVERWRITE_OR_IGNORE true);""")
+          print("SPARSE_WRITE_DONE", flush=True)
+          PY
+        resources:
+          requests: {cpu: '8', memory: 120Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 120Gi, ephemeral-storage: 40Gi}
+      volumes: []
