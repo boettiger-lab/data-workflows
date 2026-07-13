@@ -26,16 +26,25 @@ Geometry reprojected NAD83 (EPSG:4269) → **OGC:CRS84**; hexed to **H3 resoluti
    - `streams-by-order.parquet` = `nhdflowline` LEFT JOIN `vaa` on `PERMANENT_IDENTIFIER`
      (VAA keys are unique → no fan-out).
    - `perennial-streams.parquet` = `nhdflowline` WHERE `FCODE = 46006`.
-4. Bucket made public + CORS (`cng-datasets storage setup-bucket`, equivalently a public-read
-   policy + CORS).
+4. Bucket made public + CORS — **run `setup-bucket.yaml`** (`cng-datasets storage
+   setup-bucket --bucket public-usgs-nhd --remote nrp --verify`). ⚠️ Do NOT substitute a
+   hand-rolled "public-read" policy: a bare `s3:GetObject`-only grant omits `s3:ListBucket`,
+   so anonymous object GET works but `h0=*` **globs 403** (they need a bucket LIST). The tool
+   emits the correct two-statement policy (`s3:GetBucketLocation`+`s3:ListBucket` on the
+   bucket **and** `s3:GetObject` on `/*`), matching every sibling `public-*` bucket. This was
+   the #411 bug — the original build applied a GetObject-only policy by hand. Verify anonymously:
+   `curl -so/dev/null -w '%{http_code}' 'https://s3-west.nrp-nautilus.io/public-usgs-nhd?list-type=2&max-keys=1'`
+   must be `200`.
 5. Per dataset: **`<ds>-hex.yaml`** (200 completions; chunk-size = ceil(features/200):
    151200 for streams-by-order, 34000 for perennial) → **`<ds>-repartition.yaml`**, and
    **`<ds>-pmtiles.yaml`**.
 
-The generated `<ds>-convert.yaml`, `<ds>-setup-bucket.yaml`, and `workflow.yaml` (orchestrator)
-are the standard `cng-datasets workflow` scaffolding; they are **superseded** by the custom
-`convert.yaml` + `derive.yaml` above (kept for reference only — do not run the orchestrator, it
-would skip the VAA join).
+The generated `<ds>-convert.yaml` and `workflow.yaml` (orchestrator) are the standard
+`cng-datasets workflow` scaffolding; they are **superseded** by the custom `convert.yaml` +
+`derive.yaml` above (kept for reference only — do not run the orchestrator, it would skip the
+VAA join). **`setup-bucket.yaml` is NOT superseded — it must still be run** (step 4); it is the
+one piece of the standard scaffolding this custom build still needs, and skipping it (or hand-
+rolling its policy) is exactly what caused #411.
 
 ## Notes / gotchas hit during the build
 
