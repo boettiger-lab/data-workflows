@@ -5,8 +5,8 @@ metadata:
   labels:
     k8s-app: american-rivers-nri-2024-hex
 spec:
-  completions: 200
-  parallelism: 50
+  completions: 8
+  parallelism: 8
   completionMode: Indexed
   backoffLimit: 0
   podFailurePolicy:
@@ -60,9 +60,11 @@ spec:
           requests:
             cpu: '4'
             memory: 8Gi
+            ephemeral-storage: 10Gi
           limits:
             cpu: '4'
             memory: 8Gi
+            ephemeral-storage: 10Gi
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:

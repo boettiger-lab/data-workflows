@@ -50,7 +50,7 @@ spec:
         - |
           set -e
           cng-convert-to-parquet \
-            s3://public-rivers/american-rivers/wild-scenic-eligible.parquet \
+            s3://public-rivers/american-rivers/raw/wild-scenic-eligible-src.parquet \
             s3://public-rivers/american-rivers/wild-scenic-eligible.parquet \
             --row-group-size 100000
         resources:

@@ -1,6 +1,6 @@
 # Auto-generated ConfigMap containing job definitions
 # Generated from: american-rivers-wild-scenic-eligible-setup-bucket.yaml, american-rivers-wild-scenic-eligible-convert.yaml, american-rivers-wild-scenic-eligible-pmtiles.yaml, american-rivers-wild-scenic-eligible-hex.yaml, american-rivers-wild-scenic-eligible-repartition.yaml
-# Generation command: cng-datasets workflow --dataset american-rivers/wild-scenic-eligible --source-url s3://public-rivers/american-rivers/wild-scenic-eligible.parquet --bucket public-rivers --h3-resolution 8 --parent-resolutions "0"
+# Generation command: cng-datasets workflow --dataset american-rivers/wild-scenic-eligible --source-url s3://public-rivers/american-rivers/raw/wild-scenic-eligible-src.parquet --bucket public-rivers --h3-resolution 8 --parent-resolutions "0"
 #
 # This ConfigMap is equivalent to running:
 #   kubectl create configmap american-rivers-wild-scenic-eligible-yamls \
@@ -66,7 +66,7 @@ data:
             - |
               set -e
               cng-convert-to-parquet \
-                s3://public-rivers/american-rivers/wild-scenic-eligible.parquet \
+                s3://public-rivers/american-rivers/raw/wild-scenic-eligible-src.parquet \
                 s3://public-rivers/american-rivers/wild-scenic-eligible.parquet \
                 --row-group-size 100000
             resources:
@@ -98,8 +98,8 @@ data:
       labels:
         k8s-app: american-rivers-wild-scenic-eligible-hex
     spec:
-      completions: 200
-      parallelism: 50
+      completions: 8
+      parallelism: 8
       completionMode: Indexed
       backoffLimit: 0
       podFailurePolicy:
@@ -153,9 +153,11 @@ data:
               requests:
                 cpu: '4'
                 memory: 8Gi
+                ephemeral-storage: 10Gi
               limits:
                 cpu: '4'
                 memory: 8Gi
+                ephemeral-storage: 10Gi
           priorityClassName: opportunistic
           affinity:
             nodeAffinity:
@@ -317,11 +319,11 @@ data:
               requests:
                 cpu: '4'
                 memory: 32Gi
-                ephemeral-storage: 200Gi
+                ephemeral-storage: 50Gi
               limits:
                 cpu: '4'
                 memory: 32Gi
-                ephemeral-storage: 200Gi
+                ephemeral-storage: 50Gi
           volumes:
           - name: rclone-config
             secret:
@@ -419,4 +421,4 @@ data:
 kind: ConfigMap
 metadata:
   name: american-rivers-wild-scenic-eligible-yamls
-  namespace: biodiversity
+  namespace: geo-workflows

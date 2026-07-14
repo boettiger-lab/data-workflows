@@ -126,7 +126,12 @@ def targets_from_yaml(text: str) -> set[tuple[str, str]]:
         if bucket in INFRA_BUCKETS:
             continue
         rest = rest.strip("/")
-        if not rest or rest == "raw" or rest.startswith("raw/"):
+        # Skip raw/staging inputs — never a dataset collection. `raw` may be a
+        # top-level prefix (public-census/raw/…) OR nested under a domain prefix
+        # (public-rivers/american-rivers/raw/<ds>-src.parquet, the staging layout
+        # used when re-converting an existing GeoParquet), so exclude `raw` as ANY
+        # path segment, not just the leading one.
+        if not rest or "raw" in rest.split("/"):
             continue  # bucket-level / raw inputs aren't a dataset collection
         if re.search(r"\.(tif|tiff)$", rest, re.I):
             continue  # a COG raster (`<name>-cog.tif`, `…-cog-4326.tif`, …) is an asset
