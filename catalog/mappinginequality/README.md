@@ -39,8 +39,8 @@ Other datasets may use different resolutions based on their spatial scale (e.g.,
 ### Processing Workflow
 
 The H3 hexagonal tiling follows a **two-pass approach** (matching wdpa/):
-1. **Chunking** - Process data in parallel chunks, writing to `s3://public-mappinginequality/mappinginequality/chunks/`
-2. **Repartitioning** - Consolidate all chunks into h0-partitioned format in `s3://public-mappinginequality/mappinginequality/hex/`, then delete temporary chunks/
+1. **Chunking** - Process data in parallel chunks, writing to `s3://public-mappinginequality/chunks/`
+2. **Repartitioning** - Consolidate all chunks into h0-partitioned format in `s3://public-mappinginequality/hex/`, then delete temporary chunks/
 
 This approach enables efficient parallel processing of large datasets while ensuring optimal query performance with h0 partitioning.
 
@@ -114,8 +114,8 @@ The h0 partitioning enables efficient spatial queries by limiting reads to relev
 
 - `s3://public-mappinginequality/mappinginequality.parquet` - GeoParquet
 - `s3://public-mappinginequality/mappinginequality.pmtiles` - PMTiles
-- `s3://public-mappinginequality/mappinginequality/chunks/` - Temporary H3 processing chunks (deleted after repartitioning)
-- `s3://public-mappinginequality/mappinginequality/hex/` - H3-indexed parquet (partitioned by h0)
+- `s3://public-mappinginequality/chunks/` - Temporary H3 processing chunks (deleted after repartitioning)
+- `s3://public-mappinginequality/hex/` - H3-indexed parquet (partitioned by h0)
 
 ## Cleanup and Reset
 
@@ -134,8 +134,8 @@ rclone purge nrp:public-mappinginequality
 # Or delete specific outputs:
 rclone delete nrp:public-mappinginequality/mappinginequality.parquet
 rclone delete nrp:public-mappinginequality/mappinginequality.pmtiles
-rclone purge nrp:public-mappinginequality/mappinginequality/hex/
-rclone purge nrp:public-mappinginequality/mappinginequality/chunks/  # if workflow was interrupted
+rclone purge nrp:public-mappinginequality/hex/
+rclone purge nrp:public-mappinginequality/chunks/  # if workflow was interrupted
 ```
 
 ### Complete Reset
