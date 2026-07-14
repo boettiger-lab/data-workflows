@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+title: "Agentic Data Workflows"
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - family-names: Boettiger
+    given-names: Carl
+    orcid: "https://orcid.org/0000-0002-1642-628X"
+    affiliation: University of California, Berkeley
+  - family-names: Buhler
+    given-names: Cassie
+    affiliation: University of California, Berkeley
+repository-code: "https://github.com/boettiger-lab/data-workflows"
+url: "https://boettiger-lab.github.io/data-workflows/"
+abstract: >-
+  Dataset processing workflows that turn disparate legacy and proprietary data
+  into AI-ready, cloud-native data with rich STAC metadata — through an
+  AI-driven pipeline powered by cng-datasets and autoscaled on NRP Kubernetes.
+  One of three open-source components that make the cloud-native data stack
+  reachable by the AI tools researchers already use.
+keywords:
+  - cloud-native
+  - AI-ready data
+  - STAC
+  - Kubernetes
+  - agentic workflows
+  - data engineering
+  - geospatial
+license:
+  - BSD-3-Clause
+  - CC-BY-4.0
