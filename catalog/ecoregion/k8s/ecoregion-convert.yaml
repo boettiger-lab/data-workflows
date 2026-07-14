@@ -60,7 +60,7 @@ spec:
         - |
           set -e
           cng-convert-to-parquet \
-            /vsicurl/https://s3-west.nrp-nautilus.io/public-ecoregions/raw/ecoregions.gdb \
+            s3://public-ecoregion/raw/ecoregion-src.parquet \
             s3://public-ecoregion/ecoregion.parquet
         resources:
           requests:

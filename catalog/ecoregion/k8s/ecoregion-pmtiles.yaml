@@ -63,6 +63,7 @@ spec:
         - -c
         - |
           set -e
+          ulimit -n 65536 || true   # tippecanoe opens many temp files on complex multipolygons (FD-limit fix)
           # Use optimized GeoParquet (has ID column) from convert job
           # GDAL can read parquet via vsicurl
           ogr2ogr -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-ecoregion/ecoregion.parquet -progress
