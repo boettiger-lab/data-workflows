@@ -1,0 +1,66 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hydrobasins-reconvert-flats
+  labels:
+    k8s-app: hydrobasins-reconvert-flats
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: hydrobasins-reconvert-flats
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: reconvert
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Track B (#404): add the universal _cng_fid to the documented HydroBASINS flats
+          # (L1/L3/L4) + L5/L6 (so their pmtiles have documented sibling flats). Stage each
+          # to raw/ once (never re-stage a reconverted file) so we never read+write one key.
+          for L in 01 03 04 05 06; do
+            SRC="nrp:public-hydrobasins/raw/level_${L}-src.parquet"
+            if ! rclone lsf "$SRC" >/dev/null 2>&1 || [ -z "$(rclone lsf "$SRC" 2>/dev/null)" ]; then
+              echo "Staging level_${L} -> raw/"
+              rclone copyto "nrp:public-hydrobasins/level_${L}.parquet" "$SRC"
+            else
+              echo "raw/level_${L}-src.parquet already staged"
+            fi
+            echo "Reconverting level_${L} (adds _cng_fid)..."
+            cng-convert-to-parquet \
+              "s3://public-hydrobasins/raw/level_${L}-src.parquet" \
+              "s3://public-hydrobasins/level_${L}.parquet" \
+              --row-group-size 2000
+          done
+          echo "=== All flats reconverted ==="
+        resources:
+          requests: {cpu: '4', memory: 16Gi}
+          limits: {cpu: '4', memory: 16Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
