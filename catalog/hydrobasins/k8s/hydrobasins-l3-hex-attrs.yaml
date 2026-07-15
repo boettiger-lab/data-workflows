@@ -1,0 +1,90 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hydrobasins-l3-hex-attrs
+  labels:
+    k8s-app: hydrobasins-l3-hex-attrs
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: hydrobasins-l3-hex-attrs
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: l3-hex-attrs
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Track B (#404): attach the universal _cng_fid + FULL HydroBASINS attributes to the
+          # existing (spatially-correct) L3 hex by joining on HYBAS_ID to the reconverted L3
+          # flat — NO re-hex (large L3 basins are costly to polyfill at res 8, and the geometry
+          # -> cell mapping is already correct). Written PER-h0 to a staging dir, then swapped
+          # into the bucket-root L3/ path (preserved) so we never read+write the same key.
+          python3 - <<'PYEOF'
+          import duckdb, os
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("SET threads=8"); con.execute("SET memory_limit='52GB'")
+          con.execute("SET preserve_insertion_order=false")
+          key=os.environ["AWS_ACCESS_KEY_ID"]; secret=os.environ["AWS_SECRET_ACCESS_KEY"]
+          ep=os.environ.get("AWS_S3_ENDPOINT","rook-ceph-rgw-nautiluss3.rook")
+          con.execute(f"""CREATE SECRET s3_secret (TYPE S3, KEY_ID '{key}', SECRET '{secret}',
+                          ENDPOINT '{ep}', URL_STYLE 'path', USE_SSL false)""")
+          HEX="s3://public-hydrobasins/L3"
+          STG="s3://public-hydrobasins/L3-staging"
+          FLAT="s3://public-hydrobasins/level_03.parquet"
+          # full flat attrs (incl _cng_fid), geometry excluded
+          con.execute(f"CREATE TEMP TABLE cf AS SELECT * EXCLUDE (geometry) FROM read_parquet('{FLAT}')")
+          h0_vals=[r[0] for r in con.execute(
+              f"SELECT DISTINCT h0 FROM read_parquet('{HEX}/h0=*/data_0.parquet') ORDER BY h0").fetchall()]
+          print(f"{len(h0_vals)} h0 partitions", flush=True)
+          for i,h0 in enumerate(h0_vals):
+              con.execute(f"""
+                  COPY (
+                      WITH h AS (SELECT DISTINCT HYBAS_ID, h8, h0
+                                 FROM read_parquet('{HEX}/h0={h0}/data_0.parquet'))
+                      SELECT cf.*, h.h8, h.h0 FROM h JOIN cf ON h.HYBAS_ID = cf.HYBAS_ID
+                  ) TO '{STG}/h0={h0}/data_0.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)
+              """)
+              print(f"  [{i+1}/{len(h0_vals)}] h0={h0}", flush=True)
+          print("Join done.", flush=True)
+          PYEOF
+          echo "=== Swapping L3-staging -> L3 ==="
+          rclone purge nrp:public-hydrobasins/L3/
+          rclone move nrp:public-hydrobasins/L3-staging/ nrp:public-hydrobasins/L3/ --transfers 16
+          N=$(rclone lsf nrp:public-hydrobasins/L3/ | wc -l)
+          echo "L3/ now has ${N} h0 partitions"
+          [ "$N" -lt 1 ] && { echo "ERROR: empty"; exit 1; } || true
+          echo "=== Complete ==="
+        resources:
+          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '8', memory: 64Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
