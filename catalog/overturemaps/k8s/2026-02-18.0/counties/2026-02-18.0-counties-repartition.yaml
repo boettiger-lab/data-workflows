@@ -49,13 +49,16 @@ spec:
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
         - name: TMPDIR
-          value: /tmp
+          value: /scratch
         - name: BUCKET
           value: public-overturemaps
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
           readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: om-2026-counties-repartition
         command:
         - bash
         - -c
@@ -65,13 +68,16 @@ spec:
         resources:
           requests:
             cpu: '4'
-            ephemeral-storage: 200Gi
+            ephemeral-storage: 40Gi
             memory: 128Gi
           limits:
             cpu: '4'
-            ephemeral-storage: 200Gi
+            ephemeral-storage: 40Gi
             memory: 128Gi
       volumes:
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
       - name: rclone-config
         secret:
           secretName: rclone-config

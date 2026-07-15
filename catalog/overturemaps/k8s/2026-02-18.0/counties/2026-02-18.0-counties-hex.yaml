@@ -6,7 +6,7 @@ metadata:
     k8s-app: om-2026-counties-hex
 spec:
   completions: 200
-  parallelism: 200
+  parallelism: 50
   completionMode: Indexed
   backoffLimit: 0
   podFailurePolicy:
