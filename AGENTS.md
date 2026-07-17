@@ -638,13 +638,18 @@ Therefore, from this repo/namespace you MUST NOT:
   `public-`) to the `BUCKETS` array in `catalog/sync/minio/gen-minio-sync.sh`, run
   `./gen-minio-sync.sh`, and commit the regenerated files (per-bucket jobs +
   `minio-sync-cron-config.yaml` + `minio-sync-cron.yaml`). Do not apply them.
-- **New bucket → source.coop mirror (ONLY if catalogued AND the license permits third-party
-  redistribution):** add to `REPOS` (+ any per-repo `EXCLUDES`) in
-  `catalog/sync/source-coop/gen-source-sync.sh`, record the verdict in `license-inventory.md`,
-  run `./gen-source-sync.sh`, and commit. If the license **forbids** redistribution
-  (WDPA / WD-OECM / IUCN / ICCA / HydroSHEDS-HydroBASINS class), **do not add it to `REPOS`** —
-  record the `NO` verdict in `license-inventory.md` and stop. NC / ShareAlike are fine to mirror
-  (label them); no-redistribution licenses are not.
+- **source.coop mirror — eligibility is per-DATASET, decided by each collection's STAC
+  `license`, NOT by its bucket.** Record each collection's verdict (`OK`/`OK-NC`/`NO`/`HOLD`)
+  in `license-inventory.md`, then realize it in `catalog/sync/source-coop/gen-source-sync.sh`:
+  - license-clear dataset → its bucket in `REPOS`;
+  - a **no-redistribution dataset sharing a bucket with license-clear ones** → keep the bucket
+    in `REPOS` but add a sub-path `--exclude` via `EXCLUDES` for that dataset (prior art:
+    `rivers` excludes `american-rivers/{campaigns,ira-watersheds,roo-cjest}`, `high-seas`
+    excludes `mpa-candidates`) — a mixed-license bucket is normal;
+  - a bucket that is **entirely** no-redistribution (WDPA / WD-OECM / IUCN / ICCA /
+    HydroSHEDS-HydroBASINS class) → not in `REPOS` at all.
+  Then `./gen-source-sync.sh` and commit. NC / ShareAlike mirror fine (label them);
+  no-redistribution licenses do not.
 
 Then **hand execution to geo-agent-ops** (note it in the PR / issue): applying the regenerated
 scope, the first backfill, source.coop repo creation (manual in the web UI — the create API is
