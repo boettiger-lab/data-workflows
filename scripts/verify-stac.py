@@ -925,6 +925,8 @@ def recall_pass(doc: dict, mcp: MCPClient) -> list[Finding]:
         s3 = _to_s3(asset.get("href", ""))
         if not s3:
             continue
+        # Collect this asset's candidate columns, then probe them all in ONE scan.
+        candidates = []
         for col in asset.get("table:columns", []):
             name = col.get("name", "")
             ctype = col.get("type", "")
@@ -938,15 +940,32 @@ def recall_pass(doc: dict, mcp: MCPClient) -> list[Finding]:
             if (s3, name) in seen:
                 continue
             seen.add((s3, name))
-            sql = f'SELECT COUNT(DISTINCT "{name}") AS n FROM read_parquet(\'{s3}\')'
+            candidates.append(name)
+        if not candidates:
+            continue
+        # One pass over the parquet instead of one scan per column, and
+        # approx_count_distinct (HyperLogLog: single pass, constant memory) instead of
+        # exact COUNT(DISTINCT) — the latter builds a full hash set and, on billion-row
+        # datasets with a high-cardinality column (e.g. GBIF `species` ~1.4M distinct),
+        # blows the query timeout. This is an ADVISORY cardinality nudge (is it ≤ N
+        # distinct?), so HLL's ~2% error near the threshold is immaterial: a genuine
+        # small categorical still reads small, a high-cardinality column still reads huge.
+        cols_sql = ", ".join(
+            f'approx_count_distinct("{n}") AS "{n}"' for n in candidates)
+        sql = f"SELECT {cols_sql} FROM read_parquet('{s3}')"
+        try:
+            rows = mcp.query(sql)
+            row = rows[0] if rows else {}
+        except (MCPError, ValueError, KeyError, IndexError):
+            continue
+        for name in candidates:
             try:
-                rows = mcp.query(sql)
-                n = int(rows[0]["n"]) if rows else None
-            except (MCPError, ValueError, KeyError, IndexError):
+                n = int(row[name])
+            except (KeyError, ValueError, TypeError):
                 continue
-            if n is not None and 2 <= n <= RECALL_MAX_DISTINCT:
+            if 2 <= n <= RECALL_MAX_DISTINCT:
                 out.append(Finding(ADVISORY, "recall-candidate-categorical",
-                                   f"asset '{key}' column '{name}' has {n} distinct values "
+                                   f"asset '{key}' column '{name}' has ~{n} distinct values "
                                    f"and no `values` array — possible undocumented "
                                    f"categorical (recall-gap check)."))
     return out
