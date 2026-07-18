@@ -1,0 +1,96 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dem-glo90-cog-regional
+  labels:
+    k8s-app: dem-glo90-cog-regional
+spec:
+  completions: 4
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 4
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: dem-glo90-cog-regional
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      activeDeadlineSeconds: 5400
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
+      containers:
+      - name: cog-regional
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /tmp}
+        - {name: GDAL_CACHEMAX, value: '4096'}
+        - {name: GDAL_NUM_THREADS, value: ALL_CPUS}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          IDX=${JOB_COMPLETION_INDEX}
+          # Balanced contiguous longitude bands (integer-degree cuts -> tile-aligned, seamless).
+          LOS=(-180 -67 25 96); HIS=(-67 25 96 181)
+          LO=${LOS[$IDX]}; HI=${HIS[$IDX]}
+          echo "Regional part $IDX: longitude [$LO, $HI)"
+
+          rclone lsf -R --files-only --include '*_DEM.tif' nrp:public-dem/raw/glo90/ > /tmp/all.txt
+          echo "total tiles listed: $(wc -l < /tmp/all.txt)"
+          awk -v lo=$LO -v hi=$HI '
+            { if (match($0, /_(E|W)[0-9][0-9][0-9]_/)) {
+                s=substr($0,RSTART+1,1); d=substr($0,RSTART+2,3)+0;
+                lon=(s=="E")?d:-d;
+                if (lon>=lo && lon<hi) print $0; } }' /tmp/all.txt > /tmp/subset.txt
+          N=$(wc -l < /tmp/subset.txt); echo "subset tiles: $N"
+          test "$N" -gt 1000
+
+          mkdir -p /tmp/tiles
+          echo "Localizing subset to LOCAL ephemeral (fast small-file I/O)..."
+          rclone copy --files-from /tmp/subset.txt nrp:public-dem/raw/glo90/ /tmp/tiles/ \
+            --transfers 48 --checkers 64 --retries 5 --stats 30s --stats-one-line
+
+          find /tmp/tiles -name '*_DEM.tif' > /tmp/vrtlist.txt
+          echo "localized tif count: $(wc -l < /tmp/vrtlist.txt)"
+          # -resolution highest: GLO-90 tiles have latitude-dependent column counts
+          # (coarser X-degrees toward poles). 'average' (the gdalbuildvrt default)
+          # would downsample the equator; 'highest' forces the uniform finest grid
+          # (0.000833 deg = ~90m at the equator), upsampling polar tiles by replication.
+          gdalbuildvrt -resolution highest -input_file_list /tmp/vrtlist.txt \
+            -vrtnodata -9999 /tmp/part.vrt
+          gdalinfo /tmp/part.vrt | grep -E "Size is|Pixel Size" || true
+
+          echo "Translating regional Int16 GTiff..."
+          gdal_translate /tmp/part.vrt /tmp/part-${IDX}.tif \
+            -of GTiff -ot Int16 -a_nodata -9999 \
+            -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 \
+            -co COMPRESS=ZSTD -co PREDICTOR=2 -co ZSTD_LEVEL=9 \
+            -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+            --config GDAL_CACHEMAX 4096
+          ls -lh /tmp/part-${IDX}.tif
+
+          echo "Uploading regional part $IDX..."
+          rclone copyto /tmp/part-${IDX}.tif \
+            nrp:public-dem/copernicus-glo90/regional/part-${IDX}.tif \
+            --s3-no-check-bucket --progress
+          echo "Regional part $IDX done."
+        resources:
+          requests: {cpu: '8', memory: 12Gi, ephemeral-storage: 45Gi}
+          limits:   {cpu: '8', memory: 12Gi, ephemeral-storage: 45Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

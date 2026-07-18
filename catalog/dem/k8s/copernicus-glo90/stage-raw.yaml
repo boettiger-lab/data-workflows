@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dem-glo90-stage-raw
+  labels:
+    k8s-app: dem-glo90-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 7200
+  template:
+    metadata:
+      labels:
+        k8s-app: dem-glo90-stage-raw
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "Creating bucket public-dem (idempotent)..."
+          rclone mkdir nrp:public-dem
+
+          # Copernicus GLO-90 DEM, AWS Open Data (eu-central-1), anonymous read.
+          # Copy only the main *_DEM.tif elevation rasters (skip AUXFILES: EDM/FLM/HEM/WBM/ACM).
+          SRC=':s3,provider=AWS,region=eu-central-1,env_auth=false:copernicus-dem-90m'
+          echo "Staging GLO-90 DEM tiles AWS -> nrp:public-dem/raw/glo90/ ..."
+          rclone copy "$SRC" nrp:public-dem/raw/glo90/ \
+            --include "*_DEM.tif" \
+            --transfers 48 --checkers 64 --retries 5 \
+            --low-level-retries 10 --s3-no-check-bucket \
+            --stats 30s --stats-one-line
+
+          echo "Staged tile count:"
+          rclone size nrp:public-dem/raw/glo90/
+        resources:
+          requests: {cpu: '4', memory: 4Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '4', memory: 4Gi, ephemeral-storage: 4Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
