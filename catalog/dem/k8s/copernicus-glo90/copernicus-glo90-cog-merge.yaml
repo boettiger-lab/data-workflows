@@ -1,0 +1,87 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dem-glo90-cog-merge
+  labels:
+    k8s-app: dem-glo90-cog-merge
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 14400
+  template:
+    metadata:
+      labels:
+        k8s-app: dem-glo90-cog-merge
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
+      containers:
+      - name: cog-merge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /scratch}
+        - {name: CPL_TMPDIR, value: /scratch}
+        - {name: GDAL_CACHEMAX, value: '8192'}
+        - {name: GDAL_NUM_THREADS, value: ALL_CPUS}
+        - {name: CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE, value: 'YES'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scratch, mountPath: /scratch, subPath: dem-glo90-cog-merge}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/regional
+          echo "Fetching 4 regional COGs (few large files -> cephfs is fine)..."
+          rclone copy nrp:public-dem/copernicus-glo90/regional/ /scratch/regional/ \
+            --transfers 4 --retries 5 --stats 30s --stats-one-line
+          ls -lh /scratch/regional/
+          test "$(ls /scratch/regional/*.tif | wc -l)" -eq 4
+
+          gdalbuildvrt -resolution highest -vrtnodata -9999 /scratch/global.vrt /scratch/regional/part-*.tif
+          gdalinfo /scratch/global.vrt | grep -E "Size is|Pixel Size|Origin"
+
+          echo "Translating global Int16 COG (ZSTD, AVERAGE overviews)..."
+          gdal_translate /scratch/global.vrt /scratch/copernicus-glo90-cog.tif \
+            -of COG -ot Int16 -a_nodata -9999 \
+            -co COMPRESS=ZSTD -co PREDICTOR=2 -co LEVEL=12 \
+            -co BLOCKSIZE=512 \
+            -co OVERVIEWS=AUTO -co OVERVIEW_RESAMPLING=AVERAGE -co RESAMPLING=AVERAGE \
+            -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+            --config GDAL_CACHEMAX 8192
+          ls -lh /scratch/copernicus-glo90-cog.tif
+          gdalinfo -stats /scratch/copernicus-glo90-cog.tif | \
+            grep -E "Size is|Pixel Size|NoData|Type=|Minimum=|Maximum=|Mean=|Overviews" | head -20
+
+          echo "Uploading global COG..."
+          rclone copyto /scratch/copernicus-glo90-cog.tif \
+            nrp:public-dem/copernicus-glo90/copernicus-glo90-cog.tif \
+            --s3-no-check-bucket --progress
+
+          # Remove the .aux.xml too: a stale sidecar makes a later gdalinfo -stats
+          # report cached (wrong) statistics from a prior build.
+          rm -rf /scratch/regional /scratch/global.vrt \
+                 /scratch/copernicus-glo90-cog.tif /scratch/copernicus-glo90-cog.tif.aux.xml
+          echo "Global COG done."
+        resources:
+          requests: {cpu: '8', memory: 24Gi, ephemeral-storage: 8Gi}
+          limits:   {cpu: '8', memory: 24Gi, ephemeral-storage: 8Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
