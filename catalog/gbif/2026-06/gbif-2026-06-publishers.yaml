@@ -1,0 +1,103 @@
+# GBIF 2026-06 — dataset → publisher lookup sidecar (data-workflows #425).
+# Tiny crosswalk: one row per GBIF dataset mapping dataset_key -> publishing_country
+# (+ org / license / type / counts), so occurrences can be attributed to a publishing
+# country by joining the hex's `datasetkey` column WITHOUT a slow external read_csv
+# mid-query. Registry snapshot is pinned to the 2026-06 release. Mirrors the species
+# sidecar (gbif-2026-06-sidecar.yaml). Reads the registry over https, writes S3 internal.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2026-06-publishers
+  namespace: geo-workflows
+  labels:
+    k8s-app: gbif-2026-06-publishers
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2026-06-publishers
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: build-publishers
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: "2", memory: 8Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: "2", memory: 8Gi, ephemeral-storage: 10Gi}
+        env:
+        - name: REGISTRY_TSV
+          value: 'https://api.gbif.org/v1/dataset/search/export?format=TSV&'
+        - name: DST
+          value: 's3://public-gbif/2026-06/dataset-publishers.parquet'
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Download the registry export to a local file first. DuckDB httpfs stalls on this
+          # endpoint (chunked, no content-length); curl streams it fine.
+          curl -sSL --retry 5 --retry-delay 5 -o /tmp/datasets.tsv "$REGISTRY_TSV"
+          wc -l /tmp/datasets.tsv
+          python3 - <<'PYEOF'
+          import duckdb, os
+          dst=os.environ["DST"]
+          key=os.environ["AWS_ACCESS_KEY_ID"]; secret=os.environ["AWS_SECRET_ACCESS_KEY"]
+          endpoint=os.environ.get("AWS_S3_ENDPOINT","rook-ceph-rgw-nautiluss3.rook")
+          con=duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute(f"CREATE SECRET s3_secret (TYPE S3, KEY_ID '{key}', SECRET '{secret}', ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false)")
+          # One row per GBIF dataset. all_varchar keeps the registry TSV robust to odd rows;
+          # occurrence_records_count is cast to BIGINT for numeric use downstream.
+          con.execute(f"""
+              COPY (
+                  SELECT dataset_key,
+                         doi,
+                         license,
+                         type,
+                         publishing_organization_key,
+                         publishing_organization_title,
+                         publishing_country,
+                         hosting_country,
+                         TRY_CAST(occurrence_records_count AS BIGINT) AS occurrence_records_count
+                  FROM read_csv('/tmp/datasets.tsv', delim='\t', header=true,
+                                all_varchar=true, ignore_errors=true)
+                  WHERE dataset_key IS NOT NULL
+                  -- GBIF's export lists a few datasets twice (byte-identical rows, e.g. one
+                  -- PANGAEA dataset); keep one row per key so the join is unambiguous.
+                  QUALIFY ROW_NUMBER() OVER (
+                      PARTITION BY dataset_key
+                      ORDER BY occurrence_records_count DESC NULLS LAST) = 1
+              ) TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD)
+          """)
+          n, dk, pc = con.execute(
+              f"SELECT COUNT(*), COUNT(DISTINCT dataset_key), "
+              f"COUNT(*) FILTER (WHERE publishing_country IS NOT NULL) "
+              f"FROM read_parquet('{dst}')").fetchone()
+          print(f"  publishers rows={n} distinct_dataset_key={dk} with_publishing_country={pc}")
+          assert n > 50000, "publisher table suspiciously small"
+          assert n == dk, "dataset_key not unique"
+          print("  OK")
+          PYEOF

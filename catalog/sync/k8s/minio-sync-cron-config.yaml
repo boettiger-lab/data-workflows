@@ -24,6 +24,7 @@ data:
     cpad sync */chunks/** */hex-staging/** 
     data sync */chunks/** */hex-staging/** 
     datacenters sync */chunks/** */hex-staging/** 
+    dem sync */chunks/** */hex-staging/** raw/**
     ecoregion sync */chunks/** */hex-staging/** 
     epa-water sync */chunks/** */hex-staging/** 
     facts sync */chunks/** */hex-staging/** 

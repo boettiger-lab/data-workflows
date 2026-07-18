@@ -344,6 +344,32 @@ cng-datasets raster-workflow --dataset wyoming/rap-arte \
 ```
 Extra options: `--target-extent "xmin,ymin,xmax,ymax"` (EPSG:4326 clip), `--target-resolution <degrees>`, `--band <n>` (1-indexed), `--output-cog-name <key>`.
 
+#### ⚠️ Mosaicking a MANY-tile source (thousands of 1° tiles) into one global COG — two traps
+
+For a source shipped as thousands of small tiles (Copernicus GLO-30/90 DEM = 26,475 tiles; many
+global rasters), repeating `--source-url` is unusable and the naïve single-job mosaic fails two ways.
+Both were hit and fixed on the DEM import (data-workflows #426; manifests at
+`catalog/dem/k8s/copernicus-glo90/` are the working pattern):
+
+1. **rook-cephfs metadata latency kills the file-opens, NOT bandwidth.** Localizing 26k tiles to the
+   `rechunk-scratch` **cephfs** PVC and running `gdalbuildvrt` over them crawled — each file open pays
+   a network-metadata RTT (~150 ms), so 26k opens = 60+ min *each* for the localize and the VRT build,
+   at idle CPU. Local NVMe opens the same files in <1 s. **Fix: localize to LOCAL ephemeral (`/tmp`),
+   not the PVC.** 66 GB > the 50Gi ephemeral cap, so split into N balanced **contiguous longitude
+   bands** (integer-degree cuts → tile-aligned, seamless), one indexed pod per band on local NVMe →
+   regional COGs, then a tiny merge job stitches the few regional COGs into the global COG (a handful
+   of large-file opens is fine on cephfs). ~35 min total vs "never finished." Reserve the cephfs PVC
+   for the *merge* (few big files), never the many-small-file localize.
+2. **`gdalbuildvrt` default `-resolution average` silently downsamples.** Tiles whose pixel size in
+   *degrees* varies (Copernicus DEM narrows column counts toward the poles to hold ~90 m ground
+   spacing) get averaged to a bogus middle X-resolution — the equator was squished ~2.5× (Everest read
+   8146 m instead of ~8700). **Always pass `-resolution highest`** (→ the uniform finest grid) for a
+   lat/lon global mosaic. Sanity-check a known peak's pixel value against the raw source tile.
+
+Also: `gdalinfo -stats` writes a `.tif.aux.xml` sidecar and **reads cached stats from it on a rerun** —
+if you rebuild the COG in the same scratch dir, a stale `.aux.xml` reports the OLD min/max/mean. `rm`
+the `.aux.xml` too, or verify values with a fresh `gdallocationinfo`/`ComputeStatistics`, not the sidecar.
+
 #### ⚠️ Choosing the aggregation reducer (`--hex-resampling`)
 
 `--hex-resampling` controls how source pixels collapse into each H3 cell. **The right reducer depends entirely on what the pixel value *means*, and the wrong one silently produces nonsense** (summing land-cover class codes, averaging species counts). Decide this per dataset, every time. Supported: `sum`, `mean`, `mode`, `max`, `min` (default `mean`).

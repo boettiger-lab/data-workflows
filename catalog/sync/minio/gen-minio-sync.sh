@@ -51,7 +51,7 @@ ARCHIVE_BUCKET="backup-archive"
 BUCKETS=(
   barred-owl
   ca30x30 ca-dac calenviroscreen carbon ca-wolves cdfw census cgs connectivity cpad
-  data datacenters ecoregion epa-water facts fire gbif gfw grids hazard high-seas
+  data datacenters dem ecoregion epa-water facts fire gbif gfw grids hazard high-seas
   human-modification hydrobasins icca im3 inat indigenous iucn land-cover
   mappinginequality mobi nci-frontiers ncp overturemaps padus population rap rivers
   social-vulnerability swap tpl trails usfws usgs-nhd usgs-wbd usgs-ungulate-migration
@@ -62,6 +62,9 @@ BUCKETS=(
 
 # Per-bucket sub-path excludes (rclone --exclude patterns, bucket-root-relative).
 declare -A EXCLUDES=(
+  # dem raw/ is a re-pullable mirror of Copernicus GLO-90 on AWS Open Data
+  # (26k small tiles, not a published STAC artifact) — skip from the DR mirror.
+  [dem]='raw/**'
 )
 
 # Per-bucket rclone verb. Default "sync" (mirror-with-delete; deletions are
