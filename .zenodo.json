@@ -1,0 +1,28 @@
+{
+  "title": "Agentic Data Workflows: cloud-native, AI-ready data preparation on Kubernetes",
+  "description": "Dataset processing workflows that turn disparate legacy and proprietary data into AI-ready, cloud-native data with rich STAC metadata — through an AI-driven pipeline powered by cng-datasets and autoscaled on NRP Kubernetes. One of three open-source components that make the cloud-native data stack reachable by the AI tools researchers already use.",
+  "license": "bsd-3-clause",
+  "upload_type": "software",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Boettiger, Carl",
+      "affiliation": "University of California, Berkeley",
+      "orcid": "0000-0002-1642-628X"
+    },
+    {
+      "name": "Buhler, Cassidy Kim",
+      "orcid": "0000-0003-4157-4273",
+      "affiliation": "University of Colorado Boulder"
+    }
+  ],
+  "keywords": [
+    "cloud-native",
+    "AI-ready data",
+    "STAC",
+    "Kubernetes",
+    "agentic workflows",
+    "data engineering",
+    "geospatial"
+  ]
+}
