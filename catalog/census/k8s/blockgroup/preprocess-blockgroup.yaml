@@ -1,0 +1,178 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: acs-2020-2024-blockgroup-preprocess
+  namespace: geo-workflows
+  labels:
+    k8s-app: acs-2020-2024-blockgroup-preprocess
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: acs-2020-2024-blockgroup-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "32Gi"
+            cpu: "8"
+            ephemeral-storage: "50Gi"
+          limits:
+            memory: "32Gi"
+            cpu: "8"
+            ephemeral-storage: "50Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-census"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # State/territory FIPS with TIGER 2024 block-group files (50 states + DC + PR + island areas).
+          # ACS 5yr summary file covers 50 states + DC + PR (72); island areas (60/66/69/78) have no ACS
+          # in this file and get NULL demographics via LEFT JOIN (documented in STAC).
+          STATE_FIPS="01 02 04 05 06 08 09 10 11 12 13 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 44 45 46 47 48 49 50 51 53 54 55 56 60 66 69 72 78"
+
+          echo "=== 1. Download TIGER 2024 block-group shapefiles (per state) ==="
+          mkdir -p /tmp/bg && cd /tmp/bg
+          for fips in $STATE_FIPS; do
+            curl -sS --retry 5 -O "https://www2.census.gov/geo/tiger/TIGER2024/BG/tl_2024_${fips}_bg.zip" &
+          done
+          wait
+          echo "Downloaded $(ls -1 *.zip | wc -l) zips"
+          unzip -q -o "*.zip"
+          echo "Staging raw zips to s3://public-census/raw/blockgroup/ ..."
+          rclone copy /tmp/bg nrp:public-census/raw/blockgroup/ --include "*.zip" || true
+
+          echo "=== 2. Merge all block-group shapefiles -> GeoParquet (cng adds _cng_fid) ==="
+          cng-convert-to-parquet /tmp/bg/*.shp /tmp/bg_geom.parquet \
+            --compression ZSTD --compression-level 15 --row-group-size 100000
+
+          echo "=== 3. Download ACS 2020-2024 5yr table-based Summary File tables ==="
+          # Block-group-available tables only. B09001/B17001/B08201 have NO block-group data
+          # (tract-minimum), so Under18 is derived from B01001 age brackets, PovInd from C17002
+          # (collapsed poverty ratio), and NoCar from B25044 (tenure by vehicles).
+          mkdir -p /tmp/acs && cd /tmp/acs
+          BASE="https://www2.census.gov/programs-surveys/acs/summary_file/2024/table-based-SF/data/5YRData"
+          for t in b01003 b01001 c17002 b19013 b19301 b25044; do
+            curl -sS --retry 5 -O "${BASE}/acsdt5y2024-${t}.dat" &
+          done
+          wait
+          echo "Downloaded ACS tables:"; ls -la /tmp/acs/*.dat
+          rclone copy /tmp/acs nrp:public-census/raw/blockgroup-acs/ --include "*.dat" || true
+
+          echo "=== 4. Build ACS attributes, join to geometry, write canonical GeoParquet ==="
+          python3 - <<'PYEOF'
+          import duckdb
+          c = duckdb.connect()
+          c.execute("INSTALL spatial; LOAD spatial;")
+          D = "/tmp/acs"
+
+          def dat(table):
+              # Block-group rows: GEO_ID = '1500000US' (9-char prefix) + 12-digit code; strip prefix.
+              return (f"(SELECT substr(GEO_ID,10) AS GEOID, * "
+                      f"FROM read_csv('{D}/acsdt5y2024-{table}.dat', delim='|', header=true, all_varchar=true) "
+                      f"WHERE GEO_ID LIKE '1500000US%')")
+
+          # non-negative integer estimate (jam/no-data codes are negative -> NULL)
+          def pos(col):
+              return f"CASE WHEN TRY_CAST({col} AS BIGINT) < 0 THEN NULL ELSE TRY_CAST({col} AS BIGINT) END"
+          # count component floored at 0 (never legitimately negative; jam codes -> 0)
+          def cnt(col):
+              return f"GREATEST(COALESCE(TRY_CAST({col} AS BIGINT),0),0)"
+          def sm(*cols):
+              return "(" + " + ".join(cnt(c) for c in cols) + ")"
+
+          # Under18 and Senior65 derived from B01001 (sex-by-age; block-group-available);
+          # PovInd from C17002 (ratio < 1.00 = under .50 + .50-.99); NoCar from B25044.
+          under18  = sm(*[f'"B01001_E{n:03d}"' for n in [3,4,5,6,27,28,29,30]])
+          senior65 = sm(*[f'"B01001_E{n:03d}"' for n in [20,21,22,23,24,25,44,45,46,47,48,49]])
+          povind   = sm('"C17002_E002"', '"C17002_E003"')
+          nocar    = sm('"B25044_E003"', '"B25044_E010"')
+
+          sql = f"""
+          CREATE TEMP TABLE acs AS
+          SELECT
+            GEOID,
+            {pos('pop."B01003_E001"')}  AS TotPop,
+            {under18}                   AS Under18,
+            {senior65}                  AS Senior65,
+            {povind}                    AS PovInd,
+            {pos('mhi."B19013_E001"')}  AS MHHI,
+            {pos('pci."B19301_E001"')}  AS PCI,
+            {nocar}                     AS NoCar
+          FROM {dat('b01003')} pop
+          LEFT JOIN {dat('b01001')} age USING (GEOID)
+          LEFT JOIN {dat('c17002')} pov USING (GEOID)
+          LEFT JOIN {dat('b19013')} mhi USING (GEOID)
+          LEFT JOIN {dat('b19301')} pci USING (GEOID)
+          LEFT JOIN {dat('b25044')} car USING (GEOID)
+          """
+          c.execute(sql)
+          n = c.execute("SELECT COUNT(*), COUNT(MHHI) FROM acs").fetchone()
+          print(f"ACS block-group rows: {n[0]:,}  (with non-null MHHI: {n[1]:,})")
+
+          # Join ACS attrs onto geometry (1:1 on GEOID); write canonical GeoParquet.
+          c.execute("""
+          COPY (
+            SELECT g.*,
+                   a.TotPop, a.Under18, a.Senior65, a.PovInd, a.MHHI, a.PCI, a.NoCar
+            FROM read_parquet('/tmp/bg_geom.parquet') g
+            LEFT JOIN acs a ON g.GEOID = a.GEOID
+          ) TO '/tmp/blockgroup.parquet'
+            (FORMAT PARQUET, ROW_GROUP_SIZE 2000, COMPRESSION ZSTD)
+          """)
+          m = c.execute("""SELECT COUNT(*), COUNT(geom), COUNT(TotPop)
+                           FROM read_parquet('/tmp/blockgroup.parquet')""").fetchone()
+          print(f"Final: {m[0]:,} block groups | geom non-null {m[1]:,} | TotPop non-null {m[2]:,}")
+          PYEOF
+
+          echo "=== 5. Upload canonical GeoParquet to S3 ==="
+          rclone copyto /tmp/blockgroup.parquet nrp:public-census/acs-2020-2024/blockgroup.parquet -P
+          echo "✓ Preprocess complete: s3://public-census/acs-2020-2024/blockgroup.parquet"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
