@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: park-access-2020-half-mile-explode
+  labels:
+    k8s-app: park-access-2020-half-mile-explode
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: park-access-2020-half-mile-explode
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: explode
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+          echo "=== localize source shapefile ==="
+          mkdir -p src exploded
+          rclone copy nrp:public-parks/raw/half-mile-access/ src/
+          ls -la src
+          echo "=== explode multipolygon -> polygons (keep source CRS) ==="
+          ogr2ogr -explodecollections -nlt POLYGON \
+            -f "ESRI Shapefile" exploded/Half_Mile_Access.shp src/Half_Mile_Access.shp
+          echo "=== feature count after explode ==="
+          ogrinfo -so exploded/Half_Mile_Access.shp Half_Mile_Access | grep -iE "Feature Count|Geometry"
+          echo "=== stage exploded source ==="
+          for ext in shp shx dbf prj cpg; do
+            f="exploded/Half_Mile_Access.${ext}"
+            [ -f "$f" ] && rclone copyto "$f" "nrp:public-parks/raw/half-mile-access-exploded/Half_Mile_Access.${ext}"
+          done
+          rclone ls nrp:public-parks/raw/half-mile-access-exploded/
+          echo "DONE"
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
