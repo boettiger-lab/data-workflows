@@ -1,0 +1,103 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: parkserve-2025-acquire-p2
+  labels: {k8s-app: parkserve-2025-acquire-p2}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 21600
+  template:
+    metadata:
+      labels: {k8s-app: parkserve-2025-acquire-p2}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: acquire
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import urllib.request, urllib.parse, json, time, os
+          BASE="https://server7.tplgis.org/arcgis7/rest/services/ParkServe/ParkServe_ProdNew/FeatureServer"
+          UA="Mozilla/5.0 (data-workflows parkserve p2)"
+          SPATIAL={1:"places", 0:"urban-areas", 4:"priority-areas-place", 6:"priority-areas-urban-area"}
+          def fetch(layer, last, page, mao=None):
+              q={"where":f"objectid>{last}","outFields":"*","outSR":"4326","f":"geojson",
+                 "orderByFields":"objectid","resultRecordCount":str(page)}
+              if mao: q["maxAllowableOffset"]=str(mao)
+              req=urllib.request.Request(f"{BASE}/{layer}/query?"+urllib.parse.urlencode(q), headers={"User-Agent":UA})
+              return json.loads(urllib.request.urlopen(req, timeout=300).read())
+          for lid,name in SPATIAL.items():
+              out=f"/tmp/{name}.geojson"; n=0; last=0; page=1000
+              with open(out,"w") as fh:
+                  fh.write('{"type":"FeatureCollection","features":[\n'); first=True
+                  while True:
+                      feats=None
+                      for attempt in range(16):
+                          mao=(0.0002 if (page==1 and attempt>=2) else None)
+                          try: d=fetch(lid,last,page,mao); feats=d.get("features",[]); break
+                          except Exception as e:
+                              print(f"  {name} last={last} page={page} mao={mao} att{attempt}: {e}",flush=True)
+                              if page>1: page=max(1,page//2)
+                              time.sleep(2*(attempt+1))
+                      if feats is None: raise SystemExit(f"FAILED {name} last={last}")
+                      if not feats: break
+                      for f in feats:
+                          fh.write(("" if first else ",\n")+json.dumps(f)); first=False
+                      n+=len(feats); last=max(f["properties"]["objectid"] for f in feats)
+                      if page<1000: page=min(1000,page*2)
+                      if n % 20000 < page: print(f"  {name}: {n}",flush=True)
+                      if len(feats)<page and not d.get("properties",{}).get("exceededTransferLimit"): break
+                      time.sleep(0.15)
+                  fh.write("\n]}\n")
+              print(f"WROTE {out}: {n}",flush=True)
+              os.system(f"rclone copyto {out} nrp:public-tpl/raw/parkserve-2025/{name}.geojson && rm -f {out}")
+              print(f"STAGED {name}",flush=True)
+          # CPF_2026 scores table (non-spatial, 99 rows) -> parquet directly
+          rows=[]; last=0
+          while True:
+              q={"where":f"objectid>{last}","outFields":"*","returnGeometry":"false","orderByFields":"objectid","resultRecordCount":"1000","f":"json"}
+              req=urllib.request.Request(f"{BASE}/5/query?"+urllib.parse.urlencode(q), headers={"User-Agent":UA})
+              d=json.loads(urllib.request.urlopen(req,timeout=120).read())
+              fs=d.get("features",[])
+              if not fs: break
+              rows+=[f["attributes"] for f in fs]; last=max(f["attributes"]["objectid"] for f in fs)
+              if len(fs)<1000: break
+          json.dump(rows, open("/tmp/cpf.json","w"))
+          print(f"CPF rows: {len(rows)}",flush=True)
+          import duckdb
+          con=duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'; SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}'; SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+          con.execute("COPY (SELECT * FROM read_json_auto('/tmp/cpf.json')) TO 's3://public-tpl/parkserve-2025/parkscore.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);")
+          print("WROTE parkscore.parquet",flush=True)
+          PY
+          echo "=== staged raw ==="; rclone ls nrp:public-tpl/raw/parkserve-2025/ | grep -E "places|urban|priority"
+          echo DONE
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 40Gi}
+          limits: {cpu: '2', memory: 8Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

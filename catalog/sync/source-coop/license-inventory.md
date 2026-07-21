@@ -189,6 +189,11 @@ California Park Access Tool 2020 (SCORP 2020) — Parks for All Californians, Gr
 - **HOLD** · `TPL (no public terms)` — public-tpl/landvote  · no data license found; TPL requires contact for spatial data
 - **NO** · `proprietary` — public-tpl/parkserve-2025/parks  · TPL ParkServe. Hosted **with TPL permission (host, NOT redistribute)**; service areas derive from proprietary Esri StreetMap Premium + Business Analyst. NRP + MinIO backup only; **excluded from source.coop** (public-tpl not in REPOS). data-workflows #461.
 - **NO** · `proprietary` — public-tpl/parkserve-2025/service-areas  · same as parkserve-2025/parks — host-only, no redistribution, no source.coop mirror.
+- **NO** · `proprietary` — public-tpl/parkserve-2025/places  · ParkServe phase 2 (city boundaries + ParkScore). Host-only, no mirror. #461.
+- **NO** · `proprietary` — public-tpl/parkserve-2025/urban-areas  · ParkServe phase 2 (urban-area boundaries). Host-only, no mirror.
+- **NO** · `proprietary` — public-tpl/parkserve-2025/priority-areas-place  · ParkServe phase 2 (priority areas for new parks, by place). Host-only, no mirror.
+- **NO** · `proprietary` — public-tpl/parkserve-2025/priority-areas-urban-area  · ParkServe phase 2 (priority areas for new parks, by urban area). Host-only, no mirror.
+- **NO** · `proprietary` — public-tpl/parkserve-2025/parkscore  · ParkServe phase 2 (ParkScore / City Park Facts 2026 scores, 99 cities). Host-only, no mirror.
 - **HOLD** · `TPL (no public terms)` — public-tpl  · no data license found; TPL requires contact for spatial data
 - **OK (license) / RELOCATING** · `CC-BY-4.0` — public-tpl/wcb-approved-projects  · CDFW BIOS ds672 (CA Wildlife Conservation Board) — a CDFW **state-agency** product misfiled under "tpl". Moving to the planned `public-cdfw` bucket (geo-agent-ops #19; data-workflows #228); mirror as `cboettig/cdfw` afterward. `cboettig/tpl` was NOT created (rest of public-tpl is HOLD).
 
