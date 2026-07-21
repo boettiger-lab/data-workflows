@@ -70,6 +70,9 @@ CDFW BIOS biogeographic data. **Verified**: the BIOS-published layers (ACE, SWAP
 ## public-gfw
 - **OK-NC** · `CC-BY-NC-4.0` — public-gfw  
 
+## public-globio
+- **OK** · `CC-BY-4.0` — public-globio (all 12 collections: `globio-msa-{2015,ssp1rcp26-2050,ssp3rcp60-2050,ssp5rcp85-2050}-{overall,plants,wbvert}`)  · GLOBIO 4 terrestrial Mean Species Abundance, PBL Netherlands Environmental Assessment Agency (Schipper et al. 2020, GCB, [DOI 10.1111/gcb.14848](https://doi.org/10.1111/gcb.14848)). PBL states all GLOBIO4 spatial layers are CC-BY 4.0. Mirror freely with attribution (PBL / Schipper et al. 2020). data-workflows #463.
+
 ## public-high-seas
 - **OK** · `CBD custom (other)` — public-high-seas/ebsa  · CBD EBSA: redistribute w/ attribution + note modifications
 - **OK** · `CC-BY-4.0` — public-high-seas/ecs  
