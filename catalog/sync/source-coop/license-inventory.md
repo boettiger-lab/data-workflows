@@ -184,6 +184,8 @@ California Park Access Tool 2020 (SCORP 2020) — Parks for All Californians, Gr
 - **HOLD** · `TPL (no public terms)` — public-tpl/conservation-almanac-2024-funding  · no data license found; TPL requires contact for spatial data
 - **HOLD** · `TPL (no public terms)` — public-tpl/conservation-almanac-2024-sites  · no data license found; TPL requires contact for spatial data
 - **HOLD** · `TPL (no public terms)` — public-tpl/landvote  · no data license found; TPL requires contact for spatial data
+- **NO** · `proprietary` — public-tpl/parkserve-2025/parks  · TPL ParkServe. Hosted **with TPL permission (host, NOT redistribute)**; service areas derive from proprietary Esri StreetMap Premium + Business Analyst. NRP + MinIO backup only; **excluded from source.coop** (public-tpl not in REPOS). data-workflows #461.
+- **NO** · `proprietary` — public-tpl/parkserve-2025/service-areas  · same as parkserve-2025/parks — host-only, no redistribution, no source.coop mirror.
 - **HOLD** · `TPL (no public terms)` — public-tpl  · no data license found; TPL requires contact for spatial data
 - **OK (license) / RELOCATING** · `CC-BY-4.0` — public-tpl/wcb-approved-projects  · CDFW BIOS ds672 (CA Wildlife Conservation Board) — a CDFW **state-agency** product misfiled under "tpl". Moving to the planned `public-cdfw` bucket (geo-agent-ops #19; data-workflows #228); mirror as `cboettig/cdfw` afterward. `cboettig/tpl` was NOT created (rest of public-tpl is HOLD).
 

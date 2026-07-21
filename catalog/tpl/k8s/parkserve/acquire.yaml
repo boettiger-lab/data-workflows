@@ -1,0 +1,109 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: parkserve-2025-acquire
+  labels:
+    k8s-app: parkserve-2025-acquire
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: parkserve-2025-acquire
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: acquire
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "=== ensure bucket ==="
+          cng-datasets storage setup-bucket --bucket public-tpl --remote nrp --verify || true
+          python3 - <<'PY'
+          import urllib.request, urllib.parse, json, time, os
+          BASE="https://server7.tplgis.org/arcgis7/rest/services/ParkServe/ParkServe_ProdNew/FeatureServer"
+          UA="Mozilla/5.0 (data-workflows parkserve acquire)"
+          LAYERS={2:"parks", 3:"service-areas"}
+          # Keyset pagination by objectid (deep resultOffset 500s on this server); page 2000
+          # also 500s on batches with large polygons, so start at 1000 and halve on error.
+          def fetch(layer, last_oid, page, mao=None):
+              q={"where":f"objectid>{last_oid}","outFields":"*","outSR":"4326","f":"geojson",
+                 "orderByFields":"objectid","resultRecordCount":str(page)}
+              if mao: q["maxAllowableOffset"]=str(mao)   # server-side generalize giant polygons only
+              url=f"{BASE}/{layer}/query?"+urllib.parse.urlencode(q)
+              req=urllib.request.Request(url, headers={"User-Agent":UA})
+              return json.loads(urllib.request.urlopen(req, timeout=300).read())
+          for lid, name in LAYERS.items():
+              out=f"/tmp/{name}.geojson"
+              n=0; last=0; page=1000
+              with open(out,"w") as fh:
+                  fh.write('{"type":"FeatureCollection","features":[\n'); first=True
+                  while True:
+                      feats=None
+                      for attempt in range(16):
+                          # once shrunk to a single record that still fails, it's a giant
+                          # polygon (e.g. Tongass NF, 16.7M ac) — generalize it ~11-22 m.
+                          mao=(0.0002 if (page==1 and attempt>=2) else None)
+                          try:
+                              d=fetch(lid, last, page, mao); feats=d.get("features",[]); break
+                          except Exception as e:
+                              print(f"    layer {lid} last={last} page={page} mao={mao} attempt {attempt}: {e}", flush=True)
+                              if page>1: page=max(1, page//2)       # shrink heavy batch (dense large polygons)
+                              time.sleep(2*(attempt+1))
+                      if feats is None: raise SystemExit(f"FAILED layer {lid} last={last}")
+                      if not feats: break
+                      for f in feats:
+                          fh.write(("" if first else ",\n")+json.dumps(f)); first=False
+                      n+=len(feats); last=max(f["properties"]["objectid"] for f in feats)
+                      print(f"  {name}: {n} features (last oid {last}, page {page})", flush=True)
+                      if page<1000: page=min(1000, page*2)          # recover page size
+                      if len(feats)<page and not d.get("properties",{}).get("exceededTransferLimit"): break
+                      time.sleep(0.2)
+                  fh.write("\n]}\n")
+              print(f"WROTE {out}: {n} features", flush=True)
+              os.system(f"rclone copyto {out} nrp:public-tpl/raw/parkserve-2025/{name}.geojson")
+              print(f"STAGED nrp:public-tpl/raw/parkserve-2025/{name}.geojson", flush=True)
+          PY
+          echo "=== staged ==="
+          rclone ls nrp:public-tpl/raw/parkserve-2025/
+          echo DONE
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 30Gi}
+          limits: {cpu: '2', memory: 8Gi, ephemeral-storage: 30Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
