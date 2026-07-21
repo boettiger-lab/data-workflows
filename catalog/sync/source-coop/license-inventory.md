@@ -145,6 +145,13 @@ CDFW BIOS biogeographic data. **Verified**: the BIOS-published layers (ACE, SWAP
 - **OK** · `public-domain` — public-padus/padus-4-1/proclamation  
 - **OK** · `public-domain` — public-padus  
 
+## public-parks
+California Park Access Tool 2020 (SCORP 2020) — Parks for All Californians, GreenInfo Network for CA State Parks OGALS. Derived from CPAD 2019b (parks, published **CC-BY** by GreenInfo on data.cnra.ca.gov) + ACS 2014-18 / Census 2010 (US-federal public domain). Verified via the bundle's SCORP 2020 Download Metadata + CPAD's data.cnra.ca.gov license field. Attribute GreenInfo Network + CA State Parks OGALS. data-workflows #460.
+- **OK** · `CC-BY-4.0` — public-parks/park-access-2020/tract-acres-per-thousand
+- **OK** · `CC-BY-4.0` — public-parks/park-access-2020/no-park-access
+- **OK** · `CC-BY-4.0` — public-parks/park-access-2020/half-mile-access
+- **N/A** · `CC-BY-4.0` — public-parks  · bucket collection (children all CC-BY)
+
 ## public-population
 - **OK** · `CC-BY-4.0` — public-population/ghs-pop-2020  
 - **N/A** · `various` — public-population  · meta/aggregate (children carry licenses)

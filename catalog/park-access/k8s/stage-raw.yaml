@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: park-access-2020-stage-raw
+  labels:
+    k8s-app: park-access-2020-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: park-access-2020-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          SRC="https://ogals-spp-projects.s3.amazonaws.com/downloads/ParkAccess_Shapefiles.zip"
+          cd /tmp
+          echo "=== create bucket ==="
+          cng-datasets storage setup-bucket --bucket public-parks --remote nrp --verify
+          echo "=== download zip ==="
+          curl -L --retry 5 -o pa.zip "$SRC"
+          ls -la pa.zip
+          echo "=== stage full zip to raw/ (provenance) ==="
+          rclone copyto pa.zip nrp:public-parks/raw/ParkAccess_Shapefiles.zip
+          echo "=== unzip 3 core layers ==="
+          mkdir -p ext
+          unzip -o pa.zip 'ACS2018_5Y_Tract_PPK.*' 'NoParkAccess_PopDensity.*' 'Half_Mile_Access.*' -d ext
+          ls -la ext
+          echo "=== stage per-layer shapefile components ==="
+          for pair in \
+            "ACS2018_5Y_Tract_PPK:tract-acres-per-thousand" \
+            "NoParkAccess_PopDensity:no-park-access" \
+            "Half_Mile_Access:half-mile-access"; do
+            base="${pair%%:*}"; dest="${pair##*:}"
+            for ext in shp shx dbf prj cpg; do
+              f="ext/${base}.${ext}"
+              [ -f "$f" ] && rclone copyto "$f" "nrp:public-parks/raw/${dest}/${base}.${ext}"
+            done
+            echo "  staged ${base} -> raw/${dest}/"
+          done
+          echo "=== verify listing ==="
+          rclone ls nrp:public-parks/raw/ | sort
+          echo "DONE"
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '2', memory: 4Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']

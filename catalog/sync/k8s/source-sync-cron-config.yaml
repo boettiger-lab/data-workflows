@@ -35,6 +35,7 @@ data:
     ncp sync */chunks/** */hex-staging/** 
     overturemaps sync */chunks/** */hex-staging/** 
     padus sync */chunks/** */hex-staging/** 
+    parks sync */chunks/** */hex-staging/** 
     population sync */chunks/** */hex-staging/** 
     rap sync */chunks/** */hex-staging/** 
     rivers sync */chunks/** */hex-staging/** american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**
