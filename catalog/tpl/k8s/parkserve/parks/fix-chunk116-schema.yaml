@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: parkserve-2025-fix-chunk116
+  labels: {k8s-app: parkserve-2025-fix-chunk116}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels: {k8s-app: parkserve-2025-fix-chunk116}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import duckdb, os
+          con=duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'; SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}'; SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+          src="s3://public-tpl/parkserve-2025/parks/chunks/chunk_000116.parquet"
+          # match res-10 chunk schema exactly: _cng_fid, h10, h0, h8, h9  (h10/h9 NULL for these giant AK features)
+          con.execute(f"""
+            COPY (SELECT _cng_fid, NULL::UBIGINT AS h10, h0, h8, NULL::UBIGINT AS h9 FROM read_parquet('{src}'))
+            TO 's3://public-tpl/parkserve-2025/parks/chunks/chunk_000116_fixed.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+          """)
+          n=con.execute("SELECT COUNT(*) FROM read_parquet('s3://public-tpl/parkserve-2025/parks/chunks/chunk_000116_fixed.parquet')").fetchone()[0]
+          print("fixed chunk116 rows:", n)
+          PY
+          echo "=== swap fixed -> chunk_000116, remove temp ==="
+          rclone moveto nrp:public-tpl/parkserve-2025/parks/chunks/chunk_000116_fixed.parquet nrp:public-tpl/parkserve-2025/parks/chunks/chunk_000116.parquet
+          rclone lsf nrp:public-tpl/parkserve-2025/parks/chunks/ | grep 116
+          echo DONE
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
