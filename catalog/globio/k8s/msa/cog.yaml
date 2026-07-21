@@ -1,0 +1,87 @@
+# GLOBIO MSA: build a WGS84 COG for each of the 12 layers from the staged raw tif.
+# Raw tifs are striped LZW GeoTIFFs; this produces tiled, overview'd, ZSTD COGs
+# (Float32, nodata -999) — the published raster asset AND the hex input.
+# Indexed job: JOB_COMPLETION_INDEX -> (slice, layer) via the arrays below.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: globio-msa-cog
+  namespace: geo-workflows
+  labels: {k8s-app: globio-msa-cog}
+spec:
+  completions: 12
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 3
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 14400
+  template:
+    metadata:
+      labels: {k8s-app: globio-msa-cog}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_NUM_THREADS, value: ALL_CPUS}
+        - {name: TMPDIR, value: /scratch}
+        volumeMounts:
+        - {name: scratch, mountPath: /scratch}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          SLICES=(2015 ssp1rcp26-2050 ssp3rcp60-2050 ssp5rcp85-2050)
+          LAYERS=(overall plants wbvert)
+          i=${JOB_COMPLETION_INDEX}
+          slice=${SLICES[$((i/3))]}
+          layer=${LAYERS[$((i%3))]}
+          ds="globio-msa-${slice}-${layer}"
+          W="/scratch/${ds}"; rm -rf "$W"; mkdir -p "$W"
+          echo "=== [$i] ${slice}/${layer} -> ${ds}-cog.tif ==="
+          echo "Localizing raw ..."
+          rclone copyto "nrp:public-globio/raw/${slice}/${layer}.tif" "$W/in.tif" \
+            --transfers 8 --stats 30s --stats-one-line
+          echo "gdal_translate -> COG (Float32, ZSTD, nodata -999) ..."
+          gdal_translate "$W/in.tif" "$W/cog.tif" \
+            -of COG -ot Float32 -a_nodata -999 \
+            -co COMPRESS=ZSTD -co PREDICTOR=3 -co LEVEL=12 \
+            -co BLOCKSIZE=512 \
+            -co OVERVIEWS=AUTO -co OVERVIEW_RESAMPLING=AVERAGE -co RESAMPLING=AVERAGE \
+            -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS
+          ls -lh "$W/cog.tif"
+          echo "verify (fresh stats, no stale sidecar):"
+          rm -f "$W/cog.tif.aux.xml"
+          gdalinfo -stats "$W/cog.tif" 2>&1 | grep -iE 'Size is|Type=|NoData|Minimum=|Maximum=|Mean=|COMPRESSION|LAYOUT|OVERVIEW' | head
+          echo "Uploading COG -> nrp:public-globio/${ds}-cog.tif ..."
+          rclone copyto "$W/cog.tif" "nrp:public-globio/${ds}-cog.tif" \
+            --s3-no-check-bucket --transfers 8 --stats 30s --stats-one-line
+          rm -rf "$W"
+          echo "COG DONE ${slice}/${layer}"
+        resources:
+          requests: {cpu: '8', memory: 24Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 24Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: scratch
+        emptyDir: {sizeLimit: 50Gi}
+      - name: rclone-config
+        secret: {secretName: rclone-config}

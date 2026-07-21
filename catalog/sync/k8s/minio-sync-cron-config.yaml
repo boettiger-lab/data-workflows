@@ -31,6 +31,7 @@ data:
     fire sync */chunks/** */hex-staging/** 
     gbif sync */chunks/** */hex-staging/** 
     gfw sync */chunks/** */hex-staging/** 
+    globio sync */chunks/** */hex-staging/** 
     grids sync */chunks/** */hex-staging/** 
     hazard sync */chunks/** */hex-staging/** 
     high-seas sync */chunks/** */hex-staging/** 

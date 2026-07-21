@@ -24,6 +24,7 @@ data:
     fire sync */chunks/** */hex-staging/** 
     gbif sync */chunks/** */hex-staging/** 
     gfw sync */chunks/** */hex-staging/** 
+    globio sync */chunks/** */hex-staging/** 
     hazard sync */chunks/** */hex-staging/** mid-century-habitat-climate-exposure/**
     high-seas sync */chunks/** */hex-staging/** mpa-candidates/**
     inat sync */chunks/** */hex-staging/** 

@@ -1,0 +1,87 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: globio-stage-raw
+  labels: {k8s-app: globio-stage-raw}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 21600
+  template:
+    metadata:
+      labels: {k8s-app: globio-stage-raw}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /scratch}
+        volumeMounts:
+        - {name: scratch, mountPath: /scratch, subPath: globio-stage}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /scratch
+          BASE="https://dataportaal.pbl.nl/data/GLOBIO/Schipper_etal_2020"
+          # slice: "<urldir> <yearsuffix> <slicename>"
+          SLICES=(
+            "2015 2015 2015"
+            "SSP1RCP26 2050_SSP1RCP26 ssp1rcp26-2050"
+            "SSP3RCP60 2050_SSP3RCP60 ssp3rcp60-2050"
+            "SSP5RCP85 2050_SSP5RCP85 ssp5rcp85-2050"
+          )
+          # layer: "<name> <zip-infix>"
+          LAYERS=("overall " "plants _plants" "wbvert _wbvert")
+          for s in "${SLICES[@]}"; do
+            read -r urldir ysuf slice <<< "$s"
+            for l in "${LAYERS[@]}"; do
+              read -r lname infix <<< "$l"; infix=${infix:-}
+              dest="nrp:public-globio/raw/${slice}/${lname}.tif"
+              if rclone lsf "$dest" 2>/dev/null | grep -q .; then
+                echo "SKIP (already staged): $dest"; continue
+              fi
+              zip="Globio4_TerrestrialMSA${infix}_10sec_${ysuf}.zip"
+              url="${BASE}/${urldir}/${zip}"
+              echo "==== ${slice}/${lname} :: ${url}"
+              rm -rf work; mkdir work
+              curl -sSL --retry 8 --retry-delay 10 -o "work/${zip}" "$url"
+              unzip -o "work/${zip}" -d work/unz >/dev/null
+              tif=$(find work/unz -iname '*.tif' | head -1)
+              echo "  staging $(basename "$tif") -> $dest"
+              rclone copyto "$tif" "$dest" --s3-no-check-bucket --transfers 4 --stats 30s --stats-one-line
+              rm -rf work
+              echo "  DONE ${slice}/${lname}"
+            done
+          done
+          echo "==== staged raw tree ===="
+          rclone tree nrp:public-globio/raw/ 2>&1 | head -60
+          echo "STAGE-RAW COMPLETE"
+        resources:
+          requests: {cpu: '6', memory: 8Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '6', memory: 8Gi, ephemeral-storage: 4Gi}
+      volumes:
+      - name: scratch
+        persistentVolumeClaim: {claimName: rechunk-scratch}
+      - name: rclone-config
+        secret: {secretName: rclone-config}
