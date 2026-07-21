@@ -1,0 +1,100 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kba-2026-03-sites-convert
+  labels:
+    k8s-app: kba-2026-03-sites-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: kba-2026-03-sites-convert
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-kba
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # KBA ships TWO layers with different schemas (POL: 16,222 polygons;
+          # PNT: 287 point-only sites). cng-convert merges inputs by *positional*
+          # UNION ALL, so schemas must be harmonized first. We ogr2ogr each layer
+          # to a common column set (site area unified to AreaKM2), tag geom_type,
+          # and merge into ONE mixed-geometry FlatGeobuf, then convert. Result:
+          # 16,509 sites, one row each (SitRecID == one row; _cng_fid uniform).
+          mkdir -p /tmp/raw
+          echo "Localizing raw KBA shapefiles from S3..."
+          rclone copy nrp:public-kba/raw/ /tmp/raw/ \
+            --include "KBAsGlobal_2026_March_01_POL.*" \
+            --include "KBAsGlobal_2026_March_01_PNT.*"
+          cd /tmp/raw
+          echo "Harmonizing + merging POL (polygons) + PNT (points)..."
+          # SQLite dialect so we can normalize the upstream export's literal "nan"
+          # missing-value sentinels -> NULL and unify KbaStatus case (POL 'Confirmed'
+          # vs PNT 'confirmed' — same concept, split only by source layer). Must
+          # SELECT `geometry` explicitly in the SQLite dialect or geom is dropped.
+          ogr2ogr -f FlatGeobuf -dialect SQLITE -nlt GEOMETRY -nln sites /tmp/sites.fgb \
+            KBAsGlobal_2026_March_01_POL.shp \
+            -sql "SELECT SitRecID, Region, Country, ISO3, NatName, IntName, SitLat, SitLong, SitAreaKM2 AS AreaKM2, 'Confirmed' AS KbaStatus, NULLIF(KbaClass,'nan') AS KbaClass, NULLIF(IbaStatus,'nan') AS IbaStatus, NULLIF(LegacyKba,'nan') AS LegacyKba, NULLIF(AzeStatus,'nan') AS AzeStatus, LastUpdate, Source, 'polygon' AS geom_type, geometry FROM KBAsGlobal_2026_March_01_POL"
+          ogr2ogr -f FlatGeobuf -dialect SQLITE -nlt GEOMETRY -nln sites -append -update /tmp/sites.fgb \
+            KBAsGlobal_2026_March_01_PNT.shp \
+            -sql "SELECT SitRecID, Region, Country, ISO3, NatName, IntName, SitLat, SitLong, RepAreaKM2 AS AreaKM2, 'Confirmed' AS KbaStatus, NULLIF(KbaClass,'nan') AS KbaClass, NULLIF(IbaStatus,'nan') AS IbaStatus, NULLIF(LegacyKba,'nan') AS LegacyKba, NULLIF(AzeStatus,'nan') AS AzeStatus, LastUpdate, Source, 'point' AS geom_type, geometry FROM KBAsGlobal_2026_March_01_PNT"
+          echo "Converting merged FlatGeobuf to GeoParquet (row-group-size 2000, geometry-heavy)..."
+          cng-convert-to-parquet /tmp/sites.fgb \
+            s3://public-kba/kba-2026-03/sites.parquet \
+            --row-group-size 2000
+          echo "Done."
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

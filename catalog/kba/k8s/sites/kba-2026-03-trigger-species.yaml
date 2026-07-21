@@ -1,0 +1,91 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kba-2026-03-trigger-species
+  labels:
+    k8s-app: kba-2026-03-trigger-species
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: kba-2026-03-trigger-species
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: trigger-species
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # Non-spatial sidecar: the KBA trigger-species table (which IUCN Red List
+          # species trigger each KBA site). One row per (site, species). Keyed on
+          # SitRecID -> joins to the kba-2026-03/sites collection. 132,416 rows.
+          mkdir -p /tmp/ts
+          echo "Localizing trigger-species xlsx from raw/..."
+          rclone copy nrp:public-kba/raw/ /tmp/ts/ --include "March_2026_KBA_Trigger_Species.xlsx"
+          echo "Converting xlsx -> parquet (cleaned column names)..."
+          python3 - <<'PY'
+          import duckdb
+          c = duckdb.connect()
+          c.execute("INSTALL excel; LOAD excel;")
+          src = "/tmp/ts/March_2026_KBA_Trigger_Species.xlsx"
+          c.execute(f"""
+            COPY (
+              SELECT
+                CAST(CAST("SitRecID" AS DOUBLE) AS BIGINT)   AS SitRecID,
+                "International Name"                          AS intl_name,
+                TRY_CAST(CAST("Year" AS DOUBLE) AS INTEGER)  AS year,
+                "Country"                                    AS country,
+                "Region"                                     AS region,
+                CAST(CAST("TaxonId" AS DOUBLE) AS BIGINT)    AS TaxonId,
+                "Common Name"                                AS common_name,
+                "Scientific Name"                            AS scientific_name,
+                "Kingdom"                                    AS kingdom,
+                "Phylum"                                     AS phylum,
+                "Class"                                      AS taxon_class,
+                "Order"                                      AS taxon_order,
+                "Family"                                     AS family,
+                NULLIF(NULLIF(TRIM("RedListCategoryCode"),''),'NULL') AS redlist_category,
+                "KBACriterias"                               AS kba_criteria,
+                CAST("Crit_Legacy" AS BOOLEAN)               AS crit_legacy
+              FROM read_xlsx('{src}', all_varchar=true)
+            ) TO '/tmp/trigger-species.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+          """)
+          n = c.execute("SELECT COUNT(*), COUNT(DISTINCT SitRecID) FROM read_parquet('/tmp/trigger-species.parquet')").fetchone()
+          print("rows:", n[0], "distinct SitRecID:", n[1])
+          PY
+          echo "Uploading to S3..."
+          rclone copyto /tmp/trigger-species.parquet nrp:public-kba/kba-2026-03/trigger-species.parquet
+          echo "Done."
+        resources:
+          requests: {cpu: '2', memory: 8Gi}
+          limits: {cpu: '2', memory: 8Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']

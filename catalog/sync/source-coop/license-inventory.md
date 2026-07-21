@@ -115,6 +115,10 @@ CDFW BIOS biogeographic data. **Verified**: the BIOS-published layers (ACE, SWAP
 - **NO** · `IUCN Red List ToU` — public-iucn  · IUCN: no redistribution, incl. derivatives (verified)
 - **NO** · `IUCN Red List ToU` — public-iucn/taxonomy  · IUCN: no redistribution, incl. derivatives (verified)
 
+## public-kba
+- **NO** · `proprietary (KBA Partnership ToS)` — public-kba  · World Database of Key Biodiversity Areas (BirdLife/KBA Partnership). Non-commercial GIS request; ToS prohibits "all forms of reposting… redistribution or communication to the public" (https://www.keybiodiversityareas.org/termsofservice). NRP + MinIO backup only; NOT on source.coop. WDPA/IUCN class. data-workflows #432.
+- **NO** · `proprietary (KBA Partnership ToS)` — public-kba/kba-2026-03/sites  · same ToS; includes the trigger-species sidecar (derivative of KBA + IUCN Red List data — also non-redistributable).
+
 ## public-land-cover
 - **OK** · `CC-BY-4.0` — public-land-cover/cgls-lc100-2019  
 - **OK** · `public-domain` — public-land-cover/nlcd-2024  · NLCD MRLC/USGS = US federal PD

@@ -52,7 +52,7 @@ BUCKETS=(
   barred-owl
   ca30x30 ca-dac calenviroscreen carbon ca-wolves cdfw census cgs connectivity cpad
   data datacenters dem ecoregion epa-water facts fire gbif gfw globio grids hazard high-seas
-  human-modification hydrobasins icca im3 inat indigenous iucn land-cover
+  human-modification hydrobasins icca im3 inat indigenous iucn kba land-cover
   mappinginequality mobi nci-frontiers ncp overturemaps padus parks population rap rivers
   social-vulnerability swap tpl trails usfws usgs-nhd usgs-wbd usgs-ungulate-migration
   wdpa wetlands wui wyoming

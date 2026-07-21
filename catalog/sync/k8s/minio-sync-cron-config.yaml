@@ -42,6 +42,7 @@ data:
     inat sync */chunks/** */hex-staging/** 
     indigenous sync */chunks/** */hex-staging/** 
     iucn sync */chunks/** */hex-staging/** 
+    kba sync */chunks/** */hex-staging/** 
     land-cover sync */chunks/** */hex-staging/** 
     mappinginequality sync */chunks/** */hex-staging/** 
     mobi sync */chunks/** */hex-staging/** 
