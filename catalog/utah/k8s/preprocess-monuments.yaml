@@ -1,0 +1,155 @@
+# Preprocess: normalize the four per-era boundary sources for BOTH monuments into two
+# combined GeoParquet files with a common schema (issue #450). Reads only the small staged
+# GeoJSONs from s3://public-utah/raw/ (produced by the SGID pulls, padus21-clip, and
+# padus41-2021-clip, plus the provided 2026 geojson). DuckDB-spatial normalizes + dissolves
+# per-era units, then cng-convert-to-parquet writes the final GeoParquet (adds _cng_fid).
+#
+# Common schema (per row):
+#   name (monument display name), monument (short key the app filters on), unit (sub-unit
+#   or monument name), era, status (original|reduced|restored), acres (official published
+#   proclamation acreage), gis_acres (geodesic area of the actual geometry), geometry (4326).
+#
+# acres = official legal/proclamation acreage (the headline figure the timeline is about);
+# gis_acres = measured from the boundary polygon. They differ a few % (GIS digitization; the
+# PAD-US-restored 2021 boundaries measure larger than the proclamation figure). Documented in STAC.
+#
+# Outputs:
+#   s3://public-utah/bears-ears/benm.parquet                (4 rows: 2016/2017/2021/2026)
+#   s3://public-utah/grand-staircase-escalante/gsenm.parquet(6 rows: 1996/2017/2021 + 3x 2026 units)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: preprocess-monuments
+  namespace: geo-workflows
+  labels: {k8s-app: preprocess-monuments}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: preprocess-monuments}}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -eu
+          cd /tmp
+          echo "==> Localize raw GeoJSONs"
+          for f in sgid-benm-2016.geojson sgid-gsenm-1996.geojson boundaries-2026.geojson \
+                   padus21-monuments.geojson padus41-ut-nm-2021.geojson; do
+            rclone copyto "nrp:public-utah/raw/$f" "/tmp/$f"
+          done
+          cat > /tmp/normalize.py <<'PY'
+          import duckdb
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial;")
+
+          BENM = """
+          CREATE OR REPLACE TABLE benm AS
+          SELECT 'Bears Ears National Monument' AS name, 'Bears Ears' AS monument,
+                 'Bears Ears' AS unit, '2016 original' AS era, 'original' AS status,
+                 1351849.0 AS acres, ST_Transform(ST_GeomFromWKB(ST_AsWKB(geom)), 'EPSG:4326', 'EPSG:4326') AS geom
+          FROM ST_Read('/tmp/sgid-benm-2016.geojson')
+          UNION ALL BY NAME
+          SELECT 'Bears Ears National Monument' AS name, 'Bears Ears' AS monument,
+                 'Bears Ears' AS unit, '2017 reduced' AS era, 'reduced' AS status,
+                 201876.0 AS acres, ST_Transform(ST_Union_Agg(ST_GeomFromWKB(ST_AsWKB(geom))), 'EPSG:4326', 'EPSG:4326') AS geom
+          FROM ST_Read('/tmp/padus21-monuments.geojson')
+          WHERE Unit_Nm LIKE 'Bears Ears National Monument -%'
+          UNION ALL BY NAME
+          SELECT 'Bears Ears National Monument' AS name, 'Bears Ears' AS monument,
+                 'Bears Ears' AS unit, '2021 restored' AS era, 'restored' AS status,
+                 1362024.0 AS acres, ST_Transform(ST_GeomFromWKB(ST_AsWKB(geom)), 'EPSG:4326', 'EPSG:4326') AS geom
+          FROM ST_Read('/tmp/padus41-ut-nm-2021.geojson')
+          WHERE monument = 'Bears Ears'
+          UNION ALL BY NAME
+          SELECT 'Bears Ears National Monument' AS name, 'Bears Ears' AS monument,
+                 'Bears Ears' AS unit, '2026 reduced' AS era, 'reduced' AS status,
+                 121096.0 AS acres, ST_Transform(ST_GeomFromWKB(ST_AsWKB(geom)), 'EPSG:4326', 'EPSG:4326') AS geom
+          FROM ST_Read('/tmp/boundaries-2026.geojson')
+          WHERE monument = 'Bears Ears';
+          """
+
+          GSENM = """
+          CREATE OR REPLACE TABLE gsenm AS
+          SELECT 'Grand Staircase-Escalante National Monument' AS name,
+                 'Grand Staircase-Escalante' AS monument, CAST(NULL AS VARCHAR) AS unit,
+                 '1996 original' AS era, 'original' AS status, 1880461.0 AS acres, ST_Transform(ST_GeomFromWKB(ST_AsWKB(geom)), 'EPSG:4326', 'EPSG:4326') AS geom
+          FROM ST_Read('/tmp/sgid-gsenm-1996.geojson')
+          UNION ALL BY NAME
+          SELECT 'Grand Staircase-Escalante National Monument' AS name,
+                 'Grand Staircase-Escalante' AS monument, CAST(NULL AS VARCHAR) AS unit,
+                 '2017 reduced' AS era, 'reduced' AS status, 1003863.0 AS acres,
+                 ST_Transform(ST_Union_Agg(ST_GeomFromWKB(ST_AsWKB(geom))), 'EPSG:4326', 'EPSG:4326') AS geom
+          FROM ST_Read('/tmp/padus21-monuments.geojson')
+          WHERE Unit_Nm LIKE 'Grand Staircase-Escalante National Monument -%'
+          UNION ALL BY NAME
+          SELECT 'Grand Staircase-Escalante National Monument' AS name,
+                 'Grand Staircase-Escalante' AS monument, CAST(NULL AS VARCHAR) AS unit,
+                 '2021 restored' AS era, 'restored' AS status, 1870800.0 AS acres, ST_Transform(ST_GeomFromWKB(ST_AsWKB(geom)), 'EPSG:4326', 'EPSG:4326') AS geom
+          FROM ST_Read('/tmp/padus41-ut-nm-2021.geojson')
+          WHERE monument = 'Grand Staircase-Escalante'
+          UNION ALL BY NAME
+          SELECT 'Grand Staircase-Escalante National Monument' AS name,
+                 'Grand Staircase-Escalante' AS monument, unit AS unit,
+                 '2026 reduced' AS era, 'reduced' AS status, gis_acres AS acres, ST_Transform(ST_GeomFromWKB(ST_AsWKB(geom)), 'EPSG:4326', 'EPSG:4326') AS geom
+          FROM ST_Read('/tmp/boundaries-2026.geojson')
+          WHERE monument = 'Grand Staircase-Escalante';
+          """
+
+          for name, sql in [("benm", BENM), ("gsenm", GSENM)]:
+              con.execute(sql)
+              print(f"==== {name} ====")
+              # Add gis_acres (geodesic, CRS now tagged EPSG:4326) and _cng_fid (row-unique id).
+              con.execute(f"""
+                COPY (
+                  SELECT
+                    row_number() OVER (ORDER BY era, unit) AS _cng_fid,
+                    name, monument, unit, era, status, acres,
+                    ST_Area(ST_Transform(ST_MakeValid(geom), 'EPSG:4326', 'EPSG:5070', always_xy := true))/4046.8564224 AS gis_acres,
+                    ST_MakeValid(geom) AS geom
+                  FROM {name}
+                ) TO '/tmp/{name}.parquet' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000);
+              """)
+              for row in con.execute(
+                  f"SELECT _cng_fid, era, status, unit, acres, ROUND(gis_acres) gis_ac, "
+                  f"ST_GeometryType(geom) gt FROM read_parquet('/tmp/{name}.parquet') "
+                  f"ORDER BY era, unit").fetchall():
+                  print("  ", row)
+              print(f"  wrote /tmp/{name}.parquet")
+          PY
+          echo "==> Normalize + write GeoParquet (DuckDB spatial, native GeoParquet)"
+          python3 /tmp/normalize.py
+          echo "==> Upload"
+          rclone copyto /tmp/benm.parquet  nrp:public-utah/bears-ears/benm.parquet
+          rclone copyto /tmp/gsenm.parquet nrp:public-utah/grand-staircase-escalante/gsenm.parquet
+          echo "DONE"
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 8Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

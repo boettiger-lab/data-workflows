@@ -62,6 +62,7 @@ data:
     usgs-nhd sync */chunks/** */hex-staging/** 
     usgs-wbd sync */chunks/** */hex-staging/** 
     usgs-ungulate-migration sync */chunks/** */hex-staging/** 
+    utah sync */chunks/** */hex-staging/** 
     wdpa sync */chunks/** */hex-staging/** 
     wetlands sync */chunks/** */hex-staging/** 
     wui sync */chunks/** */hex-staging/** 

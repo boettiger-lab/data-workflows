@@ -1,0 +1,66 @@
+# Per-era PMTiles for Grand Staircase-Escalante (issue #450). One PMTiles asset per era for
+# the app's `versions` dropdown; all eras share the SAME tippecanoe layer name (`gsenm`) so
+# the app keeps one MapLibre layer/style and only swaps the URL. Filters combined
+# gsenm.parquet by `era`. Outputs: s3://public-utah/grand-staircase-escalante/gsenm-{1996,2017,2021,2026}.pmtiles
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grand-staircase-escalante-gsenm-pmtiles
+  namespace: geo-workflows
+  labels: {k8s-app: grand-staircase-escalante-gsenm-pmtiles}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: grand-staircase-escalante-gsenm-pmtiles}}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: pmtiles-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        - {name: PARQUET_URL, value: 'https://s3-west.nrp-nautilus.io/public-utah/grand-staircase-escalante/gsenm.parquet'}
+        - {name: LAYER, value: 'gsenm'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -eu
+          export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          declare -A ERAS=( ["1996 original"]=1996 ["2017 reduced"]=2017 ["2021 restored"]=2021 ["2026 reduced"]=2026 )
+          for era in "${!ERAS[@]}"; do
+            tok=${ERAS[$era]}
+            echo "==> era='$era' -> gsenm-$tok.pmtiles"
+            ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/gsenm-$tok.geojsonl \
+              /vsicurl/$PARQUET_URL -where "era = '$era'"
+            tippecanoe -o /tmp/gsenm-$tok.pmtiles -l "$LAYER" \
+              -Z0 -z12 --drop-densest-as-needed --extend-zooms-if-still-dropping --force \
+              /tmp/gsenm-$tok.geojsonl
+            rclone copyto /tmp/gsenm-$tok.pmtiles nrp:public-utah/grand-staircase-escalante/gsenm-$tok.pmtiles
+            rm -f /tmp/gsenm-$tok.geojsonl /tmp/gsenm-$tok.pmtiles
+          done
+          echo DONE
+        resources:
+          requests: {cpu: '4', memory: 16Gi}
+          limits: {cpu: '4', memory: 16Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

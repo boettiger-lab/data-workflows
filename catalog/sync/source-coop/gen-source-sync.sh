@@ -48,7 +48,7 @@ REPOS=(
   ca-dac calenviroscreen carbon census cgs connectivity cpad ecoregion epa-water
   facts fire gbif gfw globio hazard high-seas inat indigenous land-cover mappinginequality
   mobi nci-frontiers ncp overturemaps padus parks population rap rivers
-  social-vulnerability trails usfws usgs-nhd usgs-wbd wetlands
+  social-vulnerability trails usfws usgs-nhd usgs-wbd utah wetlands
 )
 
 # Per-repo sub-path excludes (HOLD: license unconfirmed for these collections).

@@ -1,0 +1,92 @@
+# Shared preprocess: fetch the PAD-US 2.1 GDB (2.8 GB, cached to s3://public-utah/raw/ on
+# first run) and clip the *2017-reduced* Bears Ears (Shash Jáa + Indian Creek units) and
+# Grand Staircase-Escalante (Escalante Canyons + Grand Staircase + Kaiparowits units)
+# National Monument boundaries (issue #450). PAD-US 2.1 (published 2020) reflects the
+# Dec-2017 Trump proclamations (9681/9682) that reduced both. The real data GDB inside the
+# archive is PAD_US2_1.gdb (NOT the bundled blank-schema GDB); monuments live in the
+# PADUS2_1Designation feature class as per-unit polygons (Des_Tp='NM', State_Nm='UT').
+# Output: s3://public-utah/raw/padus21-monuments.geojson (5 unit features; the per-monument
+# preprocess dissolves the units of each monument into one 2017 boundary).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: padus21-clip
+  namespace: geo-workflows
+  labels:
+    k8s-app: padus21-clip
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: padus21-clip
+    spec:
+      restartPolicy: Never
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
+      containers:
+      - name: clip
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        - name: PADUS_URL
+          value: 'https://www.sciencebase.gov/catalog/file/get/5f186a2082cef313ed843257?f=__disk__42%2F38%2Fd9%2F4238d97c123918fe95d0dfa13b99ff7c374a93f8'
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -eu
+          cd /tmp
+          if [ -z "$(rclone lsf nrp:public-utah/raw/PAD_US2_1_GDB.zip 2>/dev/null)" ]; then
+            echo "==> Downloading PAD-US 2.1 GDB (~2.8 GB) and caching to S3"
+            curl -sSL --retry 8 --retry-delay 5 --retry-all-errors -o padus21.zip "$PADUS_URL"
+            rclone copyto padus21.zip nrp:public-utah/raw/PAD_US2_1_GDB.zip
+          else
+            echo "==> Using cached GDB zip from S3"
+            rclone copyto nrp:public-utah/raw/PAD_US2_1_GDB.zip padus21.zip
+          fi
+          echo "==> Unzipping"
+          unzip -q padus21.zip
+          GDB=/tmp/PAD_US2_1.gdb   # real data GDB (NOT the bundled blank-schema GDB)
+          LAYER=PADUS2_1Designation
+          echo "==> 2017 monument unit inventory:"
+          ogrinfo -q -dialect OGRSQL \
+            -sql "SELECT Unit_Nm, GIS_Acres FROM ${LAYER} WHERE State_Nm='UT' AND Des_Tp='NM' AND (Unit_Nm LIKE 'Bears Ears National Monument -%' OR Unit_Nm LIKE 'Grand Staircase-Escalante National Monument -%')" \
+            "$GDB" || true
+          echo "==> Clipping the 5 monument units -> GeoJSON (EPSG:4326)"
+          ogr2ogr -f GeoJSON -t_srs EPSG:4326 -nlt PROMOTE_TO_MULTI \
+            -select "Unit_Nm,Loc_Nm,Des_Tp,GIS_Acres,State_Nm" \
+            -where "State_Nm='UT' AND Des_Tp='NM' AND (Unit_Nm LIKE 'Bears Ears National Monument -%' OR Unit_Nm LIKE 'Grand Staircase-Escalante National Monument -%')" \
+            /tmp/padus21-monuments.geojson "$GDB" "$LAYER"
+          echo "==> Feature count:"
+          ogrinfo -q -so /tmp/padus21-monuments.geojson || true
+          echo "==> Upload"
+          rclone copyto /tmp/padus21-monuments.geojson nrp:public-utah/raw/padus21-monuments.geojson
+          echo "DONE"
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 45Gi}
+          limits: {cpu: '2', memory: 8Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
