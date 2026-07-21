@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: imma-convert
+  labels:
+    k8s-app: imma-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: imma-convert
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-high-seas
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # IMMA ships one GPKG layer with spaced/`#`-prefixed column names and 3D
+          # polygons. Preprocess: clean column names to snake_case (SQLite dialect),
+          # flatten 3D->2D (-dim XY), then convert. 323 features, all MULTIPOLYGON.
+          mkdir -p /tmp/raw
+          echo "Localizing IMMA GeoPackage from raw/..."
+          rclone copy nrp:public-high-seas/raw/imma/ /tmp/raw/ --include "iucn-imma.gpkg"
+          echo "Cleaning column names + flattening to 2D..."
+          ogr2ogr -f FlatGeobuf -dialect SQLITE -nlt MULTIPOLYGON -nln imma -dim XY /tmp/imma.fgb \
+            /tmp/raw/iucn-imma.gpkg \
+            -sql 'SELECT "Ident Code" AS ident_code, Status AS status, Title AS title, "Criteria cat" AS criteria_cat, Criteria AS criteria, "Qualifying Sp" AS qualifying_sp, "Qual Sp Order" AS qual_sp_order, "Qual Sp Family" AS qual_sp_family, "# Qualifying Sp" AS n_qualifying_sp, "Supporting Sp" AS supporting_sp, "# Supporting Sp" AS n_supporting_sp, Region AS region, "Region Code" AS region_code, Jurisdiction AS jurisdiction, "Jurisdiction Code" AS jurisdiction_code, "Area Sqkm" AS area_sqkm, month_submitted, year_submitted, month_classified, year_classified, month_modified, year_modified, Details AS details, ST_SimplifyPreserveTopology(geom, 0.001) AS geom FROM "iucn-imma"'
+          echo "Converting to GeoParquet (row-group-size 2000)..."
+          cng-convert-to-parquet /tmp/imma.fgb \
+            s3://public-high-seas/imma.parquet \
+            --row-group-size 2000
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
