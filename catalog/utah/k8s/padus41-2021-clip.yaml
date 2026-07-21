@@ -1,0 +1,85 @@
+# Shared preprocess: clip the *2021-restored* Bears Ears & Grand Staircase-Escalante
+# boundaries from the catalog's PAD-US 4.1 combined layer (issue #450).
+# PAD-US 4.1 stores Bears Ears as two FED features (BLM + USFS) that overlap; ST_Union_Agg
+# dissolves each monument to a single true footprint. Reads via the INTERNAL S3 endpoint
+# (s3://) to avoid the httpfs `stoi` crash on the large combined.parquet (AGENTS.md).
+# Output: s3://public-utah/raw/padus41-ut-nm-2021.geojson  (2 features: one per monument).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: padus41-2021-clip
+  namespace: geo-workflows
+  labels:
+    k8s-app: padus41-2021-clip
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: padus41-2021-clip
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: clip
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -eu
+          cat > /tmp/clip.py <<'PY'
+          import os, duckdb
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'; SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';")
+          con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+          con.execute("""
+            COPY (
+              SELECT
+                CASE WHEN Unit_Nm LIKE 'Bears%' THEN 'Bears Ears'
+                     ELSE 'Grand Staircase-Escalante' END AS monument,
+                ST_Union_Agg(SHAPE) AS geom
+              FROM read_parquet('s3://public-padus/padus-4-1/combined.parquet')
+              WHERE State_Nm='UT' AND Des_Tp='NM'
+                AND Unit_Nm IN ('Bears Ears National Monument',
+                                'Grand Staircase-Escalante National Monument')
+              GROUP BY 1
+            ) TO '/tmp/padus41-ut-nm-2021.geojson'
+              WITH (FORMAT GDAL, DRIVER 'GeoJSON', SRS 'OGC:CRS84');
+          """)
+          print("clip written")
+          PY
+          echo "==> Running DuckDB clip (python)"
+          python3 /tmp/clip.py
+          echo "==> Result:"
+          ogrinfo -q -so /tmp/padus41-ut-nm-2021.geojson || true
+          echo "==> Upload"
+          rclone copyto /tmp/padus41-ut-nm-2021.geojson nrp:public-utah/raw/padus41-ut-nm-2021.geojson
+          echo "DONE"
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '4', memory: 32Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

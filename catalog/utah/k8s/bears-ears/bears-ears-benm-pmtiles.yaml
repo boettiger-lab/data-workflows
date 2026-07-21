@@ -1,0 +1,68 @@
+# Per-era PMTiles for Bears Ears (issue #450). One PMTiles asset per era so the app's
+# `versions` dropdown can swap the tile source. All eras share the SAME tippecanoe layer
+# name (`benm`) so the app keeps one MapLibre layer/style and only swaps the URL.
+# Filters the combined benm.parquet by `era` -> GeoJSONSeq -> tippecanoe -> S3.
+# Outputs: s3://public-utah/bears-ears/benm-{2016,2017,2021,2026}.pmtiles
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bears-ears-benm-pmtiles
+  namespace: geo-workflows
+  labels: {k8s-app: bears-ears-benm-pmtiles}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: bears-ears-benm-pmtiles}}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: pmtiles-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        - {name: PARQUET_URL, value: 'https://s3-west.nrp-nautilus.io/public-utah/bears-ears/benm.parquet'}
+        - {name: LAYER, value: 'benm'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -eu
+          export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          # era label -> output year token (app asset id = benm-<token>)
+          declare -A ERAS=( ["2016 original"]=2016 ["2017 reduced"]=2017 ["2021 restored"]=2021 ["2026 reduced"]=2026 )
+          for era in "${!ERAS[@]}"; do
+            tok=${ERAS[$era]}
+            echo "==> era='$era' -> benm-$tok.pmtiles"
+            ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/benm-$tok.geojsonl \
+              /vsicurl/$PARQUET_URL -where "era = '$era'"
+            tippecanoe -o /tmp/benm-$tok.pmtiles -l "$LAYER" \
+              -Z0 -z12 --drop-densest-as-needed --extend-zooms-if-still-dropping --force \
+              /tmp/benm-$tok.geojsonl
+            rclone copyto /tmp/benm-$tok.pmtiles nrp:public-utah/bears-ears/benm-$tok.pmtiles
+            rm -f /tmp/benm-$tok.geojsonl /tmp/benm-$tok.pmtiles
+          done
+          echo DONE
+        resources:
+          requests: {cpu: '4', memory: 16Gi}
+          limits: {cpu: '4', memory: 16Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

@@ -55,7 +55,7 @@ BUCKETS=(
   human-modification hydrobasins icca im3 inat indigenous iucn kba land-cover
   mappinginequality mobi nci-frontiers ncp overturemaps padus parks population rap rivers
   social-vulnerability swap tpl trails usfws usgs-nhd usgs-wbd usgs-ungulate-migration
-  wdpa wetlands wui wyoming
+  utah wdpa wetlands wui wyoming
 )
 # NOTE (#402): public-nevada + public-missouri were CONSOLIDATED into public-swap
 # (per-state SWAP buckets retired). Their per-bucket sync YAMLs were git-rm'd.
