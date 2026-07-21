@@ -665,17 +665,21 @@ Therefore, from this repo/namespace you MUST NOT:
   `./gen-minio-sync.sh`, and commit the regenerated files (per-bucket jobs +
   `minio-sync-cron-config.yaml` + `minio-sync-cron.yaml`). Do not apply them.
 - **source.coop mirror — eligibility is per-DATASET, decided by each collection's STAC
-  `license`, NOT by its bucket.** Record each collection's verdict (`OK`/`OK-NC`/`NO`/`HOLD`)
-  in `license-inventory.md`, then realize it in `catalog/sync/source-coop/gen-source-sync.sh`:
-  - license-clear dataset → its bucket in `REPOS`;
-  - a **no-redistribution dataset sharing a bucket with license-clear ones** → keep the bucket
-    in `REPOS` but add a sub-path `--exclude` via `EXCLUDES` for that dataset (prior art:
-    `rivers` excludes `american-rivers/{campaigns,ira-watersheds,roo-cjest}`, `high-seas`
-    excludes `mpa-candidates`) — a mixed-license bucket is normal;
-  - a bucket that is **entirely** no-redistribution (WDPA / WD-OECM / IUCN / ICCA /
-    HydroSHEDS-HydroBASINS class) → not in `REPOS` at all.
-  Then `./gen-source-sync.sh` and commit. NC / ShareAlike mirror fine (label them);
-  no-redistribution licenses do not.
+  `license`, NOT by its bucket.** source.coop is public open-data infrastructure, so
+  **NonCommercial (NC) and ShareAlike (SA) ARE eligible** — mirror them, propagate the clause,
+  label the license (NC restricts a downstream *user*, not open hosting). Only two things make a
+  dataset NON-eligible, both about redistributing derivatives: **No-Derivatives (`CC-*-ND`)** —
+  our pipeline emits derivatives (COG/hex), so ND blocks — and **custom no-redistribution /
+  request-access terms** (WDPA, WD-OECM, IUCN, ICCA, HydroSHEDS-HydroBASINS class). Record each
+  collection's verdict (`OK`/`OK-NC`/`NO`/`HOLD`) in `license-inventory.md`, then realize it in
+  `catalog/sync/source-coop/gen-source-sync.sh`:
+  - eligible dataset → its bucket in `REPOS`;
+  - a **non-eligible dataset sharing a bucket with eligible ones** → keep the bucket in `REPOS`
+    but add a sub-path `--exclude` via `EXCLUDES` (prior art: `rivers` excludes
+    `american-rivers/{campaigns,ira-watersheds,roo-cjest}`, `high-seas` excludes `mpa-candidates`);
+  - a bucket **entirely** non-eligible (WDPA / WD-OECM / IUCN / ICCA / HydroSHEDS-HydroBASINS
+    class) → not in `REPOS` at all.
+  Then `./gen-source-sync.sh` and commit.
 
 Then **hand execution to geo-agent-ops** (note it in the PR / issue): applying the regenerated
 scope, the first backfill, source.coop repo creation (manual in the web UI — the create API is
@@ -687,7 +691,7 @@ MinIO is the private backup of every `public-*` bucket and the *only* off-NRP co
 no-redistribution datasets; a weekly **`minio-sync` CronJob** (Sat 08:00 UTC) syncs it and then
 re-applies a phase-2 host-swap STAC rewrite (`catalog/sync/minio/rewrite-stac-hrefs.py`, #354)
 so MinIO is a self-contained navigable DR catalog (all hrefs, incl. `root`/`parent`, point at
-`minio.carlboettiger.info`). Public, license-clear datasets are *also* mirrored to **Source
+`minio.carlboettiger.info`). Public, mirror-eligible datasets are *also* mirrored to **Source
 Cooperative** (`cboettig/<repo>`, repo = bucket minus `public-`) by a weekly **`source-sync`
 CronJob** (Sun 08:00 UTC), which re-applies its own phase-2 rewrite (→ `data.source.coop`,
 leaving `root`/`parent` NRP-canonical) and publishes the GLEN root catalog (#351). Scope for
