@@ -26,7 +26,7 @@ data:
     gfw sync */chunks/** */hex-staging/** 
     globio sync */chunks/** */hex-staging/** 
     hazard sync */chunks/** */hex-staging/** mid-century-habitat-climate-exposure/**
-    high-seas sync */chunks/** */hex-staging/** mpa-candidates/**
+    high-seas sync */chunks/** */hex-staging/** mpa-candidates/** imma/** imma.parquet imma.pmtiles
     inat sync */chunks/** */hex-staging/** 
     indigenous sync */chunks/** */hex-staging/** 
     land-cover sync */chunks/** */hex-staging/** 

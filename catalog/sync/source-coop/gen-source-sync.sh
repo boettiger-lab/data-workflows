@@ -55,7 +55,7 @@ REPOS=(
 # Space-separated rclone --exclude patterns, relative to the bucket root.
 declare -A EXCLUDES=(
   [rivers]="american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**"
-  [high-seas]="mpa-candidates/**"
+  [high-seas]="mpa-candidates/** imma/** imma.parquet imma.pmtiles"
   # hazard: flood-hazard (FEMA) + sea-level-rise (NOAA) are public-domain and mirror.
   # mid-century-habitat-climate-exposure (Thorne et al. 2016, CDFW-commissioned) is NOT a
   # Dryad/Zenodo deposit and its STAC states redistribution terms "are not explicitly

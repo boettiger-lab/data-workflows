@@ -80,6 +80,7 @@ CDFW BIOS biogeographic data. **Verified**: the BIOS-published layers (ACE, SWAP
 - **STALE** · `—` — public-high-seas/ghs-pop-2020  · dead STAC file
 - **OK-NC** · `CC-BY-NC-SA-4.0` — public-high-seas/hydrothermal-vents  
 - **OK** · `CC-BY-4.0` — public-high-seas/iho  
+- **NO** · `proprietary (IUCN-MMPATF ToS)` — public-high-seas/imma  · Important Marine Mammal Areas (IUCN-MMPATF). Non-commercial User Licence Agreement; no third-party sharing, no republishing in original format, derived products carry same terms (https://www.marinemammalhabitat.org/immas/imma-spatial-layer-download/). NRP + MinIO backup only; EXCLUDED from source.coop (EXCLUDES: imma/**, imma.parquet, imma.pmtiles). WDPA/IUCN class. data-workflows #65.
 - **OK** · `CC-BY-4.0` — public-high-seas/longhurst  
 - **OK** · `CC0-1.0` — public-high-seas/megamove/corridors  
 - **OK** · `CC0-1.0` — public-high-seas/megamove/immegas  
