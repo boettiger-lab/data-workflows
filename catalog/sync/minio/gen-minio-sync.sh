@@ -49,7 +49,7 @@ ARCHIVE_BUCKET="backup-archive"
 
 # NRP catalog buckets backed up to MinIO (== NRP public-<bucket>).
 BUCKETS=(
-  barred-owl
+  barred-owl blm
   ca30x30 ca-dac calenviroscreen carbon ca-wolves cdfw census cgs connectivity cpad
   data datacenters dem ecoregion epa-water facts fire gbif gfw globio grids hazard high-seas
   human-modification hydrobasins icca im3 inat indigenous iucn kba land-cover

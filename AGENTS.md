@@ -260,6 +260,13 @@ Common patterns: Census TIGER = per-state (`tl_2024_{STATEFP}_tract.zip`); prote
 
 External downloads are slow/rate-limited; restart from S3 if conversion fails. Subsequent jobs read `s3://<bucket>/raw/<file>` (or `/vsicurl/https://s3-west.nrp-nautilus.io/<bucket>/raw/<file>` for GDAL).
 
+> ⚠️ **Brand-new bucket? Run the `*-setup-bucket` job BEFORE any stage-raw/download job.** The
+> bucket does not exist until `cng-datasets storage setup-bucket` creates it, and
+> `rclone ... --s3-no-check-bucket` will happily scrape/build for many minutes and then fail the
+> upload with `NoSuchBucket` (404) — wasting the whole download. For an existing bucket this
+> ordering doesn't matter (the orchestrator runs setup-bucket first anyway); it bites only the
+> first dataset in a new bucket, where stage-raw runs *outside* the orchestrator.
+
 ```yaml
 command: [bash, -c, |
   curl -L --retry 5 -o /tmp/data.zip "$SOURCE_URL"
