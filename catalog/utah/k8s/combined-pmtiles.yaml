@@ -1,0 +1,64 @@
+# Combined per-monument PMTiles (ALL eras in one tile set, carrying the `era` attribute).
+# Enables the app to render one map layer per monument colored by era (a `match` on `era`),
+# so the legend has one section per monument instead of one per era-layer (issue #450).
+# Complements the per-era PMTiles (benm-2016.pmtiles …), which remain for single-era use.
+# Outputs: s3://public-utah/bears-ears/benm.pmtiles, s3://public-utah/grand-staircase-escalante/gsenm.pmtiles
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: utah-combined-pmtiles
+  namespace: geo-workflows
+  labels: {k8s-app: utah-combined-pmtiles}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: utah-combined-pmtiles}}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: pmtiles
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -eu
+          export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          B=https://s3-west.nrp-nautilus.io/public-utah
+          gen () {  # $1=layer  $2=parquet-url  $3=out-s3
+            echo "==> $1"
+            ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$1.geojsonl /vsicurl/$2
+            tippecanoe -o /tmp/$1.pmtiles -l "$1" -Z0 -z12 \
+              --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$1.geojsonl
+            rclone copyto /tmp/$1.pmtiles "$3"
+            rm -f /tmp/$1.geojsonl /tmp/$1.pmtiles
+          }
+          gen benm  "$B/bears-ears/benm.parquet"                  nrp:public-utah/bears-ears/benm.pmtiles
+          gen gsenm "$B/grand-staircase-escalante/gsenm.parquet"  nrp:public-utah/grand-staircase-escalante/gsenm.pmtiles
+          echo DONE
+        resources:
+          requests: {cpu: '4', memory: 16Gi}
+          limits: {cpu: '4', memory: 16Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
