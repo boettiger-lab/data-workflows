@@ -219,6 +219,7 @@ California Park Access Tool 2020 (SCORP 2020) — Parks for All Californians, Gr
 - **OK** · `public-domain` — public-utah/bears-ears  · Bears Ears NM boundaries by era. Sources: Utah SGID BLM Monuments & NCAs Historic (Utah state open data, public domain), USGS PAD-US 2.1/4.1 (US federal, public domain), and US presidential-proclamation boundaries (US federal works, public domain). Mirror-eligible.
 - **OK** · `public-domain` — public-utah/grand-staircase-escalante  · Grand Staircase-Escalante NM boundaries by era. Same public-domain sources as bears-ears. Mirror-eligible.
 - **OK** · `CC-BY-4.0` — public-utah/coal-deposits  · Utah SGID Coal Deposit Areas 1988 (Utah Geological Survey / UGRC). CC-BY 4.0 (attribution: UGS / UGRC / SGID; verified on the SGID license policy + service metadata). Mirror-eligible with attribution.
+- **OK** · `CC-BY-4.0` — public-utah/ugs-mineral-occurrences  · Utah Geological Survey Mineral Occurrence System (UMOS). UGS-authored data distributed via Utah SGID/UGRC; SGID default license is CC BY 4.0 (https://gis.utah.gov/documentation/policy/license/). Attribution: Utah Geological Survey (UGS) / UGRC. Mirror-eligible with attribution.
 
 ## public-wdpa
 - **NO** · `UNEP-WCMC custom` — public-wdpa  · Protected Planet: no redistribution incl. derivatives (verified)
