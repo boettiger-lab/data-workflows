@@ -12,6 +12,7 @@ data:
   buckets.txt: |
     # <bucket> <verb> [exclude globs...]
     barred-owl sync */chunks/** */hex-staging/** 
+    blm sync */chunks/** */hex-staging/** 
     ca30x30 sync */chunks/** */hex-staging/** 
     ca-dac sync */chunks/** */hex-staging/** 
     calenviroscreen sync */chunks/** */hex-staging/** 
@@ -59,6 +60,7 @@ data:
     tpl sync */chunks/** */hex-staging/** 
     trails sync */chunks/** */hex-staging/** 
     usfws sync */chunks/** */hex-staging/** 
+    usgs sync */chunks/** */hex-staging/** 
     usgs-nhd sync */chunks/** */hex-staging/** 
     usgs-wbd sync */chunks/** */hex-staging/** 
     usgs-ungulate-migration sync */chunks/** */hex-staging/** 

@@ -11,6 +11,7 @@ metadata:
 data:
   repos.txt: |
     # <repo> <verb> [exclude globs...]
+    blm sync */chunks/** */hex-staging/** 
     ca-dac sync */chunks/** */hex-staging/** 
     calenviroscreen sync */chunks/** */hex-staging/** 
     carbon sync */chunks/** */hex-staging/** 
@@ -43,6 +44,7 @@ data:
     social-vulnerability sync */chunks/** */hex-staging/** 
     trails sync */chunks/** */hex-staging/** 
     usfws sync */chunks/** */hex-staging/** 
+    usgs sync */chunks/** */hex-staging/** 
     usgs-nhd sync */chunks/** */hex-staging/** 
     usgs-wbd sync */chunks/** */hex-staging/** 
     utah sync */chunks/** */hex-staging/** 

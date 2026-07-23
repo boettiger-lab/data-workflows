@@ -45,10 +45,11 @@ DEST_BUCKET="us-west-2.opendata.source.coop"
 
 # Catalogued, license-clear repos (== NRP public-<repo>).
 REPOS=(
+  blm
   ca-dac calenviroscreen carbon census cgs connectivity cpad ecoregion epa-water
   facts fire gbif gfw globio hazard high-seas inat indigenous land-cover mappinginequality
   mobi nci-frontiers ncp overturemaps padus parks population rap rivers
-  social-vulnerability trails usfws usgs-nhd usgs-wbd utah wetlands
+  social-vulnerability trails usfws usgs usgs-nhd usgs-wbd utah wetlands
 )
 
 # Per-repo sub-path excludes (HOLD: license unconfirmed for these collections).

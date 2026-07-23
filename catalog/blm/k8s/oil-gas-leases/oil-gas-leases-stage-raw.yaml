@@ -1,0 +1,169 @@
+# Stage raw BLM National MLRS Oil & Gas Leases from the ArcGIS FeatureServer to S3.
+#
+# Paginates the FeatureServer (466,414 polygon features, maxRecordCount 2000) to a single
+# GeoJSON, deriving clean date + `lease_year` columns as it goes. The server returns the
+# date fields (EFF_DT/EXP_DT/SALE_DT) as epoch-MILLISECONDS integers even in GeoJSON output,
+# so they are parsed to ISO YYYY-MM-DD here and a numeric `lease_year` (year of EFF_DT) is
+# added for the GLEN year-slider. Output feeds `cng-datasets workflow` as an ordinary source.
+#
+#   Source: https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Oil_and_Gas_Leases/FeatureServer/0
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/451
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: oil-gas-leases-stage-raw
+  labels:
+    k8s-app: oil-gas-leases-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: oil-gas-leases-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts
+      # (gis.blm.gov). Append public resolvers as a fallback; cluster DNS is still tried
+      # first so the internal rook-ceph-rgw-nautiluss3.rook rclone endpoint keeps resolving.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, time, urllib.parse, urllib.request, urllib.error
+          from datetime import datetime, timedelta, timezone
+
+          BASE = ("https://gis.blm.gov/nlsdb/rest/services/HUB/"
+                  "BLM_Natl_MLRS_Oil_and_Gas_Leases/FeatureServer/0/query")
+          PAGE = 2000
+          EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)  # handles pre-1970 (negative ms) leases
+          # gis.blm.gov 403s the default python-urllib User-Agent -- send an explicit one
+          UA = {"User-Agent": "data-workflows/1.0 (boettiger-lab; issue 451)"}
+
+          def fetch_page(url, tries=6):
+              # the FeatureServer intermittently returns 503/timeouts; retry each page with
+              # exponential backoff so one transient blip does not lose the whole scrape.
+              for attempt in range(1, tries + 1):
+                  try:
+                      req = urllib.request.Request(url, headers=UA)
+                      with urllib.request.urlopen(req, timeout=180) as r:
+                          return json.load(r)
+                  except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+                      if attempt == tries:
+                          raise
+                      wait = min(60, 2 ** attempt)
+                      print(f"  retry {attempt}/{tries} after {type(e).__name__} ({e}); sleep {wait}s", flush=True)
+                      time.sleep(wait)
+
+          def ms_to_iso(v):
+              if v is None:
+                  return None
+              return (EPOCH + timedelta(milliseconds=v)).strftime("%Y-%m-%d")
+
+          def ms_to_year(v):
+              if v is None:
+                  return None
+              return (EPOCH + timedelta(milliseconds=v)).year
+
+          feats, offset = [], 0
+          while True:
+              q = {
+                  "where": "1=1",
+                  "outFields": "*",
+                  "outSR": "4326",              # WGS84 lon/lat (source is NAD83 / WKID 4269)
+                  "f": "geojson",
+                  "resultOffset": offset,
+                  "resultRecordCount": PAGE,
+                  "orderByFields": "OBJECTID",  # stable pagination order
+              }
+              url = BASE + "?" + urllib.parse.urlencode(q)
+              fc = fetch_page(url)
+              batch = fc.get("features", [])
+              for feat in batch:
+                  p = feat.get("properties") or {}
+                  # derived numeric year for the slider (year of effective date) -- compute
+                  # BEFORE stringifying the raw epoch-ms EFF_DT value below
+                  p["lease_year"] = ms_to_year(p.get("EFF_DT"))
+                  # parse epoch-ms date fields in place -> ISO YYYY-MM-DD strings
+                  for k in ("EFF_DT", "EXP_DT", "SALE_DT"):
+                      p[k] = ms_to_iso(p.get(k))
+                  # Drop esri geometry-derived attribute fields. `Shape` is an empty
+                  # VARCHAR whose name collides with cng-datasets' geometry-column
+                  # auto-detection (_find_geometry_column matches SHAPE/GEOMETRY/GEOM),
+                  # making the hex step alias it as `geom` and crash on
+                  # ST_GeometryType(VARCHAR); `Shape__Length`/`Shape__Area` are
+                  # decimal-degree junk (real area is RCRD_ACRS). The real geometry
+                  # rides in the GeoJSON `geometry`, untouched.
+                  for k in ("Shape", "Shape__Length", "Shape__Area"):
+                      p.pop(k, None)
+                  feat["properties"] = p
+              feats.extend(batch)
+              print(f"offset {offset}: +{len(batch)} (total {len(feats)})", flush=True)
+              more = fc.get("properties", {}).get("exceededTransferLimit") or fc.get("exceededTransferLimit")
+              if len(batch) < PAGE and not more:
+                  break
+              if not batch:
+                  break
+              offset += len(batch)
+
+          out = {"type": "FeatureCollection",
+                 "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
+                 "features": feats}
+          with open("/tmp/oil-gas-leases.geojson", "w") as f:
+              json.dump(out, f)
+          print(f"WROTE {len(feats)} features", flush=True)
+          # fail loudly if the FeatureServer under-delivered vs the known count (466,414)
+          assert len(feats) >= 460000, f"expected ~466414 features, got {len(feats)}"
+          PY
+          ls -la /tmp/oil-gas-leases.geojson
+          rclone copyto /tmp/oil-gas-leases.geojson nrp:public-blm/raw/oil-gas-leases.geojson --s3-no-check-bucket
+          echo "staged raw -> s3://public-blm/raw/oil-gas-leases.geojson"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
