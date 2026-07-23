@@ -1,0 +1,68 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: locatable-operations-workflow
+  namespace: geo-workflows
+spec:
+  template:
+    spec:
+      containers:
+      - command:
+        - bash
+        - -c
+        args:
+        - |
+          set -e
+
+          echo "Starting locatable-operations workflow..."
+
+          # Step 0: Setup bucket with public access and CORS
+          echo "Step 0: Setting up bucket..."
+          kubectl apply -f /yamls/locatable-operations-setup-bucket.yaml -n geo-workflows
+          echo "Waiting for bucket setup to complete..."
+          kubectl wait --for=condition=complete --timeout=600s job/locatable-operations-setup-bucket -n geo-workflows
+
+          # Step 1: Convert to optimized GeoParquet (needed by both pmtiles and hex jobs)
+          echo "Step 1: Converting to optimized GeoParquet..."
+          kubectl apply -f /yamls/locatable-operations-convert.yaml -n geo-workflows
+          echo "Waiting for GeoParquet conversion to complete..."
+          kubectl wait --for=condition=complete --timeout=3600s job/locatable-operations-convert -n geo-workflows
+
+          # Step 2: Run pmtiles and hex tiling in parallel (both use the converted geoparquet)
+          echo "Step 2: H3 hexagonal tiling and PMTiles generation (parallel)..."
+          kubectl apply -f /yamls/locatable-operations-pmtiles.yaml -n geo-workflows
+          kubectl apply -f /yamls/locatable-operations-hex.yaml -n geo-workflows
+          echo "Waiting for hex tiling to complete (PMTiles continues in background)..."
+          kubectl wait --for=condition=complete --timeout=7200s job/locatable-operations-hex -n geo-workflows
+
+          # Step 3: Repartition by h0
+          echo "Step 3: Repartitioning by h0..."
+          kubectl apply -f /yamls/locatable-operations-repartition.yaml -n geo-workflows
+          echo "Waiting for repartition to complete..."
+          kubectl wait --for=condition=complete --timeout=3600s job/locatable-operations-repartition -n geo-workflows
+
+          echo "✓ Workflow complete!"
+          echo "Note: PMTiles job may still be running in the background"
+          echo ""
+          echo "Clean up with:"
+          echo "  kubectl delete jobs locatable-operations-setup-bucket locatable-operations-convert locatable-operations-pmtiles locatable-operations-hex locatable-operations-repartition locatable-operations-workflow -n geo-workflows"
+          echo "  kubectl delete configmap locatable-operations-yamls -n geo-workflows"
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: locatable-operations-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
