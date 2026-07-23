@@ -60,6 +60,7 @@ data:
     tpl sync */chunks/** */hex-staging/** 
     trails sync */chunks/** */hex-staging/** 
     usfws sync */chunks/** */hex-staging/** 
+    usgs sync */chunks/** */hex-staging/** 
     usgs-nhd sync */chunks/** */hex-staging/** 
     usgs-wbd sync */chunks/** */hex-staging/** 
     usgs-ungulate-migration sync */chunks/** */hex-staging/** 

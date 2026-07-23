@@ -1,0 +1,104 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ugs-mineral-occurrences-stage-raw
+  labels:
+    k8s-app: ugs-mineral-occurrences-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ugs-mineral-occurrences-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+
+          # UGS Utah Mineral Occurrence System (UMOS), MapServer layer 0 "Mineral Occurrences".
+          # 7,388 point features, native EPSG:26912 (UTM 12N); we request outSR=4326 (WGS84).
+          BASE = ("https://webmaps.geology.utah.gov/arcgis/rest/services/"
+                  "Energy_Mineral/UMOS/MapServer/0/query")
+          PAGE = 1000  # service maxRecordCount
+          feats, offset = [], 0
+          while True:
+              q = {
+                  "where": "1=1",
+                  "outFields": "*",
+                  "outSR": "4326",              # WGS84 lon/lat (source is UTM 12N / EPSG:26912)
+                  "f": "geojson",
+                  "resultOffset": offset,
+                  "resultRecordCount": PAGE,
+                  "orderByFields": "OBJECTID",   # stable pagination order
+              }
+              url = BASE + "?" + urllib.parse.urlencode(q)
+              with urllib.request.urlopen(url, timeout=180) as r:
+                  fc = json.load(r)
+              batch = fc.get("features", [])
+              feats.extend(batch)
+              print(f"offset {offset}: +{len(batch)} (total {len(feats)})", flush=True)
+              if len(batch) < PAGE:
+                  break
+              offset += PAGE
+
+          out = {"type": "FeatureCollection",
+                 "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
+                 "features": feats}
+          with open("/tmp/ugs-mineral-occurrences.geojson", "w") as f:
+              json.dump(out, f)
+          print(f"WROTE {len(feats)} features", flush=True)
+          # fail loudly if the service under-delivered vs the known count (7388 on 2026-07-23)
+          assert len(feats) >= 7300, f"expected ~7388 features, got {len(feats)}"
+          PY
+          ls -la /tmp/ugs-mineral-occurrences.geojson
+          rclone copyto /tmp/ugs-mineral-occurrences.geojson nrp:public-utah/raw/ugs-mineral-occurrences.geojson --s3-no-check-bucket
+          echo "staged raw -> s3://public-utah/raw/ugs-mineral-occurrences.geojson"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
