@@ -1,0 +1,197 @@
+# Stage raw BLM National MLRS locatable-mineral operations from the ArcGIS FeatureServers to S3.
+#
+# Unions the TWO locatable-operation service layers into a single GeoJSON, tagging each
+# feature with a derived `op_level` (Notice / Plan of Operations) so the two levels are
+# filterable in one collection (mirrors mining claims #477 holding both dispositions
+# together, and leases #451 holding all dispositions together). Each layer is paginated
+# (maxRecordCount 2000) with the same robustness as the leases/claims scrapes.
+#
+# Schema note (verified live against the FeatureServer, issue #487): these are the
+# locatable/materials MLRS schema family — unlike the mining-claims service, they DO carry
+# real case dates (EFF_DT/EXP_DT/SALE_DT/CSE_DISP_DT), a commodity field (CMMDTY), and
+# administrative/geographic state (ADMIN_STATE/GEO_STATE). So a numeric `op_year` (year of
+# EFF_DT) IS derivable for the year slider, and state is taken directly (no serial-prefix
+# derivation needed). MLRS dates arrive as epoch-milliseconds and are parsed to ISO.
+#
+#   Sources:
+#     https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Locatable_Notices/FeatureServer/0
+#     https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Locatable_Plans_Of_Operations/FeatureServer/0
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/487
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: locatable-operations-stage-raw
+  labels:
+    k8s-app: locatable-operations-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: locatable-operations-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts
+      # (gis.blm.gov). Append public resolvers as a fallback; cluster DNS is still tried
+      # first so the internal rook-ceph-rgw-nautiluss3.rook rclone endpoint keeps resolving.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, time, urllib.parse, urllib.request, urllib.error
+          from datetime import datetime, timedelta, timezone
+
+          LAYERS = [
+              ("Notice",
+               "https://gis.blm.gov/nlsdb/rest/services/HUB/"
+               "BLM_Natl_MLRS_Locatable_Notices/FeatureServer/0/query"),
+              ("Plan of Operations",
+               "https://gis.blm.gov/nlsdb/rest/services/HUB/"
+               "BLM_Natl_MLRS_Locatable_Plans_Of_Operations/FeatureServer/0/query"),
+          ]
+          PAGE = 2000
+          EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+          # gis.blm.gov 403s the default python-urllib User-Agent -- send an explicit one
+          UA = {"User-Agent": "data-workflows/1.0 (boettiger-lab; issue 487)"}
+
+          # Attributes to keep (everything else is internal/GIS junk). BLM_PROD is the
+          # operation product; CSE_DISP the disposition/status; CMMDTY the commodity worked;
+          # RCRD_ACRS the case acres (per-feature total, dedup by _cng_fid before SUM).
+          KEEP = ("CSE_NR", "CSE_NAME", "BLM_PROD", "CSE_DISP", "CMMDTY", "RCRD_ACRS",
+                  "ADMIN_STATE", "GEO_STATE", "PRDCNG",
+                  "EFF_DT", "EXP_DT", "SALE_DT", "CSE_DISP_DT", "Created", "Modified")
+          DATE_FIELDS = ("EFF_DT", "EXP_DT", "SALE_DT", "CSE_DISP_DT", "Created", "Modified")
+
+          def fetch_page(url, tries=6):
+              # the FeatureServer intermittently returns 503/timeouts; retry each page with
+              # exponential backoff so one transient blip does not lose the whole scrape.
+              for attempt in range(1, tries + 1):
+                  try:
+                      req = urllib.request.Request(url, headers=UA)
+                      with urllib.request.urlopen(req, timeout=180) as r:
+                          return json.load(r)
+                  except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+                      if attempt == tries:
+                          raise
+                      wait = min(60, 2 ** attempt)
+                      print(f"  retry {attempt}/{tries} after {type(e).__name__} ({e}); sleep {wait}s", flush=True)
+                      time.sleep(wait)
+
+          def ms_to_iso(v):
+              if v is None:
+                  return None
+              return (EPOCH + timedelta(milliseconds=v)).strftime("%Y-%m-%d")
+
+          def clean(feat, op_level):
+              p = feat.get("properties") or {}
+              out = {k: p.get(k) for k in KEEP}
+              # ISO dates (MLRS epoch-ms -> YYYY-MM-DD)
+              for d in DATE_FIELDS:
+                  out[d] = ms_to_iso(out.get(d))
+              # derived: which service layer this row came from
+              out["op_level"] = op_level
+              # derived numeric year of the effective date, for the time slider (null if absent)
+              eff = out.get("EFF_DT")
+              out["op_year"] = int(eff[:4]) if eff else None
+              feat["properties"] = out
+              return feat
+
+          feats = []
+          counts = {}
+          for op_level, base in LAYERS:
+              n0 = len(feats)
+              offset = 0
+              while True:
+                  q = {
+                      "where": "1=1",
+                      "outFields": "*",
+                      "outSR": "4326",              # WGS84 lon/lat (source is NAD83 / WKID 4269)
+                      "f": "geojson",
+                      "resultOffset": offset,
+                      "resultRecordCount": PAGE,
+                      "orderByFields": "OBJECTID",  # stable pagination order
+                  }
+                  url = base + "?" + urllib.parse.urlencode(q)
+                  fc = fetch_page(url)
+                  batch = fc.get("features", [])
+                  for feat in batch:
+                      feats.append(clean(feat, op_level))
+                  print(f"[{op_level}] offset {offset}: +{len(batch)} (total {len(feats)})", flush=True)
+                  more = fc.get("properties", {}).get("exceededTransferLimit") or fc.get("exceededTransferLimit")
+                  if len(batch) < PAGE and not more:
+                      break
+                  if not batch:
+                      break
+                  offset += len(batch)
+              counts[op_level] = len(feats) - n0
+              print(f"[{op_level}] DONE: {counts[op_level]} features", flush=True)
+
+          # sanity check: distinct states and year range
+          states = sorted({(f["properties"].get("ADMIN_STATE") or "") for f in feats})
+          years = sorted({y for f in feats if (y := f["properties"].get("op_year")) is not None})
+          print(f"distinct ADMIN_STATE: {states}", flush=True)
+          print(f"op_year range: {years[:1]}..{years[-1:]}", flush=True)
+
+          out = {"type": "FeatureCollection",
+                 "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
+                 "features": feats}
+          with open("/tmp/locatable-operations.geojson", "w") as f:
+              json.dump(out, f)
+          print(f"WROTE {len(feats)} features ({counts})", flush=True)
+          # fail loudly if the FeatureServers under-delivered vs the known counts
+          # (~1,264 Notices + ~1,135 Plans of Operations ~= 2,399, verified live 2026-07-23)
+          assert len(feats) >= 2300, f"expected ~2,399 features, got {len(feats)}"
+          PY
+          ls -la /tmp/locatable-operations.geojson
+          rclone copyto /tmp/locatable-operations.geojson nrp:public-blm/raw/locatable-operations.geojson --s3-no-check-bucket
+          echo "staged raw -> s3://public-blm/raw/locatable-operations.geojson"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 4Gi
+          limits:
+            cpu: '1'
+            memory: 4Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
