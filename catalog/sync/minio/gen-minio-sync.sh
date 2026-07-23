@@ -54,7 +54,7 @@ BUCKETS=(
   data datacenters dem ecoregion epa-water facts fire gbif gfw globio grids hazard high-seas
   human-modification hydrobasins icca im3 inat indigenous iucn kba land-cover
   mappinginequality mobi nci-frontiers ncp overturemaps padus parks population rap rivers
-  social-vulnerability swap tpl trails usfws usgs-nhd usgs-wbd usgs-ungulate-migration
+  social-vulnerability swap tpl trails usfws usgs usgs-nhd usgs-wbd usgs-ungulate-migration
   utah wdpa wetlands wui wyoming
 )
 # NOTE (#402): public-nevada + public-missouri were CONSOLIDATED into public-swap

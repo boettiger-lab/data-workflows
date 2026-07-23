@@ -1,0 +1,197 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mrds-preprocess
+  namespace: geo-workflows
+  labels:
+    k8s-app: mrds-preprocess
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: mrds-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      # Keep ClusterFirst so the INTERNAL S3 endpoint (rook-ceph-rgw-nautiluss3.rook) still
+      # resolves via CoreDNS; append public resolvers only as a fallback for the external
+      # USGS download on nodes whose CoreDNS upstream is flaky.
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "10Gi"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "10Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-usgs"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+
+          echo "=== Download MRDS full CSV ==="
+          curl -L --retry 8 --retry-delay 10 --retry-all-errors \
+            -o mrds-csv.zip "https://mrdata.usgs.gov/mrds/mrds-csv.zip"
+          ls -lh mrds-csv.zip
+          unzip -q -o mrds-csv.zip
+          ls -lh mrds.csv mrds.met
+
+          echo "=== Archive raw source to s3://public-usgs/raw/ ==="
+          rclone copy mrds-csv.zip nrp:public-usgs/raw/ -P
+
+          echo "=== Build US POINT GeoPackage from CSV lat/long ==="
+          python3 - <<'PY'
+          import csv, sys
+          from osgeo import ogr, osr
+
+          SRC = "/tmp/mrds.csv"
+          OUT = "/tmp/mrds.gpkg"
+
+          # Curated column contract (issue #478). Order matters for the output schema.
+          # (name, OGR field type)
+          STR = ogr.OFTString
+          REAL = ogr.OFTReal
+          COLS = [
+              ("dep_id",    STR),
+              ("mrds_id",   STR),
+              ("url",       STR),
+              ("site_name", STR),
+              ("latitude",  REAL),
+              ("longitude", REAL),
+              ("region",    STR),
+              ("country",   STR),
+              ("state",     STR),
+              ("county",    STR),
+              ("com_type",  STR),
+              ("commod1",   STR),
+              ("commod2",   STR),
+              ("commod3",   STR),
+              ("oper_type", STR),
+              ("dep_type",  STR),
+              ("prod_size", STR),
+              ("dev_stat",  STR),
+              ("model",     STR),
+              ("disc_yr",   STR),
+              ("score",     STR),
+          ]
+
+          srs = osr.SpatialReference()
+          srs.ImportFromEPSG(4326)
+
+          drv = ogr.GetDriverByName("GPKG")
+          ds = drv.CreateDataSource(OUT)
+          lyr = ds.CreateLayer("mrds", srs, ogr.wkbPoint)
+          for name, ftype in COLS:
+              fd = ogr.FieldDefn(name, ftype)
+              if ftype == STR:
+                  fd.SetWidth(0)  # unlimited (GPKG has no dbf 254-char limit)
+              lyr.CreateField(fd)
+
+          defn = lyr.GetLayerDefn()
+          csv.field_size_limit(sys.maxsize)
+
+          kept = skipped_country = skipped_coord = 0
+          with open(SRC, newline="", encoding="utf-8", errors="replace") as f:
+              reader = csv.DictReader(f)
+              lyr.StartTransaction()
+              for row in reader:
+                  if row.get("country") != "United States":
+                      skipped_country += 1
+                      continue
+                  lon_s = (row.get("longitude") or "").strip()
+                  lat_s = (row.get("latitude") or "").strip()
+                  try:
+                      lon = float(lon_s); lat = float(lat_s)
+                  except ValueError:
+                      skipped_coord += 1
+                      continue
+                  # sanity bounds (US incl. AK/HI/territories)
+                  if not (-180.0 <= lon <= 180.0 and -90.0 <= lat <= 90.0):
+                      skipped_coord += 1
+                      continue
+
+                  feat = ogr.Feature(defn)
+                  for name, ftype in COLS:
+                      val = row.get(name)
+                      if val is None or val == "":
+                          continue
+                      if ftype == REAL:
+                          try:
+                              feat.SetField(name, float(val))
+                          except ValueError:
+                              pass
+                      else:
+                          feat.SetField(name, val)
+                  pt = ogr.Geometry(ogr.wkbPoint)
+                  pt.AddPoint(lon, lat)
+                  feat.SetGeometry(pt)
+                  lyr.CreateFeature(feat)
+                  feat = None
+                  kept += 1
+                  if kept % 50000 == 0:
+                      print(f"  ...{kept} features", flush=True)
+              lyr.CommitTransaction()
+          ds = None
+          print(f"kept={kept} skipped_country={skipped_country} skipped_coord={skipped_coord}", flush=True)
+          if kept < 250000:
+              sys.exit(f"ERROR: only {kept} features written, expected ~266,593")
+          PY
+
+          ls -lh /tmp/mrds.gpkg
+          echo "=== Stage GeoPackage to s3://public-usgs/raw/mrds.gpkg ==="
+          rclone copyto /tmp/mrds.gpkg nrp:public-usgs/raw/mrds.gpkg -P
+          echo "DONE"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
