@@ -262,6 +262,9 @@ California Park Access Tool 2020 (SCORP 2020) — Parks for All Californians, Gr
 ## public-usgs-wbd
 - **OK** · `public-domain` — public-usgs-wbd/wbd/hu2 · hu4 · hu6 · hu8 · hu10 · hu12  · USGS Watershed Boundary Dataset (all HU levels); US federal work (PD).
 
+## public-usgs
+- **OK** · `public-domain` — public-usgs/mrds  · USGS Mineral Resources Data System (MRDS); US federal work (PD). Bucket is entirely public-domain → whole bucket mirror-eligible.
+
 ## public-facts
 - **OK** · `public-domain` — public-facts/common-attributes-2026-06  · USFS FACTS Common Attributes; US federal work (PD).
 
