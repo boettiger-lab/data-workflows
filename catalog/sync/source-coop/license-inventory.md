@@ -4,6 +4,9 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 **OK** mirror freely · **OK-NC** mirror with NC/SA label · **NO** redistribution prohibited (NRP-only) · **HOLD** confirm with upstream before mirroring · **N/A** meta/catalog node.
 
 
+## public-blm
+- **OK** · `public-domain` — public-blm/mining-claims  · BLM National MLRS Mining Claims (ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #477.
+
 ## public-ca-dac
 - **OK** · `CC-BY-4.0` — public-ca-dac  · CA DWR via CNRA open data + US Census ACS (confirm exact)
 
