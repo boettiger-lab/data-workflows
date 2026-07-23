@@ -93,7 +93,7 @@ def build_collection(m):
                          cc["era"], cc["status"], cc["acres"], cc["gis_acres"])]
 
     assets = {}
-    # one PMTiles per era
+    # one PMTiles per era (single-era display)
     for tok, label in m["eras"]:
         assets[f"{pfx}-{tok}"] = {
             "href": f"{BASE}/{seg}/{pfx}-{tok}.pmtiles",
@@ -103,6 +103,16 @@ def build_collection(m):
             "vector:layers": [layer],
             "table:columns": pm_cols,
         }
+    # combined PMTiles — ALL eras in one tile set (carries `era`), so a consumer can render
+    # one layer per monument colored by `era` (one legend section per monument, not per era).
+    assets[f"{pfx}-pmtiles"] = {
+        "href": f"{BASE}/{seg}/{pfx}.pmtiles",
+        "type": "application/vnd.pmtiles",
+        "title": f"{m['disp']} — all eras (PMTiles)",
+        "roles": ["visual"],
+        "vector:layers": [layer],
+        "table:columns": pm_cols,
+    }
     # combined GeoParquet
     assets[f"{pfx}-parquet"] = {
         "href": f"{BASE}/{seg}/{pfx}.parquet",

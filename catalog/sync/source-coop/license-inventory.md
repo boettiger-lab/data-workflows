@@ -4,6 +4,9 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 **OK** mirror freely · **OK-NC** mirror with NC/SA label · **NO** redistribution prohibited (NRP-only) · **HOLD** confirm with upstream before mirroring · **N/A** meta/catalog node.
 
 
+## public-blm
+- **OK** · `public-domain` — public-blm/oil-gas-leases  · BLM National MLRS Oil & Gas Leases (ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain (the ArcGIS Hub "custom" tag is generic). Mirror-eligible. Tracked: data-workflows #451.
+
 ## public-ca-dac
 - **OK** · `CC-BY-4.0` — public-ca-dac  · CA DWR via CNRA open data + US Census ACS (confirm exact)
 
@@ -215,6 +218,7 @@ California Park Access Tool 2020 (SCORP 2020) — Parks for All Californians, Gr
 ## public-utah
 - **OK** · `public-domain` — public-utah/bears-ears  · Bears Ears NM boundaries by era. Sources: Utah SGID BLM Monuments & NCAs Historic (Utah state open data, public domain), USGS PAD-US 2.1/4.1 (US federal, public domain), and US presidential-proclamation boundaries (US federal works, public domain). Mirror-eligible.
 - **OK** · `public-domain` — public-utah/grand-staircase-escalante  · Grand Staircase-Escalante NM boundaries by era. Same public-domain sources as bears-ears. Mirror-eligible.
+- **OK** · `CC-BY-4.0` — public-utah/coal-deposits  · Utah SGID Coal Deposit Areas 1988 (Utah Geological Survey / UGRC). CC-BY 4.0 (attribution: UGS / UGRC / SGID; verified on the SGID license policy + service metadata). Mirror-eligible with attribution.
 - **OK** · `CC-BY-4.0` — public-utah/ugs-mineral-occurrences  · Utah Geological Survey Mineral Occurrence System (UMOS). UGS-authored data distributed via Utah SGID/UGRC; SGID default license is CC BY 4.0 (https://gis.utah.gov/documentation/policy/license/). Attribution: Utah Geological Survey (UGS) / UGRC. Mirror-eligible with attribution.
 
 ## public-wdpa
