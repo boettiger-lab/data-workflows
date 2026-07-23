@@ -6,6 +6,7 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 
 ## public-blm
 - **OK** · `public-domain` — public-blm/oil-gas-leases  · BLM National MLRS Oil & Gas Leases (ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain (the ArcGIS Hub "custom" tag is generic). Mirror-eligible. Tracked: data-workflows #451.
+- **OK** · `public-domain` — public-blm/mining-claims  · BLM National MLRS Mining Claims (ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #477.
 
 ## public-ca-dac
 - **OK** · `CC-BY-4.0` — public-ca-dac  · CA DWR via CNRA open data + US Census ACS (confirm exact)
