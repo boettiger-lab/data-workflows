@@ -221,6 +221,7 @@ California Park Access Tool 2020 (SCORP 2020) — Parks for All Californians, Gr
 - **OK** · `public-domain` — public-utah/grand-staircase-escalante  · Grand Staircase-Escalante NM boundaries by era. Same public-domain sources as bears-ears. Mirror-eligible.
 - **OK** · `CC-BY-4.0` — public-utah/coal-deposits  · Utah SGID Coal Deposit Areas 1988 (Utah Geological Survey / UGRC). CC-BY 4.0 (attribution: UGS / UGRC / SGID; verified on the SGID license policy + service metadata). Mirror-eligible with attribution.
 - **OK** · `CC-BY-4.0` — public-utah/ugs-mineral-occurrences  · Utah Geological Survey Mineral Occurrence System (UMOS). UGS-authored data distributed via Utah SGID/UGRC; SGID default license is CC BY 4.0 (https://gis.utah.gov/documentation/policy/license/). Attribution: Utah Geological Survey (UGS) / UGRC. Mirror-eligible with attribution.
+- **OK** · `CC-BY-4.0` — public-utah/udogm  · Utah DNR Division of Oil, Gas and Mining (UDOGM) permitted mines, wells & oil-gas fields (4 sub-layers). ArcGIS FeatureServers distributed via Utah SGID/UGRC + Utah Trust Lands GIS; SGID default license is CC BY 4.0 (https://gis.utah.gov/documentation/policy/license/). Attribution: Utah DNR Division of Oil, Gas and Mining / UGRC (SGID). Mirror-eligible with attribution. Tracked: data-workflows #480.
 
 ## public-wdpa
 - **NO** · `UNEP-WCMC custom` — public-wdpa  · Protected Planet: no redistribution incl. derivatives (verified)

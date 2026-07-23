@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: udogm-stage-raw
+  labels:
+    k8s-app: udogm-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: udogm-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: stage-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: script
+          mountPath: /opt/scripts
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          FS=/opt/scripts/udogm_stage.py
+          # Paginate each UDOGM/SGID FeatureServer layer -> GeoJSON (contract fields +
+          # derived integer `year`), then stage to s3://public-utah/raw/. Each call
+          # asserts the feature count vs the verified totals (2026-07-23).
+          for sub in wells mineral-mines coal-permits oil-gas-fields; do
+            echo "=== staging $sub ==="
+            python3 $FS "$sub" "/tmp/udogm-$sub.geojson"
+            rclone copyto "/tmp/udogm-$sub.geojson" \
+              "nrp:public-utah/raw/udogm-$sub.geojson" --s3-no-check-bucket -v
+          done
+          echo "=== staged files ==="
+          rclone lsf nrp:public-utah/raw/ | grep '^udogm-'
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: script
+        configMap:
+          name: udogm-scripts
