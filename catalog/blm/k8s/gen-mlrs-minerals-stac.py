@@ -209,6 +209,60 @@ STATE_NAMES = {
 STATE_COLS = ("ADMIN_STATE", "GEO_STATE")
 
 
+# verify-stac.py treats a `values` array as self-documenting only when EVERY value is a
+# human-readable label — it must contain whitespace, or contain a lowercase letter and be
+# at least four characters. A single opaque all-caps token in an otherwise wordy enum
+# (coal's CMMDTY is 'COAL, BITUMINOUS', 'Oil & Gas', … plus bare 'COBALT' and 'NONE')
+# makes the whole column a "coded categorical" requiring an inline CODE=Definition list.
+# Rather than gloss every value — noise when the value already IS its definition — we
+# gloss only the opaque tokens and render the full list as VALUE=Definition when any are
+# present. Unmapped opaque tokens raise rather than silently shipping a partial map.
+OPAQUE_GLOSS = {
+    "NONE": "No commodity recorded on the case",
+    "COBALT": "Cobalt",
+    # SRC — how the polygon was derived. (verify-stac.py exempts *src/*source columns from
+    # the coded-categorical rule, but these codes are genuinely opaque, so gloss them.)
+    "LLD": "Geocoded from the Legal Land Description",
+    "LLD/CLS": "Geocoded from the Legal Land Description plus cadastral survey",
+    "BULK": "Bulk-loaded during the MLRS migration",
+    "BATCH": "Batch-loaded",
+    "EGMS": "Loaded from the EGMS system",
+    "MIGRATE": "Migrated from the pre-MLRS records system",
+    "PROTOOLS": "Created with BLM ProTools",
+    "MICA": "Mica",
+    "SAND": "Sand",
+    "TALC": "Talc",
+    "ZINC": "Zinc",
+    "GOLD": "Gold",
+    "IRON": "Iron",
+    "LEAD": "Lead",
+    "PEAT": "Peat",
+    "SALT": "Salt",
+}
+
+
+def is_self_describing(v):
+    """Mirror verify-stac.py's rule so we only add glosses where they are required."""
+    s = str(v)
+    if any(ch.isspace() for ch in s):
+        return True
+    return any(ch.islower() for ch in s) and len(s) >= 4
+
+
+def value_defs(col, vals):
+    """Render `values` for a description. Plain list when every value speaks for itself;
+    VALUE=Definition when any opaque token forces the coded-categorical rule."""
+    opaque = [v for v in vals if not is_self_describing(v)]
+    if not opaque:
+        return ", ".join(vals)
+    missing = [v for v in opaque if v not in OPAQUE_GLOSS]
+    assert not missing, (
+        f"column {col}: opaque value(s) {missing} need an entry in OPAQUE_GLOSS — "
+        f"verify-stac.py requires an inline CODE=Definition list once any value in the "
+        f"enum is not self-describing")
+    return ", ".join(f"{v}={OPAQUE_GLOSS.get(v, v)}" for v in vals)
+
+
 def state_defs(codes):
     unknown = [c for c in codes if c not in STATE_NAMES]
     assert not unknown, f"unmapped state code(s) {unknown} — add them to STATE_NAMES"
@@ -322,7 +376,7 @@ def build(name, mcp):
             if cname in STATE_COLS:
                 e["description"] += " Values: " + state_defs(values[cname]) + "."
             else:
-                e["description"] += " Values: " + ", ".join(values[cname]) + "."
+                e["description"] += " Values: " + value_defs(cname, values[cname]) + "."
             e["values"] = values[cname]
         return e
 
