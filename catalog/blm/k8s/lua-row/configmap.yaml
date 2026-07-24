@@ -14,7 +14,9 @@
 # this DAG and is not embedded here.
 # Hand-tuned after generation: hex completions 200->80 with --chunk-size 2500 (196,751
 # features -- the largest MLRS HUB layer), backoffLimit:0 -> backoffLimitPerIndex:2 +
-# maxFailedIndexes:2 (#409), and the tippecanoe line switched to the ROW corridor recipe
+# maxFailedIndexes:2 (#409); hex re-tuned to 158 x --chunk-size 1250 @ 24Gi after the
+# acquisitions run showed the per-chunk final WRITE (not the unnest) is the memory
+# constraint; and the tippecanoe line switched to the ROW corridor recipe
 # (--drop-rate=1 --maximum-tile-bytes=1000000, tiny-polygon reduction left ON) so long thin
 # corridors survive at low zoom -- issue #488 acceptance criterion.
 #
@@ -304,11 +306,19 @@ data:
       labels:
         k8s-app: lua-row-hex
     spec:
-      completions: 80
+      completions: 158
       parallelism: 50
       completionMode: Indexed
-      # chunk-size 2500 x 80 completions = 200,000 capacity, covers all 196,751
-      # features (the largest MLRS HUB layer) with margin.
+      # chunk-size 1250 x 158 completions = 197,500 capacity, covers all 196,751 features
+      # (the largest MLRS HUB layer) with margin, staying under the k8s 200-completion cap.
+      #
+      # Deliberately HALVED from the 2500 that acquisitions used, because that run showed the
+      # binding constraint is the per-chunk FINAL WRITE, not the unnest: acquisitions chunk 13
+      # completed all 327 unnest batches and then OOMKilled at 16Gi while writing its output,
+      # and its sibling chunk 14 landed at 2.04 GB -- flirting with the 2 GB Parquet page limit.
+      # Output size scales with chunk-size, so halving the chunk halves each write's peak memory
+      # AND shortens the straggler tail (a pathological polygon drags 1,249 neighbours instead of
+      # 2,499). Memory is also raised 16Gi -> 24Gi as belt-and-braces for the write.
       # Per-index retries (not backoffLimit:0) so a partial run fails loudly rather than
       # publishing a subset of h0 partitions (#409). Verified after the run with
       # scripts/check-hex-coverage.sh.
@@ -360,16 +370,16 @@ data:
             - -c
             - |-
               set -e
-              cng-datasets vector --input s3://public-blm/lua-row.parquet --output s3://public-blm/lua-row/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 2500 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+              cng-datasets vector --input s3://public-blm/lua-row.parquet --output s3://public-blm/lua-row/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1250 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
             resources:
               requests:
                 cpu: '4'
-                memory: 16Gi
-                ephemeral-storage: 10Gi
+                memory: 24Gi
+                ephemeral-storage: 20Gi
               limits:
                 cpu: '4'
-                memory: 16Gi
-                ephemeral-storage: 10Gi
+                memory: 24Gi
+                ephemeral-storage: 20Gi
           priorityClassName: opportunistic
           affinity:
             nodeAffinity:
