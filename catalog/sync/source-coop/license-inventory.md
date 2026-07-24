@@ -7,6 +7,14 @@ Full recursive STAC walk (130 nodes). Verdict per collection:
 ## public-blm
 - **OK** · `public-domain` — public-blm/oil-gas-leases  · BLM National MLRS Oil & Gas Leases (ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain (the ArcGIS Hub "custom" tag is generic). Mirror-eligible. Tracked: data-workflows #451.
 - **OK** · `public-domain` — public-blm/mining-claims  · BLM National MLRS Mining Claims (ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #477.
+- **OK** · `public-domain` — public-blm/locatable-operations  · BLM National MLRS locatable-mineral operations — Notices + Plans of Operations (ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #487. (Backfilled — the collection shipped without a license-inventory line.)
+- **OK** · `public-domain` — public-blm/coal-cases  · BLM National MLRS Coal Cases (ArcGIS FeatureServer `BLM_Natl_MLRS_Coal_Cases/FeatureServer/1`, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #486.
+- **OK** · `public-domain` — public-blm/geothermal-leases  · BLM National MLRS Geothermal Leases (ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #486.
+- **OK** · `public-domain` — public-blm/oil-shale-leases  · BLM National MLRS Oil Shale Leases (RD&D, preference-right and exploration licenses; ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #486.
+- **OK** · `public-domain` — public-blm/non-energy-leasables  · BLM National MLRS Non-Energy Leasables (phosphate, sodium, potassium, sulfur, gilsonite, etc.; ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #486.
+- **OK** · `public-domain` — public-blm/mineral-materials  · BLM National MLRS Mineral Materials (salable — sand, gravel, stone; ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #486.
+- **OK** · `public-domain` — public-blm/oil-gas-agreements  · BLM National MLRS Oil & Gas Agreements (unit / communitization agreements; ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #486.
+- **OK** · `public-domain` — public-blm/oil-gas-participating-areas  · BLM National MLRS Oil & Gas Participating Areas (within unit agreements; ArcGIS FeatureServer, gis.blm.gov). US federal cadastral work → public domain. Mirror-eligible. Tracked: data-workflows #486.
 
 ## public-ca-dac
 - **OK** · `CC-BY-4.0` — public-ca-dac  · CA DWR via CNRA open data + US Census ACS (confirm exact)
