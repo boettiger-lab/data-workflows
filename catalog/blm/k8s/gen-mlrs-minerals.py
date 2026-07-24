@@ -249,6 +249,20 @@ spec:
                   return None
               return (EPOCH + timedelta(milliseconds=v)).strftime("%Y-%m-%d")
 
+          def year_of(iso):
+              # Extract the year, rejecting implausible ones. MLRS uses a year-3999
+              # sentinel for "no known end" (mineral-materials ships 3999-12-12 and
+              # 3999-01-01); left in place it makes case_year useless as a slider bound --
+              # the range reads 1921..3999. The window is deliberately wide enough to keep
+              # GENUINE future disposition dates, which do occur (2030-04-17, 2034-03-06),
+              # and 2100 is a fixed bound so a regenerated manifest never drifts with the
+              # clock. The raw EFF_DT / CSE_DISP_DT strings are retained verbatim, so
+              # nothing is lost -- only the derived integer is withheld.
+              if not iso:
+                  return None
+              y = int(iso[:4])
+              return y if 1800 <= y <= 2100 else None
+
           def clean(feat):
               p = feat.get("properties") or {{}}
               out = {{k: p.get(k) for k in KEEP}}
@@ -266,8 +280,7 @@ spec:
               for d in DATE_FIELDS:
                   out[d] = ms_to_iso(p.get(d))
               # --- derived year columns (see header) ---
-              eff = out.get("EFF_DT")
-              out["eff_year"] = int(eff[:4]) if eff else None
+              out["eff_year"] = year_of(out.get("EFF_DT"))
 {disp_derive}
               out["case_year"] = out["eff_year"]{case_year_fallback}
               out["case_year_src"] = ("effective" if out["eff_year"] is not None
@@ -318,6 +331,11 @@ spec:
           print(f"case_year range: {{years[:1]}}..{{years[-1:]}}", flush=True)
           print(f"eff_year populated: {{n_eff}}/{{len(feats)}}; case_year populated: {{n_case}}/{{len(feats)}}", flush=True)
           print(f"null-geometry features: {{nogeom}}", flush=True)
+          # count dates present in the source but rejected as implausible (the 3999 sentinel)
+          sentinel = sum(1 for f in feats
+                         for k, yk in (("EFF_DT", "eff_year"), ("CSE_DISP_DT", "disp_year"))
+                         if f["properties"].get(k) and f["properties"].get(yk) is None)
+          print(f"dates rejected as out-of-range (3999 sentinel etc.): {{sentinel}}", flush=True)
 
           out = {{"type": "FeatureCollection",
                  "crs": {{"type": "name", "properties": {{"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}}}},
@@ -487,8 +505,7 @@ def main():
             disp_line = (f"disp_year      year of CSE_DISP_DT ({disp_cov}% populated) -- "
                          f"the leasable/salable\n"
                          f"#                  variant only")
-            disp_derive = ('              disp = out.get("CSE_DISP_DT")\n'
-                           '              out["disp_year"] = int(disp[:4]) if disp else None')
+            disp_derive = '              out["disp_year"] = year_of(out.get("CSE_DISP_DT"))'
             case_year_fallback = ' if out["eff_year"] is not None else out["disp_year"]'
             src_fallback = ('                                     else "disposition" '
                             'if out["disp_year"] is not None\n')
