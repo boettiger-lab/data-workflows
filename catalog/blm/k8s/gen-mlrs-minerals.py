@@ -476,10 +476,43 @@ def pipeline(spec):
         assert n == 1, f"{where}: expected 1 `backoffLimit: 0`, found {n}"
         return text
 
+    def patch_pmtiles(text, where):
+        """Raise the open-file limit before tippecanoe.
+
+        tippecanoe shards through many temporary files; on nodes whose default soft
+        RLIMIT_NOFILE is low it dies with `Too many open files` partway through the
+        write, and the Job fails with no output. Observed here on
+        oil-gas-participating-areas (2,562 features) even though the 42-feature layer
+        succeeded, so it is a node-dependent limit, not a size threshold. The generator
+        does not emit this; #451 carries the same line as a hand-edit. `|| true` because
+        an unprivileged container may not be permitted to raise it, in which case we
+        still want the attempt rather than a hard failure.
+        """
+        gen_flags = ("--drop-densest-as-needed --extend-zooms-if-still-dropping --force")
+        # Use the flag set proven on this exact data family by #451/#477 instead of the
+        # generator default. `--extend-zooms-if-still-dropping` with no -z cap lets
+        # tippecanoe keep adding zoom levels, and the shard count grows with them until
+        # it lands on a non-power-of-2 and trips the radix-sort assertion
+        # "Internal error: N shards not a power of 2" (felt/tippecanoe#216) — observed
+        # here as 745 shards on oil-gas-participating-areas. Pinning -z 13 bounds it.
+        # These are parcel polygons; zoom 13 is ample.
+        proven_flags = ("--coalesce-densest-as-needed --drop-densest-as-needed -z 13 --force")
+        old = f"          tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET {gen_flags}"
+        new = (f"          ulimit -n 65536 || true\n"
+               f"          tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET {proven_flags}")
+        if where == "configmap.yaml":       # embedded copy is indented 4 further
+            old = "    " + old
+            new = "    " + new.replace("\n          ", "\n              ")
+        n = text.count(old)
+        assert n == 1, f"{where}: expected 1 tippecanoe invocation, found {n}"
+        return text.replace(old, new)
+
     hexf = d / f"{spec['name']}-hex.yaml"
     hexf.write_text(patch(hexf.read_text(), 2, hexf.name))
+    pmf = d / f"{spec['name']}-pmtiles.yaml"
+    pmf.write_text(patch_pmtiles(pmf.read_text(), pmf.name))
     cmf = d / "configmap.yaml"
-    cmf.write_text(patch(cmf.read_text(), 6, cmf.name))
+    cmf.write_text(patch_pmtiles(patch(cmf.read_text(), 6, cmf.name), cmf.name))
     return cap, margin
 
 

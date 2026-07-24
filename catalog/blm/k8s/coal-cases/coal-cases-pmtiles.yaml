@@ -66,7 +66,8 @@ spec:
           # environment, not the shell. A plain assignment is invisible to it, so it
           # falls back to the raw (non-power-of-2) CPU count and crashes (issue #77).
           export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
-          tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$DATASET.geojsonl
+          ulimit -n 65536 || true
+          tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --coalesce-densest-as-needed --drop-densest-as-needed -z 13 --force /tmp/$DATASET.geojsonl
 
           # Upload to S3 using rclone
           rclone copy /tmp/$DATASET.pmtiles nrp:public-blm/
