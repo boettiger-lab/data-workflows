@@ -1,0 +1,105 @@
+# PVC-backed retry of the acquisitions h0 repartition (issue #488).
+#
+# The stock repartition (50Gi ephemeral) was EVICTED: "Pod ephemeral local storage usage
+# exceeds the total limit of containers 50Gi". That is DuckDB spilling to local disk while
+# merging 40 chunks -- one of which, chunk_000013.parquet, is 2.18 GB on its own -- into the
+# 8 h0 partitions. 50Gi is the namespace MAXIMUM for ephemeral-storage, so the fix is not a
+# bigger ephemeral request (the quota would reject it) but moving scratch onto the shared
+# 2Ti rook-cephfs `rechunk-scratch` PVC, exactly as mining-claims #477 does.
+#
+# Both scratch paths are redirected: TMPDIR (the tool's own temp writes) and the process CWD
+# (DuckDB's spill file is CWD-relative), plus /tmp/hex symlinked onto the PVC. Ephemeral is
+# then dropped to 20Gi because almost nothing lands on it. Memory is raised 64Gi -> 192Gi
+# (DuckDB --memory-limit 160GiB) since the previous attempt was running at 88% of its 64Gi
+# cap, which forces yet more spilling -- more RAM means less disk churn, not just less OOM
+# risk. cephfs handles a few large sequential spill files well; it is the many-small-file
+# case that is pathological there.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/488
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: acquisitions-repartition-pvc
+  labels:
+    k8s-app: acquisitions-repartition-pvc
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: acquisitions-repartition-pvc
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: repartition-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch
+        - name: BUCKET
+          value: public-blm
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: acquisitions-repartition
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # put ALL scratch on the PVC: the tool's /tmp/hex writes and DuckDB's
+          # CWD-relative spill file both need to be off the 50Gi ephemeral disk.
+          mkdir -p /scratch/hex && cd /scratch
+          ln -s /scratch/hex /tmp/hex 2>/dev/null || true
+          cng-datasets repartition --chunks-dir s3://public-blm/acquisitions/chunks --output-dir s3://public-blm/acquisitions/hex --source-parquet s3://public-blm/acquisitions.parquet --cleanup --memory-limit 160GiB
+        resources:
+          requests:
+            cpu: '4'
+            memory: 192Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 192Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
