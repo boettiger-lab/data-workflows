@@ -13,9 +13,9 @@ geo-agent-ops (backup-tier ownership; geo-agent-ops #66/#21).
 - `usgs-nhd` (public-domain — USGS National Hydrography)
 - `usgs-wbd` (public-domain — USGS Watershed Boundary Dataset)
 - `facts` (public-domain — USFS FACTS Common Attributes)
-- `nci-frontiers` (CC0-1.0 — Polasky et al. 2026 / Natural Capital Project) — ⚠️ **bucket has no README.md yet** (write before first backfill)
+- `nci-frontiers` (CC0-1.0 — Polasky et al. 2026 / Natural Capital Project)
 - `connectivity` (CC-BY-4.0 + CC0 — CDFW BIOS ds419/ds2867 + Schloss/Cameron et al.)
-- `hazard` (public-domain — FEMA flood + NOAA SLR; `mid-century-habitat-climate-exposure/**` **excluded**, terms unconfirmed) — ⚠️ **bucket has no README.md yet** (write before first backfill)
+- `hazard` (public-domain — FEMA flood + NOAA SLR; `mid-century-habitat-climate-exposure/**` **excluded**, terms unconfirmed)
 - `usgs-ungulate-migration` (public-domain — USGS U.S. Government Works; *Ungulate Migrations of the Western US* Vols 1–6: `ungulate-ranges` + `ungulate-routes`). data-workflows #153/#225.
 
 > Note: `public-wyoming` is intentionally NOT mirrored — a Wyoming-clipped collection whose datasets now live in full-extent buckets; kept on NRP, migration tracked in #225.
