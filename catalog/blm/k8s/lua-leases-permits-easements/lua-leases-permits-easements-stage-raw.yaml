@@ -1,0 +1,217 @@
+# Stage raw BLM National MLRS LUA Leases / Permits / Easements from the ArcGIS
+# FeatureServer to S3.
+#
+# Land-use authorizations (leases, permits, easements) on BLM-administered land --- the
+# non-mineral surface-use counterpart to the MLRS mineral case records (#451 leases,
+# #477 claims, #487 locatable operations). Paginated (maxRecordCount 2000) with the same
+# robustness as those scrapes: explicit User-Agent, per-page retry with backoff, stable
+# OBJECTID ordering, and a terminal count assert.
+#
+# Schema note (verified live against the FeatureServer 2026-07-24, issue #488): this is the
+# MLRS **LUA variant**. It does NOT carry the leasing dates (no EFF_DT/EXP_DT/SALE_DT) ---
+# the only case date is CSE_DISP_DT (Case Disposition Date), so the year-slider column is
+# `disp_year` (year of CSE_DISP_DT), not a lease/effective year. CSE_DISP_DT is populated on
+# 39,530 of 39,598 features (99.8%). The LUA variant adds case-file jurisdiction
+# (CSE_JURIS_CD/CSE_JURIS_DESC) and corridor dimensions (CSE_WIDTH/CSE_LGTH), all retained.
+# MLRS dates arrive as epoch-MILLISECONDS even in GeoJSON output and are parsed to ISO here.
+#
+# Dropped fields and why:
+#   Shape__Area / Shape__Length  decimal-degree junk (real area is RCRD_ACRS)
+#   QLTY                         despite the "Data Quality" alias this is NOT a quality
+#                                code --- it is a multi-kilobyte free-text dump of the LLD
+#                                geocoder's debug log ("12 sections retrieved\n150
+#                                intersected features retrieved...", 2000+ distinct values).
+#                                Carrying it would bloat the GeoParquet and PMTiles for no
+#                                analytical value. `SRC` (7 clean values: LLD, LLD/CLS,
+#                                BULK, Batch, MIGRATE, PROTOOLS, None) is retained instead
+#                                and is the useful geocoding-provenance field.
+#   CSE_META, SF_ID, ID, OBJECTID  internal MLRS/Salesforce/GIS record keys
+#
+# Polygons are geocoded from Legal Land Descriptions via the PLSS, so some cases have no
+# geometry (2,121 of 39,598 have a null Shape__Area). Those rows are retained as
+# attribute-only records; cng-datasets drops them at hex time.
+#
+#   Source: https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_LUA_Leases_Permits_Esmts/FeatureServer/0
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/488
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lua-leases-permits-easements-stage-raw
+  labels:
+    k8s-app: lua-leases-permits-easements-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: lua-leases-permits-easements-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts
+      # (gis.blm.gov). Append public resolvers as a fallback; cluster DNS is still tried
+      # first so the internal rook-ceph-rgw-nautiluss3.rook rclone endpoint keeps resolving.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, time, urllib.parse, urllib.request, urllib.error
+          from datetime import datetime, timedelta, timezone
+
+          BASE = ("https://gis.blm.gov/nlsdb/rest/services/HUB/"
+                  "BLM_Natl_MLRS_LUA_Leases_Permits_Esmts/FeatureServer/0/query")
+          PAGE = 2000
+          EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)  # handles pre-1970 (negative ms)
+          # gis.blm.gov 403s the default python-urllib User-Agent -- send an explicit one
+          UA = {"User-Agent": "data-workflows/1.0 (boettiger-lab; issue 488)"}
+
+          # Attributes to keep. CSE_DISP is the disposition/status; RCRD_ACRS the case acres
+          # (a per-feature total -- dedup by _cng_fid before any SUM); CSE_WIDTH/CSE_LGTH the
+          # authorized corridor dimensions; CUST_NM_SEC/PCT_INT_SEC/INT_REL_SEC the business
+          # account (who holds/applied for the authorization) and its interest.
+          KEEP = ("CSE_NR", "LEG_CSE_NR", "CSE_NAME", "CSE_TYPE_NR", "BLM_PROD",
+                  "CSE_DISP", "CMMDTY", "RCRD_ACRS",
+                  "ADMIN_STATE", "GEO_STATE",
+                  "CSE_JURIS_CD", "CSE_JURIS_DESC", "CSE_WIDTH", "CSE_LGTH",
+                  "CUST_NM_SEC", "PCT_INT_SEC", "INT_REL_SEC",
+                  "SRC", "CSE_DISP_DT", "Created", "Modified")
+          DATE_FIELDS = ("CSE_DISP_DT", "Created", "Modified")
+
+          def fetch_page(url, tries=6):
+              # the FeatureServer intermittently returns 503/timeouts; retry each page with
+              # exponential backoff so one transient blip does not lose the whole scrape.
+              for attempt in range(1, tries + 1):
+                  try:
+                      req = urllib.request.Request(url, headers=UA)
+                      with urllib.request.urlopen(req, timeout=180) as r:
+                          return json.load(r)
+                  except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+                      if attempt == tries:
+                          raise
+                      wait = min(60, 2 ** attempt)
+                      print(f"  retry {attempt}/{tries} after {type(e).__name__} ({e}); sleep {wait}s", flush=True)
+                      time.sleep(wait)
+
+          def ms_to_iso(v):
+              if v is None:
+                  return None
+              return (EPOCH + timedelta(milliseconds=v)).strftime("%Y-%m-%d")
+
+          def clean(feat):
+              p = feat.get("properties") or {}
+              out = {k: p.get(k) for k in KEEP}
+              # normalize strings: strip surrounding whitespace/newlines (the MLRS export
+              # ships whitespace-only CSE_NAME/LEG_CSE_NR placeholders) and map empty -> None
+              for k, v in list(out.items()):
+                  if isinstance(v, str):
+                      v = v.strip()
+                      out[k] = v or None
+              # ISO dates (MLRS epoch-ms -> YYYY-MM-DD)
+              for d in DATE_FIELDS:
+                  out[d] = ms_to_iso(p.get(d))
+              # derived numeric year of the case disposition date, for the time slider.
+              # This is the ONLY case date this service exposes (no EFF_DT/EXP_DT/SALE_DT).
+              disp = out.get("CSE_DISP_DT")
+              out["disp_year"] = int(disp[:4]) if disp else None
+              feat["properties"] = out
+              return feat
+
+          feats, offset = [], 0
+          while True:
+              q = {
+                  "where": "1=1",
+                  "outFields": "*",
+                  "outSR": "4326",              # WGS84 lon/lat (source is NAD83 / WKID 4269)
+                  "f": "geojson",
+                  "resultOffset": offset,
+                  "resultRecordCount": PAGE,
+                  "orderByFields": "OBJECTID",  # stable pagination order
+              }
+              url = BASE + "?" + urllib.parse.urlencode(q)
+              fc = fetch_page(url)
+              batch = fc.get("features", [])
+              for feat in batch:
+                  feats.append(clean(feat))
+              print(f"offset {offset}: +{len(batch)} (total {len(feats)})", flush=True)
+              more = fc.get("properties", {}).get("exceededTransferLimit") or fc.get("exceededTransferLimit")
+              if len(batch) < PAGE and not more:
+                  break
+              if not batch:
+                  break
+              offset += len(batch)
+
+          # sanity check: disposition set, states, year range, null-geometry count
+          disps = sorted({(f["properties"].get("CSE_DISP") or "") for f in feats})
+          states = sorted({(f["properties"].get("ADMIN_STATE") or "") for f in feats})
+          years = sorted({y for f in feats if (y := f["properties"].get("disp_year")) is not None})
+          nogeom = sum(1 for f in feats if not f.get("geometry"))
+          nullyear = sum(1 for f in feats if f["properties"].get("disp_year") is None)
+          print(f"CSE_DISP: {disps}", flush=True)
+          print(f"distinct ADMIN_STATE: {states}", flush=True)
+          print(f"disp_year range: {years[:1]}..{years[-1:]} ({nullyear} null)", flush=True)
+          print(f"null-geometry features: {nogeom}", flush=True)
+
+          out = {"type": "FeatureCollection",
+                 "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
+                 "features": feats}
+          with open("/tmp/lua-leases-permits-easements.geojson", "w") as f:
+              json.dump(out, f)
+          print(f"WROTE {len(feats)} features", flush=True)
+          # fail loudly if the FeatureServer under-delivered vs the known count
+          # (39,598 polygon features, verified live 2026-07-24)
+          assert len(feats) >= 39000, f"expected ~39,598 features, got {len(feats)}"
+          PY
+          ls -la /tmp/lua-leases-permits-easements.geojson
+          rclone copyto /tmp/lua-leases-permits-easements.geojson nrp:public-blm/raw/lua-leases-permits-easements.geojson --s3-no-check-bucket
+          echo "staged raw -> s3://public-blm/raw/lua-leases-permits-easements.geojson"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

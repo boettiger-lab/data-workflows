@@ -1,0 +1,91 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lua-row-hex
+  labels:
+    k8s-app: lua-row-hex
+spec:
+  completions: 158
+  parallelism: 50
+  completionMode: Indexed
+  # chunk-size 1250 x 158 completions = 197,500 capacity, covers all 196,751 features
+  # (the largest MLRS HUB layer) with margin, staying under the k8s 200-completion cap.
+  #
+  # Deliberately HALVED from the 2500 that acquisitions used, because that run showed the
+  # binding constraint is the per-chunk FINAL WRITE, not the unnest: acquisitions chunk 13
+  # completed all 327 unnest batches and then OOMKilled at 16Gi while writing its output,
+  # and its sibling chunk 14 landed at 2.04 GB -- flirting with the 2 GB Parquet page limit.
+  # Output size scales with chunk-size, so halving the chunk halves each write's peak memory
+  # AND shortens the straggler tail (a pathological polygon drags 1,249 neighbours instead of
+  # 2,499). Memory is also raised 16Gi -> 24Gi as belt-and-braces for the write.
+  # Per-index retries (not backoffLimit:0) so a partial run fails loudly rather than
+  # publishing a subset of h0 partitions (#409). Verified after the run with
+  # scripts/check-hex-coverage.sh.
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 2
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: lua-row-hex
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-blm
+        - name: DATASET
+          value: lua-row
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          cng-datasets vector --input s3://public-blm/lua-row.parquet --output s3://public-blm/lua-row/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1250 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+        resources:
+          requests:
+            cpu: '4'
+            memory: 24Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 24Gi
+            ephemeral-storage: 20Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

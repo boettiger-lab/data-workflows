@@ -1,0 +1,103 @@
+# Reprocess the single hex chunk that OOMed in the main acquisitions-hex run (issue #488).
+#
+# Chunk 13 completed ALL 327/327 unnest batches and then OOMKilled (exit 137) at 16Gi during
+# "Writing final output ... chunk_000013.parquet" -- i.e. the failure is in the final
+# aggregate-and-write step, NOT in pass-2 unnesting. That distinction matters:
+#   * lowering --intermediate-chunk-size (the usual first move for an unnest OOM) would NOT
+#     help here, because the unnest had already finished;
+#   * and the failure is deterministic, so the Job's automatic per-index retry would spend
+#     another ~2 h redoing all 327 batches only to die at the same write. It is cheaper to
+#     kill that retry and re-run this one chunk with enough RAM to land the write.
+#
+# So: same chunk-size/resolution as the main run (identical output contract), 96Gi instead of
+# 16Gi, and the full 50Gi ephemeral allowance for DuckDB spill. Runs standalone, AFTER the main
+# hex job and BEFORE repartition -- repartition reads every chunks/*.parquet, so publishing
+# without this chunk would silently drop ~2,500 case records' worth of cells.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/488
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: acquisitions-hex-rechunk
+  labels:
+    k8s-app: acquisitions-hex-rechunk
+spec:
+  completions: 1
+  parallelism: 1
+  completionMode: Indexed
+  # Per-index retries (not backoffLimit:0) so a partial run fails loudly rather than
+  # publishing a subset of h0 partitions (#409). Verified after the run with
+  # scripts/check-hex-coverage.sh.
+  backoffLimitPerIndex: 1
+  maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: acquisitions-hex-rechunk
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-blm
+        - name: DATASET
+          value: acquisitions
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # CHUNK_MAP pattern (AGENTS.md "Reprocessing Failed Chunks"): remap this job's
+          # completion index onto the real chunk id that failed in the main run.
+          CHUNK_MAP=(13)
+          CHUNK_ID=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
+          echo "reprocessing acquisitions hex chunk ${CHUNK_ID}"
+          cng-datasets vector --input s3://public-blm/acquisitions.parquet --output s3://public-blm/acquisitions/chunks --chunk-id ${CHUNK_ID} --chunk-size 2500 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+        resources:
+          requests:
+            cpu: '4'
+            memory: 96Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 96Gi
+            ephemeral-storage: 50Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
