@@ -269,16 +269,30 @@ def state_defs(codes):
     return ", ".join(f"{c}={STATE_NAMES[c]}" for c in codes)
 
 
-def acres_desc(hexed):
+def acres_desc(hexed, upstream_dup):
+    """`upstream_dup` is True when the SOURCE file already holds several rows per CSE_NR
+    (axis 2). That changes the correct advice on the FLAT asset, where SUM is otherwise
+    safe — getting this wrong is the #309 over-count class, so it is derived from the
+    data (rows vs COUNT(DISTINCT CSE_NR)) rather than assumed per layer."""
     base = ("Recorded case acreage as carried in the BLM case record (source RCRD_ACRS). "
             "This is the *recorded* acreage of the case, not the area of the geocoded "
             "polygon — the LLD geocoder snaps to whole PLSS aliquots, so the polygon is "
             "often larger. ")
     if hexed:
-        return base + ("Per-feature total repeated on every hex cell the case covers — "
-                       "never SUM(RCRD_ACRS) on the hex asset; dedup by _cng_fid first "
-                       "(SELECT DISTINCT _cng_fid, RCRD_ACRS).")
-    return base + ("One row per case on the flat GeoParquet, so SUM is correct here.")
+        tail = ("Per-feature total repeated on every hex cell the case covers — never "
+                "SUM(RCRD_ACRS) on the hex asset; dedup by _cng_fid first "
+                "(SELECT DISTINCT _cng_fid, RCRD_ACRS).")
+        if upstream_dup:
+            tail += (" This layer ALSO has upstream row duplication, so to total by CASE "
+                     "rather than by source row dedup on CSE_NR instead — _cng_fid is "
+                     "unique per row and will not collapse it.")
+        return base + tail
+    if upstream_dup:
+        return base + ("REPEATED — this layer holds several source rows per CSE_NR with "
+                       "the value copied onto each, so a raw SUM(RCRD_ACRS) over-counts. "
+                       "Dedup first: SELECT DISTINCT CSE_NR, RCRD_ACRS. Use "
+                       "COUNT(DISTINCT CSE_NR) for the case count, not COUNT(*).")
+    return base + "One row per case on the flat GeoParquet, so SUM is correct here."
 
 
 def disp_year_desc(spec):
@@ -366,7 +380,7 @@ def build(name, mcp):
     def col_entry(cname, hexed):
         typ, desc = COLS[cname]
         if cname == "RCRD_ACRS":
-            desc = acres_desc(hexed)
+            desc = acres_desc(hexed, n_cases < n)
         elif cname == "disp_year":
             desc = disp_year_desc(spec)
         elif cname == "case_year":
@@ -582,6 +596,57 @@ Join to any other catalog dataset at `h8`.
 """
 
 
+def update_parent(built):
+    """Add a child link per new collection to the public-blm parent, and repair the
+    existing locatable-operations link, which shipped with no `id` and no `title` — geo
+    clients key on `id`, so an untitled child renders as a blank row. Read-modify-write
+    against the LIVE parent so concurrent additions by other issues are preserved."""
+    import urllib.request
+    url = f"{BASE}/stac-collection.json"
+    with urllib.request.urlopen(url, timeout=120) as r:
+        doc = json.load(r)
+
+    # Backfill id/title on any child link missing them, from the child's own collection.
+    for link in doc["links"]:
+        if link.get("rel") != "child" or (link.get("id") and link.get("title")):
+            continue
+        try:
+            with urllib.request.urlopen(link["href"], timeout=120) as r:
+                child = json.load(r)
+            link["id"] = child["id"]
+            link["title"] = child.get("title", child["id"])
+            print(f"  repaired child link: {link['id']}")
+        except Exception as e:                       # noqa: BLE001 - advisory only
+            print(f"  WARN could not repair {link['href']}: {e}")
+
+    have = {l.get("id") for l in doc["links"] if l.get("rel") == "child"}
+    for name, (cdoc, _) in built.items():
+        if name in have:
+            doc["links"] = [l for l in doc["links"]
+                            if not (l.get("rel") == "child" and l.get("id") == name)]
+        doc["links"].append({
+            "rel": "child", "id": name, "title": cdoc["title"],
+            "href": f"{BASE}/{name}/stac-collection.json",
+            "type": "application/json"})
+
+    # The description still promised mining claims and APDs as future work; claims landed
+    # in #477 and the mineral case records land here.
+    doc["description"] = (
+        "Bureau of Land Management public land-record datasets in cloud-native formats "
+        "(GeoParquet, PMTiles, H3 hexagonal aggregations). Sourced from the BLM National "
+        "MLRS / EGIS program. This collection is a grouping only — select a child "
+        "collection to access data. Coverage spans the mineral estate (oil & gas leases "
+        "and agreements, coal, geothermal, oil shale, non-energy leasables, salable "
+        "mineral materials, mining claims and locatable-mineral operations) as well as "
+        "land-use authorizations and tenure.")
+
+    out = OUT / "parent-stac-collection.json"
+    out.write_text(json.dumps(doc, indent=2) + "\n")
+    kids = [l["id"] for l in doc["links"] if l.get("rel") == "child"]
+    print(f"  parent now lists {len(kids)} children: {', '.join(sorted(kids))}")
+    return out
+
+
 def main():
     only = [a for a in sys.argv[1:] if not a.startswith("-")]
     names = only or list(LAYERS)
@@ -599,6 +664,8 @@ def main():
         vals = ", ".join(f"{k}={len(v)}" for k, v in f["values"].items())
         print(f"{name:30s} {f['n']:>7,} rows  {f['null_geom']:>5,} nullgeom  "
               f"case_year {f['pct']:>4} {f['y0']}-{f['y1']}  values[{vals}]")
+    if not only:                 # only rewrite the parent on a full run
+        update_parent(built)
     return built
 
 
