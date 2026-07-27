@@ -203,6 +203,10 @@ California Park Access Tool 2020 (SCORP 2020) — Parks for All Californians, Gr
 - **OK** · `public-domain` — public-social-vulnerability/2022  
 - **OK** · `public-domain` — public-social-vulnerability  
 
+## public-storms
+- **OK** · `public-domain` — public-storms/ibtracs-v04r01/points  · NOAA NCEI IBTrACS v04r01 tropical-cyclone best-track fixes (points). WMO/NOAA product under WMO Resolution 40 (full & open access) → public domain. Mirror-eligible (attribution via NCEI + DOI 10.25921/82ty-9e16). Tracked: data-workflows #494.
+- **OK** · `public-domain` — public-storms/ibtracs-v04r01/lines  · NOAA NCEI IBTrACS v04r01 tropical-cyclone track segments (lines). Same source/terms as points. Mirror-eligible. Tracked: data-workflows #494.
+
 ## public-tpl
 - **HOLD** · `TPL (no public terms)` — public-tpl/conservation-almanac-2024-funding  · no data license found; TPL requires contact for spatial data
 - **HOLD** · `TPL (no public terms)` — public-tpl/conservation-almanac-2024-sites  · no data license found; TPL requires contact for spatial data

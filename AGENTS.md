@@ -769,7 +769,7 @@ empty joins). So encode the joins into the data, don't hope the model derives th
 |---|---|---|
 | `--h3-resolution` | 10 | Lower (8, 6) for large polygons. Halving res ≈ 6× fewer cells. |
 | `--hex-memory` | 8Gi | Tune from OOM signals. Start low. |
-| `--max-completions` | 200 | k8s backend hard limit. With armada: set to feature count for chunk-size 1. |
+| `--max-completions` | 200 | Number of hex chunks. With armada: set to feature count for chunk-size 1. **⛔ Not a hard cap — a silent coverage limit (data-workflows #494):** the k8s hex uses a FIXED `--chunk-size 1000`, so total features hexed = `max-completions × 1000`. The default 200 silently caps a build at **200,000 features** — anything beyond that is never hexed and the repartition/STAC look "complete." For any dataset **>200k features**, set `--max-completions ≥ ceil(feature_count / 1000)` (e.g. 711,583 → 720). The generator can't count features in a zip/parquet source, so it can't warn you. **Always** confirm coverage post-build: `COUNT(DISTINCT _cng_fid)` on the hex must equal the flat parquet's feature count (not just that h0 partitions exist). |
 | `--max-parallelism` | 50 | k8s only — capped by pod quota. Unused with armada. |
 | `--parent-resolutions` | "9,8,0" | Use `"0"` when `--h3-resolution 8` (9/8 would duplicate target). |
 | `--intermediate-chunk-size` | 10 | Decrease if hex OOMs during unnest — try this before raising memory. |

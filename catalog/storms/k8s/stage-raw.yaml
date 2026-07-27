@@ -1,0 +1,65 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ibtracs-v04r01-stage-raw
+  labels:
+    k8s-app: ibtracs-v04r01-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ibtracs-v04r01-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          base="https://www.ncei.noaa.gov/data/international-best-track-archive-for-climate-stewardship-ibtracs/v04r01/access/shapefile"
+          cd /tmp
+          for f in IBTrACS.ALL.list.v04r01.lines.zip IBTrACS.ALL.list.v04r01.points.zip; do
+            echo "Downloading $f ..."
+            curl -L --retry 5 --retry-delay 5 -o "/tmp/$f" "$base/$f"
+            ls -la "/tmp/$f"
+          done
+          echo "Uploading to nrp:public-storms/raw/ ..."
+          rclone copy /tmp/IBTrACS.ALL.list.v04r01.lines.zip  nrp:public-storms/raw/ -P
+          rclone copy /tmp/IBTrACS.ALL.list.v04r01.points.zip nrp:public-storms/raw/ -P
+          echo "Staged raw:"
+          rclone ls nrp:public-storms/raw/
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 2Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
