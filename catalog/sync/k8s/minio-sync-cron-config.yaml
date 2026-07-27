@@ -56,6 +56,7 @@ data:
     rap sync */chunks/** */hex-staging/** 
     rivers sync */chunks/** */hex-staging/** 
     social-vulnerability sync */chunks/** */hex-staging/** 
+    storms sync */chunks/** */hex-staging/** 
     swap sync */chunks/** */hex-staging/** 
     tpl sync */chunks/** */hex-staging/** 
     trails sync */chunks/** */hex-staging/** 
