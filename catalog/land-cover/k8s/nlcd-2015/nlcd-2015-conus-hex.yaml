@@ -1,0 +1,84 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nlcd-2015-conus-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: nlcd-2015-conus-hex
+spec:
+  completions: 122
+  parallelism: 6
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 10
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nlcd-2015-conus-hex
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      # No single-node pin: 256Gi/8cpu pods must spread across the cluster to run
+      # concurrently. backoffLimitPerIndex retries cover opportunistic preemption.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: CNG_HEX_WORKERS
+          value: '8'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Hex full CONUS NLCD 2015 land cover from the WGS84 COG. One indexed pod per
+          # H3 res-0 base cell (0..121); ocean/empty cells skip silently. `mode` is a
+          # SPARSE reducer (partition written only where valid pixels exist). Job marks
+          # Complete only when all 122 indexes succeed -> a partial run surfaces as Failed.
+          H0=${JOB_COMPLETION_INDEX}
+          echo "=== NLCD 2015 CONUS res-10 mode, h0-index $H0 ==="
+          cng-datasets raster \
+            --input "s3://public-land-cover/nlcd-2015-cog.tif" \
+            --output-parquet s3://public-land-cover/nlcd-2015/hex/ \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,7,6,5,0 \
+            --value-column nlcd --hex-resampling mode --nodata "250"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 256Gi
+            ephemeral-storage: 40Gi
+          limits:
+            cpu: '8'
+            memory: 256Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
