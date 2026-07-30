@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nlcd-cog
+  namespace: geo-workflows
+  labels: {k8s-app: nlcd-cog}
+spec:
+  completions: 19
+  parallelism: 5
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: nlcd-cog}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Build one full-CONUS WGS84 land-cover COG per Annual NLCD year (C1V2, uniform
+          # collection version 1985-2025 -> consistent cross-year classification). Indexed:
+          # one year per pod. -r near REQUIRED (categorical class codes). nodata 250.
+          YEARS=(1985 1990 1994 1996 1998 2000 2005 2010 2015 2016 2017 2018 2019 2020 2021 2022 2023 2024 2025)
+          Y=${YEARS[$JOB_COMPLETION_INDEX]}
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          [ -n "$PROJ_DB" ] && export PROJ_DATA="$(dirname $PROJ_DB)" PROJ_LIB="$(dirname $PROJ_DB)"
+          cd /tmp
+          f="Annual_NLCD_LndCov_${Y}_CU_C1V2.tif"
+          echo "=== [$JOB_COMPLETION_INDEX] COG year $Y ==="
+          rclone copy nrp:public-land-cover/raw/$f /tmp/ -P
+          gdalinfo /tmp/$f | grep -E 'Size is|Pixel Size|Origin'
+          gdalwarp -t_srs EPSG:4326 -r near -of COG \
+            -srcnodata 250 -dstnodata 250 \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 4096 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BLOCKSIZE=512 \
+            -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS \
+            /tmp/$f /tmp/nlcd-${Y}-cog.tif
+          gdalinfo /tmp/nlcd-${Y}-cog.tif | grep -E 'Size is|Lower Left|Upper Right'
+          rclone copyto /tmp/nlcd-${Y}-cog.tif nrp:public-land-cover/nlcd/nlcd-${Y}-cog.tif -P
+          rm -f /tmp/$f /tmp/nlcd-${Y}-cog.tif
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nlcd-hex
+  namespace: geo-workflows
+  labels: {k8s-app: nlcd-hex}
+spec:
+  completions: 2318          # 19 years x 122 h0 base cells
+  parallelism: 12
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 30
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: nlcd-hex}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Unified Annual NLCD res-10 mode hex, all 19 years into one h0-partitioned dataset
+          # keyed by a year= hive partition. Index maps to (year, h0): YI=idx/122, H0=idx%122.
+          # Output: nlcd/hex/year=<year>/h0=<cell>/data_0.parquet  (year+h0 both queryable).
+          # Sparse mode writes only populated h0; job Complete only when all 2318 indexes pass.
+          YEARS=(1985 1990 1994 1996 1998 2000 2005 2010 2015 2016 2017 2018 2019 2020 2021 2022 2023 2024 2025)
+          IDX=${JOB_COMPLETION_INDEX}
+          YI=$(( IDX / 122 )); H0=$(( IDX % 122 ))
+          Y=${YEARS[$YI]}
+          echo "=== NLCD $Y res-10 mode, h0-index $H0 (global idx $IDX) ==="
+          cng-datasets raster \
+            --input "s3://public-land-cover/nlcd/nlcd-${Y}-cog.tif" \
+            --output-parquet "s3://public-land-cover/nlcd/hex/year=${Y}/" \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,7,6,5,0 \
+            --value-column nlcd --hex-resampling mode --nodata "250"
+        resources:
+          requests: {cpu: '8', memory: 256Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 256Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
