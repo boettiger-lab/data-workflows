@@ -37,8 +37,10 @@ spec:
           # one year per pod. -r near REQUIRED (categorical class codes). nodata 250.
           YEARS=(1985 1990 1994 1996 1998 2000 2005 2010 2015 2016 2017 2018 2019 2020 2021 2022 2023 2024 2025)
           Y=${YEARS[$JOB_COMPLETION_INDEX]}
-          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
-          [ -n "$PROJ_DB" ] && export PROJ_DATA="$(dirname $PROJ_DB)" PROJ_LIB="$(dirname $PROJ_DB)"
+          # Do NOT override PROJ_DATA/PROJ_LIB: the image ships 8 proj.db at differing
+          # layout versions, and `find | head -1` non-deterministically picks a stale one
+          # (v4/v6) that breaks -t_srs EPSG:4326 on some pods. GDAL's default resolves its
+          # matching /usr/local/gdal-internal/share/proj/proj.db correctly. (#453)
           cd /tmp
           f="Annual_NLCD_LndCov_${Y}_CU_C1V2.tif"
           echo "=== [$JOB_COMPLETION_INDEX] COG year $Y ==="
