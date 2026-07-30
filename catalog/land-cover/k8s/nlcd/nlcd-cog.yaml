@@ -8,8 +8,8 @@ spec:
   completions: 19
   parallelism: 5
   completionMode: Indexed
-  backoffLimitPerIndex: 2
-  maxFailedIndexes: 3
+  backoffLimitPerIndex: 4    # absorb transient NRP Ceph RGW blips (index retries elsewhere)
+  maxFailedIndexes: 18       # a transient blip hitting a few indexes must NOT abort the siblings
   ttlSecondsAfterFinished: 86400
   template:
     metadata: {labels: {k8s-app: nlcd-cog}}
@@ -44,7 +44,7 @@ spec:
           cd /tmp
           f="Annual_NLCD_LndCov_${Y}_CU_C1V2.tif"
           echo "=== [$JOB_COMPLETION_INDEX] COG year $Y ==="
-          rclone copy nrp:public-land-cover/raw/$f /tmp/ -P
+          rclone copy nrp:public-land-cover/raw/$f /tmp/ -P --retries 10 --low-level-retries 20 --retries-sleep 20s
           gdalinfo /tmp/$f | grep -E 'Size is|Pixel Size|Origin'
           gdalwarp -t_srs EPSG:4326 -r near -of COG \
             -srcnodata 250 -dstnodata 250 \
@@ -53,7 +53,7 @@ spec:
             -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS \
             /tmp/$f /tmp/nlcd-${Y}-cog.tif
           gdalinfo /tmp/nlcd-${Y}-cog.tif | grep -E 'Size is|Lower Left|Upper Right'
-          rclone copyto /tmp/nlcd-${Y}-cog.tif nrp:public-land-cover/nlcd/nlcd-${Y}-cog.tif -P
+          rclone copyto /tmp/nlcd-${Y}-cog.tif nrp:public-land-cover/nlcd/nlcd-${Y}-cog.tif -P --retries 10 --low-level-retries 20 --retries-sleep 20s
           rm -f /tmp/$f /tmp/nlcd-${Y}-cog.tif
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
