@@ -57,7 +57,7 @@ spec:
             --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,7,6,5,0 \
             --value-column nlcd --hex-resampling fractions --resampling near --nodata "250"
         resources:
-          requests: {cpu: '8', memory: 256Gi, ephemeral-storage: 40Gi}
-          limits:   {cpu: '8', memory: 256Gi, ephemeral-storage: 40Gi}
+          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
