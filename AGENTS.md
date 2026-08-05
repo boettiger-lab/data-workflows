@@ -510,11 +510,24 @@ still has to be present and still has to match what `verify-stac.py` looks for (
 "repeated on every … cell"), and the H3 area recipe still must not be inlined (#389). Plain register,
 same guarantees.
 
-**Publishing is not instantly visible.** `mcp-data-server` caches STAC collections, so after
-`rclone copyto` the agent (and the app) keep reading the previous text for a while — verified during
-#512, where `verify-stac.py` (which fetches S3 directly) saw the new copy while
-`get_stac_details` still returned the old. Verify prose changes against the S3 URL, not the MCP,
-and expect app-visible wording to lag.
+**Publishing lags by ~15 minutes.** `mcp-data-server` refreshes its STAC cache on a **~15-minute**
+cycle, so right after `rclone copyto` the agent (and the app) still read the previous text — verified
+during #512, where `verify-stac.py` (which fetches S3 directly) saw the new copy while
+`get_stac_details` returned the old, then agreed after the refresh. So: verify prose against the S3
+URL for correctness, and wait out the cycle before judging what an agent or the app will quote. **No
+cache-invalidation or restart is needed** — do not go reaching into the MCP's namespace for one.
+
+**One text per column NAME per collection.** The `#303` fold is per column *name* across every asset
+in the collection, and **first-seen wins**, so a column documented differently on two assets loses
+one version silently. Two traps, both hit in #512:
+- Adding a new hex-like asset with its own wording for `h10`/`h9`/`h8`/`h0` meant the older asset's
+  text won — and that text said "one row per (feature, h10) pair", which was true there and **false**
+  for the new per-cell assets. Keep shared H3 columns grain-neutral and identical; state grain in the
+  asset `description`, which is always rendered.
+- Appending a hex-only clause to a column that also exists on the flat GeoParquet (e.g. "…repeated on
+  every hex cell — dedup first") makes the two differ, so the clause is dropped. Put that note in the
+  hex asset's `description` instead. After editing, check no column name carries two different texts
+  within the collection.
 
 **stac-collection.json MUST include:**
 
