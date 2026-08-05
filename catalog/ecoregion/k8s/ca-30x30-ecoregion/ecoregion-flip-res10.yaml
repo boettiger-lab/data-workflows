@@ -54,10 +54,12 @@ spec:
           N=$(rclone lsf -R "$STAGING/" | grep -c 'data_0.parquet$' || true)
           echo "staging partitions: $N"
           test "$N" -ge 1 || { echo 'staging is empty; refusing to flip'; exit 1; }
-          # every staged partition must be a real file, not a 0-row placeholder
-          SMALL=$(rclone lsf -R --format sp "$STAGING/" | awk -F';' '$1 < 4096' | wc -l)
+          # every staged partition must be a real file, not a 0-row placeholder.
+          # --files-only matters: `lsf -R --format sp` reports size -1 for directory rows,
+          # which a bare `$1 < 4096` test counts as undersized partitions.
+          SMALL=$(rclone lsf -R --files-only --format sp "$STAGING/" | awk -F';' '$1 < 4096' | wc -l)
           test "$SMALL" -eq 0 || { echo "$SMALL staged partitions under 4096 bytes; refusing to flip"; \
-            rclone lsf -R --format sp "$STAGING/"; exit 1; }
+            rclone lsf -R --files-only --format sp "$STAGING/"; exit 1; }
 
           echo '--- purge live path and verify empty ---'
           rclone purge "$LIVE/" 2>/dev/null || true
