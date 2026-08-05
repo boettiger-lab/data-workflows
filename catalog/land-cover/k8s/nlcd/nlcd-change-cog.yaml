@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata: {name: nlcd-change-cog, namespace: geo-workflows, labels: {k8s-app: nlcd-change-cog}}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata: {labels: {k8s-app: nlcd-change-cog}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity: {nodeAffinity: {requiredDuringSchedulingIgnoredDuringExecution: {nodeSelectorTerms: [{matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ["true"]}]}]}}}
+      containers:
+      - name: change
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # First-vs-last land-cover CHANGE COG (1985 -> 2025) for map display.
+          # Encoding: changed pixels -> from*100 + to (e.g. 4152 = 41 Deciduous -> 52 Shrub);
+          # unchanged OR either-side-nodata -> 0 (nodata). UInt16 (max 9595 < 65535).
+          # -r near class codes preserved by the source per-year COGs; grids are identical
+          # (same gdalwarp), so pixel-aligned gdal_calc is valid.
+          cd /tmp
+          rclone copy nrp:public-land-cover/nlcd/nlcd-1985-cog.tif /tmp/ -P --retries 10 --low-level-retries 20 --retries-sleep 20s
+          rclone copy nrp:public-land-cover/nlcd/nlcd-2025-cog.tif /tmp/ -P --retries 10 --low-level-retries 20 --retries-sleep 20s
+          gdal_calc.py -A /tmp/nlcd-1985-cog.tif -B /tmp/nlcd-2025-cog.tif \
+            --calc="where((A!=250)&(B!=250)&(A!=B), A.astype('uint16')*100 + B.astype('uint16'), 0)" \
+            --outfile=/tmp/change-raw.tif --type=UInt16 --NoDataValue=0 \
+            --co COMPRESS=DEFLATE --co BIGTIFF=YES --quiet
+          echo "=== to COG ==="
+          gdal_translate /tmp/change-raw.tif /tmp/nlcd-change-1985-2025-cog.tif -of COG \
+            -a_nodata 0 -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BLOCKSIZE=512 -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS
+          gdalinfo /tmp/nlcd-change-1985-2025-cog.tif | grep -E 'Size is|Lower Left|Upper Right'
+          echo "=== changed-pixel count (nonzero) ==="
+          gdalinfo -stats /tmp/nlcd-change-1985-2025-cog.tif | grep -E 'Minimum|Maximum|Mean' | head -3
+          rclone copyto /tmp/nlcd-change-1985-2025-cog.tif nrp:public-land-cover/nlcd/nlcd-change-1985-2025-cog.tif -P --retries 10 --low-level-retries 20 --retries-sleep 20s
+        volumeMounts: [{name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}]
+        resources: {requests: {cpu: "8", memory: 48Gi, ephemeral-storage: 40Gi}, limits: {cpu: "8", memory: 48Gi, ephemeral-storage: 40Gi}}
+      volumes: [{name: rclone-config, secret: {secretName: rclone-config}}]
