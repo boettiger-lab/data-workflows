@@ -1038,6 +1038,78 @@ _NULL_JOIN_NOTE = re.compile(
     r"h3_cell_to_parent|largest features.{0,40}null", re.I)
 
 
+_MULTIROW_NOTE = re.compile(
+    r"multiple rows per \(?feature|more than one row per \(?feature|"
+    r"duplicate \(feature, cell\) rows are expected|per \(feature, cell, part\)", re.I)
+
+
+def check_hex_row_uniqueness(doc: dict, mcp: MCPClient) -> list[Finding]:
+    """One hex row must be one (feature, cell) pair — data-workflows#509.
+
+    The vector polyfill used to emit one row per (feature, cell, geometry PART), so any
+    MultiPolygon whose parts shared a cell produced byte-identical duplicate rows. Fixed
+    upstream 2026-07-12 (boettiger-lab/datasets#150 / PR #158, Pass 2 writes
+    `SELECT DISTINCT *`), but every vector hex built before that date still carries the
+    duplication, and nothing caught it: `COUNT(DISTINCT _cng_fid)` is unaffected, so the
+    documented dedup key does not rescue a consumer, and `audit-feature-dup.py` audits
+    UPSTREAM (axis-2) duplication rather than build artifacts. Confirmed live on
+    ca30x30-conserved-areas-terrestrial-2025 (70,806 dup rows, up to 221 copies of one
+    unit on a single cell) and padus-4-1/fee (160,293).
+
+    HARD, because the asset's own contract ("one row per (feature, hN) pair") is false and
+    every `COUNT(*)` / per-cell `SUM` over it is inflated. A genuine multi-row-per-
+    (feature, cell) case does not exist by construction; if one is ever legitimate,
+    document it in the asset description and this check will accept it.
+    """
+    out = []
+    coll_desc = doc.get("description", "") or ""
+    for key, asset in doc.get("assets", {}).items():
+        if not (is_parquet(asset) and is_hex_asset(key, asset)):
+            continue
+        s3 = _to_s3(asset.get("href", ""))
+        if not s3:
+            continue
+        cols = {c.get("name", "") for c in asset.get("table:columns", [])}
+        if "_cng_fid" not in cols:
+            continue  # raster reduce / per-cell aggregation — no (feature, cell) grain
+        # Key each row on its FINEST NON-NULL cell, not on h3:native_resolution.
+        # A build that caps very large features at a coarser resolution leaves the native
+        # column NULL for them (WDPA: h9 is NULL for its 1,297 biggest features, h8 is
+        # complete). COUNT(DISTINCT) drops NULL keys, so keying on the native column alone
+        # reports every NULL-native row as a duplicate — on WDPA that is a 77,991,738-row
+        # false positive against a true count of 0. H3 ids encode their resolution, so
+        # they are unique across resolutions and COALESCE is safe. The trailing literal
+        # keeps an all-NULL row countable rather than silently dropped.
+        hcols = sorted((c for c in cols if _HEX_RE.match(c)),
+                       key=lambda n: int(_HEX_RE.match(n).group(1)), reverse=True)
+        if not hcols:
+            continue
+        cell = "COALESCE(" + ", ".join(f'"{h}"::VARCHAR' for h in hcols) + ", 'none')"
+        try:
+            rows = mcp.query(
+                f"SELECT COUNT(*) AS total, COUNT(DISTINCT ({cell} || '-' || "
+                f"_cng_fid::VARCHAR)) AS pairs FROM read_parquet('{s3}')")
+            total, pairs = int(rows[0]["total"]), int(rows[0]["pairs"])
+        except (MCPError, ValueError, KeyError, IndexError) as e:
+            out.append(Finding(ADVISORY, "hex-row-uniqueness-check-failed",
+                               f"asset '{key}': could not check (feature, cell) "
+                               f"uniqueness ({e})."))
+            continue
+        if total and pairs < total:
+            desc = (asset.get("description", "") or "") + " " + coll_desc
+            if _MULTIROW_NOTE.search(desc):
+                continue
+            dup = total - pairs
+            out.append(Finding(HARD, "hex-duplicate-feature-cell-rows",
+                f"asset '{key}': {dup:,} rows ({100.0*dup/total:.3f}%) are duplicate "
+                f"(finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) "
+                f"pair, so COUNT(*) and any per-cell SUM over this asset are inflated. "
+                f"Almost certainly a vector hex built before the 2026-07-12 polyfill fix "
+                f"(boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite "
+                f"or re-hex. See data-workflows#509."))
+    return out
+
+
 def check_null_hex_index(doc: dict, mcp: MCPClient) -> list[Finding]:
     """A hex column with NULLs where a coarser column is fully populated means joining
     at that resolution silently drops the very large features that have no finer cell
@@ -1182,6 +1254,7 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
             if do_data:
                 findings.extend(check_values_match_distinct(doc, client))
                 findings.extend(check_null_hex_index(doc, client))      # #309 §2 (hard)
+                findings.extend(check_hex_row_uniqueness(doc, client))  # #509 (hard)
                 findings.extend(check_polygon_row_dup(doc, client))     # #309 §1 (advisory)
             if do_recall:
                 findings.extend(recall_pass(doc, client))
