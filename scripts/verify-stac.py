@@ -245,9 +245,18 @@ def is_parquet(asset: dict) -> bool:
     return "parquet" in asset.get("type", "")
 
 
+_H0_PARTITION = re.compile(r"/h0=\*/")
+
+
 def is_hex_asset(key: str, asset: dict) -> bool:
+    """A hive-partitioned H3 asset. The `h0=*` partition glob is the substantive signal:
+    partition-dir names vary across the catalog (hex, hex-fractions, hex-max, hex-mean,
+    hex-weights, taxonomy, p80-hex), and keying only off `/hex/` or a `-hex` key suffix
+    silently skipped the h3-resolution / glob / hex-dup checks on every variant name and
+    mis-flagged them as flat GeoParquet missing a geometry column."""
     href = asset.get("href", "")
-    return "/hex/" in href or key.endswith("-hex") or key == "hex"
+    return ("/hex/" in href or key.endswith("-hex") or key == "hex"
+            or bool(_H0_PARTITION.search(href)))
 
 
 def is_pmtiles(asset: dict) -> bool:
@@ -550,7 +559,6 @@ def check_inline_area_formula(doc: dict) -> list[Finding]:
     return out
 
 
-_H0_PARTITION = re.compile(r"/h0=\*/")
 
 
 def _asset_has_geom(asset: dict) -> bool:
@@ -581,6 +589,47 @@ def _collection_has_vector_source(doc: dict) -> bool:
     return False
 
 
+def _flat_vector_attrs(doc: dict) -> set[str]:
+    """Lowercased attribute names documented on the collection's flat vector asset(s),
+    excluding H3 indexes, bbox and geometry."""
+    out = set()
+    for key, asset in doc.get("assets", {}).items():
+        if not is_parquet(asset) or is_hex_asset(key, asset):
+            continue
+        if not _asset_has_geom(asset):
+            continue
+        for col in asset.get("table:columns", []):
+            name = col.get("name", "").lower()
+            if name in SAFE_HEX_COLS or _is_geom_col(name):
+                continue
+            out.add(name)
+    return out
+
+
+def _is_percell_aggregation(doc: dict, asset: dict) -> bool:
+    """True for a hex asset that is a per-CELL aggregation — one row per cell — derived
+    from the collection's own features, rather than a per-(feature, cell) conversion.
+
+    A cng-datasets vector hex always carries the source feature attributes forward, so it
+    necessarily shares attribute names with the flat GeoParquet. A derived aggregation
+    shares NONE: every non-index column is newly computed (data-workflows#506
+    `…-hex-weights`: h-indexes + w1…w4 + nland + n_units). Such an asset has collapsed the
+    feature dimension away, so there is no per-feature identity left to carry and
+    `_cng_fid` is as meaningless on it as on a raster reduce — where a row-unique id would
+    in fact be actively misleading, since `COUNT(DISTINCT _cng_fid)` would then equal the
+    cell count rather than a feature count.
+
+    Deliberately a positive schema test rather than an opt-out flag: a genuine
+    `_cng_fid`-missing defect still carries its source attributes and so still HARD-fails.
+    """
+    flat = _flat_vector_attrs(doc)
+    if not flat:
+        return False
+    attrs = {c.get("name", "").lower() for c in asset.get("table:columns", [])}
+    attrs = {c for c in attrs if c not in SAFE_HEX_COLS and not _is_geom_col(c)}
+    return bool(attrs) and not (attrs & flat)
+
+
 def check_cng_fid(doc: dict) -> list[Finding]:
     """Enforce the universal `_cng_fid` contract (#369).
 
@@ -605,6 +654,12 @@ def check_cng_fid(doc: dict) -> list[Finding]:
         conversion, so it correctly has no per-feature id. Detected as a hex asset whose
         collection has NO vector source (COG-independent — covers carbon/ghs-pop which
         ship a COG *and* richness/cwhr/gbif which do not).
+
+      exempt (silent) — per-cell aggregation of a VECTOR collection's own features
+        (#506 `…-hex-weights`): one row per cell, not per (feature, cell). The feature
+        dimension is aggregated away, so `_cng_fid` has nothing to identify. Detected by
+        `_is_percell_aggregation`: it shares no attribute column with the collection's
+        flat GeoParquet, whereas a real conversion always carries its source attributes.
 
       ADVISORY — a non-spatial parquet table (no geometry, not a vector hex): could be a
         fact table that SHOULD carry `_cng_fid` (tpl `…-funding`, keyed by tpl_id) or a
@@ -636,6 +691,8 @@ def check_cng_fid(doc: dict) -> list[Finding]:
         if hex_:
             if not has_vector_source:
                 continue  # raster-derived hex → no per-feature id by design
+            if _is_percell_aggregation(doc, asset):
+                continue  # per-cell aggregation → feature dimension collapsed by design
             out.append(Finding(HARD, "cng-fid-missing",
                 f"vector hex asset '{key}' does not document '_cng_fid'. " + common))
         elif _asset_has_geom(asset):

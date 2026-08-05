@@ -1,0 +1,86 @@
+# data-workflows#507 — flip the validated res-10 ecoregion hex into the live asset path.
+#
+# Deliberately a separate job from the repartition: the precise acceptance gate (cell-union
+# area within ~1.5% of the pinned 101,498,000 acres, via the duckdb-geo MCP against the
+# staging prefix) runs BETWEEN repartition and this flip, so an unvalidated rebuild can
+# never replace the live asset. The href does not change — `ecoregion/hex/h0=*/data_0.parquet`
+# stays the asset path, and the res-10 build is a strict superset of the old res-8 one
+# (it still carries h8), so `SELECT DISTINCT h0,h8` masking queries keep working.
+#
+# purge-and-VERIFY-empty before the move: `rclone purge` can silently no-op under S3 load,
+# and the old res-8 partitions must not survive alongside res-10 rows.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ecoregion-flip-res10
+  namespace: geo-workflows
+  labels:
+    k8s-app: ecoregion-flip-res10
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ecoregion-flip-res10
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: flip
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          STAGING=nrp:public-ca30x30/ecoregion/hex-res10-staging
+          LIVE=nrp:public-ca30x30/ecoregion/hex
+
+          N=$(rclone lsf -R "$STAGING/" | grep -c 'data_0.parquet$' || true)
+          echo "staging partitions: $N"
+          test "$N" -ge 1 || { echo 'staging is empty; refusing to flip'; exit 1; }
+          # every staged partition must be a real file, not a 0-row placeholder.
+          # --files-only matters: `lsf -R --format sp` reports size -1 for directory rows,
+          # which a bare `$1 < 4096` test counts as undersized partitions.
+          SMALL=$(rclone lsf -R --files-only --format sp "$STAGING/" | awk -F';' '$1 < 4096' | wc -l)
+          test "$SMALL" -eq 0 || { echo "$SMALL staged partitions under 4096 bytes; refusing to flip"; \
+            rclone lsf -R --files-only --format sp "$STAGING/"; exit 1; }
+
+          echo '--- purge live path and verify empty ---'
+          rclone purge "$LIVE/" 2>/dev/null || true
+          REMAIN=$(rclone lsf -R "$LIVE/" 2>/dev/null | wc -l)
+          test "$REMAIN" -eq 0 || { echo "live path not empty after purge ($REMAIN objects); refusing to flip"; exit 1; }
+
+          echo '--- move staging -> live ---'
+          rclone move "$STAGING/" "$LIVE/"
+          rclone lsf -R --format sp "$LIVE/"
+          echo '=== #507 ecoregion res-10 hex published at ecoregion/hex/ ==='
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
