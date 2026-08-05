@@ -435,6 +435,51 @@ def check_table_columns_placement(doc: dict) -> list[Finding]:
     return out
 
 
+def check_column_description_consistency(doc: dict) -> list[Finding]:
+    """One text per column NAME per collection — the mcp-data-server#303 fold.
+
+    `get_stac_details` folds per-column descriptions across every asset in the collection
+    and **first-seen wins**, so a column documented two ways loses one version silently.
+    That is not merely redundant text: whichever asset happens to be listed first decides
+    what every consumer reads about that column on *all* assets.
+
+    Two ways this bites, both observed on ca30x30-conserved-areas-terrestrial-2025
+    (data-workflows#512):
+
+      * A hex-only clause appended to a column that also exists on the flat GeoParquet
+        ("…repeated on every hex cell — dedup by _cng_fid first") is dropped, because the
+        flat is listed first. Eight duplication warnings were invisible this way. Such a
+        note belongs in the hex asset's own `description`, which is always rendered.
+      * A newly added asset that words a shared column differently loses to the older
+        asset — and the older text may be *false* for the new asset. Here the surviving
+        h10 text said "one row per (feature, h10) pair", true for the hex asset and wrong
+        for the per-cell hex-weights assets.
+
+    ADVISORY rather than HARD for now: pre-gate collections have not been swept yet
+    (data-workflows#509), so a hard failure would block unrelated PRs. Promote to HARD
+    once the catalog is fold-clean. Columns with no description (a lean PMTiles asset,
+    per the PMTiles standard) are skipped — omitting text is not disagreeing about it.
+    """
+    out = []
+    seen: dict[str, tuple[str, str]] = {}
+    clashes: dict[str, set[str]] = {}
+    for key, asset in doc.get("assets", {}).items():
+        for col in asset.get("table:columns", []):
+            name, text = col.get("name", ""), col.get("description", "")
+            if not name or not text:
+                continue
+            if name in seen and seen[name][1] != text:
+                clashes.setdefault(name, {seen[name][0]}).add(key)
+            seen.setdefault(name, (key, text))
+    for name, assets in sorted(clashes.items()):
+        winner = seen[name][0]
+        out.append(Finding(ADVISORY, "column-description-divergent",
+            f"column '{name}' is documented differently on {sorted(assets)} — the #303 fold "
+            f"keeps the first-seen text (from '{winner}') and silently drops the others. Use "
+            f"one text everywhere; put asset-specific notes in that asset's `description`."))
+    return out
+
+
 def check_hex_dup_warning(doc: dict) -> list[Finding]:
     """Any aggregatable per-feature column on a hex asset must warn that it is repeated
     per (feature, cell) and give a dedup recipe."""
@@ -731,6 +776,7 @@ STATIC_CHECKS = [
     check_table_columns_placement,
     check_cng_fid,
     check_hex_dup_warning,
+    check_column_description_consistency,
     check_point_note,
     check_inline_area_formula,
 ]

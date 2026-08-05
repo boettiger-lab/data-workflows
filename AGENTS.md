@@ -527,7 +527,8 @@ one version silently. Two traps, both hit in #512:
 - Appending a hex-only clause to a column that also exists on the flat GeoParquet (e.g. "…repeated on
   every hex cell — dedup first") makes the two differ, so the clause is dropped. Put that note in the
   hex asset's `description` instead. After editing, check no column name carries two different texts
-  within the collection.
+  within the collection — `verify-stac.py` reports this as `column-description-divergent`
+  (ADVISORY today; it becomes HARD once the pre-gate catalog is fold-clean, #509).
 
 **stac-collection.json MUST include:**
 
