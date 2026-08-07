@@ -1,0 +1,266 @@
+# data-workflows#509 — sweep the vector hex assets built before the 2026-07-12 polyfill fix
+# (boettiger-lab/datasets#150 / PR #158). The California app's surface was done separately
+# in hex-dedup-batch-ca.yaml; these are the other 76.
+#
+# One pod per target. Per partition file it first runs a CHEAP gate (COUNT(*) vs
+# COUNT(DISTINCT (finest non-NULL cell, _cng_fid)) over two columns), and only for files
+# that actually have duplicates does it run the expensive full-row check — which keeps
+# padus-4-1/fee (610M rows) and census sldl/sldu (630M+) tractable.
+#
+# Filenames are LISTED, never assumed: the catalog uses both data_0.parquet and
+# data_00.parquet, and hardcoding the former made a first run error out on every
+# collection using the latter.
+#
+# SAFETY: a target is rewritten only if its duplicate groups are byte-identical full rows,
+# checked on the duplicate groups alone. If any group holds differing rows the duplicates
+# carry information, SELECT DISTINCT * would not collapse them, and the target is SKIPPED
+# and reported rather than rewritten. Cell and feature counts are asserted unchanged per
+# file before any swap.
+#
+# The cell key is the finest NON-NULL h column, never h3:native_resolution: a build that
+# caps large features at a coarser resolution leaves the native column NULL for them and
+# COUNT(DISTINCT) drops NULL keys — on WDPA that read as 77,991,738 duplicates against a
+# true count of 0.
+#
+# Idempotent: re-running is safe and cheap on already-clean targets.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hex-dedup-sweep-targets
+  namespace: geo-workflows
+data:
+  targets.txt: |
+    public-padus/padus-4-1/proclamation/hex
+    public-padus/padus-4-1/marine/hex
+    public-padus/padus-4-1/easement/hex
+    public-padus/padus-4-1/fee/hex
+    public-padus/padus-4-1/combined/hex
+    public-calenviroscreen/calenviroscreen-5-0/ces5/hex
+    public-census/census-2024/cd/hex
+    public-census/census-2025/sldu/hex
+    public-census/census-2025/sldl/hex
+    public-census/census-2024/tract/hex
+    public-social-vulnerability/svi-2022-tract/hex
+    public-indigenous/landmark/iplc-pt/hex
+    public-indigenous/landmark/iplc-poly/hex
+    public-indigenous/landmark/indicative-poly/hex
+    public-high-seas/mpa-candidates/hex
+    public-rivers/american-rivers/dam-removal/hex
+    public-rivers/american-rivers/campaigns/hex
+    public-tpl/conservation-almanac-2024-sites/hex
+    public-wyoming/blm-sma/hex
+    public-mappinginequality/hex
+    public-census/census-2024/state/hex
+    public-census/census-2024/county/hex
+    public-high-seas/seafloor-geomorphology/hex
+    public-high-seas/hydrothermal-vents/hex
+    public-overturemaps/2026-02-18.0/regions/hex
+    public-tpl/wcb-approved-projects/hex
+    public-ca-dac/dac-2023/tract/hex
+    public-ca-dac/dac-2023/place/hex
+    public-ca-dac/dac-2023/blockgroup/hex
+    public-ca-dac/eda-2023/tract/hex
+    public-ca-dac/eda-2023/place/hex
+    public-ca-dac/eda-2023/blockgroup/hex
+    public-ca-dac/eda-2023/county/hex
+    public-usfws/critical-habitat/proposed/hex
+    public-usfws/critical-habitat/final/hex
+    public-wetlands/nwi-v2/hex
+    public-wdpa/wdoecm-may-2026/hex
+    public-epa-water/epa-sab-v3/cws/hex
+    public-icca/icca-registry/icca-polygon/hex
+    public-trails/federal-trails-2026/hex
+    public-icca/icca-registry/icca-point/hex
+    public-high-seas/iho/eez/hex
+    public-high-seas/iho/high-seas/hex
+    public-high-seas/rfmo/vme/hex
+    public-high-seas/meow/ecoregions/hex
+    public-high-seas/rfmo/rfb/hex
+    public-iucn/iucn-ranges-2025/hex
+    public-high-seas/ebsa/hex
+    public-high-seas/megamove/tracked-individuals/hex
+    public-high-seas/megamove/immegas/hex
+    public-high-seas/megamove/residencies/hex
+    public-high-seas/megamove/corridors/hex
+    public-high-seas/longhurst/provinces/hex
+    public-high-seas/ecs/ecs/hex
+    public-connectivity/regional-connectivity-linkages/hex
+    public-usgs-wbd/wbd/hu12/hex
+    public-hazard/sea-level-rise/hex
+    public-usgs-nhd/streams-by-order/hex
+    public-usgs-nhd/perennial-streams/hex
+    public-facts/common-attributes-2026-06/hex
+    public-connectivity/wildlife-movement-barriers/hex
+    public-inat/range-maps/hex
+    public-wetlands/ramsar/hex
+    public-hazard/flood-hazard/hex
+    public-barred-owl/inputs/hex
+    public-usgs-ungulate-migration/ungulate-routes/hex
+    public-usgs-ungulate-migration/ungulate-ranges/hex
+    public-swap/missouri/ccs-2022/cave-karst-coa/hex
+    public-swap/missouri/ccs-2022/stream-reach-coa/hex
+    public-swap/missouri/ccs-2022/glade-coa/hex
+    public-swap/nevada/swap-2022/key-habitats/hex
+    public-swap/missouri/ccs-2022/forest-woodland-coa/hex
+    public-swap/missouri/ccs-2022/priority-geographies/hex
+    public-swap/missouri/ccs-2022/wetland-coa/hex
+    public-swap/missouri/ccs-2022/grassland-prairie-savanna-coa/hex
+    public-wui/wui-2020/hex
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hex-dedup-sweep
+  namespace: geo-workflows
+  labels:
+    k8s-app: hex-dedup-sweep
+spec:
+  completions: 76
+  parallelism: 12
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 76
+  ttlSecondsAfterFinished: 604800
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  template:
+    metadata:
+      labels:
+        k8s-app: hex-dedup-sweep
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: sweep
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: targets, mountPath: /config, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          TARGET=$(sed -n "$((JOB_COMPLETION_INDEX + 1))p" /config/targets.txt)
+          test -n "$TARGET" || { echo "no target for index $JOB_COMPLETION_INDEX"; exit 0; }
+          echo "=== #509 sweep [$JOB_COMPLETION_INDEX] $TARGET ==="
+
+          # List the actual parquet FILES, never assume a filename: the catalog uses both
+          # data_0.parquet and data_00.parquet, and assuming the former made this job error out
+          # on every collection using the latter.
+          rclone lsf -R --files-only --include '*.parquet' "nrp:${TARGET}/" > /tmp/parts.txt
+          echo "partition files: $(wc -l < /tmp/parts.txt)"
+          test -s /tmp/parts.txt || { echo "RESULT $TARGET SKIP no-parquet-files"; exit 0; }
+
+          python3 - "$TARGET" <<'PY'
+          import os, sys, duckdb
+
+          target = sys.argv[1]
+          rels = [l.strip() for l in open('/tmp/parts.txt') if l.strip()]
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("SET preserve_insertion_order=false")
+          con.execute("SET temp_directory='/tmp/duckdb-spill'")
+          con.execute("SET memory_limit='52GiB'")
+          con.execute("CREATE SECRET s3 (TYPE S3, KEY_ID '{}', SECRET '{}', ENDPOINT '{}', "
+                      "URL_STYLE 'path', USE_SSL false)".format(
+                          os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'],
+                          os.environ['AWS_S3_ENDPOINT']))
+
+          first = "s3://{}/{}".format(target, rels[0])
+          cols = [r[0] for r in con.execute("DESCRIBE SELECT * FROM read_parquet('{}')".format(first)).fetchall()]
+          hcols = sorted([c for c in cols if c.startswith('h') and c[1:].isdigit()],
+                         key=lambda c: int(c[1:]), reverse=True)
+          if '_cng_fid' not in cols or not hcols:
+              print('RESULT {} SKIP not-a-vector-hex'.format(target)); open('/tmp/flip.txt','w'); raise SystemExit(0)
+          # finest NON-NULL cell per row: a build that caps big features coarser leaves the native
+          # column NULL, and COUNT(DISTINCT) drops NULL keys (WDPA: 77.99M phantom duplicates).
+          cell = "COALESCE(" + ", ".join('"{}"::VARCHAR'.format(h) for h in hcols) + ", 'z')"
+
+          dirty, tot_rows, tot_dup = [], 0, 0
+          for rel in rels:
+              src = "s3://{}/{}".format(target, rel)
+              n, p = con.execute("SELECT COUNT(*), COUNT(DISTINCT ({} || '-' || _cng_fid::VARCHAR)) "
+                                 "FROM read_parquet('{}')".format(cell, src)).fetchone()
+              tot_rows += n; tot_dup += (n - p)
+              if n != p:
+                  dirty.append((rel, n, p))
+
+          if not dirty:
+              print('RESULT {} CLEAN rows={}'.format(target, tot_rows)); open('/tmp/flip.txt','w'); raise SystemExit(0)
+
+          # Safety gate, bounded to the duplicate groups only: are they byte-identical full rows?
+          # If not, SELECT DISTINCT * would not collapse them and a rewrite could destroy data.
+          flip = []
+          for rel, n, p in dirty:
+              src = "s3://{}/{}".format(target, rel)
+              grp, distinct_grp = con.execute("""
+                  WITH s AS (SELECT * FROM read_parquet('{src}')),
+                       k AS (SELECT {cell} AS c, _cng_fid FROM s GROUP BY 1,2 HAVING COUNT(*) > 1),
+                       dup AS (SELECT s.* FROM s SEMI JOIN k ON {cell} = k.c AND s._cng_fid = k._cng_fid)
+                  SELECT (SELECT COUNT(*) FROM k), (SELECT COUNT(*) FROM (SELECT DISTINCT * FROM dup))
+              """.format(src=src, cell=cell)).fetchone()
+              if grp != distinct_grp:
+                  print('RESULT {} SKIP not-byte-identical file={} groups={} distinct={}'.format(
+                      target, rel, grp, distinct_grp))
+                  open('/tmp/flip.txt','w'); raise SystemExit(0)
+              flip.append((rel, n, p))
+
+          for rel, n, p in flip:
+              src = "s3://{}/{}".format(target, rel)
+              dst = "s3://{}-dedup-staging/{}".format(target, rel)
+              con.execute("COPY (SELECT DISTINCT * FROM read_parquet('{}')) TO '{}' "
+                          "(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(src, dst))
+              got, gcell, gfid = con.execute(
+                  "SELECT COUNT(*), COUNT(DISTINCT ({c})), COUNT(DISTINCT _cng_fid) "
+                  "FROM read_parquet('{d}')".format(c=cell, d=dst)).fetchone()
+              ocell, ofid = con.execute(
+                  "SELECT COUNT(DISTINCT ({c})), COUNT(DISTINCT _cng_fid) "
+                  "FROM read_parquet('{s}')".format(c=cell, s=src)).fetchone()
+              assert got == p, '{} {}: staged {} != expected {}'.format(target, rel, got, p)
+              assert gcell == ocell and gfid == ofid, '{} {}: cell/feature count changed'.format(target, rel)
+              print('  staged {} {}: {} -> {}'.format(target, rel, n, p), flush=True)
+
+          with open('/tmp/flip.txt', 'w') as f:
+              for rel, n, p in flip:
+                  f.write(rel + '\n')
+          print('RESULT {} FIXED rows={} dup={} files={}'.format(target, tot_rows, tot_dup, len(flip)))
+          PY
+
+          if [ -s /tmp/flip.txt ]; then
+            while read -r REL; do
+              rclone copyto "nrp:${TARGET}-dedup-staging/${REL}" "nrp:${TARGET}/${REL}"
+              echo "swapped ${TARGET}/${REL}"
+            done < /tmp/flip.txt
+            rclone purge "nrp:${TARGET}-dedup-staging" 2>/dev/null || true
+          fi
+          echo "=== done [$JOB_COMPLETION_INDEX] $TARGET ==="
+        resources:
+          requests: {cpu: '4', memory: 56Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 56Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: targets
+        configMap: {name: hex-dedup-sweep-targets}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
