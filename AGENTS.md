@@ -541,6 +541,19 @@ one version silently. Two traps, both hit in #512:
 
 - **License — REQUIRED on every collection.** Set the top-level STAC `license` field to the **SPDX identifier** of the upstream data license (e.g. `CC-BY-4.0`, `CC-BY-NC-4.0`, `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`). Use `"other"` **only** when no SPDX id applies, and `"various"` **only** for a meta-collection whose children genuinely differ — never as a lazy default. For `other`/`various` (and recommended for all), add a license link: `{"rel": "license", "href": "<canonical terms URL>", "type": "text/html"}`. **Exception — a meta-collection (one with `child` links) may use `various`/`other` WITHOUT a license link:** its real licenses live on the child collections (each carrying + verified for its own license), and redistribution gating (source.coop excludes, etc.) keys on those per-child licenses, not the parent. A single parent-level link would misrepresent genuinely mixed children. `verify-stac.py` enforces the link only on **leaf** collections (and always for `proprietary`). **Verify the real upstream terms — do not guess `proprietary`.** The license drives redistribution decisions (e.g. whether a dataset may be mirrored to source.coop); a wrong value is a compliance risk. NonCommercial / ShareAlike licenses are fine but MUST be recorded as such (`CC-BY-NC-*`, `CC-BY-SA-*`) so downstream users aren't misled. US federal works = `public-domain`.
 
+- **Temporal extent — RFC 3339, or the dataset vanishes from the served catalog.** Every
+  `extent.temporal.interval` endpoint must be a full RFC 3339 date-time with a timezone
+  (`"1920-05-15T00:00:00Z"`), or `null` for a genuinely open start/end. This is not
+  cosmetic: pystac parses these **eagerly** when it loads a collection, so one malformed
+  value makes the entire collection fail to load for every MCP consumer — the dataset
+  simply isn't there, with nothing but a warning in the server log. Seven BLM MLRS
+  mineral collections shipped this way and were invisible for weeks.
+  **When composing the string from a query result, slice the date part explicitly**
+  (`str(v)[:10]`): the MCP `query` tool renders a DuckDB `DATE` as
+  `"1974-03-01T00:00:00.000000"`, so appending `"T00:00:00Z"` to the raw value produces a
+  doubled time component. `verify-stac.py` HARD-fails a non-RFC-3339 endpoint, a missing
+  interval, and a start that is after its end.
+
 - **Navigation links — every collection needs all four:**
 
   ```json

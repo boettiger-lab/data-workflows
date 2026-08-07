@@ -361,6 +361,13 @@ def build(name, mcp):
         f'SELECT "{c}" AS d FROM read_parquet(\'{flat}\')' for c in date_cols)
     dates = q(mcp, f"SELECT MIN(d) AS lo, MAX(d) AS hi FROM ({union}) "
                    f"WHERE d IS NOT NULL AND YEAR(d) BETWEEN 1800 AND 2100")[0]
+    # The MCP `query` tool renders a DuckDB DATE as a full timestamp with
+    # microseconds ("1974-03-01T00:00:00.000000"), NOT a bare "1974-03-01".
+    # Slice to the date part before composing the RFC 3339 instant below --
+    # appending to the raw value yields "…T00:00:00.000000T00:00:00Z", which
+    # pystac (via dateutil.isoparse) rejects with "Unused components in ISO
+    # string", making the whole collection unloadable for every MCP consumer.
+    lo, hi = str(dates["lo"])[:10], str(dates["hi"])[:10]
 
     # --- categorical values, straight from the ingested parquet ---
     values = {}
@@ -463,7 +470,7 @@ def build(name, mcp):
         "extent": {
             "spatial": {"bbox": [[float(stats["xmin"]), float(stats["ymin"]),
                                   float(stats["xmax"]), float(stats["ymax"])]]},
-            "temporal": {"interval": [[f"{dates['lo']}T00:00:00Z", f"{dates['hi']}T00:00:00Z"]]}},
+            "temporal": {"interval": [[f"{lo}T00:00:00Z", f"{hi}T00:00:00Z"]]}},
         "links": [
             {"rel": "self", "href": f"{BASE}/{name}/stac-collection.json",
              "type": "application/json"},
