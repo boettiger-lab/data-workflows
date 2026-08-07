@@ -477,6 +477,59 @@ auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (
 - A MapLibre GL JS example with the correct `source-layer` (= last segment of `--dataset`), documented prominently
 - A DuckDB example with the full public parquet URL
 
+#### ✍️ Descriptions are USER-FACING COPY — agents quote them to end users
+
+Asset, column and collection `description` fields are not internal documentation. The geo-agent
+reads them and **quotes them, nearly verbatim, into answers for end users** — for ca-30x30 that is
+state-agency staff and conservation partners, often non-spatial. Write them as product copy, not as
+notes to the next engineer (data-workflows#512, where issue prose reached a user as
+"joining at res-8 avoids the ~11 pp overstatement that a coarse `GROUP BY` would introduce").
+
+**Say:** what the asset is, what it is for, what resolution it is at, and the one thing a consumer
+must know to use it correctly. Spell things out — "resolution 8", not "res-8".
+
+**Do NOT put in a description:**
+- issue or PR numbers, repo names (`data-workflows#506`) — those belong in the issue and the commit;
+- defect magnitudes or what a previous consumer got wrong ("overstates conserved share by ~11pp");
+- unexplained abbreviations (`pp`), bare column/asset keys as the subject of a sentence;
+- shouted imperatives (`ALREADY A MEAN`, `do NOT re-aggregate`, `NEVER SUM`) — they read as
+  scolding when quoted, and prose imperatives are exactly what leaks into an answer.
+
+**Express a real constraint as a short SQL example instead** — it is clearer than an imperative and
+does not leak as prose:
+
+```sql
+-- correct: combine cells weighted by area
+SELECT SUM((w1 + w2) * nland) / SUM(nland) FROM …
+-- wrong: taking the largest or any single cell's value overstates the share
+```
+
+The mechanical rules elsewhere in this file still apply on top of this: per-column text stays
+**identical across assets** (the mcp-data-server#303 fold), the hex per-feature-duplication note
+still has to be present and still has to match what `verify-stac.py` looks for (phrases like
+"repeated on every … cell"), and the H3 area recipe still must not be inlined (#389). Plain register,
+same guarantees.
+
+**Publishing lags by ~15 minutes.** `mcp-data-server` refreshes its STAC cache on a **~15-minute**
+cycle, so right after `rclone copyto` the agent (and the app) still read the previous text — verified
+during #512, where `verify-stac.py` (which fetches S3 directly) saw the new copy while
+`get_stac_details` returned the old, then agreed after the refresh. So: verify prose against the S3
+URL for correctness, and wait out the cycle before judging what an agent or the app will quote. **No
+cache-invalidation or restart is needed** — do not go reaching into the MCP's namespace for one.
+
+**One text per column NAME per collection.** The `#303` fold is per column *name* across every asset
+in the collection, and **first-seen wins**, so a column documented differently on two assets loses
+one version silently. Two traps, both hit in #512:
+- Adding a new hex-like asset with its own wording for `h10`/`h9`/`h8`/`h0` meant the older asset's
+  text won — and that text said "one row per (feature, h10) pair", which was true there and **false**
+  for the new per-cell assets. Keep shared H3 columns grain-neutral and identical; state grain in the
+  asset `description`, which is always rendered.
+- Appending a hex-only clause to a column that also exists on the flat GeoParquet (e.g. "…repeated on
+  every hex cell — dedup first") makes the two differ, so the clause is dropped. Put that note in the
+  hex asset's `description` instead. After editing, check no column name carries two different texts
+  within the collection — `verify-stac.py` reports this as `column-description-divergent`
+  (ADVISORY today; it becomes HARD once the pre-gate catalog is fold-clean, #509).
+
 **stac-collection.json MUST include:**
 
 - **License — REQUIRED on every collection.** Set the top-level STAC `license` field to the **SPDX identifier** of the upstream data license (e.g. `CC-BY-4.0`, `CC-BY-NC-4.0`, `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`). Use `"other"` **only** when no SPDX id applies, and `"various"` **only** for a meta-collection whose children genuinely differ — never as a lazy default. For `other`/`various` (and recommended for all), add a license link: `{"rel": "license", "href": "<canonical terms URL>", "type": "text/html"}`. **Exception — a meta-collection (one with `child` links) may use `various`/`other` WITHOUT a license link:** its real licenses live on the child collections (each carrying + verified for its own license), and redistribution gating (source.coop excludes, etc.) keys on those per-child licenses, not the parent. A single parent-level link would misrepresent genuinely mixed children. `verify-stac.py` enforces the link only on **leaf** collections (and always for `proprietary`). **Verify the real upstream terms — do not guess `proprietary`.** The license drives redistribution decisions (e.g. whether a dataset may be mirrored to source.coop); a wrong value is a compliance risk. NonCommercial / ShareAlike licenses are fine but MUST be recorded as such (`CC-BY-NC-*`, `CC-BY-SA-*`) so downstream users aren't misled. US federal works = `public-domain`.
