@@ -658,7 +658,7 @@ def _is_percell_aggregation(doc: dict, asset: dict) -> bool:
     A cng-datasets vector hex always carries the source feature attributes forward, so it
     necessarily shares attribute names with the flat GeoParquet. A derived aggregation
     shares NONE: every non-index column is newly computed (data-workflows#506
-    `…-hex-weights`: h-indexes + w1…w4 + nland + n_units). Such an asset has collapsed the
+    `…-hex-weights`: h-indexes + w1…w4 + n_units). Such an asset has collapsed the
     feature dimension away, so there is no per-feature identity left to carry and
     `_cng_fid` is as meaningless on it as on a raster reduce — where a row-unique id would
     in fact be actively misleading, since `COUNT(DISTINCT _cng_fid)` would then equal the

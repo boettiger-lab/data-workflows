@@ -19,6 +19,26 @@
 #
 # Row counts: every land parent gets a row, including parents with zero conserved area
 # (wN = 0) — that is what makes the asset usable as a denominator, not just a mask.
+#
+# ---------------------------------------------------------------------------------
+# #522 Part 2 UPDATE — `nland` is COMPUTED here but NO LONGER WRITTEN.
+#
+# `nland` is a property of the land grid, not of the conserved-areas layer: it is
+# exactly the res-10 `ecoregion/hex` grid redistributed into this collection, which put
+# California's land definition in two places. It now ships on ca30x30-ecoregion as
+# `ecoregion/hex-res9` and `hex-res8` (nland + land_area_km2), built by
+# catalog/ecoregion/k8s/ca-30x30-ecoregion/ecoregion-hex-parents.yaml — RUN THAT FIRST.
+# These assets carry only w1..w4 at all three resolutions, and every resolution composes
+# the same way: ecoregion land grid LEFT JOIN weights, COALESCE a missing weight to 0.
+#
+# `nland` is still computed in-job because it is the denominator of the parent mean and
+# the weight in #508's acceptance check — dropping it from the OUTPUT does not change a
+# single w value, and the asserts below re-prove that.
+#
+# #522 Part 3: the aggregation we document is now weighted by land AREA, not by the cell
+# COUNT `nland`. H3 cells are not equal-area and California spans 32.5N-42N, so the
+# count-weighted statewide GAP 1+2 share came out 25.684 against an area-weighted 26.135
+# (truth 26.08). Both are printed below; only the area-weighted one is documented.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -65,6 +85,7 @@ spec:
 
           W10  = 's3://public-ca30x30/conserved-areas-terrestrial-2025/hex-weights/h0=*/data_0.parquet'
           ECO  = 's3://public-ca30x30/ecoregion/hex/h0=*/data_0.parquet'
+          ECO8 = 's3://public-ca30x30/ecoregion/hex-res8/h0=*/data_0.parquet'
           BASE = 's3://public-ca30x30/conserved-areas-terrestrial-2025'
 
           con = duckdb.connect()
@@ -85,6 +106,16 @@ spec:
           assert {'h10', 'h9', 'h8', 'h0'} <= eco_cols, (
               'ecoregion hex lacks res-10 index columns {} — #507 has not landed; '
               'refusing to roll up on an unclipped stand-in grid'.format(sorted(eco_cols)))
+
+          # Guard: #522 Part 2 moves `nland` to ca30x30-ecoregion, so the res-8 land rollup
+          # must already exist. Stripping the column here before that asset is published
+          # would leave consumers with no weight at all at res 9 / res 8.
+          eco8_cols = {r[0] for r in con.execute(
+              "DESCRIBE SELECT * FROM read_parquet('{}')".format(ECO8)).fetchall()}
+          assert {'h8', 'h0', 'nland', 'land_area_km2'} <= eco8_cols, (
+              'ecoregion/hex-res8 is missing {} — run ecoregion-hex-parents.yaml first; '
+              'refusing to drop nland with no replacement published'.format(
+                  sorted({'h8', 'h0', 'nland', 'land_area_km2'} - eco8_cols)))
 
           con.execute("""
               CREATE OR REPLACE TABLE land10 AS
@@ -117,8 +148,9 @@ spec:
                          SUM(w3)/COUNT(*) AS w3, SUM(w4)/COUNT(*) AS w4
                   FROM child GROUP BY {keys}
               """.format(res=res, keys=keys))
-              cols = ('h9, h8, w1, w2, w3, w4, nland, h0' if res == 9
-                      else 'h8, w1, w2, w3, w4, nland, h0')
+              # #522 Part 2: nland stays out of the OUTPUT — it lives on ca30x30-ecoregion.
+              cols = ('h9, h8, w1, w2, w3, w4, h0' if res == 9
+                      else 'h8, w1, w2, w3, w4, h0')
               order = 'h9' if res == 9 else 'h8'
               staging = '{}/hex-weights-res{}-staging'.format(BASE, res)
               parts = [r[0] for r in con.execute(
@@ -130,11 +162,21 @@ spec:
                       "TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(
                           cols=cols, res=res, h0=h0, order=order, out=out))
                   print('wrote {}'.format(out))
-              (rows, cells, mx_nland, mn_nland, mx_tot, mn_w) = con.execute("""
-                  SELECT COUNT(*), COUNT(DISTINCT {order}), MAX(nland), MIN(nland),
+              # Written schema check: nland must NOT be in the staged files (#522 Part 2).
+              staged_cols = [r[0] for r in con.execute(
+                  "DESCRIBE SELECT * FROM read_parquet('{s}/h0=*/data_0.parquet')".format(
+                      s=staging)).fetchall()]
+              print('RES{} STAGED_COLUMNS={}'.format(res, staged_cols))
+              assert 'nland' not in staged_cols, \
+                  'res{} still writes nland — it belongs on ca30x30-ecoregion'.format(res)
+
+              (rows, cells, mx_tot, mn_w) = con.execute("""
+                  SELECT COUNT(*), COUNT(DISTINCT {order}),
                          MAX(w1+w2+w3+w4), MIN(LEAST(w1,w2,w3,w4))
                   FROM read_parquet('{s}/h0=*/data_0.parquet')
               """.format(order=order, s=staging)).fetchone()
+              mn_nland, mx_nland = con.execute(
+                  "SELECT MIN(nland), MAX(nland) FROM parent{}".format(res)).fetchone()
               print('RES{} ROWS={} CELLS={} NLAND=[{},{}] MAX_TOTAL_W={:.9f} MIN_W={:.9f}'.format(
                   res, rows, cells, mn_nland, mx_nland, mx_tot, mn_w))
               assert rows == cells, 'res{} not one row per cell'.format(res)
@@ -167,6 +209,23 @@ spec:
                 'non_conserved={} (report 49.81)'.format(gap12, gap34, nonc))
           assert abs(float(gap12) - 21.05) <= 1.0, 'res8 gap12 outside +/-1.0pp of 21.05'
           assert abs(float(gap34) - 29.54) <= 1.0, 'res8 gap34 outside +/-1.0pp of 29.54'
+
+          # --- #522 Part 3: the aggregation we now DOCUMENT is the ecoregion land rollup
+          # LEFT JOIN the weights, weighted by land AREA. It must return the statewide
+          # figure (26.135), not the count-weighted 25.684 the old wording produced.
+          count_wtd, area_wtd = con.execute("""
+              SELECT ROUND(100*SUM((p.w1+p.w2)*p.nland)/SUM(p.nland), 3),
+                     ROUND(100*SUM(COALESCE(w.w1+w.w2, 0)*e.land_area_km2)
+                             /SUM(e.land_area_km2), 3)
+              FROM read_parquet('{}') e
+              LEFT JOIN read_parquet('{}/hex-weights-res8-staging/h0=*/data_0.parquet') w
+                     USING (h0, h8)
+              JOIN parent8 p USING (h0, h8)
+          """.format(ECO8, BASE)).fetchone()
+          print('PART3 statewide GAP1+2: count-weighted={} (old wording) '
+                'area-weighted={} (documented, target 26.135)'.format(count_wtd, area_wtd))
+          assert abs(float(area_wtd) - 26.135) <= 0.01, \
+              'documented res-8 aggregation returns {}, expected 26.135'.format(area_wtd)
 
           open('/tmp/ok', 'w').write('ok')
           PYEOF
