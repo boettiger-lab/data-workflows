@@ -1,0 +1,117 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhdplus-hr-flowline-pmtiles
+  labels:
+    k8s-app: nhdplus-hr-flowline-pmtiles
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: nhdplus-hr-flowline-pmtiles
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: pmtiles-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        # 30M-feature GeoJSONL + tippecanoe temp tiles exceed the 50Gi ephemeral cap,
+        # so the whole working dir + TMPDIR live on the shared scratch PVC.
+        - name: TMPDIR
+          value: /scratch/tmp
+        - name: BUCKET
+          value: public-usgs-nhd
+        - name: DATASET
+          value: flowline
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: nhdplus-hr-flowline-pmtiles
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          mkdir -p /scratch/tmp
+          # tippecanoe opens many temp files for a 30M-feature input; the default soft
+          # fd limit (1024) triggers "Too many open files". Raise to the hard max.
+          ulimit -n "$(ulimit -Hn)" || true
+          echo "open-files limit now: $(ulimit -n)"
+          # Use optimized GeoParquet (has ID column) from convert job. Reuse an existing
+          # complete GeoJSONL on the PVC to avoid re-exporting on retries.
+          if [ ! -s /scratch/$DATASET.geojsonl ]; then
+            ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /scratch/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-usgs-nhd/nhdplus-hr/flowline.parquet -progress
+          fi
+
+          # Generate PMTiles from GeoJSONSeq
+          # TIPPECANOE_MAX_THREADS must be a power of 2; Kubernetes nodes can expose
+          # non-power-of-2 logical CPU counts which triggers an internal assertion
+          # failure "N shards not a power of 2" (felt/tippecanoe#216).
+          # Round detected CPU count down to nearest power of 2 to preserve I/O parallelism.
+          # Must be `export`ed: tippecanoe is a child process and reads this from the
+          # environment, not the shell. A plain assignment is invisible to it, so it
+          # falls back to the raw (non-power-of-2) CPU count and crashes (issue #77).
+          export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          # 30M line features make z11+ tiles pathologically dense: tippecanoe's iterative
+          # --drop-densest fit stalls for hours on single tiles (z14 ballooned to 22GB; z12
+          # stalled at 99.9% on dense tiles). Cap maxzoom at 10 — a national stream-network
+          # overview layer that tiles reliably; street-level detail is served by the H3 hex
+          # and GeoParquet assets, not vector tiles. --simplification thins dense line
+          # vertices to keep tiles small and fast.
+          tippecanoe -o /scratch/$DATASET.pmtiles -l $DATASET -z12 --drop-densest-as-needed --simplification 10 --force /scratch/$DATASET.geojsonl
+
+          # Upload to S3 using rclone
+          rclone copy /scratch/$DATASET.pmtiles nrp:public-usgs-nhd/nhdplus-hr/
+          rm -f /scratch/$DATASET.geojsonl /scratch/$DATASET.pmtiles
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

@@ -1,0 +1,164 @@
+# Step 3 + acceptance gate (#205): consolidate the per-HU4 staging parquet into
+# nhdplus-hr/flowline.parquet, then GATE on stream-order coverage before anything is published.
+#
+# ⛔ Acceptance criterion 1: FAIL if any HU4 has `streamorde > 0` on less than MIN_PCT (default
+#    95) of its in-network length. The absence of exactly this check is why the base-NHD asset
+#    shipped with 15 of 22 HUC2 regions at 0.0% (#518). The gate runs BEFORE the flat file is
+#    written to its published path — a failing unit must not reach consumers.
+# Criterion 2: coverage is measured with `> 0`, never IS NOT NULL, and both denominators are
+#    reported (VAA-joined vs all flowlines), with the unmatched remainder broken down by ftype.
+# Criterion 6: assert no `streamorde <= 0` survives (convert normalises to NULL) and range 1-10.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhdplus-hr-consolidate
+  labels:
+    k8s-app: nhdplus-hr-consolidate
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nhdplus-hr-consolidate
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: consolidate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: MIN_PCT
+          value: '95'
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+          subPath: nhdplus-hr-consolidate
+        command: [python3, -c]
+        args:
+        - |
+          import os, sys, duckdb
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ['AWS_ACCESS_KEY_ID'])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ['AWS_SECRET_ACCESS_KEY'])
+          con.execute("SET memory_limit='60GB'; SET threads=8;")
+          con.execute("SET temp_directory='/scratch/tmp'; SET preserve_insertion_order=false;")
+
+          SRC = 's3://public-usgs-nhd/nhdplus-hr/staging/units/hu4=*/data_0.parquet'
+          OUT = 's3://public-usgs-nhd/nhdplus-hr/flowline.parquet'
+          MIN_PCT = float(os.environ['MIN_PCT'])
+
+          units = con.execute(f"SELECT COUNT(DISTINCT hu4) FROM read_parquet('{SRC}', hive_partitioning=false)").fetchone()[0]
+          print(f"units present: {units}", flush=True)
+          if units != 13:
+              sys.exit(f"FATAL expected 13 California HU4 units in staging, found {units}")
+
+          # ---- criterion 1 + 2: per-HU4 coverage, measured with > 0 ----
+          # ⛔ DENOMINATOR: in-network length EXCLUDING coastline (fcode 56600). Coastline is not
+          # a stream and NHDPlus HR assigns it no VAA, so leaving it in the denominator penalises
+          # coastal basins for a non-defect: HU4 1805 reads 94.29% with coastline and 100.00%
+          # without, and its entire 5.71% "gap" is 888 coastline features / 1,262 km. Measured
+          # across all 13 CA units, non-coastline in-network length with no order is 0.0 km.
+          # Both figures are reported, and the coastline-inclusive one goes in STAC too so the
+          # difference is documented rather than rediscovered.
+          rows = con.execute(f"""
+            SELECT hu4, vpu_vintage,
+                   COUNT(*) AS n_flowlines,
+                   ROUND(SUM(CASE WHEN innetwork = 1 THEN lengthkm ELSE 0 END), 0) AS innet_km,
+                   ROUND(100.0 * SUM(CASE WHEN streamorde > 0 AND innetwork = 1 AND fcode <> 56600 THEN lengthkm ELSE 0 END)
+                         / NULLIF(SUM(CASE WHEN innetwork = 1 AND fcode <> 56600 THEN lengthkm ELSE 0 END), 0), 2) AS pct_nocoast,
+                   ROUND(100.0 * SUM(CASE WHEN streamorde > 0 AND innetwork = 1 THEN lengthkm ELSE 0 END)
+                         / NULLIF(SUM(CASE WHEN innetwork = 1 THEN lengthkm ELSE 0 END), 0), 2) AS pct_withcoast,
+                   ROUND(SUM(CASE WHEN innetwork = 1 AND fcode = 56600 THEN lengthkm ELSE 0 END), 0) AS coast_km,
+                   ROUND(SUM(CASE WHEN innetwork = 1 AND fcode <> 56600 AND streamorde IS NULL THEN lengthkm ELSE 0 END), 1) AS gap_km,
+                   MIN(streamorde) AS omin, MAX(streamorde) AS omax
+            FROM read_parquet('{SRC}', hive_partitioning=false)
+            GROUP BY 1, 2 ORDER BY 1""").fetchall()
+          print(f"{'HU4':6}{'vintage':12}{'flowlines':>11}{'in-net km':>11}"
+                f"{'%no-coast':>11}{'%w/coast':>10}{'coast km':>10}{'gap km':>9}{'order':>8}", flush=True)
+          bad = []
+          for hu4, vin, n, km, pct_nc, pct_wc, coast, gap, omin, omax in rows:
+              print(f"{hu4:6}{vin:12}{n:11,}{km:11,.0f}{pct_nc:11.2f}{pct_wc:10.2f}"
+                    f"{coast:10,.0f}{gap:9.1f}{f'{omin}-{omax}':>8}", flush=True)
+              # gate on the coastline-excluded metric, plus a hard cap on any real gap
+              if pct_nc is None or pct_nc < MIN_PCT:
+                  bad.append((hu4, 'pct_nocoast', pct_nc))
+              elif gap and km and (100.0 * gap / km) > 1.0:
+                  bad.append((hu4, 'noncoastline_gap_pct', round(100.0 * gap / km, 2)))
+          if bad:
+              sys.exit(f"FATAL acceptance criterion 1: HU4(s) failing the {MIN_PCT}% in-network "
+                       f"(coastline-excluded) stream-order gate: {bad}. NOT publishing.")
+
+          # ---- criterion 6: sentinel normalised, range sane ----
+          sent, omin, omax = con.execute(f"""
+            SELECT COUNT(*) FILTER (WHERE streamorde <= 0), MIN(streamorde), MAX(streamorde)
+            FROM read_parquet('{SRC}', hive_partitioning=false)""").fetchone()
+          print(f"sentinel rows (streamorde <= 0): {sent} | range {omin}-{omax}", flush=True)
+          if sent:
+              sys.exit(f"FATAL {sent} rows still carry streamorde <= 0 — convert did not normalise")
+          if not (omin >= 1 and omax <= 10):
+              sys.exit(f"FATAL streamorde out of Strahler range 1-10: {omin}-{omax}")
+
+          # ---- criterion 2: characterise flowlines with NO VAA row, by ftype ----
+          print("--- flowlines with no VAA row (streamorde IS NULL), by ftype ---", flush=True)
+          for r in con.execute(f"""
+            SELECT ftype, COUNT(*) AS n, ROUND(SUM(lengthkm), 0) AS km
+            FROM read_parquet('{SRC}', hive_partitioning=false)
+            WHERE streamorde IS NULL GROUP BY 1 ORDER BY n DESC""").fetchall():
+              print(f"  ftype={r[0]}  n={r[1]:,}  km={r[2]:,.0f}", flush=True)
+
+          tot, feats = con.execute(f"""
+            SELECT COUNT(*), COUNT(DISTINCT _cng_fid)
+            FROM read_parquet('{SRC}', hive_partitioning=false)""").fetchone()
+          print(f"total rows {tot:,} | distinct _cng_fid {feats:,}", flush=True)
+
+          # _cng_fid is per-unit unique, not global — make it globally unique for the flat asset
+          # (#369: it is the universal dedup key, so it must not collide across units).
+          print("=== writing consolidated flat GeoParquet ===", flush=True)
+          con.execute(f"""
+            COPY (
+              SELECT hu4 || '-' || CAST(_cng_fid AS VARCHAR) AS _cng_fid,
+                     * EXCLUDE (_cng_fid)
+              FROM read_parquet('{SRC}', hive_partitioning=false)
+            ) TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 2000);
+          """)
+          n_out, f_out = con.execute(
+              f"SELECT COUNT(*), COUNT(DISTINCT _cng_fid) FROM read_parquet('{OUT}')").fetchone()
+          print(f"wrote {OUT}: rows {n_out:,} | distinct _cng_fid {f_out:,}", flush=True)
+          if n_out != tot:
+              sys.exit(f"FATAL consolidated row count {n_out:,} != staging {tot:,}")
+          if f_out != n_out:
+              sys.exit(f"FATAL _cng_fid not unique after namespacing: {f_out:,} of {n_out:,}")
+          print("CONSOLIDATE + GATE PASSED", flush=True)
+        resources:
+          requests: {cpu: '8', memory: 60Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '8', memory: 60Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: scratch
+        persistentVolumeClaim: {claimName: rechunk-scratch}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: ['hpc-nrp-g1.nmsu.edu', 'service-02.nrp.mghpcc.org']

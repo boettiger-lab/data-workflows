@@ -1,0 +1,32 @@
+# Single source of truth for which NHDPlus HR VPU (HU4) units this build ingests.
+# California first (#205 scope v2), then fan out nationally by extending UNITS.
+#
+# ⛔ Filenames are NOT derivable from the HU4 code — 43 of the 266 units in
+# VPU/Current/GDB carry a YYYYMMDD stamp and 33 are Great Lakes "…i" units. These 13
+# were read from the bucket listing. The stamp also tracks vintage, which STAC must
+# record per unit (#205 acceptance criterion 3).
+#
+# Source tree (StagedProducts/Hydrography/NHDPlusHR/):
+#   VPU/Current/GDB/  <- USE THIS
+#   Beta/GDB/         <- superseded
+#   National/GDB/     <- REJECTED: NR2 has region-06 fallback + GridCode defects
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nhdplus-hr-units
+data:
+  # one "HU4 ZIPNAME VINTAGE" per line; VINTAGE is the filename stamp or "undated"
+  units.txt: |
+    1503 NHDPLUS_H_1503_HU4_20220901_GDB.zip 2022-09-01
+    1605 NHDPLUS_H_1605_HU4_20220418_GDB.zip 2022-04-18
+    1606 NHDPLUS_H_1606_HU4_20220418_GDB.zip 2022-04-18
+    1801 NHDPLUS_H_1801_HU4_GDB.zip undated
+    1802 NHDPLUS_H_1802_HU4_GDB.zip undated
+    1803 NHDPLUS_H_1803_HU4_GDB.zip undated
+    1804 NHDPLUS_H_1804_HU4_GDB.zip undated
+    1805 NHDPLUS_H_1805_HU4_GDB.zip undated
+    1806 NHDPLUS_H_1806_HU4_GDB.zip undated
+    1807 NHDPLUS_H_1807_HU4_GDB.zip undated
+    1808 NHDPLUS_H_1808_HU4_GDB.zip undated
+    1809 NHDPLUS_H_1809_HU4_GDB.zip undated
+    1810 NHDPLUS_H_1810_HU4_GDB.zip undated

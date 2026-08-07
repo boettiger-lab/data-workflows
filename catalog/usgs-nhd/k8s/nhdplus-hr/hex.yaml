@@ -1,0 +1,82 @@
+# H3 hex (#205): 2,410,919 California NHDPlus HR flowlines -> res 8, parent 0.
+# chunk-size 12100 x 200 completions = 2,420,000 >= the feature count. The generated default
+# would be 1000/chunk, which silently caps a build at 200k features (#494) — always size this
+# from the actual count and verify COUNT(DISTINCT _cng_fid) on the hex afterwards.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhdplus-hr-flowline-hex
+  labels:
+    k8s-app: nhdplus-hr-flowline-hex
+spec:
+  completions: 200
+  parallelism: 50
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: nhdplus-hr-flowline-hex
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-usgs-nhd
+        - name: DATASET
+          value: nhdplus-hr/flowline
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          cng-datasets vector --input s3://public-usgs-nhd/nhdplus-hr/flowline.parquet --output s3://public-usgs-nhd/nhdplus-hr/flowline/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 12100 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
