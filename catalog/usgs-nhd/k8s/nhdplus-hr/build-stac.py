@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Build the STAC collection for usgs-nhdplus-hr-flowline (#205, California first)."""
-import json
+import json, os
 
 UNITS = [("1503","NHDPLUS_H_1503_HU4_20220901_GDB.zip","2022-09-01",125982,104386,99.86),
          ("1605","NHDPLUS_H_1605_HU4_20220418_GDB.zip","2022-04-18",71880,50618,100.00),
@@ -17,9 +17,7 @@ UNITS = [("1503","NHDPLUS_H_1503_HU4_20220901_GDB.zip","2022-09-01",125982,10438
          ("1810","NHDPLUS_H_1810_HU4_GDB.zip","undated",41174,49931,100.00)]
 B = "https://s3-west.nrp-nautilus.io/public-usgs-nhd"
 
-FCODE_VALUES = ["33400","33600","33601","42000","42800","42801","42803","42805","42807","42809",
-                "42811","42813","42814","42815","42816","46000","46003","46006","46007","46100",
-                "55800","56600"]
+FCODE_VALUES = ['33400', '33600', '33601', '33603', '42000', '42003', '42800', '42801', '42802', '42803', '42804', '42805', '42806', '42807', '42808', '42809', '42810', '42811', '42812', '42813', '42814', '42816', '42820', '42821', '42822', '42823', '46000', '46003', '46006', '46007', '46800', '55800', '56600']
 HU4_NAMES = {"1503":"Lower Colorado","1605":"Central Nevada Desert Basins",
              "1606":"Great Salt Lake / Escalante Desert basins","1801":"Klamath",
              "1802":"Sacramento","1803":"Tulare-Buena Vista Lakes","1804":"San Joaquin",
@@ -87,10 +85,10 @@ FL_COLS = [
  ("gnis_name","string","GNIS feature name (river/stream name), if any."),
  ("lengthkm","double","Flowline length in kilometers, as computed by NHDPlus HR. NOT directly comparable with the base-NHD asset's LENGTHKM for the same feature: the difference is a per-VPU editing-vintage effect (+1.9% to +5.5% over shared California features, 0.0% in VPUs not re-edited since this build). Compare per unit using vpu_vintage."),
  ("ftype","int32","NHD Feature Type (3-digit FType). Values present: 460=StreamRiver, 558=ArtificialPath, 336=CanalDitch, 566=Coastline, 428=Pipeline, 334=Connector, 420=UndergroundConduit, 468=Drainageway.", ["460","558","336","566","428","334","420","468"]),
- ("fcode","int32","NHD Feature Code (5-digit FCode, from the source NHDFCode domain table). Stream/river subtypes carry the hydrographic category, so flow permanence comes from FCODE, not from stream order. Values: 33400=Connector, 33600=Canal/Ditch, 33601=Canal/Ditch: Aqueduct, 42000=Underground Conduit, 42800=Pipeline, 42801=Pipeline: Aqueduct, At or Near, 42803=Pipeline: Aqueduct, Underground, 42805=Pipeline: General Case, At or Near, 42807=Pipeline: General Case, Underground, 42809=Pipeline: Penstock, At or Near, 42811=Pipeline: Penstock, Underground, 42813=Pipeline: Siphon, 42814=Pipeline: General Case, 42815=Pipeline: Penstock, 42816=Pipeline: Aqueduct, 46000=Stream/River (unspecified category), 46003=Stream/River: Intermittent, 46006=Stream/River: Perennial, 46007=Stream/River: Ephemeral, 46100=Submerged Stream, 55800=Artificial Path, 56600=Coastline (NOT a stream — carries no stream order)", FCODE_VALUES),
+ ("fcode","int32",'NHD Feature Code (5-digit FCode, verbatim from the source NHDFCode domain table). Stream/river subtypes carry the hydrographic category, so flow permanence comes from FCODE, not from stream order. All 33 values present in this dataset: 33400=Connector, 33600=Canal/Ditch, 33601=Canal/Ditch: Canal/Ditch Type = Aqueduct, 33603=Canal Ditch: Canal Ditch Type = Stormwater, 42000=Underground Conduit, 42003=Underground Conduit: Positional Accuracy = Approximate, 42800=Pipeline, 42801=Pipeline: Pipeline Type = Aqueduct; Relationship to Surface = At or Near, 42802=Pipeline: Pipeline Type = Aqueduct; Relationship to Surface = Elevated, 42803=Pipeline: Pipeline Type = Aqueduct; Relationship to Surface = Underground, 42804=Pipeline: Pipeline Type = Aqueduct; Relationship to Surface = Underwater, 42805=Pipeline: Pipeline Type = General Case; Relationship to Surface = At or Near, 42806=Pipeline: Pipeline Type = General Case; Relationship to Surface = Elevated, 42807=Pipeline: Pipeline Type = General Case; Relationship to Surface = Underground, 42808=Pipeline: Pipeline Type = General Case; Relationship to Surface = Underwater, 42809=Pipeline: Pipeline Type = Penstock; Relationship to Surface = At or Near, 42810=Pipeline: Pipeline Type = Penstock; Relationship to Surface = Elevated, 42811=Pipeline: Pipeline Type = Penstock; Relationship to Surface = Underground, 42812=Pipeline: Pipeline Type = Penstock; Relationship to Surface = Underwater, 42813=Pipeline: Pipeline Type = Siphon, 42814=Pipeline: Pipeline Type = General Case, 42816=Pipeline: Pipeline Type = Aqueduct, 42820=Pipeline: Pipeline Type = Stormwater, 42821=Pipeline: Pipeline Type = Stormwater; Relationship to Surface = At or Near, 42822=Pipeline: Pipeline Type = Stormwater; Relationship to Surface = Elevated, 42823=Pipeline: Pipeline Type = Stormwater; Relationship to Surface = Underground, 46000=Stream/River, 46003=Stream/River: Hydrographic Category = Intermittent, 46006=Stream/River: Hydrographic Category = Perennial, 46007=Stream/River: Hydrographic Category = Ephemeral, 46800=Drainageway, 55800=Artificial Path, 56600=Coastline. Note 56600=Coastline is NOT a stream and carries no stream order — exclude it from any order-coverage denominator.', FCODE_VALUES),
  ("flowdir","int32","Flow direction (HydroFlowDirections domain): 0=Uninitialized, 1=With Digitized.", ["0","1"]),
  ("innetwork","int32","Whether the flowline participates in the NHD navigable network (NoYes domain): 0=No, 1=Yes. Stream order is computed for in-network features only, so restrict to innetwork = 1 before computing order coverage.", ["0","1"]),
- ("mainpath","int32","Whether the flowline is on the main flow path of its waterbody (MainPath domain): 0=No, 1=Yes.", ["0","1"]),
+ ("mainpath","int32","Whether the flowline is on the main flow path of its waterbody (MainPath domain): 0=No, 1=Yes. Only 0 occurs across these 13 California VPUs — NHDPlus HR leaves this flag unset here; use mainstem grouping via levelpathi instead.", ["0"]),
  ("visibilityfilter","int32","Scale-based cartographic visibility threshold; larger values appear only at finer display scales."),
  ("streamorde","int32","Strahler stream order from NHDPlusFlowlineVAA. Headwater channels = 1; order increases downstream where two channels of equal order merge. Published range is exactly 1-10 — the source's non-positive 'not computed' sentinels (including -9 on divergent paths) were normalised to NULL at build time, so IS NOT NULL and > 0 are equivalent here. Still prefer > 0: it is the correct predicate for the source and for the base-NHD asset, where the two differ completely. NULL means order is not computed for that feature (off-network, coastline, canal/pipeline), not that it is missing data — see the collection description for measured coverage."),
  ("streamleve","int32","NHD stream level: the downstream mainstem hierarchy counted DOWN from the terminal outlet (1 = terminal mainstem to ocean/sink), the opposite direction from streamorde, which counts UP from headwaters. Not a substitute for stream order. Non-positive sentinels normalised to NULL."),
@@ -190,14 +188,14 @@ stac = {
      "roles": ["data"],
      "description": "Cloud-native GeoParquet for DuckDB/Polars/GeoPandas. Geometry in OGC:CRS84 (lon, lat). One row per flowline — no per-feature row duplication.",
      "table:columns": cols(include_geom=True)},
-   "flowline-pmtiles": {
+   **({"flowline-pmtiles": {
      "href": f"{B}/nhdplus-hr/flowline.pmtiles",
      "type": "application/vnd.pmtiles",
      "title": "PMTiles — California NHDPlus HR flowlines for web maps",
      "roles": ["visual"],
      "description": "Vector tiles for MapLibre/Leaflet, zoom 0-12. The MapLibre `source-layer` is `flowline`. Style by streamorde to render the stream hierarchy; filter [\">\", [\"get\", \"streamorde\"], 0] to drop features with no computed order (coastline, canals, off-network reaches).",
      "vector:layers": ["flowline"],
-     "table:columns": lean(cols(include_geom=True))},
+     "table:columns": lean(cols(include_geom=True))}} if os.environ.get("INCLUDE_PMTILES", "1") != "0" else {}),
    "flowline-hex": {
      "href": f"{B}/nhdplus-hr/flowline/hex/h0=*/data_0.parquet",
      "type": "application/vnd.apache.parquet",
