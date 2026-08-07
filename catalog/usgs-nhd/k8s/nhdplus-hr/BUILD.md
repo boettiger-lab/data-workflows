@@ -91,7 +91,22 @@ different length algorithm: it ranges from 0.0% to +5.5% by basin here (and reac
 1803 alone), agreeing to the millimetre where the underlying NHD has not been re-edited. **Do not
 apply a blanket "lengths are not comparable" note** — compare per unit via `vpu_vintage`.
 
-## Open question (not blocking)
+## Verified value ranges (measured, not assumed)
 
-Which `lengthkm` is authoritative where the two products disagree. Worth measuring both against a
-geodesic length on a sample before either is treated as canonical for length reporting.
+| column | finding |
+|---|---|
+| `streamorde` | 1–10, zero non-positive values (sentinels normalised at build) |
+| `slope` | `-9998` is the "not computed" sentinel (11,056 rows) and the **only** negative value — filter `> -9998` |
+| `maxelevsmo` / `minelevsmo` | `-9998` sentinel (10,543 rows), but **other negatives are real**: 10,349 rows drain below sea level, min **−85.61 m** (Death Valley / Salton Sea). Filter `<> -9998`, **never** all negatives. Valid max 4,193.73 m (high Sierra). |
+| `mainpath` | `0` for all 2,410,919 rows — NHDPlus HR leaves it unset here; use `levelpathi` for mainstem grouping |
+| `fcode` | 33 distinct codes, each defined verbatim from the source `NHDFCode` domain table |
+
+The elevation row is the reason to measure rather than copy from documentation: an initial draft of
+this STAC said "check for negative values before averaging", which would have told consumers to
+discard California's genuinely below-sea-level terrain.
+
+## Open question (not blocking) — tracked as #525
+
+Which `lengthkm` is authoritative where the two products disagree (0% to +13% by basin on the same
+feature). Worth measuring both against a geodesic length on a sample before either is treated as
+canonical for length reporting.
