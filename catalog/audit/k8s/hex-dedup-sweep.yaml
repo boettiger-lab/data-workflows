@@ -192,6 +192,18 @@ spec:
           # column NULL, and COUNT(DISTINCT) drops NULL keys (WDPA: 77.99M phantom duplicates).
           cell = "COALESCE(" + ", ".join('"{}"::VARCHAR'.format(h) for h in hcols) + ", 'z')"
 
+          # Partition schemas are NOT guaranteed uniform: public-high-seas/rfmo/rfb/hex has
+          # _cng_fid in 99 of 121 files and absent from the other 22, while its STAC declares
+          # the column. Check every file rather than trusting the first, and report instead of
+          # crashing — a target missing its dedup key cannot be safely deduped here.
+          missing = [r for r in rels if '_cng_fid' not in
+                     {c[0] for c in con.execute("DESCRIBE SELECT * FROM read_parquet('s3://{}/{}')"
+                                                .format(target, r)).fetchall()}]
+          if missing:
+              print('RESULT {} SKIP heterogeneous-schema files-missing-_cng_fid={}/{} e.g. {}'.format(
+                  target, len(missing), len(rels), missing[0]))
+              open('/tmp/flip.txt','w'); raise SystemExit(0)
+
           dirty, tot_rows, tot_dup = [], 0, 0
           for rel in rels:
               src = "s3://{}/{}".format(target, rel)
