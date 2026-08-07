@@ -14,6 +14,9 @@ Static checks (no data; just the STAC JSON):
     license link — EXCEPT a meta-collection (has child links) may use various/other
     with no link, since the licenses live on (and are gated per) its children
   - nav links: self/root/parent present + well-formed; child (if any) well-formed
+  - extent.temporal.interval present, each endpoint RFC 3339 (or null for an open
+    end), start not after end — pystac parses these eagerly, so a malformed value
+    makes the whole collection unloadable for every MCP consumer
   - asset keys follow {last-segment}-{format}; no generic keys
     (pmtiles/geoparquet/hex/parquet/cog/h3-parquet)
   - hex asset href uses the hive glob  …/hex/h0=*/data_0.parquet  (not a bare dir)
@@ -70,6 +73,7 @@ import os
 import re
 import sys
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -355,6 +359,73 @@ def check_nav_links(doc: dict) -> list[Finding]:
             out.append(Finding(HARD, "nav-child-is-item",
                                 "sub-collections must use rel='child', not 'item' "
                                 "(item is for STAC Items/features)."))
+    return out
+
+
+# --- temporal extent: RFC 3339, or the collection is unloadable ------------
+# STAC requires every `extent.temporal.interval` endpoint to be an RFC 3339
+# date-time (or null for an open end). pystac parses these EAGERLY when it loads
+# a collection, via dateutil.isoparse -- so a malformed endpoint is not a
+# cosmetic defect, it makes the entire collection fail to load for every MCP
+# consumer, silently. That is exactly how the seven BLM MLRS mineral collections
+# went missing from the served catalog (mcp-data-server side: pystac raised
+# "ValueError: Unused components in ISO string" and skipped the child).
+#
+# NOTE ON THE IMPLEMENTATION: do NOT reach for datetime.fromisoformat() here.
+# On Python 3.11+ it is lenient enough to ACCEPT the very string that broke us --
+# fromisoformat("1974-03-01T00:00:00.000000T00:00:00Z") returns a datetime rather
+# than raising, so a fromisoformat-based gate would have passed these seven
+# collections too. dateutil.isoparse (what the consumer actually uses) rejects
+# it, but this verifier is deliberately stdlib-only -- CI runs it on a bare
+# setup-python with no pip install step -- so match RFC 3339 explicitly instead.
+# The pattern is stricter than either parser: it also requires a timezone
+# designator and rejects a bare date, both of which STAC mandates.
+RFC3339 = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
+
+
+def check_temporal_extent(doc: dict) -> list[Finding]:
+    out = []
+    extent = doc.get("extent")
+    if not isinstance(extent, dict):
+        return [Finding(HARD, "temporal-extent-missing",
+                        "collection has no `extent` object.")]
+    temporal = extent.get("temporal")
+    if not isinstance(temporal, dict) or not isinstance(temporal.get("interval"), list) \
+            or not temporal["interval"]:
+        return [Finding(HARD, "temporal-extent-missing",
+                        "collection has no `extent.temporal.interval` "
+                        "(STAC requires one, with null for an open end).")]
+
+    for pair in temporal["interval"]:
+        if not isinstance(pair, list) or len(pair) != 2:
+            out.append(Finding(HARD, "temporal-interval-malformed",
+                                f"`extent.temporal.interval` entry is not a "
+                                f"[start, end] pair: {pair!r}."))
+            continue
+        parsed = []
+        for v in pair:
+            if v is None:          # legitimate open start/end
+                parsed.append(None)
+                continue
+            if not isinstance(v, str) or not RFC3339.match(v):
+                out.append(Finding(HARD, "temporal-not-rfc3339",
+                                    f"temporal extent endpoint {v!r} is not an "
+                                    f"RFC 3339 date-time (expected e.g. "
+                                    f"'1920-05-15T00:00:00Z'). pystac refuses to "
+                                    f"load a collection with this value, so the "
+                                    f"dataset disappears from the served catalog."))
+                parsed.append(None)
+                continue
+            # Safe only because RFC3339 already gated the format above: compare as
+            # real instants so a mixed 'Z' / '+05:00' pair can't compare backwards
+            # the way a lexical string compare would.
+            parsed.append(datetime.fromisoformat(v.replace("Z", "+00:00")))
+        lo, hi = parsed
+        if lo and hi and lo > hi:
+            out.append(Finding(HARD, "temporal-interval-reversed",
+                                f"temporal extent starts after it ends: "
+                                f"{pair[0]} > {pair[1]}."))
     return out
 
 
@@ -770,6 +841,7 @@ def run_sibling_linter(mod, doc_source: str, code: str) -> list[Finding]:
 STATIC_CHECKS = [
     check_license,
     check_nav_links,
+    check_temporal_extent,
     check_asset_keys,
     check_hex_assets,
     check_vector_layers,
