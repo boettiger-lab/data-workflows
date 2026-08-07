@@ -1,0 +1,57 @@
+# Pre-flight for the NHDPlus HR import (#205), run while scoping #518.
+# Question: does NHDPlusFlowlineVAA actually ship a usable stream order in the subbasins where
+# the plain NHD NHDFlowlineVAA does not? (#518 measured NHD: HUC4 1801 = 73.4% usable,
+# 1802 = 0.7%, and all of HUC2 12 = 0.0%.) If NHDPlus HR is complete there, #205 is the fix;
+# if it is equally sparse, #205 must be declined as a remedy.
+#
+# Reads three HU4 units straight out of their published zips with HTTP range requests
+# (no localize, no PVC) and prints the VAA schema + order coverage per unit.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhdplus-hr-vaa-preflight
+  labels:
+    k8s-app: nhdplus-hr-vaa-preflight
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nhdplus-hr-vaa-preflight
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: preflight
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: GDAL_HTTP_MAX_RETRY
+          value: '5'
+        - name: GDAL_HTTP_RETRY_DELAY
+          value: '3'
+        command: [bash, -c]
+        args:
+        - |
+          set -o pipefail
+          BASE="https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/NHDPlusHR/VPU/Current/GDB"
+          # 1801 Klamath (NHD 73.4% usable), 1802 Sacramento (0.7%), 1206 (HUC2 12 = 0.0%)
+          for U in 1801 1802 1206; do
+            Z="$BASE/NHDPLUS_H_${U}_HU4_GDB.zip"
+            SRC="/vsizip//vsicurl/${Z}/NHDPLUS_H_${U}_HU4_GDB.gdb"
+            echo "############ HU4 $U ############"
+            echo "--- layers ---"
+            ogrinfo -ro -q "$SRC" 2>&1 | grep -i -E "vaa|flowline" || true
+            echo "--- NHDPlusFlowlineVAA schema (order/level fields) ---"
+            ogrinfo -ro -so "$SRC" NHDPlusFlowlineVAA 2>&1 \
+              | grep -i -E "streamorde|streamleve|streamcalc|nhdplusid|hydroseq" || true
+            echo "--- coverage (SQLITE dialect: OGR SQL has no CASE) ---"
+            ogrinfo -ro -q "$SRC" -dialect SQLITE -sql "SELECT COUNT(*) AS vaa_rows, SUM(StreamOrde IS NOT NULL) AS order_notnull, SUM(StreamOrde > 0) AS order_usable, MIN(StreamOrde) AS order_min, MAX(StreamOrde) AS order_max, SUM(StreamLeve > 0) AS level_usable, COUNT(DISTINCT NHDPlusID) AS distinct_ids FROM NHDPlusFlowlineVAA" 2>&1 | head -20
+            echo "--- flowline count (join denominator) ---"
+            ogrinfo -ro -q "$SRC" -dialect SQLITE -sql "SELECT COUNT(*) AS flowlines, SUM(NHDPlusID IS NOT NULL) AS with_nhdplusid FROM NHDFlowline" 2>&1 | head -8
+          done
+        resources:
+          requests: {memory: 6Gi, cpu: '1', ephemeral-storage: 10Gi}
+          limits:  {memory: 7Gi, cpu: '1', ephemeral-storage: 12Gi}
