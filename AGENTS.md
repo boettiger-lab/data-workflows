@@ -499,10 +499,17 @@ must know to use it correctly. Spell things out — "resolution 8", not "res-8".
 does not leak as prose:
 
 ```sql
--- correct: combine cells weighted by area
-SELECT SUM((w1 + w2) * nland) / SUM(nland) FROM …
+-- correct: combine cells weighted by land area
+SELECT SUM((w1 + w2) * land_area_km2) / SUM(land_area_km2) FROM …
+-- wrong: weighting by a cell COUNT assumes equal-area cells — H3 cells are not equal-area
 -- wrong: taking the largest or any single cell's value overstates the share
 ```
+
+> The count-weighted version of that example (`… * nland) / SUM(nland`) was what this file
+> recommended until #522, and it is latitude-biased: over California (32.5N-42N) it returned a
+> 25.684% conserved share against an area-weighted 26.135%. If a rollup asset exposes only a
+> child-cell *count*, ship the child-cell *area* alongside it — the correct query should be the
+> short one, not the one requiring an `h3_cell_area()` call the consumer has to remember.
 
 The mechanical rules elsewhere in this file still apply on top of this: per-column text stays
 **identical across assets** (the mcp-data-server#303 fold), the hex per-feature-duplication note
