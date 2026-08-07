@@ -256,6 +256,31 @@ ogrinfo /vsicurl/<source-url>                                # multi-layer file
 
 Common patterns: Census TIGER = per-state (`tl_2024_{STATEFP}_tract.zip`); protected areas = per-region or national; rasters may be tiled.
 
+#### 💡 Read one small table out of a HUGE remote zip — range reads, no localize (#518)
+
+To inspect a schema, a lookup/domain table, or one layer's coverage inside a multi-GB zipped
+GDB, do **not** localize the archive (a PVC + 30 GB download for a 126-row table). GDAL's
+`/vsizip//vsicurl/` reads the zip central directory plus only the bytes it needs over HTTP
+range requests — a small cluster job, seconds to a couple of minutes:
+
+```bash
+# authoritative coded domain out of the archived 30 GB national GDB (internal endpoint)
+SRC="/vsizip//vsicurl/http://rook-ceph-rgw-nautiluss3.rook/public-usgs-nhd/raw/NHD_H_National_GDB.zip/NHD_H_National_GDB.gdb"
+ogr2ogr -f CSV /vsistdout/ "$SRC" NHDFCode          # 126 rows, ~25 s, no PVC
+ogrinfo -ro -q "$SRC" -dialect SQLITE \
+  -sql "SELECT COUNT(*), SUM(StreamOrde > 0) FROM NHDPlusFlowlineVAA"
+```
+
+- Works on a **public** source URL too (`/vsizip//vsicurl/https://prd-tnm.s3.amazonaws.com/...`) —
+  ideal for pre-flighting a candidate import before committing to a build.
+- Use `-dialect SQLITE`: **OGR SQL has no `CASE`**, and keep the SQL on **one line** (a folded
+  YAML block mangles multi-line SQL). `SUM(cond)` works in the SQLITE dialect.
+- Full-table `COUNT(*)` over range reads is slow (minutes) because it decodes every feature;
+  schema reads and small tables are fast. Aggregate on the small table, not the geometry layer.
+- Working manifests: `catalog/usgs-nhd/k8s/extract-fcode-domain.yaml`,
+  `catalog/usgs-nhd/k8s/preflight-nhdplus-hr-vaa.yaml`.
+- ⛔ Never hand-write a coded domain from memory (#294) — this is how you get the real one.
+
 ### Step 1b: Copy raw to `s3://<bucket>/raw/` FIRST
 
 External downloads are slow/rate-limited; restart from S3 if conversion fails. Subsequent jobs read `s3://<bucket>/raw/<file>` (or `/vsicurl/https://s3-west.nrp-nautilus.io/<bucket>/raw/<file>` for GDAL).
