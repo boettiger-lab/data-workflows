@@ -32,6 +32,23 @@ n_hu8  = sum(1 for u in units if u[1] == "HU8")
 n_dated = sum(1 for u in units if u[3] != "undated")
 huc2 = s["huc2"]
 f = lambda n: f"{int(n):,}"
+FOOTPRINT = (
+    "FOOTPRINT — UNITS ARE WHOLE, NOTHING IS CLIPPED TO A STATE: the source unit is a hydrologic "
+    "unit, and each is ingested uncut, so no unit stops at a state line. An unmasked query therefore "
+    "returns a UNITS total, never a state or regional total, and because coverage is national an "
+    "unmasked 'California' query can pull in the whole country. **Mask to your area of interest "
+    "first, on the hex asset, by joining h8 + h0 against a boundary hex layer.** Worked example, "
+    "California: unmasked order 1-2 (headwater) length reads 924,634 km against 642,981 km inside "
+    "the state — a 44% overstatement that deflated a conserved-share answer by 8.5 percentage "
+    "points when a consumer trusted an earlier California-scoped title and skipped the mask "
+    "(data-workflows#528). The mask is one join:\n"
+    "WITH ca AS (SELECT DISTINCT h8, h0 FROM "
+    "read_parquet('s3://public-ca30x30/ecoregion/hex/h0=*/data_0.parquet'))\n"
+    "SELECT ROUND(SUM(len)) FROM (SELECT DISTINCT s._cng_fid, s.lengthkm AS len FROM "
+    "read_parquet('s3://public-usgs-nhd/nhdplus-hr/flowline/hex/h0=*/data_0.parquet') s "
+    "SEMI JOIN ca ON s.h8 = ca.h8 AND s.h0 = ca.h0 WHERE s.innetwork = 1 AND s.streamorde > 0);"
+)
+
 COVERAGE = (
     f"STREAM-ORDER COVERAGE: `streamorde > 0` covers **{s['pct_nocoast_min']:.2f}% of in-network, "
     f"non-coastline flowline length in EVERY ONE of the {s['units']} source units** — there is no "
@@ -70,7 +87,7 @@ desc = (
     f"{s['units']} vector processing units USGS publishes, nationwide. This collection exists "
     "because the base NHD-H VAA table ships a usable STREAMORDER for only 11.4% of flowlines with "
     "15 of 22 HUC2 regions at exactly 0.0% (data-workflows#518); NHDPlus HR computes the network "
-    f"attributes properly. {COVERAGE} {VS_BASE} SOURCE UNITS: {n_hu4} at HU4 granularity plus "
+    f"attributes properly. {FOOTPRINT} {COVERAGE} {VS_BASE} SOURCE UNITS: {n_hu4} at HU4 granularity plus "
     f"{n_hu8} at HU8 granularity (the HU8s are all in HUC2 19, Alaska — so Alaska IS covered, "
     f"partially, at HU8 and not for the whole region). Coverage spans HUC2 {', '.join(huc2)}. "
     f"{n_dated} of the {s['units']} source files carry a publication date in their filename and the "
@@ -79,7 +96,7 @@ desc = (
     "Release 2 aggregate, which USGS documents as defective (region 06 falls back to Beta data with "
     "a disconnected network; a GridCode bug affects VPUIDs 0903/1007/1015/1021/1022/1025; 0415 is a "
     "pre-Beta prototype). Geometry in OGC:CRS84 (lon, lat), reprojected from the source NAD83 + "
-    "NAVD88 compound CRS (EPSG:5498). Indexed to H3 resolution 8. ⚠️ UNITS ARE WHOLE: source hydrologic units are ingested uncut, so no unit stops at a state line and an unmasked query returns a units total, NEVER a state or regional total. Mask to your area of interest first by joining the hex asset's h8 + h0 against a boundary hex layer. Worked example: across the 13 units that intersect California, 30.3% of their 1,175,296 km of in-network flowline lies outside the state, and unmasked order 1-2 length reads 924,634 km against 641,393 km inside California — a 44% overstatement."
+    "NAVD88 compound CRS (EPSG:5498). Indexed to H3 resolution 8."
 )
 
 SENT = (

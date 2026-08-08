@@ -3,8 +3,8 @@
 The **stream-order source** for this catalog. Base NHD-H (`streams-by-order`, see
 `../BUILD.md`) ships a usable `STREAMORDER` on only 11.4% of flowlines nationally with 15 of 22
 HUC2 regions at exactly 0.0% (#518); NHDPlus HR computes the network attributes properly.
-**California first** (13 HU4 units, 2,410,919 flowlines) to unblock ca-30x30#111; the pipeline is
-national-capable and fans out by extending `units-configmap.yaml`.
+**National** — all 266 units USGS publishes (25,583,812 flowlines). California shipped first to
+unblock ca-30x30#111, then the fan-out; scope is set by `units-configmap.yaml`.
 
 **This is ADDITIVE. `streams-by-order` is not replaced** — it is the denser, more recently edited
 network and the *complete* source for Alaska (NHDPlus HR ships only 28 HU8 units of region 19).
@@ -14,19 +14,21 @@ Use base NHD for extent and flow permanence, NHDPlus HR for order/drainage/routi
 
 | | value |
 |---|---|
-| flowlines | 2,410,919 (13 CA HU4 units) |
+| flowlines | 25,583,812 (266 units: 238 HU4 + 28 HU8) |
 | `streamorde > 0` coverage | **100.00% of in-network, non-coastline length in every unit** (0.0 km gap) |
-| published order range | exactly **1–10** (non-positive source sentinels normalised to NULL) |
-| hex | res 8, parent 0 → 3,677,498 rows, 2,410,919 distinct `_cng_fid`, 665,381 h8 cells |
+| published order range | exactly **1–11** (11 = lower Columbia; non-positive source sentinels normalised to NULL) |
+| hex | res 8, parent 0 → 39,666,443 rows, 25,583,812 distinct `_cng_fid`, 14 h0 partitions, 9,119,114 h8 cells |
+| assets | GeoParquet 12.3 GiB · PMTiles 1.97 GiB (z0–10) · hex · `units-manifest.csv` (266 rows) |
 
 ## Run order
 
 ```bash
-kubectl apply -n geo-workflows -f units-configmap.yaml -f stage-raw.yaml   # 13 zips → raw/nhdplus-hr/
-kubectl apply -n geo-workflows -f convert.yaml                            # 13 indexed pods → staging/units/
+kubectl apply -n geo-workflows -f units-configmap.yaml -f stage-raw.yaml   # 266 zips → raw/nhdplus-hr/
+kubectl apply -n geo-workflows -f convert.yaml                            # 266 indexed pods → staging/units/
 kubectl apply -n geo-workflows -f consolidate.yaml                        # gate + flowline.parquet
 kubectl apply -n geo-workflows -f hex.yaml -f pmtiles.yaml                # parallel
 kubectl apply -n geo-workflows -f repartition.yaml                        # after hex
+kubectl apply -n geo-workflows -f measure-stats.yaml                      # → staging/stats.json
 python3 build-stac.py && scripts/verify-stac.py --no-data /tmp/nhdplus-hr-flowline-stac.json
 rclone copyto /tmp/nhdplus-hr-flowline-stac.json nrp:public-usgs-nhd/nhdplus-hr/flowline/stac-collection.json
 ```
@@ -66,21 +68,21 @@ rclone copyto /tmp/nhdplus-hr-flowline-stac.json nrp:public-usgs-nhd/nhdplus-hr/
 7. **`read_parquet()` surfaces a GeoParquet column as `GEOMETRY('OGC:CRS84')`** — parameterised,
    so match the type *prefix*, and note a bare name/type equality check will miss it.
 8. **`_cng_fid` is only unique per unit.** Each per-unit conversion numbers rows from 1, so the
-   raw ids collide across VPUs (staging had 474,166 distinct ids across 2,410,919 rows — exactly
-   one unit's count). `consolidate.yaml` namespaces it as `<hu4>-<id>` and asserts global
-   uniqueness; without that, `COUNT(DISTINCT _cng_fid)` would undercount by ~5×.
+   raw ids collide across VPUs (staging had 1,532,101 distinct ids across 25,583,812 rows — one
+   unit's count). `consolidate.yaml` namespaces it as `<vpu_unit>-<id>` and asserts global
+   uniqueness; without that, `COUNT(DISTINCT _cng_fid)` would undercount by ~17×.
 9. **⛔ Coastline must be excluded from the coverage denominator.** `fcode = 56600` is not a stream
    and NHDPlus HR gives it no VAA, so leaving it in penalises coastal basins for a non-defect:
    HU4 1805 reads **94.29%** with coastline and **100.00%** without, and its entire 5.71% "gap" is
    888 coastline features / 1,262 km. The gate measures in-network **non-coastline** length and
    reports both figures. Getting this wrong would have failed a perfect build.
-10. **Hex chunk sizing.** 200 completions × `--chunk-size 12100` = 2,420,000 ≥ the feature count.
+10. **Hex chunk sizing.** 200 completions × `--chunk-size 128000` = 25,600,000 ≥ the feature count.
     The generated default of 1000/chunk silently caps a build at 200k features (#494); always size
     from the actual count and verify `COUNT(DISTINCT _cng_fid)` on the hex equals the flat count.
 
 ## Base-NHD comparison (acceptance criterion 4 — split, never net-only)
 
-Over these 13 units, for stream/river FCODEs 46003/46006/46007:
+Over the 13 California units (where the comparison was run), for FCODEs 46003/46006/46007:
 
 | effect | measurement |
 |---|---|
@@ -96,15 +98,41 @@ different length algorithm: it ranges from 0.0% to +5.5% by basin here (and reac
 1803 alone), agreeing to the millimetre where the underlying NHD has not been re-edited. **Do not
 apply a blanket "lengths are not comparable" note** — compare per unit via `vpu_vintage`.
 
+## Footprint and the masking requirement (#528 — carried into the national build)
+
+`#528` was filed against the California tranche of THIS collection: it was titled "(California)"
+and said "COVERAGE IS CALIFORNIA ONLY", both true about which units had been ingested and both
+read as claims about the **footprint**, which was 13 whole HU4s with 30.3% of their length in
+NV/UT/OR/AZ. A benchmarked model trusted the title, skipped the California mask, and returned a
+headline conserved share **8.5 points wrong** (19.0% unmasked vs 27.4% masked). Fixed by #529.
+
+**The national build supersedes that fix's specifics and makes its lesson permanent:**
+
+- The "(13 California hydrologic units)" title #529 applied is now wrong — coverage is national,
+  and the title says so.
+- `#528` item 4 asked for the same treatment when the national tranches land. Done: the
+  footprint/mask statement is **paragraph two** of the collection description (not the tail, not
+  the per-unit manifest), it states that units are whole and nothing is clipped to a state, and it
+  carries the mask as runnable SQL.
+- **The trap got bigger, not smaller.** Before, an unmasked "California" query was bounded by 13
+  units; now the flat asset is national, so it can pull in the whole country.
+
+**One number moved, and it is an improvement.** California-masked order 1-2 length went from
+641,393 km to **642,981 km** (+0.25%). The national build ingests units **1604, 1710 and 1712**,
+whose flowlines share border `h8` cells with the `ca30x30-ecoregion` mask and contribute
+1,965 km that the 13-unit build could not see. So "the 13 units that intersect California" was a
+slightly incomplete basis for a California statistic — the mask, not the unit list, is what defines
+the extent. Anyone holding 641,393 km as an expected value should move to 642,981 km.
+
 ## Verified value ranges (measured, not assumed)
 
 | column | finding |
 |---|---|
-| `streamorde` | 1–10, zero non-positive values (sentinels normalised at build) |
-| `slope` | `-9998` is the "not computed" sentinel (11,056 rows) and the **only** negative value — filter `> -9998` |
-| `maxelevsmo` / `minelevsmo` | `-9998` sentinel (10,543 rows), but **other negatives are real**: 10,349 rows drain below sea level, min **−85.61 m** (Death Valley / Salton Sea). Filter `<> -9998`, **never** all negatives. Valid max 4,193.73 m (high Sierra). |
-| `mainpath` | `0` for all 2,410,919 rows — NHDPlus HR leaves it unset here; use `levelpathi` for mainstem grouping |
-| `fcode` | 33 distinct codes, each defined verbatim from the source `NHDFCode` domain table |
+| `streamorde` | 1–11, zero non-positive values (sentinels normalised at build); 11 = lower Columbia |
+| `slope` | `-9998` is the "not computed" sentinel (209,812 rows) and the **only** negative value — filter `> -9998` |
+| `maxelevsmo` / `minelevsmo` | `-9998` sentinel (54,693 rows), but **other negatives are real**: 77,974 rows drain below sea level, min **−85.61 m** (Death Valley / Salton Sea). Filter `<> -9998`, **never** all negatives. Valid max 4,265.16 m. |
+| `mainpath` | `0` for all 25,583,812 rows — NHDPlus HR leaves it unset product-wide; use `levelpathi` for mainstem grouping |
+| `fcode` | 37 distinct codes, each defined verbatim from the committed `NHDFCode` domain table |
 | `streamleve` | 1–16; NULL set identical to `streamorde`'s (83,483 rows with no VAA row) |
 | `streamcalc` | 1–10 plus a legitimate `0` on 109,118 divergence-minor-path rows |
 | `totdasqkm` / `divdasqkm` / `arbolatesu` / `pathlength` / `streamcalc` | **`-9999` (`-9` for streamcalc) on the SAME 2,745 flowlines** — a coherent "network attributes not computed" set. Filter before any aggregate. `totdasqkm` valid range 0–546,328 km². |
