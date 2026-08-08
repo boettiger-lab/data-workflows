@@ -114,8 +114,15 @@ spec:
           print(f"sentinel rows (streamorde <= 0): {sent} | range {omin}-{omax}", flush=True)
           if sent:
               sys.exit(f"FATAL {sent} rows still carry streamorde <= 0 — convert did not normalise")
-          if not (omin >= 1 and omax <= 10):
-              sys.exit(f"FATAL streamorde out of Strahler range 1-10: {omin}-{omax}")
+          # The real invariant is "no non-positive values" (checked above). The UPPER bound is a
+          # sanity ceiling only: a CA-derived bound of 10 was wrong — nationally streamorde
+          # reaches 11 on the lower Columbia (286 reaches, HUC2 17: Columbia mainstem, Camas
+          # Slough, Carrolls Channel), which is a legitimate Strahler order for a high-resolution
+          # network at a major river mouth. Do not tighten this to whatever the current maximum
+          # happens to be; report it instead.
+          if omin < 1 or omax > 12:
+              sys.exit(f"FATAL streamorde outside the plausible Strahler range 1-12: {omin}-{omax}")
+          print(f"streamorde range {omin}-{omax} (11 = lower Columbia; >12 would be implausible)", flush=True)
 
           # ---- criterion 2: characterise flowlines with NO VAA row, by ftype ----
           print("--- flowlines with no VAA row (streamorde IS NULL), by ftype ---", flush=True)
