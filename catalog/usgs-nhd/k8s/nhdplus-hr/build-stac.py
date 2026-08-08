@@ -79,7 +79,7 @@ desc = (
     "Release 2 aggregate, which USGS documents as defective (region 06 falls back to Beta data with "
     "a disconnected network; a GridCode bug affects VPUIDs 0903/1007/1015/1021/1022/1025; 0415 is a "
     "pre-Beta prototype). Geometry in OGC:CRS84 (lon, lat), reprojected from the source NAD83 + "
-    "NAVD88 compound CRS (EPSG:5498). Indexed to H3 resolution 8."
+    "NAVD88 compound CRS (EPSG:5498). Indexed to H3 resolution 8. ⚠️ UNITS ARE WHOLE: source hydrologic units are ingested uncut, so no unit stops at a state line and an unmasked query returns a units total, NEVER a state or regional total. Mask to your area of interest first by joining the hex asset's h8 + h0 against a boundary hex layer. Worked example: across the 13 units that intersect California, 30.3% of their 1,175,296 km of in-network flowline lies outside the state, and unmasked order 1-2 length reads 924,634 km against 641,393 km inside California — a 44% overstatement."
 )
 
 SENT = (
