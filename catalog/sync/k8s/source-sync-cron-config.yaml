@@ -42,6 +42,7 @@ data:
     rap sync */chunks/** */hex-staging/** 
     rivers sync */chunks/** */hex-staging/** american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**
     social-vulnerability sync */chunks/** */hex-staging/** 
+    storms sync */chunks/** */hex-staging/** 
     trails sync */chunks/** */hex-staging/** 
     usfws sync */chunks/** */hex-staging/** 
     usgs sync */chunks/** */hex-staging/** 

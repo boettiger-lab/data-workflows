@@ -477,9 +477,102 @@ auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (
 - A MapLibre GL JS example with the correct `source-layer` (= last segment of `--dataset`), documented prominently
 - A DuckDB example with the full public parquet URL
 
+#### ✍️ Descriptions are USER-FACING COPY — agents quote them to end users
+
+Asset, column and collection `description` fields are not internal documentation. The geo-agent
+reads them and **quotes them, nearly verbatim, into answers for end users** — for ca-30x30 that is
+state-agency staff and conservation partners, often non-spatial. Write them as product copy, not as
+notes to the next engineer (data-workflows#512, where issue prose reached a user as
+"joining at res-8 avoids the ~11 pp overstatement that a coarse `GROUP BY` would introduce").
+
+**Say:** what the asset is, what it is for, what resolution it is at, and the one thing a consumer
+must know to use it correctly. Spell things out — "resolution 8", not "res-8".
+
+**Do NOT put in a description:**
+- issue or PR numbers, repo names (`data-workflows#506`) — those belong in the issue and the commit;
+- defect magnitudes or what a previous consumer got wrong ("overstates conserved share by ~11pp");
+- unexplained abbreviations (`pp`), bare column/asset keys as the subject of a sentence;
+- shouted imperatives (`ALREADY A MEAN`, `do NOT re-aggregate`, `NEVER SUM`) — they read as
+  scolding when quoted, and prose imperatives are exactly what leaks into an answer.
+
+**Express a real constraint as a short SQL example instead** — it is clearer than an imperative and
+does not leak as prose:
+
+```sql
+-- correct: combine cells weighted by land area
+SELECT SUM((w1 + w2) * land_area_km2) / SUM(land_area_km2) FROM …
+-- wrong: weighting by a cell COUNT assumes equal-area cells — H3 cells are not equal-area
+-- wrong: taking the largest or any single cell's value overstates the share
+```
+
+> The count-weighted version of that example (`… * nland) / SUM(nland`) was what this file
+> recommended until #522, and it is latitude-biased: over California (32.5N-42N) it returned a
+> 25.684% conserved share against an area-weighted 26.135%. If a rollup asset exposes only a
+> child-cell *count*, ship the child-cell *area* alongside it — the correct query should be the
+> short one, not the one requiring an `h3_cell_area()` call the consumer has to remember.
+
+The mechanical rules elsewhere in this file still apply on top of this: per-column text stays
+**identical across assets** (the mcp-data-server#303 fold), the hex per-feature-duplication note
+still has to be present and still has to match what `verify-stac.py` looks for (phrases like
+"repeated on every … cell"), and the H3 area recipe still must not be inlined (#389). Plain register,
+same guarantees.
+
+**Publishing lags by ~15 minutes.** `mcp-data-server` refreshes its STAC cache on a **~15-minute**
+cycle, so right after `rclone copyto` the agent (and the app) still read the previous text — verified
+during #512, where `verify-stac.py` (which fetches S3 directly) saw the new copy while
+`get_stac_details` returned the old, then agreed after the refresh. So: verify prose against the S3
+URL for correctness, and wait out the cycle before judging what an agent or the app will quote. **No
+cache-invalidation or restart is needed** — do not go reaching into the MCP's namespace for one.
+
+**One text per column NAME per collection.** The `#303` fold is per column *name* across every asset
+in the collection, and **first-seen wins**, so a column documented differently on two assets loses
+one version silently. Two traps, both hit in #512:
+- Adding a new hex-like asset with its own wording for `h10`/`h9`/`h8`/`h0` meant the older asset's
+  text won — and that text said "one row per (feature, h10) pair", which was true there and **false**
+  for the new per-cell assets. Keep shared H3 columns grain-neutral and identical; state grain in the
+  asset `description`, which is always rendered.
+- Appending a hex-only clause to a column that also exists on the flat GeoParquet (e.g. "…repeated on
+  every hex cell — dedup first") makes the two differ, so the clause is dropped. Put that note in the
+  hex asset's `description` instead. After editing, check no column name carries two different texts
+  within the collection — `verify-stac.py` reports this as `column-description-divergent`
+  (ADVISORY today; it becomes HARD once the pre-gate catalog is fold-clean, #509).
+
+**The title and description state the FOOTPRINT, not which tranche you ingested.** A set of
+whole administrative or hydrologic units is **never** a state extent, and a consumer — human or
+model — trusts the title over the geometry. `usgs-nhdplus-hr-flowline` was titled *"(California)"*
+and said *"COVERAGE IS CALIFORNIA ONLY"*, both true about which VPUs had been ingested and both
+read as claims about the footprint, which is 13 whole HU4 units with **30.3% of its stream length
+in Nevada, Utah, Oregon and Arizona**. A model skipped the California mask and its headline number
+was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505). So:
+
+- **Title the unit set** — "…(13 California hydrologic units)", not "…(California)". Same for
+  counties, ecoregions, watersheds, and every later tranche of a national build.
+- **State the footprint near the top of the description**: what the units are, that they are not
+  clipped to the region, how much lies outside, and the mask a region-level statistic needs
+  (for California, join `h8` + `h0` against the `ca30x30-ecoregion` hex). Give the mask as a short
+  SQL example, per the register rules above.
+- **Never write "X ONLY" for "only the X tranche is ingested so far"** — say the ingest scope and
+  the footprint as two separate facts.
+- The `bbox` is usually already correct; it is the prose that lies. `verify-stac.py` flags a title
+  naming one US state whose bbox reaches >1° outside it with no footprint sentence
+  (`title-names-state-but-bbox-exceeds-it`, ADVISORY) — the fix is the sentence, not a narrower bbox.
+
 **stac-collection.json MUST include:**
 
 - **License — REQUIRED on every collection.** Set the top-level STAC `license` field to the **SPDX identifier** of the upstream data license (e.g. `CC-BY-4.0`, `CC-BY-NC-4.0`, `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`). Use `"other"` **only** when no SPDX id applies, and `"various"` **only** for a meta-collection whose children genuinely differ — never as a lazy default. For `other`/`various` (and recommended for all), add a license link: `{"rel": "license", "href": "<canonical terms URL>", "type": "text/html"}`. **Exception — a meta-collection (one with `child` links) may use `various`/`other` WITHOUT a license link:** its real licenses live on the child collections (each carrying + verified for its own license), and redistribution gating (source.coop excludes, etc.) keys on those per-child licenses, not the parent. A single parent-level link would misrepresent genuinely mixed children. `verify-stac.py` enforces the link only on **leaf** collections (and always for `proprietary`). **Verify the real upstream terms — do not guess `proprietary`.** The license drives redistribution decisions (e.g. whether a dataset may be mirrored to source.coop); a wrong value is a compliance risk. NonCommercial / ShareAlike licenses are fine but MUST be recorded as such (`CC-BY-NC-*`, `CC-BY-SA-*`) so downstream users aren't misled. US federal works = `public-domain`.
+
+- **Temporal extent — RFC 3339, or the dataset vanishes from the served catalog.** Every
+  `extent.temporal.interval` endpoint must be a full RFC 3339 date-time with a timezone
+  (`"1920-05-15T00:00:00Z"`), or `null` for a genuinely open start/end. This is not
+  cosmetic: pystac parses these **eagerly** when it loads a collection, so one malformed
+  value makes the entire collection fail to load for every MCP consumer — the dataset
+  simply isn't there, with nothing but a warning in the server log. Seven BLM MLRS
+  mineral collections shipped this way and were invisible for weeks.
+  **When composing the string from a query result, slice the date part explicitly**
+  (`str(v)[:10]`): the MCP `query` tool renders a DuckDB `DATE` as
+  `"1974-03-01T00:00:00.000000"`, so appending `"T00:00:00Z"` to the raw value produces a
+  doubled time component. `verify-stac.py` HARD-fails a non-RFC-3339 endpoint, a missing
+  interval, and a start that is after its end.
 
 - **Navigation links — every collection needs all four:**
 
@@ -769,7 +862,7 @@ empty joins). So encode the joins into the data, don't hope the model derives th
 |---|---|---|
 | `--h3-resolution` | 10 | Lower (8, 6) for large polygons. Halving res ≈ 6× fewer cells. |
 | `--hex-memory` | 8Gi | Tune from OOM signals. Start low. |
-| `--max-completions` | 200 | k8s backend hard limit. With armada: set to feature count for chunk-size 1. |
+| `--max-completions` | 200 | Number of hex chunks. With armada: set to feature count for chunk-size 1. **⛔ Not a hard cap — a silent coverage limit (data-workflows #494):** the k8s hex uses a FIXED `--chunk-size 1000`, so total features hexed = `max-completions × 1000`. The default 200 silently caps a build at **200,000 features** — anything beyond that is never hexed and the repartition/STAC look "complete." For any dataset **>200k features**, set `--max-completions ≥ ceil(feature_count / 1000)` (e.g. 711,583 → 720). The generator can't count features in a zip/parquet source, so it can't warn you. **Always** confirm coverage post-build: `COUNT(DISTINCT _cng_fid)` on the hex must equal the flat parquet's feature count (not just that h0 partitions exist). |
 | `--max-parallelism` | 50 | k8s only — capped by pod quota. Unused with armada. |
 | `--parent-resolutions` | "9,8,0" | Use `"0"` when `--h3-resolution 8` (9/8 would duplicate target). |
 | `--intermediate-chunk-size` | 10 | Decrease if hex OOMs during unnest — try this before raising memory. |

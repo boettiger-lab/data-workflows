@@ -1,0 +1,153 @@
+# data-workflows#509 — remove byte-identical duplicate (feature, cell) rows from the
+# conserved-areas-terrestrial-2025 hex asset.
+#
+# The vector polyfill used to emit one row per (feature, cell, geometry PART), so any
+# MultiPolygon whose parts share a cell produced identical duplicate rows. Fixed upstream
+# 2026-07-12 (boettiger-lab/datasets#150 / PR #158 — Pass 2 now writes SELECT DISTINCT *);
+# this asset was built 2026-06-18, so it is a stale artifact, not a live tool bug.
+# Confirmed by re-running :latest with this dataset's exact production parameters:
+# chunk 4 gave 26,752 rows / 0 duplicates vs 26,889 / 137 in the published data.
+#
+# A SELECT DISTINCT * rewrite is provably equivalent to a full re-hex here, because every
+# duplicate is a byte-identical FULL-ROW copy and there are no legitimate multi-row cases:
+#   rows                                  = 13,340,094
+#   COUNT(*) over SELECT DISTINCT *        = 13,269,288
+#   COUNT(DISTINCT (h10, _cng_fid))        = 13,269,288   <- identical, so nothing real is lost
+# Worst case removed: 221 copies of one unit on a single cell (Black Mountain Ranch Open
+# Space, 1,492 parts). Follows the #390 ecoregion-dedup pattern: stage, assert, then
+# overwrite each live partition in place.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: conserved-areas-2025-hex-dedup
+  namespace: geo-workflows
+  labels:
+    k8s-app: conserved-areas-2025-hex-dedup
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: conserved-areas-2025-hex-dedup
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: hex-dedup
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "=== #509 dedup: conserved-areas-terrestrial-2025 hex ==="
+          PARTS="577199624117288959 577762574070710271"
+          python3 - "$PARTS" <<'PY'
+          import os, sys, duckdb
+
+          BASE = 's3://public-ca30x30/conserved-areas-terrestrial-2025'
+          EXPECTED_ROWS     = 13269288   # == COUNT(*) over SELECT DISTINCT * on the live asset
+          EXPECTED_CELLS    = 13202628   # DISTINCT h10 — must NOT change
+          EXPECTED_FEATURES = 45811      # DISTINCT _cng_fid — must NOT change
+
+          parts = sys.argv[1].split()
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("SET preserve_insertion_order=false")
+          con.execute(
+              "CREATE SECRET s3_secret (TYPE S3, KEY_ID '{}', SECRET '{}', ENDPOINT '{}', "
+              "URL_STYLE 'path', USE_SSL false)".format(
+                  os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'],
+                  os.environ['AWS_S3_ENDPOINT']))
+
+          total = 0
+          for p in parts:
+              src = '{}/hex/h0={}/data_0.parquet'.format(BASE, p)
+              dst = '{}/hex-dedup-staging/h0={}/data_0.parquet'.format(BASE, p)
+              raw = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(src)).fetchone()[0]
+              con.execute(
+                  "COPY (SELECT DISTINCT * FROM read_parquet('{}') ORDER BY h10) TO '{}' "
+                  "(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(src, dst))
+              rows, distinct_rows, dup_cf = con.execute("""
+                  SELECT COUNT(*),
+                         (SELECT COUNT(*) FROM (SELECT DISTINCT * FROM read_parquet('{d}'))),
+                         COUNT(*) - COUNT(DISTINCT (h10::VARCHAR || '-' || _cng_fid::VARCHAR))
+                  FROM read_parquet('{d}')
+              """.format(d=dst)).fetchone()
+              print('partition {}: raw={} deduped={} removed={}'.format(p, raw, rows, raw - rows),
+                    flush=True)
+              assert rows == distinct_rows, 'partition {}: staging still has duplicate rows'.format(p)
+              assert dup_cf == 0, 'partition {}: staging still has duplicate (cell, feature) rows'.format(p)
+              total += rows
+
+          staged = '{}/hex-dedup-staging/h0=*/data_0.parquet'.format(BASE)
+          rows, cells, feats = con.execute("""
+              SELECT COUNT(*), COUNT(DISTINCT h10), COUNT(DISTINCT _cng_fid)
+              FROM read_parquet('{}')
+          """.format(staged)).fetchone()
+          print('STAGED rows={} (expected {})  cells={} (expected {})  features={} (expected {})'.format(
+              rows, EXPECTED_ROWS, cells, EXPECTED_CELLS, feats, EXPECTED_FEATURES), flush=True)
+          assert total == rows == EXPECTED_ROWS, 'row count {} != expected {}'.format(rows, EXPECTED_ROWS)
+          # dedup must remove ONLY redundant rows — no cell and no feature may disappear
+          assert cells == EXPECTED_CELLS,    'DISTINCT h10 changed: {} != {}'.format(cells, EXPECTED_CELLS)
+          assert feats == EXPECTED_FEATURES, 'DISTINCT _cng_fid changed: {} != {}'.format(feats, EXPECTED_FEATURES)
+
+          # the published per-cell GAP weights (#506) already deduped, so they must be
+          # bit-for-bit reproducible from the deduped hex — proof the two agree
+          drift = con.execute("""
+              WITH recomputed AS (
+                  SELECT h0, h10,
+                         SUM(Final_g1_p)/100.0 AS r1, SUM(Final_g2_p)/100.0 AS r2,
+                         SUM(Final_g3_p)/100.0 AS r3, SUM(Final_g4_p)/100.0 AS r4
+                  FROM read_parquet('{staged}') GROUP BY h0, h10),
+              w AS (SELECT h0, h10, w1, w2, w3, w4
+                    FROM read_parquet('{base}/hex-weights/h0=*/data_0.parquet'))
+              SELECT COUNT(*) FROM recomputed r JOIN w USING (h0, h10)
+              WHERE abs(r.r1/GREATEST(r.r1+r.r2+r.r3+r.r4,1.0) - w.w1) > 1e-9
+                 OR abs(r.r4/GREATEST(r.r1+r.r2+r.r3+r.r4,1.0) - w.w4) > 1e-9
+          """.format(staged=staged, base=BASE)).fetchone()[0]
+          print('hex-weights disagreement rows: {} (expect 0)'.format(drift), flush=True)
+          assert drift == 0, 'published hex-weights do not match the deduped hex'
+
+          open('/tmp/ok', 'w').write('ok')
+          PY
+          test -f /tmp/ok || { echo 'validation failed; live asset NOT touched'; exit 1; }
+
+          echo '--- validated; overwriting each live partition in place ---'
+          for p in $PARTS; do
+            rclone copyto "nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-dedup-staging/h0=${p}/data_0.parquet" \
+                          "nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex/h0=${p}/data_0.parquet"
+            echo "swapped h0=${p}"
+          done
+          rclone purge nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-dedup-staging || true
+          rclone lsl nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex/
+          echo '=== #509 conserved-areas hex deduped ==='
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

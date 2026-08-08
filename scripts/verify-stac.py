@@ -14,6 +14,9 @@ Static checks (no data; just the STAC JSON):
     license link — EXCEPT a meta-collection (has child links) may use various/other
     with no link, since the licenses live on (and are gated per) its children
   - nav links: self/root/parent present + well-formed; child (if any) well-formed
+  - extent.temporal.interval present, each endpoint RFC 3339 (or null for an open
+    end), start not after end — pystac parses these eagerly, so a malformed value
+    makes the whole collection unloadable for every MCP consumer
   - asset keys follow {last-segment}-{format}; no generic keys
     (pmtiles/geoparquet/hex/parquet/cog/h3-parquet)
   - hex asset href uses the hive glob  …/hex/h0=*/data_0.parquet  (not a bare dir)
@@ -30,6 +33,9 @@ Static checks (no data; just the STAC JSON):
   - point datasets: a processing-resolution note in description/processing:notes
   - categorical column completeness (values + inline CODE=Name)  [reuses lint-stac-categorical]
   - PMTiles tile-accurate table:columns                          [reuses lint-stac-pmtiles-fields]
+  - ADVISORY: a title naming one US state whose bbox reaches well outside it, with no
+    footprint sentence in the description — a set of whole units is not a state extent
+    and a state-shaped title is what a consumer trusts instead of masking (#528)
 
 Data-backed checks (delegated to the duckdb-geo MCP server, --no-data to skip):
   - every coded column's `values` array == the ingested DISTINCT set (automates the
@@ -70,6 +76,7 @@ import os
 import re
 import sys
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -245,9 +252,18 @@ def is_parquet(asset: dict) -> bool:
     return "parquet" in asset.get("type", "")
 
 
+_H0_PARTITION = re.compile(r"/h0=\*/")
+
+
 def is_hex_asset(key: str, asset: dict) -> bool:
+    """A hive-partitioned H3 asset. The `h0=*` partition glob is the substantive signal:
+    partition-dir names vary across the catalog (hex, hex-fractions, hex-max, hex-mean,
+    hex-weights, taxonomy, p80-hex), and keying only off `/hex/` or a `-hex` key suffix
+    silently skipped the h3-resolution / glob / hex-dup checks on every variant name and
+    mis-flagged them as flat GeoParquet missing a geometry column."""
     href = asset.get("href", "")
-    return "/hex/" in href or key.endswith("-hex") or key == "hex"
+    return ("/hex/" in href or key.endswith("-hex") or key == "hex"
+            or bool(_H0_PARTITION.search(href)))
 
 
 def is_pmtiles(asset: dict) -> bool:
@@ -349,6 +365,73 @@ def check_nav_links(doc: dict) -> list[Finding]:
     return out
 
 
+# --- temporal extent: RFC 3339, or the collection is unloadable ------------
+# STAC requires every `extent.temporal.interval` endpoint to be an RFC 3339
+# date-time (or null for an open end). pystac parses these EAGERLY when it loads
+# a collection, via dateutil.isoparse -- so a malformed endpoint is not a
+# cosmetic defect, it makes the entire collection fail to load for every MCP
+# consumer, silently. That is exactly how the seven BLM MLRS mineral collections
+# went missing from the served catalog (mcp-data-server side: pystac raised
+# "ValueError: Unused components in ISO string" and skipped the child).
+#
+# NOTE ON THE IMPLEMENTATION: do NOT reach for datetime.fromisoformat() here.
+# On Python 3.11+ it is lenient enough to ACCEPT the very string that broke us --
+# fromisoformat("1974-03-01T00:00:00.000000T00:00:00Z") returns a datetime rather
+# than raising, so a fromisoformat-based gate would have passed these seven
+# collections too. dateutil.isoparse (what the consumer actually uses) rejects
+# it, but this verifier is deliberately stdlib-only -- CI runs it on a bare
+# setup-python with no pip install step -- so match RFC 3339 explicitly instead.
+# The pattern is stricter than either parser: it also requires a timezone
+# designator and rejects a bare date, both of which STAC mandates.
+RFC3339 = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
+
+
+def check_temporal_extent(doc: dict) -> list[Finding]:
+    out = []
+    extent = doc.get("extent")
+    if not isinstance(extent, dict):
+        return [Finding(HARD, "temporal-extent-missing",
+                        "collection has no `extent` object.")]
+    temporal = extent.get("temporal")
+    if not isinstance(temporal, dict) or not isinstance(temporal.get("interval"), list) \
+            or not temporal["interval"]:
+        return [Finding(HARD, "temporal-extent-missing",
+                        "collection has no `extent.temporal.interval` "
+                        "(STAC requires one, with null for an open end).")]
+
+    for pair in temporal["interval"]:
+        if not isinstance(pair, list) or len(pair) != 2:
+            out.append(Finding(HARD, "temporal-interval-malformed",
+                                f"`extent.temporal.interval` entry is not a "
+                                f"[start, end] pair: {pair!r}."))
+            continue
+        parsed = []
+        for v in pair:
+            if v is None:          # legitimate open start/end
+                parsed.append(None)
+                continue
+            if not isinstance(v, str) or not RFC3339.match(v):
+                out.append(Finding(HARD, "temporal-not-rfc3339",
+                                    f"temporal extent endpoint {v!r} is not an "
+                                    f"RFC 3339 date-time (expected e.g. "
+                                    f"'1920-05-15T00:00:00Z'). pystac refuses to "
+                                    f"load a collection with this value, so the "
+                                    f"dataset disappears from the served catalog."))
+                parsed.append(None)
+                continue
+            # Safe only because RFC3339 already gated the format above: compare as
+            # real instants so a mixed 'Z' / '+05:00' pair can't compare backwards
+            # the way a lexical string compare would.
+            parsed.append(datetime.fromisoformat(v.replace("Z", "+00:00")))
+        lo, hi = parsed
+        if lo and hi and lo > hi:
+            out.append(Finding(HARD, "temporal-interval-reversed",
+                                f"temporal extent starts after it ends: "
+                                f"{pair[0]} > {pair[1]}."))
+    return out
+
+
 def check_asset_keys(doc: dict) -> list[Finding]:
     out = []
     for key in doc.get("assets", {}):
@@ -423,6 +506,51 @@ def check_table_columns_placement(doc: dict) -> list[Finding]:
             out.append(Finding(ADVISORY, "geoparquet-no-geom-column",
                                 f"geoparquet asset '{key}' table:columns lists no geometry "
                                 f"column ({sorted(GEOM_COLS)}); confirm it isn't a hex asset."))
+    return out
+
+
+def check_column_description_consistency(doc: dict) -> list[Finding]:
+    """One text per column NAME per collection — the mcp-data-server#303 fold.
+
+    `get_stac_details` folds per-column descriptions across every asset in the collection
+    and **first-seen wins**, so a column documented two ways loses one version silently.
+    That is not merely redundant text: whichever asset happens to be listed first decides
+    what every consumer reads about that column on *all* assets.
+
+    Two ways this bites, both observed on ca30x30-conserved-areas-terrestrial-2025
+    (data-workflows#512):
+
+      * A hex-only clause appended to a column that also exists on the flat GeoParquet
+        ("…repeated on every hex cell — dedup by _cng_fid first") is dropped, because the
+        flat is listed first. Eight duplication warnings were invisible this way. Such a
+        note belongs in the hex asset's own `description`, which is always rendered.
+      * A newly added asset that words a shared column differently loses to the older
+        asset — and the older text may be *false* for the new asset. Here the surviving
+        h10 text said "one row per (feature, h10) pair", true for the hex asset and wrong
+        for the per-cell hex-weights assets.
+
+    ADVISORY rather than HARD for now: pre-gate collections have not been swept yet
+    (data-workflows#509), so a hard failure would block unrelated PRs. Promote to HARD
+    once the catalog is fold-clean. Columns with no description (a lean PMTiles asset,
+    per the PMTiles standard) are skipped — omitting text is not disagreeing about it.
+    """
+    out = []
+    seen: dict[str, tuple[str, str]] = {}
+    clashes: dict[str, set[str]] = {}
+    for key, asset in doc.get("assets", {}).items():
+        for col in asset.get("table:columns", []):
+            name, text = col.get("name", ""), col.get("description", "")
+            if not name or not text:
+                continue
+            if name in seen and seen[name][1] != text:
+                clashes.setdefault(name, {seen[name][0]}).add(key)
+            seen.setdefault(name, (key, text))
+    for name, assets in sorted(clashes.items()):
+        winner = seen[name][0]
+        out.append(Finding(ADVISORY, "column-description-divergent",
+            f"column '{name}' is documented differently on {sorted(assets)} — the #303 fold "
+            f"keeps the first-seen text (from '{winner}') and silently drops the others. Use "
+            f"one text everywhere; put asset-specific notes in that asset's `description`."))
     return out
 
 
@@ -550,7 +678,90 @@ def check_inline_area_formula(doc: dict) -> list[Finding]:
     return out
 
 
-_H0_PARTITION = re.compile(r"/h0=\*/")
+# --- #528 — a title that names a state must not misstate the footprint ------
+# The nhdplus-hr flowline collection was titled "(California)" and said "COVERAGE IS
+# CALIFORNIA ONLY", because only the California HU4 units had been ingested. Both read
+# as statements about the FOOTPRINT, which was 13 whole hydrologic units — 30.3% of its
+# stream length lies in NV/UT/OR/AZ. A model trusted the title, skipped the California
+# mask, and reported a headline number 8.5 points wrong (data-workflows#528; same
+# mechanism as the pinyon-juniper defect, #505).
+#
+# The mechanical signal: the title names exactly one US state, but the declared bbox
+# reaches well outside that state. ADVISORY, and suppressed once the description
+# actually explains the footprint — the point is to prompt that sentence, not to ban
+# region names in titles.
+_STATE_BBOX = {  # (west, south, east, north), approximate — paired with a 1° tolerance
+    "alabama": (-88.5, 30.2, -84.9, 35.0), "alaska": (-179.2, 51.2, 179.8, 71.4),
+    "arizona": (-114.8, 31.3, -109.0, 37.0), "arkansas": (-94.6, 33.0, -89.6, 36.5),
+    "california": (-124.5, 32.5, -114.1, 42.0), "colorado": (-109.1, 37.0, -102.0, 41.0),
+    "connecticut": (-73.7, 40.9, -71.8, 42.1), "delaware": (-75.8, 38.4, -75.0, 39.8),
+    "florida": (-87.6, 24.4, -80.0, 31.0), "georgia": (-85.6, 30.3, -80.8, 35.0),
+    "hawaii": (-178.4, 18.9, -154.8, 28.4), "idaho": (-117.3, 42.0, -111.0, 49.0),
+    "illinois": (-91.5, 36.9, -87.0, 42.5), "indiana": (-88.1, 37.8, -84.8, 41.8),
+    "iowa": (-96.6, 40.4, -90.1, 43.5), "kansas": (-102.1, 37.0, -94.6, 40.0),
+    "kentucky": (-89.6, 36.5, -81.9, 39.1), "louisiana": (-94.1, 28.9, -88.8, 33.0),
+    "maine": (-71.1, 43.0, -66.9, 47.5), "maryland": (-79.5, 37.9, -75.0, 39.7),
+    "massachusetts": (-73.5, 41.2, -69.9, 42.9), "michigan": (-90.4, 41.7, -82.1, 48.3),
+    "minnesota": (-97.2, 43.5, -89.5, 49.4), "mississippi": (-91.7, 30.1, -88.1, 35.0),
+    "missouri": (-95.8, 36.0, -89.1, 40.6), "montana": (-116.1, 44.4, -104.0, 49.0),
+    "nebraska": (-104.1, 40.0, -95.3, 43.0), "nevada": (-120.0, 35.0, -114.0, 42.0),
+    "new hampshire": (-72.6, 42.7, -70.6, 45.3), "new jersey": (-75.6, 38.9, -73.9, 41.4),
+    "new mexico": (-109.1, 31.3, -103.0, 37.0), "new york": (-79.8, 40.5, -71.8, 45.0),
+    "north carolina": (-84.3, 33.8, -75.5, 36.6), "north dakota": (-104.1, 45.9, -96.6, 49.0),
+    "ohio": (-84.8, 38.4, -80.5, 42.0), "oklahoma": (-103.0, 33.6, -94.4, 37.0),
+    "oregon": (-124.6, 41.9, -116.5, 46.3), "pennsylvania": (-80.5, 39.7, -74.7, 42.3),
+    "rhode island": (-71.9, 41.1, -71.1, 42.0), "south carolina": (-83.4, 32.0, -78.5, 35.2),
+    "south dakota": (-104.1, 42.5, -96.4, 46.0), "tennessee": (-90.3, 35.0, -81.6, 36.7),
+    "texas": (-106.7, 25.8, -93.5, 36.5), "utah": (-114.1, 37.0, -109.0, 42.0),
+    "vermont": (-73.5, 42.7, -71.5, 45.0), "virginia": (-83.7, 36.5, -75.2, 39.5),
+    "washington": (-124.9, 45.5, -116.9, 49.0), "west virginia": (-82.7, 37.2, -77.7, 40.6),
+    "wisconsin": (-92.9, 42.5, -86.8, 47.1), "wyoming": (-111.1, 41.0, -104.0, 45.0),
+}
+_FOOTPRINT_TOLERANCE_DEG = 1.0
+# Phrases that contain a state name but do not name that state — "Sierra Nevada" is a
+# California mountain range, "Washington, D.C." is not Washington state.
+_NOT_A_STATE = re.compile(r"sierra nevada|washington,?\s*d\.?c\.?|kansas city", re.I)
+# Prose that shows the footprint is already explained — the collection has done the work.
+_FOOTPRINT_EXPLAINED = re.compile(
+    r"not clipped|no[nt]e is clipped|whole (hydrologic|watershed|hu4|unit|basin)|"
+    r"extends? (past|beyond|outside)|outside (the state|california|nevada|oregon)|"
+    r"footprint:", re.I)
+
+
+def check_region_title_vs_bbox(doc: dict) -> list[Finding]:
+    """ADVISORY when a title names one US state but the bbox reaches well outside it.
+
+    A collection ingested as whole administrative/hydrologic units is not a state
+    extent, and a title that says otherwise is what a consumer (human or model) trusts
+    instead of applying the mask (#528). Silent once the description states the real
+    footprint.
+    """
+    title = _NOT_A_STATE.sub(" ", doc.get("title", "") or "")
+    named = [s for s in _STATE_BBOX if re.search(rf"\b{re.escape(s)}\b", title, re.I)]
+    # "West Virginia" also matches "virginia"; the longest name is the one being claimed.
+    named = [s for s in named if not any(s != o and s in o for o in named)]
+    if len(named) != 1:
+        return []          # zero states named, or a multi-state title that isn't a claim
+    state = named[0]
+    try:
+        west, south, east, north = doc["extent"]["spatial"]["bbox"][0][:4]
+    except (KeyError, IndexError, TypeError, ValueError):
+        return []
+    sw, ss, se, sn = _STATE_BBOX[state]
+    t = _FOOTPRINT_TOLERANCE_DEG
+    over = [f"{d} by {v:.1f}°" for d, v in (
+        ("west", sw - west), ("south", ss - south), ("east", east - se), ("north", north - sn))
+        if v > t]
+    if not over:
+        return []
+    if _FOOTPRINT_EXPLAINED.search(doc.get("description", "") or ""):
+        return []
+    return [Finding(ADVISORY, "title-names-state-but-bbox-exceeds-it",
+                    f"title names '{state.title()}' but the declared bbox reaches outside "
+                    f"it ({', '.join(over)}). If this was ingested as whole units that "
+                    f"cross the state line, say so in the description — state the real "
+                    f"footprint, how much lies outside, and the mask a state-level "
+                    f"statistic needs. A unit set is not a state extent (#528).")]
 
 
 def _asset_has_geom(asset: dict) -> bool:
@@ -581,6 +792,47 @@ def _collection_has_vector_source(doc: dict) -> bool:
     return False
 
 
+def _flat_vector_attrs(doc: dict) -> set[str]:
+    """Lowercased attribute names documented on the collection's flat vector asset(s),
+    excluding H3 indexes, bbox and geometry."""
+    out = set()
+    for key, asset in doc.get("assets", {}).items():
+        if not is_parquet(asset) or is_hex_asset(key, asset):
+            continue
+        if not _asset_has_geom(asset):
+            continue
+        for col in asset.get("table:columns", []):
+            name = col.get("name", "").lower()
+            if name in SAFE_HEX_COLS or _is_geom_col(name):
+                continue
+            out.add(name)
+    return out
+
+
+def _is_percell_aggregation(doc: dict, asset: dict) -> bool:
+    """True for a hex asset that is a per-CELL aggregation — one row per cell — derived
+    from the collection's own features, rather than a per-(feature, cell) conversion.
+
+    A cng-datasets vector hex always carries the source feature attributes forward, so it
+    necessarily shares attribute names with the flat GeoParquet. A derived aggregation
+    shares NONE: every non-index column is newly computed (data-workflows#506
+    `…-hex-weights`: h-indexes + w1…w4 + n_units). Such an asset has collapsed the
+    feature dimension away, so there is no per-feature identity left to carry and
+    `_cng_fid` is as meaningless on it as on a raster reduce — where a row-unique id would
+    in fact be actively misleading, since `COUNT(DISTINCT _cng_fid)` would then equal the
+    cell count rather than a feature count.
+
+    Deliberately a positive schema test rather than an opt-out flag: a genuine
+    `_cng_fid`-missing defect still carries its source attributes and so still HARD-fails.
+    """
+    flat = _flat_vector_attrs(doc)
+    if not flat:
+        return False
+    attrs = {c.get("name", "").lower() for c in asset.get("table:columns", [])}
+    attrs = {c for c in attrs if c not in SAFE_HEX_COLS and not _is_geom_col(c)}
+    return bool(attrs) and not (attrs & flat)
+
+
 def check_cng_fid(doc: dict) -> list[Finding]:
     """Enforce the universal `_cng_fid` contract (#369).
 
@@ -605,6 +857,12 @@ def check_cng_fid(doc: dict) -> list[Finding]:
         conversion, so it correctly has no per-feature id. Detected as a hex asset whose
         collection has NO vector source (COG-independent — covers carbon/ghs-pop which
         ship a COG *and* richness/cwhr/gbif which do not).
+
+      exempt (silent) — per-cell aggregation of a VECTOR collection's own features
+        (#506 `…-hex-weights`): one row per cell, not per (feature, cell). The feature
+        dimension is aggregated away, so `_cng_fid` has nothing to identify. Detected by
+        `_is_percell_aggregation`: it shares no attribute column with the collection's
+        flat GeoParquet, whereas a real conversion always carries its source attributes.
 
       ADVISORY — a non-spatial parquet table (no geometry, not a vector hex): could be a
         fact table that SHOULD carry `_cng_fid` (tpl `…-funding`, keyed by tpl_id) or a
@@ -636,6 +894,8 @@ def check_cng_fid(doc: dict) -> list[Finding]:
         if hex_:
             if not has_vector_source:
                 continue  # raster-derived hex → no per-feature id by design
+            if _is_percell_aggregation(doc, asset):
+                continue  # per-cell aggregation → feature dimension collapsed by design
             out.append(Finding(HARD, "cng-fid-missing",
                 f"vector hex asset '{key}' does not document '_cng_fid'. " + common))
         elif _asset_has_geom(asset):
@@ -668,14 +928,17 @@ def run_sibling_linter(mod, doc_source: str, code: str) -> list[Finding]:
 STATIC_CHECKS = [
     check_license,
     check_nav_links,
+    check_temporal_extent,
     check_asset_keys,
     check_hex_assets,
     check_vector_layers,
     check_table_columns_placement,
     check_cng_fid,
     check_hex_dup_warning,
+    check_column_description_consistency,
     check_point_note,
     check_inline_area_formula,
+    check_region_title_vs_bbox,
 ]
 
 
@@ -981,6 +1244,78 @@ _NULL_JOIN_NOTE = re.compile(
     r"h3_cell_to_parent|largest features.{0,40}null", re.I)
 
 
+_MULTIROW_NOTE = re.compile(
+    r"multiple rows per \(?feature|more than one row per \(?feature|"
+    r"duplicate \(feature, cell\) rows are expected|per \(feature, cell, part\)", re.I)
+
+
+def check_hex_row_uniqueness(doc: dict, mcp: MCPClient) -> list[Finding]:
+    """One hex row must be one (feature, cell) pair — data-workflows#509.
+
+    The vector polyfill used to emit one row per (feature, cell, geometry PART), so any
+    MultiPolygon whose parts shared a cell produced byte-identical duplicate rows. Fixed
+    upstream 2026-07-12 (boettiger-lab/datasets#150 / PR #158, Pass 2 writes
+    `SELECT DISTINCT *`), but every vector hex built before that date still carries the
+    duplication, and nothing caught it: `COUNT(DISTINCT _cng_fid)` is unaffected, so the
+    documented dedup key does not rescue a consumer, and `audit-feature-dup.py` audits
+    UPSTREAM (axis-2) duplication rather than build artifacts. Confirmed live on
+    ca30x30-conserved-areas-terrestrial-2025 (70,806 dup rows, up to 221 copies of one
+    unit on a single cell) and padus-4-1/fee (160,293).
+
+    HARD, because the asset's own contract ("one row per (feature, hN) pair") is false and
+    every `COUNT(*)` / per-cell `SUM` over it is inflated. A genuine multi-row-per-
+    (feature, cell) case does not exist by construction; if one is ever legitimate,
+    document it in the asset description and this check will accept it.
+    """
+    out = []
+    coll_desc = doc.get("description", "") or ""
+    for key, asset in doc.get("assets", {}).items():
+        if not (is_parquet(asset) and is_hex_asset(key, asset)):
+            continue
+        s3 = _to_s3(asset.get("href", ""))
+        if not s3:
+            continue
+        cols = {c.get("name", "") for c in asset.get("table:columns", [])}
+        if "_cng_fid" not in cols:
+            continue  # raster reduce / per-cell aggregation — no (feature, cell) grain
+        # Key each row on its FINEST NON-NULL cell, not on h3:native_resolution.
+        # A build that caps very large features at a coarser resolution leaves the native
+        # column NULL for them (WDPA: h9 is NULL for its 1,297 biggest features, h8 is
+        # complete). COUNT(DISTINCT) drops NULL keys, so keying on the native column alone
+        # reports every NULL-native row as a duplicate — on WDPA that is a 77,991,738-row
+        # false positive against a true count of 0. H3 ids encode their resolution, so
+        # they are unique across resolutions and COALESCE is safe. The trailing literal
+        # keeps an all-NULL row countable rather than silently dropped.
+        hcols = sorted((c for c in cols if _HEX_RE.match(c)),
+                       key=lambda n: int(_HEX_RE.match(n).group(1)), reverse=True)
+        if not hcols:
+            continue
+        cell = "COALESCE(" + ", ".join(f'"{h}"::VARCHAR' for h in hcols) + ", 'none')"
+        try:
+            rows = mcp.query(
+                f"SELECT COUNT(*) AS total, COUNT(DISTINCT ({cell} || '-' || "
+                f"_cng_fid::VARCHAR)) AS pairs FROM read_parquet('{s3}')")
+            total, pairs = int(rows[0]["total"]), int(rows[0]["pairs"])
+        except (MCPError, ValueError, KeyError, IndexError) as e:
+            out.append(Finding(ADVISORY, "hex-row-uniqueness-check-failed",
+                               f"asset '{key}': could not check (feature, cell) "
+                               f"uniqueness ({e})."))
+            continue
+        if total and pairs < total:
+            desc = (asset.get("description", "") or "") + " " + coll_desc
+            if _MULTIROW_NOTE.search(desc):
+                continue
+            dup = total - pairs
+            out.append(Finding(HARD, "hex-duplicate-feature-cell-rows",
+                f"asset '{key}': {dup:,} rows ({100.0*dup/total:.3f}%) are duplicate "
+                f"(finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) "
+                f"pair, so COUNT(*) and any per-cell SUM over this asset are inflated. "
+                f"Almost certainly a vector hex built before the 2026-07-12 polyfill fix "
+                f"(boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite "
+                f"or re-hex. See data-workflows#509."))
+    return out
+
+
 def check_null_hex_index(doc: dict, mcp: MCPClient) -> list[Finding]:
     """A hex column with NULLs where a coarser column is fully populated means joining
     at that resolution silently drops the very large features that have no finer cell
@@ -1125,6 +1460,7 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
             if do_data:
                 findings.extend(check_values_match_distinct(doc, client))
                 findings.extend(check_null_hex_index(doc, client))      # #309 §2 (hard)
+                findings.extend(check_hex_row_uniqueness(doc, client))  # #509 (hard)
                 findings.extend(check_polygon_row_dup(doc, client))     # #309 §1 (advisory)
             if do_recall:
                 findings.extend(recall_pass(doc, client))

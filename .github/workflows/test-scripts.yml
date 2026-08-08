@@ -1,0 +1,41 @@
+name: Test scripts
+
+# Unit tests for scripts/ — distinct from "Verify STAC", which checks published catalog
+# artifacts and never exercises the verifier's own logic. That gap let
+# check_hex_row_uniqueness ship keying on h3:native_resolution, which reported 77,991,738
+# duplicate rows on WDPA against a true count of 0 (NULL native cells; COUNT(DISTINCT)
+# drops NULL keys). It was caught by a human noticing an implausible number.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/test-scripts.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # duckdb is optional: the suite runs dependency-free and skips the tests that
+      # execute generated SQL against real rows. Install it so those run in CI too —
+      # they are the ones that prove NULL-safety rather than asserting on SQL text.
+      - name: Install duckdb (optional test dependency)
+        run: pip install --quiet duckdb || echo "duckdb unavailable — those tests will skip"
+
+      - name: Run tests
+        run: python3 -m unittest discover -s tests -v

@@ -1,0 +1,186 @@
+# data-workflows#506 Stage 1 — per-cell GAP fractions at res 10.
+#
+# The published hex asset is one row per (unit, res-10 cell) and carries only PER-UNIT
+# attributes (Final_g1_p..Final_g4_p, Acres, Total_Acre, reGAP). There is no per-cell
+# conserved fraction anywhere in the catalog, so every consumer derives one — and the
+# easy derivation (GROUP BY h8 on the conserved layer before joining a res-8 feature
+# grid) discards the coverage fraction of the 49 res-10 children and overstates the
+# conserved share by +11.3pp (reported 30% of top-biodiversity land unprotected where
+# the 2025 assessment says 49.8%). Publishing the aggregation removes the decision.
+#
+# Normalization — option (a) from the issue, proportional cap at 1:
+#   rN = SUM(Final_gN_p)/100 over the DISTINCT units covering the cell
+#   wN = rN / GREATEST(r1+r2+r3+r4, 1.0)
+# Every unit has Final_g1_p+..+Final_g4_p = 100 exactly (verified: min = max = 100 over
+# all 13,340,094 hex rows / 45,811 units), so the raw total equals the covering-unit
+# count and the rule is an unweighted mean of the covering units' GAP mixes — order-free,
+# unlike GAP-precedence (option b), which would bake California's "GAP 1+2 counts toward
+# 30x30" convention into the data layer. Only 0.42% of cells are multi-unit, but max
+# stacking is 222 units, so the rule cannot be left implicit.
+#
+# The source hex has 70,806 duplicate (h10, _cng_fid) rows (0.53%), so the aggregation
+# MUST dedup by (cell, unit) first or those units count twice in those cells.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: conserved-areas-2025-hex-weights
+  namespace: geo-workflows
+  labels:
+    k8s-app: conserved-areas-2025-hex-weights
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: conserved-areas-2025-hex-weights
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: hex-weights
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "=== #506 Stage 1: per-cell GAP weights (res 10) ==="
+          python3 - <<'PYEOF'
+          import duckdb, os
+
+          SRC     = 's3://public-ca30x30/conserved-areas-terrestrial-2025/hex/h0=*/data_0.parquet'
+          STAGING = 's3://public-ca30x30/conserved-areas-terrestrial-2025/hex-weights-staging'
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("SET preserve_insertion_order=false")
+          con.execute(
+              "CREATE SECRET s3_secret (TYPE S3, KEY_ID '{}', SECRET '{}', "
+              "ENDPOINT '{}', URL_STYLE 'path', USE_SSL false)".format(
+                  os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'],
+                  os.environ.get('AWS_S3_ENDPOINT', 'rook-ceph-rgw-nautiluss3.rook')))
+
+          # Dedup (cell, unit) BEFORE summing. Final_g*_p is constant per _cng_fid
+          # (verified: exactly 1 distinct value per unit), so MAX() is a safe pick-one.
+          con.execute("""
+              CREATE VIEW weights AS
+              WITH cell_unit AS (
+                  SELECT h0, h8, h9, h10, _cng_fid,
+                         MAX(Final_g1_p) AS g1, MAX(Final_g2_p) AS g2,
+                         MAX(Final_g3_p) AS g3, MAX(Final_g4_p) AS g4
+                  FROM read_parquet('{src}')
+                  GROUP BY h0, h8, h9, h10, _cng_fid),
+              raw AS (
+                  SELECT h0, h8, h9, h10,
+                         COUNT(*)::INTEGER AS n_units,
+                         SUM(g1)/100.0 AS r1, SUM(g2)/100.0 AS r2,
+                         SUM(g3)/100.0 AS r3, SUM(g4)/100.0 AS r4
+                  FROM cell_unit
+                  GROUP BY h0, h8, h9, h10)
+              SELECT h10, h9, h8,
+                     r1/GREATEST(r1+r2+r3+r4, 1.0) AS w1,
+                     r2/GREATEST(r1+r2+r3+r4, 1.0) AS w2,
+                     r3/GREATEST(r1+r2+r3+r4, 1.0) AS w3,
+                     r4/GREATEST(r1+r2+r3+r4, 1.0) AS w4,
+                     n_units, h0
+              FROM raw
+          """.format(src=SRC))
+
+          # --- write one file per h0 partition (California spans 2 res-0 cells) ---
+          parts = [r[0] for r in con.execute("SELECT DISTINCT h0 FROM weights ORDER BY h0").fetchall()]
+          print('H0_PARTITIONS={}'.format(parts))
+          assert parts, 'no partitions produced'
+          for h0 in parts:
+              out = '{}/h0={}/data_0.parquet'.format(STAGING, h0)
+              con.execute(
+                  "COPY (SELECT * FROM weights WHERE h0 = {h0} ORDER BY h10) TO '{out}' "
+                  "(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(h0=h0, out=out))
+              print('wrote {}'.format(out))
+
+          # --- structural validation ---
+          STAGED = '{}/h0=*/data_0.parquet'.format(STAGING)
+          src_cells = con.execute(
+              "SELECT COUNT(DISTINCT h10) FROM read_parquet('{}')".format(SRC)).fetchone()[0]
+          (rows, cells, n_h0, min_tot, max_tot, min_w, max_w, max_units, null_idx) = con.execute("""
+              SELECT COUNT(*), COUNT(DISTINCT h10), COUNT(DISTINCT h0),
+                     MIN(w1+w2+w3+w4), MAX(w1+w2+w3+w4),
+                     MIN(LEAST(w1,w2,w3,w4)), MAX(GREATEST(w1,w2,w3,w4)),
+                     MAX(n_units),
+                     SUM(CASE WHEN h9 IS NULL OR h8 IS NULL OR h0 IS NULL THEN 1 ELSE 0 END)
+              FROM read_parquet('{}')
+          """.format(STAGED)).fetchone()
+          print('ROWS={} CELLS={} SRC_CELLS={} N_H0={} TOTAL_W=[{:.9f},{:.9f}] '
+                'W=[{:.9f},{:.9f}] MAX_UNITS={} NULL_IDX={}'.format(
+                    rows, cells, src_cells, n_h0, min_tot, max_tot, min_w, max_w, max_units, null_idx))
+          assert rows == cells,      'not one row per res-10 cell'
+          assert cells == src_cells, 'cell count {} != source DISTINCT h10 {}'.format(cells, src_cells)
+          assert null_idx == 0,      'NULL h9/h8/h0 index column'
+          # Every covered cell has raw total >= 1, so the cap always binds and w sums to 1.
+          # Tolerance is 1e-6, not 1e-9: Final_g*_p are DOUBLEs that sum to 100 only to
+          # float precision (observed min 0.99999988), so the cap inherits that residual.
+          assert abs(min_tot - 1.0) < 1e-6 and abs(max_tot - 1.0) < 1e-6, \
+              'w1+w2+w3+w4 must equal 1 on every row under the proportional cap'
+          assert min_w >= 0.0 and max_w <= 1.0 + 1e-9, 'weight outside [0,1]'
+
+          # --- acceptance criterion from the issue: ACE BioRank-5 overlay at res 10 ---
+          gap12, gap34 = con.execute("""
+              WITH land AS (
+                  SELECT DISTINCT h0, h8, h10
+                  FROM read_parquet('s3://public-ca30x30/cwhr13/hex-fractions/h0=*/data_0.parquet')
+                  WHERE whr13num <> 0),
+              feature AS (
+                  SELECT DISTINCT h0, h8
+                  FROM read_parquet('s3://public-cdfw/ace/terrestrial-biodiversity-summary/hex/h0=*/data_0.parquet')
+                  WHERE BioRankSW = 5),
+              w AS (SELECT h0, h8, h10, w1, w2, w3, w4 FROM read_parquet('{}'))
+              SELECT ROUND(100.0*SUM(COALESCE(w.w1,0)+COALESCE(w.w2,0))/COUNT(*), 2),
+                     ROUND(100.0*SUM(COALESCE(w.w3,0)+COALESCE(w.w4,0))/COUNT(*), 2)
+              FROM feature f JOIN land l USING (h0, h8) LEFT JOIN w USING (h0, h8, h10)
+          """.format(STAGED)).fetchone()
+          print('ACCEPTANCE BioRankSW=5  gap12={} (target 21.05)  gap34={} (target 29.54)'.format(gap12, gap34))
+          assert abs(float(gap12) - 21.05) <= 0.5, 'gap12 outside +/-0.5pp of 21.05'
+          assert abs(float(gap34) - 29.54) <= 0.5, 'gap34 outside +/-0.5pp of 29.54'
+
+          open('/tmp/ok', 'w').write('ok')
+          PYEOF
+          test -f /tmp/ok || { echo 'staging validation failed; NOT flipping'; exit 1; }
+
+          echo '--- staging validated; purge-and-verify-empty target, then flip ---'
+          rclone purge nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-weights/ 2>/dev/null || true
+          REMAIN=$(rclone lsf -R nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-weights/ 2>/dev/null | wc -l)
+          test "$REMAIN" -eq 0 || { echo "target not empty after purge ($REMAIN objects); refusing to flip"; exit 1; }
+          rclone move nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-weights-staging/ \
+                      nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-weights/
+          rclone lsf -R --format sp nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-weights/
+          echo '=== #506 Stage 1 hex-weights published ==='
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']

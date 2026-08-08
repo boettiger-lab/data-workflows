@@ -1,0 +1,188 @@
+# data-workflows#509 — batch dedup of the CA-app vector hex assets built before the
+# 2026-07-12 polyfill fix (boettiger-lab/datasets#150 / PR #158).
+#
+# The old polyfill emitted one row per (feature, cell, geometry PART), so MultiPolygons
+# whose parts share a cell produced byte-identical duplicate rows. Already fixed upstream;
+# these are stale artifacts. This job covers the California app's data surface only —
+# the rest of the 108 pre-fix assets are a separate pass on #509.
+#
+# SAFETY: per target, the job proves the duplicates are pure redundancy BEFORE writing:
+#   COUNT(*) over SELECT DISTINCT *  ==  COUNT(DISTINCT (finest non-NULL cell, _cng_fid))
+# If those differ, some duplicate pair differs in a column — it is NOT a byte-identical
+# copy, SELECT DISTINCT * would not collapse it, and rewriting could destroy information.
+# Such a target is SKIPPED and reported, never rewritten.
+#
+# The cell key uses the FINEST NON-NULL h column, not h3:native_resolution. A build that
+# caps large features at a coarser resolution leaves the native column NULL for them
+# (WDPA: h9 NULL on 37.5% of rows) and COUNT(DISTINCT) drops NULL keys — keying on the
+# native column alone reported 77,991,738 phantom duplicates on WDPA against a true 0.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hex-dedup-batch-ca
+  namespace: geo-workflows
+  labels:
+    k8s-app: hex-dedup-batch-ca
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: hex-dedup-batch-ca
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: hex-dedup
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "=== #509 CA-app hex dedup batch ==="
+
+          TARGETS="
+          public-ca30x30/williamson-act/all-years/hex
+          public-ca30x30/williamson-act/2021/hex
+          public-ca30x30/williamson-act/2022/hex
+          public-ca30x30/williamson-act/2023/hex
+          public-ca30x30/williamson-act/2024/hex
+          public-ca30x30/williamson-act/2025/hex
+          public-ca30x30/freshwater-species-richness/hex
+          public-ca30x30/fmmp-2022/hex
+          public-cdfw/ace/terrestrial-biodiversity-summary/hex
+          public-cpad/cpad-2025b-units/hex
+          public-fire/calfire-2025/firep/hex
+          public-fire/calfire-2025/rxburn/hex
+          public-swap/california/swap-2025/conservation-units/hex
+          public-swap/california/swap-2025/marine-bioregions/hex
+          "
+
+          # partition manifest: "<target> <h0dir>" per line
+          : > /tmp/parts.txt
+          for T in $TARGETS; do
+            for D in $(rclone lsf --dirs-only "nrp:${T}/"); do
+              echo "${T} ${D%/}" >> /tmp/parts.txt
+            done
+          done
+          echo "targets: $(echo $TARGETS | wc -w)  partitions: $(wc -l < /tmp/parts.txt)"
+
+          python3 - <<'PY'
+          import os, collections, duckdb
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("SET preserve_insertion_order=false")
+          con.execute("SET temp_directory='/tmp/duckdb-spill'")
+          con.execute("SET memory_limit='100GiB'")
+          con.execute(
+              "CREATE SECRET s3_secret (TYPE S3, KEY_ID '{}', SECRET '{}', ENDPOINT '{}', "
+              "URL_STYLE 'path', USE_SSL false)".format(
+                  os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'],
+                  os.environ['AWS_S3_ENDPOINT']))
+
+          parts = collections.OrderedDict()
+          for line in open('/tmp/parts.txt'):
+              t, d = line.split()
+              parts.setdefault(t, []).append(d)
+
+          plan, skipped, clean = [], [], []
+          for t, dirs in parts.items():
+              glob = "s3://{}/h0=*/data_0.parquet".format(t)
+              cols = [r[0] for r in con.execute(
+                  "DESCRIBE SELECT * FROM read_parquet('{}')".format(glob)).fetchall()]
+              hcols = sorted([c for c in cols if c.startswith('h') and c[1:].isdigit()],
+                             key=lambda c: int(c[1:]), reverse=True)
+              if '_cng_fid' not in cols or not hcols:
+                  skipped.append((t, 'not a vector hex')); continue
+              cell = "COALESCE(" + ", ".join('"{}"::VARCHAR'.format(h) for h in hcols) + ", 'z')"
+              rows, dfull, dpair = con.execute("""
+                  SELECT COUNT(*),
+                         (SELECT COUNT(*) FROM (SELECT DISTINCT * FROM read_parquet('{g}'))),
+                         COUNT(DISTINCT ({c} || '-' || _cng_fid::VARCHAR))
+                  FROM read_parquet('{g}')
+              """.format(g=glob, c=cell)).fetchone()
+              if rows == dfull == dpair:
+                  clean.append((t, rows)); continue
+              if dfull != dpair:
+                  # duplicates differ in some column -> NOT byte-identical, do not touch
+                  skipped.append((t, 'distinct_full={} != distinct_pair={} — duplicates carry '
+                                     'differing values; needs manual review'.format(dfull, dpair)))
+                  continue
+              plan.append((t, dirs, rows, dfull, cell))
+              print('PLAN {}: {} -> {} ({} dup rows)'.format(t, rows, dfull, rows - dfull), flush=True)
+
+          for t, _ in clean:
+              print('CLEAN (no action): {}'.format(t), flush=True)
+          for t, why in skipped:
+              print('SKIPPED: {} — {}'.format(t, why), flush=True)
+
+          done = []
+          for t, dirs, rows, expect, cell in plan:
+              staged_total = 0
+              for d in dirs:
+                  src = "s3://{}/{}/data_0.parquet".format(t, d)
+                  dst = "s3://{}-dedup-staging/{}/data_0.parquet".format(t, d)
+                  con.execute("COPY (SELECT DISTINCT * FROM read_parquet('{}')) TO '{}' "
+                              "(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(src, dst))
+                  staged_total += con.execute(
+                      "SELECT COUNT(*) FROM read_parquet('{}')".format(dst)).fetchone()[0]
+              sglob = "s3://{}-dedup-staging/h0=*/data_0.parquet".format(t)
+              scells, sfids = con.execute(
+                  "SELECT COUNT(DISTINCT ({c})), COUNT(DISTINCT _cng_fid) "
+                  "FROM read_parquet('{g}')".format(c=cell, g=sglob)).fetchone()
+              ocells, ofids = con.execute(
+                  "SELECT COUNT(DISTINCT ({c})), COUNT(DISTINCT _cng_fid) "
+                  "FROM read_parquet('s3://{t}/h0=*/data_0.parquet')".format(c=cell, t=t)).fetchone()
+              assert staged_total == expect, '{}: staged {} != expected {}'.format(t, staged_total, expect)
+              assert scells == ocells, '{}: cell count changed {} -> {}'.format(t, ocells, scells)
+              assert sfids == ofids, '{}: feature count changed {} -> {}'.format(t, ofids, sfids)
+              print('STAGED OK {}: {} rows, cells {}, features {}'.format(t, staged_total, scells, sfids), flush=True)
+              done.append((t, dirs, rows, staged_total))
+
+          with open('/tmp/flip.txt', 'w') as f:
+              for t, dirs, before, after in done:
+                  for d in dirs:
+                      f.write('{} {}\n'.format(t, d))
+                  print('READY {}: {} -> {}'.format(t, before, after), flush=True)
+          open('/tmp/ok', 'w').write('ok')
+          PY
+
+          test -f /tmp/ok || { echo 'validation failed; no live asset touched'; exit 1; }
+          echo '--- validated; swapping deduped partitions over live ---'
+          while read -r T D; do
+            rclone copyto "nrp:${T}-dedup-staging/${D}/data_0.parquet" "nrp:${T}/${D}/data_0.parquet"
+            echo "swapped ${T}/${D}"
+          done < /tmp/flip.txt
+          for T in $TARGETS; do rclone purge "nrp:${T}-dedup-staging" 2>/dev/null || true; done
+          echo '=== #509 CA-app hex dedup batch complete ==='
+        resources:
+          requests: {cpu: '8', memory: 120Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 120Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

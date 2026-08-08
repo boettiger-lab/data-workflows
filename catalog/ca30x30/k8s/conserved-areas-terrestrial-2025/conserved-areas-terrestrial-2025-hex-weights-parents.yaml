@@ -1,0 +1,257 @@
+# data-workflows#506 Stage 2 — res-9 / res-8 rollups of the per-cell GAP weights.
+#
+# Depends on #507 (ecoregion re-indexed at native res 10): a parent-cell weight is an
+# AREA-WEIGHTED MEAN over the parent's res-10 LAND children, so it needs an authoritative
+# res-10 California land grid to supply the denominator `nland`. The old stand-in
+# (cwhr13 hex-fractions) is a habitat dataset and is not clipped to California — 1.36M
+# acres of it lie in Nevada/Oregon/Arizona — so a rollup built on it would bake that
+# error into the asset. `ecoregion/hex` is the same footprint as the pinned statewide
+# denominator (101,498,000 acres), which is why it is the right grid.
+#
+#   land10  = DISTINCT (h0,h9,h8,h10) from ecoregion/hex        -- res-10 CA land grid
+#   wN(res9)= SUM(COALESCE(child wN, 0)) / nland  over land children of the h9
+#   nland   = COUNT(*) of res-10 land children present in the parent (<=7 at res 9,
+#             <=49 at res 8; boundary parents have fewer)
+#
+# Conserved res-10 cells that are NOT land cells (state-boundary overhang, water) are
+# excluded from both numerator and denominator, so wN stays in [0,1] and the parent value
+# is the conserved fraction OF CALIFORNIA LAND in that cell.
+#
+# Row counts: every land parent gets a row, including parents with zero conserved area
+# (wN = 0) — that is what makes the asset usable as a denominator, not just a mask.
+#
+# ---------------------------------------------------------------------------------
+# #522 Part 2 UPDATE — `nland` is COMPUTED here but NO LONGER WRITTEN.
+#
+# `nland` is a property of the land grid, not of the conserved-areas layer: it is
+# exactly the res-10 `ecoregion/hex` grid redistributed into this collection, which put
+# California's land definition in two places. It now ships on ca30x30-ecoregion as
+# `ecoregion/hex-res9` and `hex-res8` (nland + land_area_km2), built by
+# catalog/ecoregion/k8s/ca-30x30-ecoregion/ecoregion-hex-parents.yaml — RUN THAT FIRST.
+# These assets carry only w1..w4 at all three resolutions, and every resolution composes
+# the same way: ecoregion land grid LEFT JOIN weights, COALESCE a missing weight to 0.
+#
+# `nland` is still computed in-job because it is the denominator of the parent mean and
+# the weight in #508's acceptance check — dropping it from the OUTPUT does not change a
+# single w value, and the asserts below re-prove that.
+#
+# #522 Part 3: the aggregation we document is now weighted by land AREA, not by the cell
+# COUNT `nland`. H3 cells are not equal-area and California spans 32.5N-42N, so the
+# count-weighted statewide GAP 1+2 share came out 25.684 against an area-weighted 26.135
+# (truth 26.08). Both are printed below; only the area-weighted one is documented.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: conserved-areas-2025-hex-weights-parents
+  namespace: geo-workflows
+  labels:
+    k8s-app: conserved-areas-2025-hex-weights-parents
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: conserved-areas-2025-hex-weights-parents
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: hex-weights-parents
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "=== #506 Stage 2: res-9 / res-8 rollups with nland (needs #507 res-10 ecoregion) ==="
+          python3 - <<'PYEOF'
+          import duckdb, os
+
+          W10  = 's3://public-ca30x30/conserved-areas-terrestrial-2025/hex-weights/h0=*/data_0.parquet'
+          ECO  = 's3://public-ca30x30/ecoregion/hex/h0=*/data_0.parquet'
+          ECO8 = 's3://public-ca30x30/ecoregion/hex-res8/h0=*/data_0.parquet'
+          BASE = 's3://public-ca30x30/conserved-areas-terrestrial-2025'
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("SET preserve_insertion_order=false")
+          con.execute("SET temp_directory='/tmp/duckdb-spill'")
+          con.execute("SET memory_limit='100GiB'")
+          con.execute(
+              "CREATE SECRET s3_secret (TYPE S3, KEY_ID '{}', SECRET '{}', "
+              "ENDPOINT '{}', URL_STYLE 'path', USE_SSL false)".format(
+                  os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'],
+                  os.environ.get('AWS_S3_ENDPOINT', 'rook-ceph-rgw-nautiluss3.rook')))
+
+          # Guard: #507 must have landed — the ecoregion hex must actually carry h10.
+          eco_cols = {r[0] for r in con.execute(
+              "DESCRIBE SELECT * FROM read_parquet('{}')".format(ECO)).fetchall()}
+          assert {'h10', 'h9', 'h8', 'h0'} <= eco_cols, (
+              'ecoregion hex lacks res-10 index columns {} — #507 has not landed; '
+              'refusing to roll up on an unclipped stand-in grid'.format(sorted(eco_cols)))
+
+          # Guard: #522 Part 2 moves `nland` to ca30x30-ecoregion, so the res-8 land rollup
+          # must already exist. Stripping the column here before that asset is published
+          # would leave consumers with no weight at all at res 9 / res 8.
+          eco8_cols = {r[0] for r in con.execute(
+              "DESCRIBE SELECT * FROM read_parquet('{}')".format(ECO8)).fetchall()}
+          assert {'h8', 'h0', 'nland', 'land_area_km2'} <= eco8_cols, (
+              'ecoregion/hex-res8 is missing {} — run ecoregion-hex-parents.yaml first; '
+              'refusing to drop nland with no replacement published'.format(
+                  sorted({'h8', 'h0', 'nland', 'land_area_km2'} - eco8_cols)))
+
+          con.execute("""
+              CREATE OR REPLACE TABLE land10 AS
+              SELECT DISTINCT h0, h9, h8, h10 FROM read_parquet('{}')
+          """.format(ECO))
+          con.execute("""
+              CREATE OR REPLACE TABLE child AS
+              SELECT l.h0, l.h9, l.h8, l.h10,
+                     COALESCE(w.w1, 0) AS w1, COALESCE(w.w2, 0) AS w2,
+                     COALESCE(w.w3, 0) AS w3, COALESCE(w.w4, 0) AS w4
+              FROM land10 l
+              LEFT JOIN read_parquet('{}') w USING (h0, h8, h10)
+          """.format(W10))
+
+          n_land, n_cons = con.execute(
+              "SELECT COUNT(*), SUM(CASE WHEN w1+w2+w3+w4 > 0 THEN 1 ELSE 0 END) FROM child").fetchone()
+          n_w10, n_offland = con.execute("""
+              SELECT COUNT(*), SUM(CASE WHEN l.h10 IS NULL THEN 1 ELSE 0 END)
+              FROM read_parquet('{}') w LEFT JOIN land10 l USING (h0, h8, h10)
+          """.format(W10)).fetchone()
+          print('LAND10_CELLS={}  OF_WHICH_CONSERVED={}'.format(n_land, n_cons))
+          print('W10_CELLS={}  OUTSIDE_LAND_GRID={} ({:.3f}%)'.format(
+              n_w10, n_offland, 100.0 * n_offland / n_w10))
+
+          for res, keys in ((9, 'h0, h9, h8'), (8, 'h0, h8')):
+              con.execute("""
+                  CREATE OR REPLACE TABLE parent{res} AS
+                  SELECT {keys}, COUNT(*)::INTEGER AS nland,
+                         SUM(w1)/COUNT(*) AS w1, SUM(w2)/COUNT(*) AS w2,
+                         SUM(w3)/COUNT(*) AS w3, SUM(w4)/COUNT(*) AS w4
+                  FROM child GROUP BY {keys}
+              """.format(res=res, keys=keys))
+              # #522 Part 2: nland stays out of the OUTPUT — it lives on ca30x30-ecoregion.
+              cols = ('h9, h8, w1, w2, w3, w4, h0' if res == 9
+                      else 'h8, w1, w2, w3, w4, h0')
+              order = 'h9' if res == 9 else 'h8'
+              staging = '{}/hex-weights-res{}-staging'.format(BASE, res)
+              parts = [r[0] for r in con.execute(
+                  "SELECT DISTINCT h0 FROM parent{} ORDER BY h0".format(res)).fetchall()]
+              for h0 in parts:
+                  out = '{}/h0={}/data_0.parquet'.format(staging, h0)
+                  con.execute(
+                      "COPY (SELECT {cols} FROM parent{res} WHERE h0 = {h0} ORDER BY {order}) "
+                      "TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(
+                          cols=cols, res=res, h0=h0, order=order, out=out))
+                  print('wrote {}'.format(out))
+              # Written schema check: nland must NOT be in the staged files (#522 Part 2).
+              staged_cols = [r[0] for r in con.execute(
+                  "DESCRIBE SELECT * FROM read_parquet('{s}/h0=*/data_0.parquet')".format(
+                      s=staging)).fetchall()]
+              print('RES{} STAGED_COLUMNS={}'.format(res, staged_cols))
+              assert 'nland' not in staged_cols, \
+                  'res{} still writes nland — it belongs on ca30x30-ecoregion'.format(res)
+
+              (rows, cells, mx_tot, mn_w) = con.execute("""
+                  SELECT COUNT(*), COUNT(DISTINCT {order}),
+                         MAX(w1+w2+w3+w4), MIN(LEAST(w1,w2,w3,w4))
+                  FROM read_parquet('{s}/h0=*/data_0.parquet')
+              """.format(order=order, s=staging)).fetchone()
+              mn_nland, mx_nland = con.execute(
+                  "SELECT MIN(nland), MAX(nland) FROM parent{}".format(res)).fetchone()
+              print('RES{} ROWS={} CELLS={} NLAND=[{},{}] MAX_TOTAL_W={:.9f} MIN_W={:.9f}'.format(
+                  res, rows, cells, mn_nland, mx_nland, mx_tot, mn_w))
+              assert rows == cells, 'res{} not one row per cell'.format(res)
+              assert mn_nland >= 1 and mx_nland <= (7 if res == 9 else 49), \
+                  'res{} nland outside [1,{}]'.format(res, 7 if res == 9 else 49)
+              assert mx_tot <= 1.0 + 1e-9 and mn_w >= 0.0, 'res{} weight outside [0,1]'.format(res)
+
+          # --- invariant: land-clipped conserved area is identical at all three levels ---
+          a10 = con.execute("SELECT SUM(w1+w2), SUM(w3+w4) FROM child").fetchone()
+          a9  = con.execute("SELECT SUM((w1+w2)*nland), SUM((w3+w4)*nland) FROM parent9").fetchone()
+          a8  = con.execute("SELECT SUM((w1+w2)*nland), SUM((w3+w4)*nland) FROM parent8").fetchone()
+          print('CELL_EQUIV_GAP12 res10={:.4f} res9={:.4f} res8={:.4f}'.format(a10[0], a9[0], a8[0]))
+          print('CELL_EQUIV_GAP34 res10={:.4f} res9={:.4f} res8={:.4f}'.format(a10[1], a9[1], a8[1]))
+          for i in (0, 1):
+              assert abs(a9[i] - a10[i]) / a10[i] < 1e-9, 'res9 rollup does not conserve total'
+              assert abs(a8[i] - a10[i]) / a10[i] < 1e-9, 'res8 rollup does not conserve total'
+
+          # --- acceptance: the res-8 join that used to be silently wrong now agrees ---
+          gap12, gap34, nonc = con.execute("""
+              WITH feature AS (
+                  SELECT DISTINCT h0, h8
+                  FROM read_parquet('s3://public-cdfw/ace/terrestrial-biodiversity-summary/hex/h0=*/data_0.parquet')
+                  WHERE BioRankSW = 5)
+              SELECT ROUND(100.0*SUM((p.w1+p.w2)*p.nland)/SUM(p.nland), 2),
+                     ROUND(100.0*SUM((p.w3+p.w4)*p.nland)/SUM(p.nland), 2),
+                     ROUND(100.0*SUM((1-p.w1-p.w2-p.w3-p.w4)*p.nland)/SUM(p.nland), 2)
+              FROM feature f JOIN parent8 p USING (h0, h8)
+          """).fetchone()
+          print('ACCEPTANCE res8 join, BioRankSW=5: gap12={} (target 21.05) gap34={} (target 29.54) '
+                'non_conserved={} (report 49.81)'.format(gap12, gap34, nonc))
+          assert abs(float(gap12) - 21.05) <= 1.0, 'res8 gap12 outside +/-1.0pp of 21.05'
+          assert abs(float(gap34) - 29.54) <= 1.0, 'res8 gap34 outside +/-1.0pp of 29.54'
+
+          # --- #522 Part 3: the aggregation we now DOCUMENT is the ecoregion land rollup
+          # LEFT JOIN the weights, weighted by land AREA. It must return the statewide
+          # figure (26.135), not the count-weighted 25.684 the old wording produced.
+          count_wtd, area_wtd = con.execute("""
+              SELECT ROUND(100*SUM((p.w1+p.w2)*p.nland)/SUM(p.nland), 3),
+                     ROUND(100*SUM(COALESCE(w.w1+w.w2, 0)*e.land_area_km2)
+                             /SUM(e.land_area_km2), 3)
+              FROM read_parquet('{}') e
+              LEFT JOIN read_parquet('{}/hex-weights-res8-staging/h0=*/data_0.parquet') w
+                     USING (h0, h8)
+              JOIN parent8 p USING (h0, h8)
+          """.format(ECO8, BASE)).fetchone()
+          print('PART3 statewide GAP1+2: count-weighted={} (old wording) '
+                'area-weighted={} (documented, target 26.135)'.format(count_wtd, area_wtd))
+          assert abs(float(area_wtd) - 26.135) <= 0.01, \
+              'documented res-8 aggregation returns {}, expected 26.135'.format(area_wtd)
+
+          open('/tmp/ok', 'w').write('ok')
+          PYEOF
+          test -f /tmp/ok || { echo 'staging validation failed; NOT flipping'; exit 1; }
+
+          for RES in 9 8; do
+            echo "--- flipping hex-weights-res${RES} ---"
+            rclone purge nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-weights-res${RES}/ 2>/dev/null || true
+            REMAIN=$(rclone lsf -R nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-weights-res${RES}/ 2>/dev/null | wc -l)
+            test "$REMAIN" -eq 0 || { echo "target res${RES} not empty after purge ($REMAIN); refusing to flip"; exit 1; }
+            rclone move nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-weights-res${RES}-staging/ \
+                        nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-weights-res${RES}/
+            rclone lsf -R --format sp nrp:public-ca30x30/conserved-areas-terrestrial-2025/hex-weights-res${RES}/
+          done
+          echo '=== #506 Stage 2 res-9 / res-8 rollups published ==='
+        resources:
+          requests: {cpu: '8', memory: 120Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 120Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']

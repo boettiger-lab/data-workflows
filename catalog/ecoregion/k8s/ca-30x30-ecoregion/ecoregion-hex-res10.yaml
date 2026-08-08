@@ -1,0 +1,75 @@
+# data-workflows#507 — re-index ca30x30-ecoregion at native H3 resolution 10.
+#
+# `ecoregion` is the app's canonical definition of California (pinned statewide
+# denominator 101,498,000 acres = SUM(Shape_Area) in EPSG:3310). Its hex asset was
+# native res 8 with parents [0], which is enough to MASK a feature to California but
+# cannot serve as a DENOMINATOR: an overlay against the res-10 conserved-areas layer
+# has to enumerate the res-10 land children of a parent cell (`nland`, needed by #506).
+# Consumers fell back to cwhr13 as a stand-in land grid, which is a habitat dataset and
+# is not clipped to California (1.36M acres out of state).
+#
+# 20 features, largest 66,834 km2 (~4.4M res-10 cells) — chunk-size 1 puts each
+# ecoregion in its own pod so one big polygon can't stall or OOM the others.
+# Chunks go to a res10-specific prefix so the live res-8 asset is untouched until
+# ecoregion-flip-res10 has validated the rebuild.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ecoregion-hex-res10
+  namespace: geo-workflows
+  labels:
+    k8s-app: ecoregion-hex-res10
+spec:
+  completions: 20
+  parallelism: 20
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 10800
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  template:
+    metadata:
+      labels:
+        k8s-app: ecoregion-hex-res10
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          cng-datasets vector \
+            --input s3://public-ca30x30/ecoregion.parquet \
+            --output s3://public-ca30x30/ecoregion/chunks-res10 \
+            --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1 --intermediate-chunk-size 1 \
+            --resolution 10 --parent-resolutions 9,8,0
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
