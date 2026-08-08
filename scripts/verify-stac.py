@@ -33,6 +33,9 @@ Static checks (no data; just the STAC JSON):
   - point datasets: a processing-resolution note in description/processing:notes
   - categorical column completeness (values + inline CODE=Name)  [reuses lint-stac-categorical]
   - PMTiles tile-accurate table:columns                          [reuses lint-stac-pmtiles-fields]
+  - ADVISORY: a title naming one US state whose bbox reaches well outside it, with no
+    footprint sentence in the description — a set of whole units is not a state extent
+    and a state-shaped title is what a consumer trusts instead of masking (#528)
 
 Data-backed checks (delegated to the duckdb-geo MCP server, --no-data to skip):
   - every coded column's `values` array == the ingested DISTINCT set (automates the
@@ -675,6 +678,90 @@ def check_inline_area_formula(doc: dict) -> list[Finding]:
     return out
 
 
+# --- #528 — a title that names a state must not misstate the footprint ------
+# The nhdplus-hr flowline collection was titled "(California)" and said "COVERAGE IS
+# CALIFORNIA ONLY", because only the California HU4 units had been ingested. Both read
+# as statements about the FOOTPRINT, which was 13 whole hydrologic units — 30.3% of its
+# stream length lies in NV/UT/OR/AZ. A model trusted the title, skipped the California
+# mask, and reported a headline number 8.5 points wrong (data-workflows#528; same
+# mechanism as the pinyon-juniper defect, #505).
+#
+# The mechanical signal: the title names exactly one US state, but the declared bbox
+# reaches well outside that state. ADVISORY, and suppressed once the description
+# actually explains the footprint — the point is to prompt that sentence, not to ban
+# region names in titles.
+_STATE_BBOX = {  # (west, south, east, north), approximate — paired with a 1° tolerance
+    "alabama": (-88.5, 30.2, -84.9, 35.0), "alaska": (-179.2, 51.2, 179.8, 71.4),
+    "arizona": (-114.8, 31.3, -109.0, 37.0), "arkansas": (-94.6, 33.0, -89.6, 36.5),
+    "california": (-124.5, 32.5, -114.1, 42.0), "colorado": (-109.1, 37.0, -102.0, 41.0),
+    "connecticut": (-73.7, 40.9, -71.8, 42.1), "delaware": (-75.8, 38.4, -75.0, 39.8),
+    "florida": (-87.6, 24.4, -80.0, 31.0), "georgia": (-85.6, 30.3, -80.8, 35.0),
+    "hawaii": (-178.4, 18.9, -154.8, 28.4), "idaho": (-117.3, 42.0, -111.0, 49.0),
+    "illinois": (-91.5, 36.9, -87.0, 42.5), "indiana": (-88.1, 37.8, -84.8, 41.8),
+    "iowa": (-96.6, 40.4, -90.1, 43.5), "kansas": (-102.1, 37.0, -94.6, 40.0),
+    "kentucky": (-89.6, 36.5, -81.9, 39.1), "louisiana": (-94.1, 28.9, -88.8, 33.0),
+    "maine": (-71.1, 43.0, -66.9, 47.5), "maryland": (-79.5, 37.9, -75.0, 39.7),
+    "massachusetts": (-73.5, 41.2, -69.9, 42.9), "michigan": (-90.4, 41.7, -82.1, 48.3),
+    "minnesota": (-97.2, 43.5, -89.5, 49.4), "mississippi": (-91.7, 30.1, -88.1, 35.0),
+    "missouri": (-95.8, 36.0, -89.1, 40.6), "montana": (-116.1, 44.4, -104.0, 49.0),
+    "nebraska": (-104.1, 40.0, -95.3, 43.0), "nevada": (-120.0, 35.0, -114.0, 42.0),
+    "new hampshire": (-72.6, 42.7, -70.6, 45.3), "new jersey": (-75.6, 38.9, -73.9, 41.4),
+    "new mexico": (-109.1, 31.3, -103.0, 37.0), "new york": (-79.8, 40.5, -71.8, 45.0),
+    "north carolina": (-84.3, 33.8, -75.5, 36.6), "north dakota": (-104.1, 45.9, -96.6, 49.0),
+    "ohio": (-84.8, 38.4, -80.5, 42.0), "oklahoma": (-103.0, 33.6, -94.4, 37.0),
+    "oregon": (-124.6, 41.9, -116.5, 46.3), "pennsylvania": (-80.5, 39.7, -74.7, 42.3),
+    "rhode island": (-71.9, 41.1, -71.1, 42.0), "south carolina": (-83.4, 32.0, -78.5, 35.2),
+    "south dakota": (-104.1, 42.5, -96.4, 46.0), "tennessee": (-90.3, 35.0, -81.6, 36.7),
+    "texas": (-106.7, 25.8, -93.5, 36.5), "utah": (-114.1, 37.0, -109.0, 42.0),
+    "vermont": (-73.5, 42.7, -71.5, 45.0), "virginia": (-83.7, 36.5, -75.2, 39.5),
+    "washington": (-124.9, 45.5, -116.9, 49.0), "west virginia": (-82.7, 37.2, -77.7, 40.6),
+    "wisconsin": (-92.9, 42.5, -86.8, 47.1), "wyoming": (-111.1, 41.0, -104.0, 45.0),
+}
+_FOOTPRINT_TOLERANCE_DEG = 1.0
+# Phrases that contain a state name but do not name that state — "Sierra Nevada" is a
+# California mountain range, "Washington, D.C." is not Washington state.
+_NOT_A_STATE = re.compile(r"sierra nevada|washington,?\s*d\.?c\.?|kansas city", re.I)
+# Prose that shows the footprint is already explained — the collection has done the work.
+_FOOTPRINT_EXPLAINED = re.compile(
+    r"not clipped|no[nt]e is clipped|whole (hydrologic|watershed|hu4|unit|basin)|"
+    r"extends? (past|beyond|outside)|outside (the state|california|nevada|oregon)|"
+    r"footprint:", re.I)
+
+
+def check_region_title_vs_bbox(doc: dict) -> list[Finding]:
+    """ADVISORY when a title names one US state but the bbox reaches well outside it.
+
+    A collection ingested as whole administrative/hydrologic units is not a state
+    extent, and a title that says otherwise is what a consumer (human or model) trusts
+    instead of applying the mask (#528). Silent once the description states the real
+    footprint.
+    """
+    title = _NOT_A_STATE.sub(" ", doc.get("title", "") or "")
+    named = [s for s in _STATE_BBOX if re.search(rf"\b{re.escape(s)}\b", title, re.I)]
+    # "West Virginia" also matches "virginia"; the longest name is the one being claimed.
+    named = [s for s in named if not any(s != o and s in o for o in named)]
+    if len(named) != 1:
+        return []          # zero states named, or a multi-state title that isn't a claim
+    state = named[0]
+    try:
+        west, south, east, north = doc["extent"]["spatial"]["bbox"][0][:4]
+    except (KeyError, IndexError, TypeError, ValueError):
+        return []
+    sw, ss, se, sn = _STATE_BBOX[state]
+    t = _FOOTPRINT_TOLERANCE_DEG
+    over = [f"{d} by {v:.1f}°" for d, v in (
+        ("west", sw - west), ("south", ss - south), ("east", east - se), ("north", north - sn))
+        if v > t]
+    if not over:
+        return []
+    if _FOOTPRINT_EXPLAINED.search(doc.get("description", "") or ""):
+        return []
+    return [Finding(ADVISORY, "title-names-state-but-bbox-exceeds-it",
+                    f"title names '{state.title()}' but the declared bbox reaches outside "
+                    f"it ({', '.join(over)}). If this was ingested as whole units that "
+                    f"cross the state line, say so in the description — state the real "
+                    f"footprint, how much lies outside, and the mask a state-level "
+                    f"statistic needs. A unit set is not a state extent (#528).")]
 
 
 def _asset_has_geom(asset: dict) -> bool:
@@ -851,6 +938,7 @@ STATIC_CHECKS = [
     check_column_description_consistency,
     check_point_note,
     check_inline_area_formula,
+    check_region_title_vs_bbox,
 ]
 
 
