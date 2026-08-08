@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rca-boundary-clean-parquet
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ["true"]}
+      containers:
+      - name: clean
+        image: ghcr.io/boettiger-lab/datasets:latest
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: "rook-ceph-rgw-nautiluss3.rook"}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        command:
+        - python3
+        - -c
+        - |
+          import duckdb
+          c = duckdb.connect()
+          c.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          c.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          c.execute("SET s3_use_ssl=false;")
+          c.execute("SET s3_url_style='path';")
+          import os
+          c.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';")
+          c.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+          src = 's3://public-ca-wolves/rca-boundary.parquet'
+          dst = 's3://public-ca-wolves/rca-boundary-clean.parquet'
+          n = c.execute(f"SELECT COUNT(*) FROM read_parquet('{src}')").fetchone()[0]
+          print('source rows:', n)
+          # Drop the junk attribute column literally named GEOMETRY (a redundant area value,
+          # Shape_Area/10000) that collides with the geometry-column autodetection in the
+          # hex step (ST_GeometryType(geom) -> DOUBLE). geom is the real GEOMETRY('OGC:CRS84').
+          c.execute(f"""
+            COPY (SELECT * EXCLUDE (GEOMETRY) FROM read_parquet('{src}'))
+            TO '{dst}' (FORMAT PARQUET, ROW_GROUP_SIZE 2000, COMPRESSION ZSTD);
+          """)
+          cols = [r[0] for r in c.execute(f"DESCRIBE SELECT * FROM read_parquet('{dst}')").fetchall()]
+          print('clean columns:', cols)
+          gt = c.execute(f"SELECT DISTINCT ST_GeometryType(geom) FROM read_parquet('{dst}')").fetchall()
+          print('geometry types:', gt)
+          m = c.execute(f"SELECT COUNT(*) FROM read_parquet('{dst}')").fetchone()[0]
+          assert m == n, (m, n)
+          assert 'GEOMETRY' not in cols, 'GEOMETRY still present!'
+          print('OK: clean parquet written with', m, 'rows')
+        resources:
+          requests: {memory: 4Gi, cpu: "1", ephemeral-storage: 4Gi}
+          limits: {memory: 4Gi, cpu: "2", ephemeral-storage: 8Gi}
