@@ -100,10 +100,17 @@ apply a blanket "lengths are not comparable" note** — compare per unit via `vp
 | `maxelevsmo` / `minelevsmo` | `-9998` sentinel (10,543 rows), but **other negatives are real**: 10,349 rows drain below sea level, min **−85.61 m** (Death Valley / Salton Sea). Filter `<> -9998`, **never** all negatives. Valid max 4,193.73 m (high Sierra). |
 | `mainpath` | `0` for all 2,410,919 rows — NHDPlus HR leaves it unset here; use `levelpathi` for mainstem grouping |
 | `fcode` | 33 distinct codes, each defined verbatim from the source `NHDFCode` domain table |
+| `streamleve` | 1–16; NULL set identical to `streamorde`'s (83,483 rows with no VAA row) |
+| `streamcalc` | 1–10 plus a legitimate `0` on 109,118 divergence-minor-path rows |
+| `totdasqkm` / `divdasqkm` / `arbolatesu` / `pathlength` / `streamcalc` | **`-9999` (`-9` for streamcalc) on the SAME 2,745 flowlines** — a coherent "network attributes not computed" set. Filter before any aggregate. `totdasqkm` valid range 0–546,328 km². |
 
-The elevation row is the reason to measure rather than copy from documentation: an initial draft of
-this STAC said "check for negative values before averaging", which would have told consumers to
-discard California's genuinely below-sea-level terrain.
+**Every row here was measured on the published parquet, and doing so caught two published errors
+of the same kind.** An initial draft said elevation consumers should "check for negative values
+before averaging" — copied from NHDPlus documentation rather than measured — which would have told
+them to discard California's genuinely below-sea-level terrain. A second pass then found the
+`-9999` set on the five drainage/routing columns, which the first draft did not document at all.
+**When a build adds columns nobody in this catalog has used before, measure every one of their
+ranges and sentinels before writing STAC** — that is the #518 lesson applied to the fix for #518.
 
 ## Open question (not blocking) — tracked as #525
 

@@ -275,6 +275,7 @@ California Park Access Tool 2020 (SCORP 2020) — Parks for All Californians, Gr
 ## public-usgs-nhd
 - **OK** · `public-domain` — public-usgs-nhd/streams-by-order  · USGS National Hydrography Dataset; US federal work (PD).
 - **OK** · `public-domain` — public-usgs-nhd/perennial-streams  · USGS NHD; US federal work (PD).
+- **OK** · `public-domain` — public-usgs-nhd/nhdplus-hr/flowline  · USGS NHDPlus High Resolution flowlines + network VAA (California, #205); US federal work (PD). Bucket already in both `REPOS` and MinIO `BUCKETS`, so no gen-script change — inventory entry only.
 
 ## public-usgs-wbd
 - **OK** · `public-domain` — public-usgs-wbd/wbd/hu2 · hu4 · hu6 · hu8 · hu10 · hu12  · USGS Watershed Boundary Dataset (all HU levels); US federal work (PD).
