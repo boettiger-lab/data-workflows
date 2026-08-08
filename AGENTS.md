@@ -537,6 +537,26 @@ one version silently. Two traps, both hit in #512:
   within the collection — `verify-stac.py` reports this as `column-description-divergent`
   (ADVISORY today; it becomes HARD once the pre-gate catalog is fold-clean, #509).
 
+**The title and description state the FOOTPRINT, not which tranche you ingested.** A set of
+whole administrative or hydrologic units is **never** a state extent, and a consumer — human or
+model — trusts the title over the geometry. `usgs-nhdplus-hr-flowline` was titled *"(California)"*
+and said *"COVERAGE IS CALIFORNIA ONLY"*, both true about which VPUs had been ingested and both
+read as claims about the footprint, which is 13 whole HU4 units with **30.3% of its stream length
+in Nevada, Utah, Oregon and Arizona**. A model skipped the California mask and its headline number
+was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505). So:
+
+- **Title the unit set** — "…(13 California hydrologic units)", not "…(California)". Same for
+  counties, ecoregions, watersheds, and every later tranche of a national build.
+- **State the footprint near the top of the description**: what the units are, that they are not
+  clipped to the region, how much lies outside, and the mask a region-level statistic needs
+  (for California, join `h8` + `h0` against the `ca30x30-ecoregion` hex). Give the mask as a short
+  SQL example, per the register rules above.
+- **Never write "X ONLY" for "only the X tranche is ingested so far"** — say the ingest scope and
+  the footprint as two separate facts.
+- The `bbox` is usually already correct; it is the prose that lies. `verify-stac.py` flags a title
+  naming one US state whose bbox reaches >1° outside it with no footprint sentence
+  (`title-names-state-but-bbox-exceeds-it`, ADVISORY) — the fix is the sentence, not a narrower bbox.
+
 **stac-collection.json MUST include:**
 
 - **License — REQUIRED on every collection.** Set the top-level STAC `license` field to the **SPDX identifier** of the upstream data license (e.g. `CC-BY-4.0`, `CC-BY-NC-4.0`, `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`). Use `"other"` **only** when no SPDX id applies, and `"various"` **only** for a meta-collection whose children genuinely differ — never as a lazy default. For `other`/`various` (and recommended for all), add a license link: `{"rel": "license", "href": "<canonical terms URL>", "type": "text/html"}`. **Exception — a meta-collection (one with `child` links) may use `various`/`other` WITHOUT a license link:** its real licenses live on the child collections (each carrying + verified for its own license), and redistribution gating (source.coop excludes, etc.) keys on those per-child licenses, not the parent. A single parent-level link would misrepresent genuinely mixed children. `verify-stac.py` enforces the link only on **leaf** collections (and always for `proprietary`). **Verify the real upstream terms — do not guess `proprietary`.** The license drives redistribution decisions (e.g. whether a dataset may be mirrored to source.coop); a wrong value is a compliance risk. NonCommercial / ShareAlike licenses are fine but MUST be recorded as such (`CC-BY-NC-*`, `CC-BY-SA-*`) so downstream users aren't misled. US federal works = `public-domain`.
