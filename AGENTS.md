@@ -745,6 +745,23 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   - **NULL finest-parent cells.** If the hex build caps very large features at a coarser native resolution (WDPA: `h9` is NULL for the 1,297 biggest features, `h8` is complete), the hex asset description MUST name the complete column and say joins should use the coarsest shared resolution (or `h3_cell_to_parent()`), not the finest. `verify-stac.py` **HARD**-flags an undocumented NULL finest hex column.
   - **No-data sentinels.** Document sentinel/fill codes (e.g. land-cover `0`/`200`) so consumers `WHERE col NOT IN (...)` before `SUM`/`AVG` — an undocumented sentinel poisons aggregates to `NaN`.
 
+  ⛔ **MEASURE every added column's range and sentinels — never document one from upstream docs or
+  memory.** When a build introduces columns new to this catalog, run one query per new column
+  (`MIN`/`MAX`, `COUNT(*) FILTER (WHERE col < 0)`, distinct count) *before* writing STAC. This is
+  the #518 lesson generalised, and it recurred three times in one session while fixing #518
+  (data-workflows #205/#525):
+  - `-9999` on four NHDPlus VAA columns (and `-9` on a fifth) — **the same 2,745 rows** — was
+    documented nowhere in the first draft; an unfiltered `AVG(slope)`/`MIN(totdasqkm)` is poisoned.
+  - Worse than omission: a sentinel note copied from upstream documentation said "check for
+    negative values", which would have told consumers to discard **real** below-sea-level
+    elevations (10,349 rows, min −85.61 m in Death Valley). **A negative value is not automatically
+    a sentinel** — filter the exact sentinel (`<> -9998`), never a sign test, unless you have
+    measured that no legitimate negatives exist.
+  - A `values` array copied from a sibling collection missed 13 codes actually present. Coded
+    domains come from the authoritative source table (#294), and `values` from the ingest.
+  Record the measured ranges in the dataset's `BUILD.md` so the next reader inherits evidence
+  rather than assumption — see `catalog/usgs-nhd/k8s/nhdplus-hr/BUILD.md` for the pattern.
+
 - **Point datasets:** `description` or `"processing:notes"` MUST state each point resolved to one H3 cell at the processing resolution, and name the resolution. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 
 ### Step 6: Register in the parent sub-catalog
