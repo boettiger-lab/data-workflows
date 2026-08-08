@@ -1,0 +1,70 @@
+# Step 1b (#205): archive the NHDPlus HR VPU zips to s3://public-usgs-nhd/raw/nhdplus-hr/
+# before converting anything, so a failed convert restarts from S3 instead of re-downloading
+# from prd-tnm. One indexed pod per HU4; unit list comes from the nhdplus-hr-units ConfigMap.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhdplus-hr-stage-raw
+  labels:
+    k8s-app: nhdplus-hr-stage-raw
+spec:
+  completions: 266
+  parallelism: 40
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nhdplus-hr-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: units
+          mountPath: /cfg
+          readOnly: true
+        command: [bash, -c]
+        args:
+        - |
+          set -euo pipefail
+          IDX="${JOB_COMPLETION_INDEX}"
+          read -r UNIT LEVEL ZIP VINTAGE < <(sed -n "$((IDX+1))p" /cfg/units.txt)
+          echo "=== index $IDX -> $LEVEL $UNIT | $ZIP | vintage $VINTAGE ==="
+          BASE="https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/NHDPlusHR/VPU/Current/GDB"
+
+          # skip if already archived (idempotent re-runs)
+          if rclone lsf "nrp:public-usgs-nhd/raw/nhdplus-hr/$ZIP" 2>/dev/null | grep -q .; then
+            echo "already archived, skipping download"; exit 0
+          fi
+
+          curl -fL --retry 5 --retry-delay 5 -o "/tmp/$ZIP" "$BASE/$ZIP"
+          ls -lh "/tmp/$ZIP"
+          # fail loudly on a truncated/HTML error body rather than archiving garbage
+          unzip -t "/tmp/$ZIP" > /dev/null
+          rclone copy "/tmp/$ZIP" nrp:public-usgs-nhd/raw/nhdplus-hr/ -P --s3-chunk-size 128M
+          echo "STAGED $ZIP"
+        resources:
+          requests: {cpu: '1', memory: 4Gi, ephemeral-storage: 8Gi}
+          limits:   {cpu: '1', memory: 4Gi, ephemeral-storage: 8Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: units
+        configMap: {name: nhdplus-hr-units}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: ['hpc-nrp-g1.nmsu.edu', 'service-02.nrp.mghpcc.org']

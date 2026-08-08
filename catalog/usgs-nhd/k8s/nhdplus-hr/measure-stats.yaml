@@ -1,0 +1,102 @@
+# Measure every fact the STAC documents, on the PUBLISHED national parquet, and write it to
+# s3://public-usgs-nhd/nhdplus-hr/staging/stats.json for build-stac.py to consume.
+#
+# ⛔ WHY THIS EXISTS: the first pass of this build hardcoded California-measured numbers into the
+# STAC builder — feature counts, sentinel counts, elevation extremes, `values` arrays, even the
+# "valid range 1-10" (nationally it is 1-11, on the lower Columbia). Every one of those would have
+# been silently wrong on the national asset. Per AGENTS.md: measure every documented column's range
+# and sentinels, never assert them from one region or from upstream docs.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhdplus-hr-measure-stats
+  labels:
+    k8s-app: nhdplus-hr-measure-stats
+spec:
+  completions: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nhdplus-hr-measure-stats
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: measure
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scratch, mountPath: /scratch, subPath: nhdplus-hr-measure}
+        command: [python3, -c]
+        args:
+        - |
+          import os, json, duckdb
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ['AWS_ACCESS_KEY_ID'])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ['AWS_SECRET_ACCESS_KEY'])
+          con.execute("SET memory_limit='60GB'; SET threads=8;")
+          con.execute("SET temp_directory='/scratch/tmp'; SET preserve_insertion_order=false;")
+          SRC = 's3://public-usgs-nhd/nhdplus-hr/flowline.parquet'
+          q = lambda sql: con.execute(sql).fetchone()
+          s = {}
+          s['features'], s['units'], s['order_null'] = q(f"""
+            SELECT COUNT(*), COUNT(DISTINCT vpu_unit), COUNT(*) FILTER (WHERE streamorde IS NULL)
+            FROM read_parquet('{SRC}')""")
+          s['order_min'], s['order_max'] = q(f"SELECT MIN(streamorde), MAX(streamorde) FROM read_parquet('{SRC}')")
+          s['level_min'], s['level_max'] = q(f"SELECT MIN(streamleve), MAX(streamleve) FROM read_parquet('{SRC}')")
+          s['calc_zero'], s['calc_max'] = q(f"SELECT COUNT(*) FILTER (WHERE streamcalc = 0), MAX(streamcalc) FROM read_parquet('{SRC}')")
+          s['sentinel_rows'] = q(f"""SELECT COUNT(*) FROM read_parquet('{SRC}')
+            WHERE totdasqkm = -9999 AND divdasqkm = -9999 AND arbolatesu = -9999 AND pathlength = -9999""")[0]
+          s['slope_sentinel'], s['slope_max'] = q(f"""SELECT COUNT(*) FILTER (WHERE slope = -9998),
+            MAX(slope) FROM read_parquet('{SRC}')""")
+          s['elev_sentinel'] = q(f"SELECT COUNT(*) FILTER (WHERE minelevsmo = -9998) FROM read_parquet('{SRC}')")[0]
+          s['below_sea_rows'], s['elev_min_m'], s['elev_max_m'] = q(f"""
+            SELECT COUNT(*) FILTER (WHERE minelevsmo < 0 AND minelevsmo <> -9998),
+                   MIN(minelevsmo) FILTER (WHERE minelevsmo <> -9998)/100.0,
+                   MAX(maxelevsmo) FILTER (WHERE maxelevsmo <> -9998)/100.0
+            FROM read_parquet('{SRC}')""")
+          s['totda_max'] = q(f"SELECT MAX(totdasqkm) FROM read_parquet('{SRC}')")[0]
+          s['mainpath_one'] = q(f"SELECT COUNT(*) FILTER (WHERE mainpath = 1) FROM read_parquet('{SRC}')")[0]
+          for col in ('fcode', 'ftype', 'flowdir', 'innetwork', 'mainpath', 'divergence',
+                      'terminalfl', 'startflag', 'resolution' if False else 'vpu_level'):
+              s[f'{col}_values'] = [str(r[0]) for r in con.execute(
+                  f"SELECT DISTINCT {col} FROM read_parquet('{SRC}') WHERE {col} IS NOT NULL ORDER BY 1").fetchall()]
+          s['huc2'] = [r[0] for r in con.execute(
+              f"SELECT DISTINCT substr(reachcode,1,2) FROM read_parquet('{SRC}') WHERE reachcode IS NOT NULL ORDER BY 1").fetchall()]
+          s['coverage'] = [dict(zip(('vpu_unit','vintage','flowlines','innet_km','pct_nocoast','pct_withcoast'), r))
+              for r in con.execute(f"""
+                SELECT vpu_unit, vpu_vintage, COUNT(*),
+                  ROUND(SUM(CASE WHEN innetwork=1 THEN lengthkm ELSE 0 END),0),
+                  ROUND(100.0*SUM(CASE WHEN streamorde>0 AND innetwork=1 AND fcode<>56600 THEN lengthkm ELSE 0 END)
+                        /NULLIF(SUM(CASE WHEN innetwork=1 AND fcode<>56600 THEN lengthkm ELSE 0 END),0),2),
+                  ROUND(100.0*SUM(CASE WHEN streamorde>0 AND innetwork=1 THEN lengthkm ELSE 0 END)
+                        /NULLIF(SUM(CASE WHEN innetwork=1 THEN lengthkm ELSE 0 END),0),2)
+                FROM read_parquet('{SRC}') GROUP BY 1,2 ORDER BY 1""").fetchall()]
+          s['pct_nocoast_min'] = min(c['pct_nocoast'] for c in s['coverage'])
+          json.dump(s, open('/scratch/stats.json','w'), indent=2, default=float)
+          print(json.dumps({k:v for k,v in s.items() if k != 'coverage'}, indent=2, default=float), flush=True)
+          print(f"units in coverage table: {len(s['coverage'])}; min pct_nocoast: {s['pct_nocoast_min']}", flush=True)
+          os.system("rclone copyto /scratch/stats.json nrp:public-usgs-nhd/nhdplus-hr/staging/stats.json")
+        resources:
+          requests: {cpu: '8', memory: 60Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '8', memory: 60Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      priorityClassName: opportunistic

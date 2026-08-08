@@ -1,0 +1,243 @@
+# Step 2 (#205): per-HU4 convert — NHDFlowline ⟕ NHDPlusFlowlineVAA on nhdplusid.
+# One indexed pod per unit; reads the archived zip from s3://public-usgs-nhd/raw/nhdplus-hr/.
+#
+# ⛔ TWO TRAPS THIS JOB IS BUILT AROUND (#205 scope v2):
+#
+# 1. COLUMN-NAME CASING VARIES BY VPU VINTAGE — lowercase in 1503/1605/1606, mixed case in
+#    1801-1810. A case-sensitive `ogr2ogr -select "NHDPlusID,StreamOrde"` returns NOTHING on the
+#    lowercase units, which would publish NULL stream order for those basins and look like a
+#    source problem — i.e. recreate #518. Defences, in order:
+#      (a) NEVER pass -select to ogr2ogr; convert whole layers and subset later.
+#      (b) Do all column work in DuckDB, whose identifiers are case-INSENSITIVE.
+#      (c) Emit explicit lowercase aliases so published columns are uniform regardless of source.
+#      (d) ASSERT every required column resolves, per unit, and fail the index if not. A build
+#          that cannot find streamorde must fail loudly, never write NULLs.
+#    Do not infer casing from the filename form — the observed correlation is not a guarantee.
+#
+# 2. nhdplusid IS TYPED Real (float64) in the GDB. A float-equality join on a 14-digit id drops
+#    rows silently, so both sides are CAST to DECIMAL(18,0) before joining, and the join is
+#    verified row-for-row against the flowline count.
+#
+# Sentinels: streamorde/streamleve <= 0 -> NULL at write time (the normalisation #518 could only
+# document). Valid Strahler range is 1-10.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhdplus-hr-convert
+  labels:
+    k8s-app: nhdplus-hr-convert
+spec:
+  completions: 266
+  parallelism: 40
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nhdplus-hr-convert
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: convert
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp/duck
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: units
+          mountPath: /cfg
+          readOnly: true
+        command: [bash, -c]
+        args:
+        - |
+          set -euo pipefail
+          IDX="${JOB_COMPLETION_INDEX}"
+          read -r UNIT LEVEL ZIP VINTAGE < <(sed -n "$((IDX+1))p" /cfg/units.txt)
+          echo "=== index $IDX -> $LEVEL $UNIT | $ZIP | vintage $VINTAGE ==="
+          mkdir -p /tmp/duck /tmp/gdb
+
+          rclone copy "nrp:public-usgs-nhd/raw/nhdplus-hr/$ZIP" /tmp/ -P
+          unzip -q -o "/tmp/$ZIP" -d /tmp/gdb
+          GDB="$(find /tmp/gdb -maxdepth 2 -name '*.gdb' | head -1)"
+          echo "GDB: $GDB"
+          rm -f "/tmp/$ZIP"
+
+          # NHDFlowline -> GeoParquet: reproject to OGC:CRS84, flatten 3D-measured geometry,
+          # and pick up the synthesized _cng_fid (#369). No -select: all attributes, any casing.
+          cng-convert-to-parquet "$GDB" /tmp/fl.parquet \
+            --layer NHDFlowline --target-crs OGC:CRS84 \
+            --compression ZSTD --compression-level 6 --row-group-size 2000 --no-progress
+
+          # VAA table -> parquet. No -select (see trap 1).
+          ogr2ogr -f Parquet /tmp/vaa.parquet "$GDB" NHDPlusFlowlineVAA
+          ls -lh /tmp/fl.parquet /tmp/vaa.parquet
+
+          UNIT="$UNIT" LEVEL="$LEVEL" VINTAGE="$VINTAGE" python3 - <<'PY'
+          import os, sys, duckdb
+          hu4, vintage = os.environ['UNIT'], os.environ['VINTAGE']
+          level = os.environ['LEVEL']
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ['AWS_ACCESS_KEY_ID'])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ['AWS_SECRET_ACCESS_KEY'])
+          con.execute("SET memory_limit='24GB'; SET threads=4;")
+          con.execute("SET temp_directory='/tmp/duck'; SET preserve_insertion_order=false;")
+
+          FL, VAA = '/tmp/fl.parquet', '/tmp/vaa.parquet'
+
+          def cols(path):
+              # name -> actual source spelling, keyed lowercase (trap 1)
+              rows = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{path}')").fetchall()
+              return {r[0].lower(): (r[0], r[1]) for r in rows}
+
+          fl, vaa = cols(FL), cols(VAA)
+          print(f"[{hu4}] flowline cols: {len(fl)}  vaa cols: {len(vaa)}", flush=True)
+          print(f"[{hu4}] casing sample: nhdplusid -> {fl.get('nhdplusid',('MISSING',))[0]!r} (flowline), "
+                f"{vaa.get('nhdplusid',('MISSING',))[0]!r} (vaa)", flush=True)
+
+          FL_COLS = ['nhdplusid','permanent_identifier','reachcode','gnis_id','gnis_name',
+                     'lengthkm','ftype','fcode','flowdir','innetwork','mainpath','visibilityfilter']
+          # NOTE: the network-end flag is `terminalfl` (alternative name IsNetworkEnd), NOT
+          # `terminalflag` as in NHDPlusV2 — verified against the VAA schema of both a lowercase
+          # (1606) and a mixed-case (1801) unit. `pathlength` is carried because the NR2 known-
+          # issues note uses it as the correctness signal for a broken network.
+          VAA_COLS = ['streamorde','streamleve','streamcalc','totdasqkm','divdasqkm','slope',
+                      'arbolatesu','hydroseq','uphydroseq','dnhydroseq','dnlevel','levelpathi',
+                      'terminalpa','pathlength','maxelevsmo','minelevsmo','divergence',
+                      'terminalfl','startflag','areasqkm','vpuid']
+
+          # (d) ASSERT — a unit that cannot resolve a required column FAILS. Never write NULLs.
+          missing = ([f"NHDFlowline.{c}" for c in FL_COLS if c not in fl]
+                     + [f"NHDPlusFlowlineVAA.{c}" for c in VAA_COLS if c not in vaa])
+          if missing:
+              sys.exit(f"[{hu4}] FATAL missing required columns (casing/schema drift): {missing}")
+
+          # Geometry column: read_parquet() surfaces a GeoParquet column as BLOB (WKB), NOT as
+          # GEOMETRY, so detect by name first and fall back to a lone BLOB column. Then convert
+          # explicitly with ST_GeomFromWKB so the COPY writes a real GEOMETRY (and proper
+          # GeoParquet metadata) instead of an opaque blob.
+          def geom_expr(schema, alias):
+              named = [k for k in ('shape', 'geom', 'geometry', 'wkb_geometry') if k in schema]
+              blobs = [k for k, (_, t) in schema.items() if t.upper() in ('BLOB', 'WKB_BLOB')]
+              # the type is GEOMETRY('OGC:CRS84') — parameterised, so match the prefix
+              typed = [k for k, (_, t) in schema.items() if t.upper().startswith('GEOMETRY')]
+              key = (typed or named or (blobs if len(blobs) == 1 else []))
+              if len(key) != 1:
+                  sys.exit(f"[{hu4}] FATAL cannot identify one geometry column "
+                           f"(typed={typed} named={named} blobs={blobs})")
+              k = key[0]
+              src, typ = schema[k]
+              ref = f'{alias}."{src}"'
+              return (ref if typ.upper().startswith('GEOMETRY') else f'ST_GeomFromWKB({ref})'), src
+
+          gexpr, gcol = geom_expr(fl, 'f')
+          print(f"[{hu4}] geometry column: {gcol!r} -> {gexpr}", flush=True)
+          fid = fl['_cng_fid'][0] if '_cng_fid' in fl else None
+          if fid is None:
+              sys.exit(f"[{hu4}] FATAL _cng_fid absent — cng-convert-to-parquet did not run (#369)")
+
+          n_fl  = con.execute(f"SELECT COUNT(*) FROM read_parquet('{FL}')").fetchone()[0]
+          n_vaa, n_vaa_d = con.execute(
+              f'SELECT COUNT(*), COUNT(DISTINCT CAST("{vaa["nhdplusid"][0]}" AS DECIMAL(18,0)))'
+              f" FROM read_parquet('{VAA}')").fetchone()
+          print(f"[{hu4}] flowlines={n_fl:,} vaa_rows={n_vaa:,} vaa_distinct_ids={n_vaa_d:,}", flush=True)
+          if n_vaa != n_vaa_d:
+              sys.exit(f"[{hu4}] FATAL vaa nhdplusid not unique -> join would fan out")
+
+          sel_fl  = ",\n              ".join(f'f."{fl[c][0]}" AS {c}' for c in FL_COLS)
+          # sentinel normalisation: <= 0 is 'not computed', not an order (#518)
+          sel_vaa = ",\n              ".join(
+              (f'NULLIF(GREATEST(v."{vaa[c][0]}", 0), 0) AS {c}' if c in ('streamorde','streamleve')
+               else f'v."{vaa[c][0]}" AS {c}') for c in VAA_COLS)
+
+          OUT = f"s3://public-usgs-nhd/nhdplus-hr/staging/units/vpu_unit={hu4}/data_0.parquet"
+          con.execute(f"""
+            COPY (
+              SELECT
+              f."{fid}" AS _cng_fid,
+              {sel_fl},
+              {sel_vaa},
+              '{hu4}' AS vpu_unit,
+              '{level}' AS vpu_level,
+              '{vintage}' AS vpu_vintage,
+              {gexpr} AS geom
+              FROM read_parquet('{FL}') f
+              LEFT JOIN read_parquet('{VAA}') v
+                ON CAST(f."{fl['nhdplusid'][0]}" AS DECIMAL(18,0))
+                 = CAST(v."{vaa['nhdplusid'][0]}" AS DECIMAL(18,0))
+            ) TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 2000);
+          """)
+
+          # AXIS-SWAP GUARD (datasets#128, fixed by #129 `always_xy`).
+          # These GDBs are tagged EPSG:5498 (NAD83 + NAVD88 height, a geographic COMPOUND CRS),
+          # the exact family that cng-convert-to-parquet used to misclassify as projected and
+          # then ST_FlipCoordinates into (lat,lon) under an OGC:CRS84 tag. The fix is in, but a
+          # regression here would publish silently-transposed geometry, so assert on the actual
+          # coordinates every run. Bounds are CA-wide; widen via env for the national fan-out.
+          lon_lo, lon_hi = float(os.environ.get('LON_MIN', -180)), float(os.environ.get('LON_MAX', 180))
+          lat_lo, lat_hi = float(os.environ.get('LAT_MIN', -15)),   float(os.environ.get('LAT_MAX', 72))
+          og = geom_expr(cols(OUT), 'o')[0]
+          bx = con.execute(f"""
+            SELECT MIN(ST_XMin({og})), MAX(ST_XMax({og})),
+                   MIN(ST_YMin({og})), MAX(ST_YMax({og}))
+            FROM read_parquet('{OUT}') o""").fetchone()
+          print(f"[{hu4}] bbox lon[{bx[0]:.4f},{bx[1]:.4f}] lat[{bx[2]:.4f},{bx[3]:.4f}]", flush=True)
+          if not (lon_lo <= bx[0] and bx[1] <= lon_hi and lat_lo <= bx[2] and bx[3] <= lat_hi):
+              sys.exit(f"[{hu4}] FATAL geometry outside expected envelope — suspect EPSG:5498 "
+                       f"axis swap (datasets#128): lon[{bx[0]},{bx[1]}] lat[{bx[2]},{bx[3]}]")
+
+          # verify: no fan-out, and report coverage for this unit (criterion 1 is gated later)
+          chk = con.execute(f"""
+            SELECT COUNT(*) AS n_rows, COUNT(DISTINCT _cng_fid) AS n_feats,
+                   COUNT(streamorde) AS order_usable,
+                   ROUND(100.0*SUM(CASE WHEN streamorde > 0 THEN lengthkm ELSE 0 END)
+                         / NULLIF(SUM(lengthkm), 0), 2) AS pct_len_all,
+                   ROUND(100.0*SUM(CASE WHEN streamorde > 0 AND innetwork = 1 THEN lengthkm ELSE 0 END)
+                         / NULLIF(SUM(CASE WHEN innetwork = 1 THEN lengthkm ELSE 0 END), 0), 2) AS pct_len_innet,
+                   MIN(streamorde) AS omin, MAX(streamorde) AS omax
+            FROM read_parquet('{OUT}')""").fetchone()
+          print(f"[{hu4}] rows={chk[0]:,} feats={chk[1]:,} usable_order={chk[2]:,} "
+                f"pct_len_all={chk[3]} pct_len_innetwork={chk[4]} order_range={chk[5]}-{chk[6]}", flush=True)
+          if chk[0] != n_fl:
+              sys.exit(f"[{hu4}] FATAL join changed row count {n_fl:,} -> {chk[0]:,}")
+          print(f"[{hu4}] CONVERT DONE -> {OUT}", flush=True)
+          PY
+        resources:
+          requests: {cpu: '4', memory: 24Gi, ephemeral-storage: 30Gi}
+          limits:   {cpu: '4', memory: 24Gi, ephemeral-storage: 30Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: units
+        configMap: {name: nhdplus-hr-units}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: ['hpc-nrp-g1.nmsu.edu', 'service-02.nrp.mghpcc.org']
