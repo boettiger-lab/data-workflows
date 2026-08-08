@@ -1,120 +1,191 @@
 #!/usr/bin/env python3
-"""Build the STAC collection for usgs-nhdplus-hr-flowline (#205, California first)."""
-import json, os
+"""Build the STAC collection for usgs-nhdplus-hr-flowline (#205).
 
-UNITS = [("1503","NHDPLUS_H_1503_HU4_20220901_GDB.zip","2022-09-01",125982,104386,99.86),
-         ("1605","NHDPLUS_H_1605_HU4_20220418_GDB.zip","2022-04-18",71880,50618,100.00),
-         ("1606","NHDPLUS_H_1606_HU4_20220418_GDB.zip","2022-04-18",269992,224178,100.00),
-         ("1801","NHDPLUS_H_1801_HU4_GDB.zip","undated",341762,126408,99.41),
-         ("1802","NHDPLUS_H_1802_HU4_GDB.zip","undated",474166,159510,100.00),
-         ("1803","NHDPLUS_H_1803_HU4_GDB.zip","undated",105430,47746,100.00),
-         ("1804","NHDPLUS_H_1804_HU4_GDB.zip","undated",385039,109876,100.00),
-         ("1805","NHDPLUS_H_1805_HU4_GDB.zip","undated",47293,22094,94.29),
-         ("1806","NHDPLUS_H_1806_HU4_GDB.zip","undated",166606,76043,98.80),
-         ("1807","NHDPLUS_H_1807_HU4_GDB.zip","undated",225480,79437,98.75),
-         ("1808","NHDPLUS_H_1808_HU4_GDB.zip","undated",22496,13855,100.00),
-         ("1809","NHDPLUS_H_1809_HU4_GDB.zip","undated",133619,111214,100.00),
-         ("1810","NHDPLUS_H_1810_HU4_GDB.zip","undated",41174,49931,100.00)]
+⛔ EVERY documented number comes from `stats.json`, produced by measure-stats.yaml against the
+PUBLISHED parquet — nothing is hardcoded. The first pass of this builder embedded
+California-measured literals (feature counts, sentinel counts, elevation extremes, `values`
+arrays, and a "valid range 1-10" that is 1-11 nationally); all would have shipped silently wrong
+when the build went national. See AGENTS.md, "MEASURE every added column".
+
+    python3 build-stac.py                      # /tmp/nhdplus-stats.json + local units/domain
+    INCLUDE_PMTILES=0 python3 build-stac.py    # omit tiles while they are still generating
+"""
+import csv, json, os, re
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+STATS  = os.environ.get("STATS",  "/tmp/nhdplus-stats.json")
+UNITS  = os.environ.get("UNITS",  os.path.join(HERE, "units-configmap.yaml"))
+DOMAIN = os.environ.get("DOMAIN", os.path.join(HERE, "..", "..", "nhdfcode-domain.csv"))
+OUT    = os.environ.get("OUT",    "/tmp/nhdplus-hr-flowline-stac.json")
 B = "https://s3-west.nrp-nautilus.io/public-usgs-nhd"
 
-FCODE_VALUES = ['33400', '33600', '33601', '33603', '42000', '42003', '42800', '42801', '42802', '42803', '42804', '42805', '42806', '42807', '42808', '42809', '42810', '42811', '42812', '42813', '42814', '42816', '42820', '42821', '42822', '42823', '46000', '46003', '46006', '46007', '46800', '55800', '56600']
-HU4_NAMES = {"1503":"Lower Colorado","1605":"Central Nevada Desert Basins",
-             "1606":"Great Salt Lake / Escalante Desert basins","1801":"Klamath",
-             "1802":"Sacramento","1803":"Tulare-Buena Vista Lakes","1804":"San Joaquin",
-             "1805":"Central California Coastal","1806":"Central California Coastal (south)",
-             "1807":"Southern California Coastal","1808":"North Lahontan",
-             "1809":"Northern Mojave-Mono Lake","1810":"Southern Mojave-Salton Sea"}
+s = json.load(open(STATS))
+fcode_name = {r["fcode"]: r["description"].strip() for r in csv.DictReader(open(DOMAIN))}
 
-
-manifest = "; ".join(f"{h}={z} (vintage {v}, {n:,} flowlines, {km:,.0f} in-network km, "
-                     f"{pw:.2f}% order incl. coastline / 100.00% excl.)"
-                     for h, z, v, n, km, pw in UNITS)
-
+# units come from the very ConfigMap the build consumed, so STAC and the run cannot disagree
+units = [m.groups() for m in
+         (re.match(r"\s{4}(\S+)\s+(HU4|HU8)\s+(\S+\.zip)\s+(\S+)\s*$", l) for l in open(UNITS))
+         if m]
+assert len(units) == s["units"], f"configmap has {len(units)} units, data has {s['units']}"
+n_hu4  = sum(1 for u in units if u[1] == "HU4")
+n_hu8  = sum(1 for u in units if u[1] == "HU8")
+n_dated = sum(1 for u in units if u[3] != "undated")
+huc2 = s["huc2"]
+f = lambda n: f"{int(n):,}"
 COVERAGE = (
-    "STREAM-ORDER COVERAGE: streamorde > 0 covers 100.00% of in-network, non-coastline flowline "
-    "length in EVERY one of the 13 HU4 units (0.0 km unattributed). Coastline (fcode 56600) "
-    "carries no VAA and therefore no order — it is not a stream — which is the whole of the "
-    "apparent shortfall where the coastline-inclusive figure is below 100% (HU4 1805 reads 94.29% "
-    "with coastline and 100.00% without; its 5.71% 'gap' is 888 coastline features / 1,262 km). "
-    "Audit this column with > 0, NEVER IS NOT NULL. streamorde is NULL (never 0 or negative) "
-    "wherever it is not computed: the source's non-positive sentinels were normalised to NULL at "
-    "build time, so the published range is exactly 1-11. Off-network flowlines (innetwork = 0) "
-    "and canals/pipelines/coastline have no order by design."
+    f"STREAM-ORDER COVERAGE: `streamorde > 0` covers **{s['pct_nocoast_min']:.2f}% of in-network, "
+    f"non-coastline flowline length in EVERY ONE of the {s['units']} source units** — there is no "
+    "region where this attribute is missing, which is the whole reason this collection exists "
+    "alongside usgs-nhd-streams-by-order. Coastline (fcode 56600) carries no VAA and therefore no "
+    "order — it is not a stream — so ALWAYS exclude it from a coverage denominator: including it "
+    "makes island and coastal units look broken when they are complete (Puerto Rico 2102 reads "
+    "44.24% with coastline and 100.00% without; Hawaii 2008 55.61%/100.00%; Alaska 19020203 "
+    "51.22%/100.00%). Audit with `> 0`, NEVER `IS NOT NULL`. `streamorde` is NULL (never 0 or "
+    f"negative) wherever it is not computed — {f(s['order_null'])} rows, being off-network reaches "
+    "(innetwork = 0), coastline, canals and pipelines: the source's non-positive sentinels were "
+    f"normalised to NULL at build time, so the published range is exactly {s['order_min']}-{s['order_max']}."
 )
 
 VS_BASE = (
     "RELATIONSHIP TO usgs-nhd-streams-by-order (base NHD-H): these are COMPLEMENTARY, not "
     "substitutes. Use THIS collection for stream order and network attributes; use "
-    "streams-by-order for extent and flow permanence (it is the denser, more recently edited "
-    "network, and it is the complete source for Alaska, of which NHDPlus HR ships only 28 HU8 units). Measured over "
-    "these 13 California units, for stream/river FCODEs 46003/46006/46007: (a) features present "
-    "in only one asset — base-only 289,426 km ephemeral, 24,336 km intermittent, 7,257 km "
-    "perennial vs HR-only 16,237 / 8,389 / 4,526 km, i.e. base NHD has since been densified with "
-    "ephemeral washes this NHDPlus HR vintage predates; (b) for the 2,017,710 features shared by "
-    "both with the same fcode, HR lengthkm runs +1.88% (ephemeral), +4.77% (intermittent), "
-    "+5.45% (perennial). Length divergence is a PER-VPU editing-vintage difference, not a "
-    "different length algorithm — where the underlying NHD has not been re-edited the values "
-    "agree to the millimetre, so compare per unit using vpu_vintage rather than assuming a "
-    "blanket offset. fcode is ~96% stable (81,782 of 2,017,710 shared features reclassify, in "
-    "both directions): there is no redefinition of ephemeral or perennial."
+    "streams-by-order for extent and flow permanence — it is the denser, more recently edited "
+    f"network, and the COMPLETE source for Alaska, of which NHDPlus HR publishes only {n_hu8} HU8 "
+    "units. Measured over the 13 California units for FCODEs 46003/46006/46007: (a) features in "
+    "only one asset — base-only 289,426 km ephemeral, 24,336 km intermittent, 7,257 km perennial "
+    "vs HR-only 16,237/8,389/4,526 km, i.e. base NHD has since been densified with ephemeral "
+    "washes this NHDPlus HR vintage predates; (b) for the 2,017,710 features shared with the same "
+    "fcode, HR lengthkm runs +1.88% (ephemeral), +4.77% (intermittent), +5.45% (perennial). BOTH "
+    "assets' lengthkm are verified faithful to their own geometry (within 0.06%), and the "
+    "divergence is a MINORITY TAIL, not an offset: in the worst basin 80.3% of shared features "
+    "agree within 1% and the median ratio is exactly 1.0000. So never apply a per-basin correction "
+    "factor between the two (data-workflows#525) — compare per-area network totals, not "
+    "per-feature lengths, and state which product a number came from. fcode is ~96% stable "
+    "(81,782 of 2,017,710 reclassify, both directions): no redefinition of ephemeral or perennial."
 )
 
 desc = (
     "USGS NHDPlus High Resolution flowlines with the network value-added attributes "
-    "(NHDPlusFlowlineVAA) joined on nhdplusid — 2,410,919 features across the 13 California HU4 "
-    "vector processing units (VPUs). This collection exists because the base NHD-H VAA table "
-    "ships a usable STREAMORDER for only 11.4% of flowlines nationally, with 15 of 22 HUC2 "
-    "regions at exactly 0.0% (data-workflows#518); NHDPlus HR computes the network attributes "
-    f"properly. {COVERAGE} {VS_BASE} COVERAGE IS CALIFORNIA ONLY at present: this is the "
-    "first tranche of the national build (data-workflows#205), which fans out to the remaining "
-    "VPUs. NHDPlus HR publishes 266 units in VPU/Current: 238 at HU4 granularity "
-    "spanning HUC2 01-18 and 20-22, plus 28 HU8 units in HUC2 19 — so ALASKA IS PARTIALLY "
-    "COVERED, at HU8 granularity and not for the whole region. usgs-nhd-streams-by-order remains "
-    "the complete Alaska flowline source. Sourced from VPU/Current/GDB per-unit downloads, NOT the National Release 2 "
-    "aggregate, which USGS documents as defective (region 06 falls back to Beta data with a "
-    "disconnected network; a GridCode bug affects VPUIDs 0903/1007/1015/1021/1022/1025; 0415 is "
-    f"a pre-Beta prototype). Per-unit source manifest: {manifest}. Geometry in OGC:CRS84 "
-    "(lon, lat), reprojected from the source NAD83 + NAVD88 compound CRS (EPSG:5498). Indexed to "
-    "H3 resolution 8."
+    f"(NHDPlusFlowlineVAA) joined on nhdplusid — {f(s['features'])} features across all "
+    f"{s['units']} vector processing units USGS publishes, nationwide. This collection exists "
+    "because the base NHD-H VAA table ships a usable STREAMORDER for only 11.4% of flowlines with "
+    "15 of 22 HUC2 regions at exactly 0.0% (data-workflows#518); NHDPlus HR computes the network "
+    f"attributes properly. {COVERAGE} {VS_BASE} SOURCE UNITS: {n_hu4} at HU4 granularity plus "
+    f"{n_hu8} at HU8 granularity (the HU8s are all in HUC2 19, Alaska — so Alaska IS covered, "
+    f"partially, at HU8 and not for the whole region). Coverage spans HUC2 {', '.join(huc2)}. "
+    f"{n_dated} of the {s['units']} source files carry a publication date in their filename and the "
+    "rest do not; each unit's filename, vintage and measured coverage is recorded in the "
+    "flowline-units asset. Sourced from the per-unit VPU/Current/GDB downloads, NOT the National "
+    "Release 2 aggregate, which USGS documents as defective (region 06 falls back to Beta data with "
+    "a disconnected network; a GridCode bug affects VPUIDs 0903/1007/1015/1021/1022/1025; 0415 is a "
+    "pre-Beta prototype). Geometry in OGC:CRS84 (lon, lat), reprojected from the source NAD83 + "
+    "NAVD88 compound CRS (EPSG:5498). Indexed to H3 resolution 8."
+)
+
+SENT = (
+    f" **NOT-COMPUTED SENTINEL: -9999** (-9 for streamcalc) on the same {f(s['sentinel_rows'])} "
+    "flowlines, which carry no computed network attributes. Filter these out before any aggregate "
+    "— an unfiltered SUM/AVG/MIN is poisoned by them."
 )
 
 FL_COLS = [
- ("_cng_fid","string","Universal per-feature identifier, unique across the whole collection. Built as '<hu4>-<per-unit id>' because the per-unit conversion numbers rows from 1 independently, so the raw ids collide between VPUs. Use this for COUNT(DISTINCT) / dedup."),
+ ("_cng_fid","string","Universal per-feature identifier, unique across the whole collection. Built as '<vpu_unit>-<per-unit id>' because the per-unit conversion numbers rows from 1 independently, so raw ids collide between units. Use this for COUNT(DISTINCT) / dedup."),
  ("nhdplusid","decimal","NHDPlus High Resolution permanent feature id, and the join key to NHDPlusFlowlineVAA. Stored as an exact decimal: the source types it as a 64-bit float, and a float-equality join on a 14-digit id drops rows silently."),
  ("permanent_identifier","string","NHD permanent feature identifier (GUID). Use this to cross-reference the base-NHD usgs-nhd-streams-by-order asset; ~95% of in-network ids are shared."),
  ("reachcode","string","14-digit NHD Reach Code — a stable per-reach identifier for linear referencing, not an enumerable code list (hundreds of thousands of distinct values). The first 8 digits are the HUC8 and the last 6 a sequential reach number, so substr(reachcode,1,4) gives the HU4 and substr(reachcode,1,2) the HUC2 region."),
  ("gnis_id","string","GNIS ID of the named feature, if any."),
  ("gnis_name","string","GNIS feature name (river/stream name), if any."),
- ("lengthkm","double","Flowline length in kilometers, as published by NHDPlus HR. **Verified faithful to this asset's own geometry** — the projected (EPSG:3310) length of the stored geometry agrees to within 0.06% in aggregate — and the same holds for the base-NHD asset's LENGTHKM, so neither value is stale or miscomputed (#525). Where the two products disagree for the same permanent_identifier, the GEOMETRY genuinely differs, and it is a minority tail rather than an offset: in HU4 1803 (the worst basin, aggregate +10-13%) **80.3% of shared features agree within 1% and the median ratio is exactly 1.0000**, with the aggregate driven by a ~20% tail of re-edited reaches. **So do NOT apply a per-basin correction factor to reconcile the two assets** — it would corrupt the 80% that already agree — and do not treat a per-feature difference as error. Compare per-area network totals rather than per-feature lengths, and state which product a number came from; aggregate totals differ mainly because the two contain DIFFERENT features (base NHD holds 289,426 km of ephemeral channel this NHDPlus HR vintage lacks), not because they measure the same features differently."),
- ("ftype","int32","NHD Feature Type (3-digit FType). Values present: 460=StreamRiver, 558=ArtificialPath, 336=CanalDitch, 566=Coastline, 428=Pipeline, 334=Connector, 420=UndergroundConduit, 468=Drainageway.", ["460","558","336","566","428","334","420","468"]),
- ("fcode","int32",'NHD Feature Code (5-digit FCode, verbatim from the source NHDFCode domain table). Stream/river subtypes carry the hydrographic category, so flow permanence comes from FCODE, not from stream order. All 33 values present in this dataset: 33400=Connector, 33600=Canal/Ditch, 33601=Canal/Ditch: Canal/Ditch Type = Aqueduct, 33603=Canal Ditch: Canal Ditch Type = Stormwater, 42000=Underground Conduit, 42003=Underground Conduit: Positional Accuracy = Approximate, 42800=Pipeline, 42801=Pipeline: Pipeline Type = Aqueduct; Relationship to Surface = At or Near, 42802=Pipeline: Pipeline Type = Aqueduct; Relationship to Surface = Elevated, 42803=Pipeline: Pipeline Type = Aqueduct; Relationship to Surface = Underground, 42804=Pipeline: Pipeline Type = Aqueduct; Relationship to Surface = Underwater, 42805=Pipeline: Pipeline Type = General Case; Relationship to Surface = At or Near, 42806=Pipeline: Pipeline Type = General Case; Relationship to Surface = Elevated, 42807=Pipeline: Pipeline Type = General Case; Relationship to Surface = Underground, 42808=Pipeline: Pipeline Type = General Case; Relationship to Surface = Underwater, 42809=Pipeline: Pipeline Type = Penstock; Relationship to Surface = At or Near, 42810=Pipeline: Pipeline Type = Penstock; Relationship to Surface = Elevated, 42811=Pipeline: Pipeline Type = Penstock; Relationship to Surface = Underground, 42812=Pipeline: Pipeline Type = Penstock; Relationship to Surface = Underwater, 42813=Pipeline: Pipeline Type = Siphon, 42814=Pipeline: Pipeline Type = General Case, 42816=Pipeline: Pipeline Type = Aqueduct, 42820=Pipeline: Pipeline Type = Stormwater, 42821=Pipeline: Pipeline Type = Stormwater; Relationship to Surface = At or Near, 42822=Pipeline: Pipeline Type = Stormwater; Relationship to Surface = Elevated, 42823=Pipeline: Pipeline Type = Stormwater; Relationship to Surface = Underground, 46000=Stream/River, 46003=Stream/River: Hydrographic Category = Intermittent, 46006=Stream/River: Hydrographic Category = Perennial, 46007=Stream/River: Hydrographic Category = Ephemeral, 46800=Drainageway, 55800=Artificial Path, 56600=Coastline. Note 56600=Coastline is NOT a stream and carries no stream order — exclude it from any order-coverage denominator.', FCODE_VALUES),
- ("flowdir","int32","Flow direction (HydroFlowDirections domain): 0=Uninitialized, 1=With Digitized.", ["0","1"]),
- ("innetwork","int32","Whether the flowline participates in the NHD navigable network (NoYes domain): 0=No, 1=Yes. Stream order is computed for in-network features only, so restrict to innetwork = 1 before computing order coverage.", ["0","1"]),
- ("mainpath","int32","Whether the flowline is on the main flow path of its waterbody (MainPath domain): 0=No, 1=Yes. Only 0 occurs across these 13 California VPUs — NHDPlus HR leaves this flag unset here; use mainstem grouping via levelpathi instead.", ["0"]),
+ ("lengthkm","double","Flowline length in kilometers, as published by NHDPlus HR. **Verified faithful to this asset's own geometry** — the projected (EPSG:3310) length of the stored geometry agrees to within 0.06% in aggregate — and the same holds for the base-NHD asset's LENGTHKM, so neither value is stale or miscomputed (data-workflows#525). Where the two disagree for the same permanent_identifier the GEOMETRY genuinely differs, and it is a minority tail rather than an offset: in the worst basin 80.3% of shared features agree within 1% and the median ratio is exactly 1.0000. **So do NOT apply a per-basin correction factor to reconcile the two assets** and do not read a per-feature difference as error. Compare per-area network totals, and state which product a number came from."),
+ ("ftype","int32","NHD Feature Type (3-digit FType). Values: 334=Connector, 336=CanalDitch, 420=UndergroundConduit, 428=Pipeline, 460=StreamRiver, 468=Drainageway, 558=ArtificialPath, 566=Coastline", s["ftype_values"]),
+ ("fcode","int32",
+  "NHD Feature Code (5-digit FCode, each definition verbatim from the source NHDFCode domain table). "
+  "Stream/river subtypes carry the hydrographic category, so flow permanence comes from FCODE, not "
+  f"from stream order. All {len(s['fcode_values'])} values present: "
+  + ", ".join(f"{v}={fcode_name[v]}" for v in s["fcode_values"])
+  + ". Note 56600=Coastline is NOT a stream and carries no stream order — exclude it from any order-coverage denominator.",
+  s["fcode_values"]),
+ ("flowdir","int32","Flow direction (HydroFlowDirections domain): 0=Uninitialized, 1=With Digitized", s["flowdir_values"]),
+ ("innetwork","int32","Whether the flowline participates in the NHD navigable network (NoYes domain): 0=No, 1=Yes. Stream order is computed for in-network features only, so restrict to innetwork = 1 before computing order coverage.", s["innetwork_values"]),
+ ("mainpath","int32",
+  "Whether the flowline is on the main flow path of its waterbody (MainPath domain): 0=No, 1=Yes. "
+  f"**Only 0 occurs — across all {f(s['features'])} flowlines nationally there are {s['mainpath_one']} "
+  "rows with mainpath = 1**, i.e. NHDPlus HR leaves this flag unset for the entire product; use "
+  "levelpathi for mainstem grouping instead.", s["mainpath_values"]),
  ("visibilityfilter","int32","Scale-based cartographic visibility threshold; larger values appear only at finer display scales."),
- ("streamorde","int32","Strahler stream order from NHDPlusFlowlineVAA. Headwater channels = 1; order increases downstream where two channels of equal order merge. Published range is exactly 1-11 (order 11 is the lower Columbia River, 286 reaches in HUC2 17) — the source's non-positive 'not computed' sentinels (including -9 on divergent paths) were normalised to NULL at build time, so IS NOT NULL and > 0 are equivalent here. Still prefer > 0: it is the correct predicate for the source and for the base-NHD asset, where the two differ completely. NULL means order is not computed for that feature (off-network, coastline, canal/pipeline), not that it is missing data — see the collection description for measured coverage."),
- ("streamleve","int32","NHD stream level: the downstream mainstem hierarchy counted DOWN from the terminal outlet (1 = terminal mainstem to ocean/sink), the opposite direction from streamorde, which counts UP from headwaters. Not a substitute for stream order. Published range 1-16; non-positive source sentinels normalised to NULL, and its NULL set is identical to streamorde's (83,483 rows with no VAA row)."),
- ("streamcalc","int32","NHDPlus stream calculator: the order used for network routing. 0 on the minor path of a divergence (109,118 rows), which is how NHDPlus keeps a single main path through braided reaches; otherwise it tracks streamorde. Observed range 1-10 plus that 0. **NOT-COMPUTED SENTINEL: -9999** (-9 for streamcalc) on the same 2,745 flowlines, which carry no computed network attributes. Filter these out before any aggregate — an unfiltered SUM/AVG/MIN is poisoned by them."),
- ("totdasqkm","double","Total upstream drainage area in km², routed through the full network — the standard measure of catchment size for a reach. Valid range 0 to 546,328 km². **NOT-COMPUTED SENTINEL: -9999** (-9 for streamcalc) on the same 2,745 flowlines, which carry no computed network attributes. Filter these out before any aggregate — an unfiltered SUM/AVG/MIN is poisoned by them."),
- ("divdasqkm","double","Divergence-routed upstream drainage area in km²: like totdasqkm but apportioned at divergences. Use totdasqkm unless you specifically need divergence accounting. **NOT-COMPUTED SENTINEL: -9999** (-9 for streamcalc) on the same 2,745 flowlines, which carry no computed network attributes. Filter these out before any aggregate — an unfiltered SUM/AVG/MIN is poisoned by them."),
- ("slope","double","Reach slope (dimensionless, rise/run) from the smoothed elevation profile. **-9998 is the 'no slope computed' sentinel (11,056 rows here) and is the ONLY negative value present — filter `slope > -9998` before AVG/MIN, or the sentinel poisons the aggregate.** Observed valid range 0 to 50.34."),
- ("arbolatesu","double","Arbolate sum: total upstream stream length in km (sum of all upstream flowline lengths). A per-feature CUMULATIVE value, not a per-reach length — never SUM it across features. **NOT-COMPUTED SENTINEL: -9999** (-9 for streamcalc) on the same 2,745 flowlines, which carry no computed network attributes. Filter these out before any aggregate — an unfiltered SUM/AVG/MIN is poisoned by them."),
- ("hydroseq","double","Hydrologic sequence number. Sorting descending traverses the network from headwaters downstream; unique per flowline within a VPU."),
+ ("streamorde","int32",
+  "Strahler stream order from NHDPlusFlowlineVAA. Headwater channels = 1; order increases downstream "
+  f"where two channels of equal order merge. Published range is exactly {s['order_min']}-{s['order_max']} "
+  f"— order {s['order_max']} occurs only on the lower Columbia River (HUC2 17). The source's non-positive "
+  "'not computed' sentinels (including -9 on divergent paths) were normalised to NULL at build time, so "
+  "IS NOT NULL and > 0 are equivalent here; still prefer `> 0`, because it is the correct predicate for "
+  "the raw source and for the base-NHD asset, where the two differ completely. NULL means order is not "
+  "computed for that feature (off-network, coastline, canal/pipeline), not that data is missing."),
+ ("streamleve","int32",
+  "NHD stream level: the downstream mainstem hierarchy counted DOWN from the terminal outlet (1 = "
+  "terminal mainstem to ocean/sink), the opposite direction from streamorde, which counts UP from "
+  f"headwaters. Not a substitute for stream order. Published range {s['level_min']}-{s['level_max']}; "
+  "non-positive source sentinels normalised to NULL, and its NULL set is identical to streamorde's."),
+ ("streamcalc","int32",
+  "NHDPlus stream calculator: the order used for network routing. It tracks streamorde except on "
+  f"divergences, where the minor path is set to 0 ({f(s['calc_zero'])} rows) — that is how NHDPlus keeps "
+  f"a single main path through braided reaches. Range 0-{s['calc_max']}." + SENT),
+ ("totdasqkm","double",
+  "Total upstream drainage area in km2, routed through the full network — the standard measure of "
+  f"catchment size for a reach. Valid range 0 to {s['totda_max']:,.0f} km2 (the maximum is the lower "
+  "Mississippi)." + SENT),
+ ("divdasqkm","double","Divergence-routed upstream drainage area in km2: like totdasqkm but apportioned at divergences. Use totdasqkm unless you specifically need divergence accounting." + SENT),
+ ("slope","double",
+  "Reach slope (dimensionless, rise/run) from the smoothed elevation profile. **-9998 is the 'no slope "
+  f"computed' sentinel ({f(s['slope_sentinel'])} rows) and is the ONLY negative value present — filter "
+  f"`slope > -9998` before AVG/MIN.** Observed valid range 0 to {s['slope_max']:.2f}."),
+ ("arbolatesu","double","Arbolate sum: total upstream stream length in km (sum of all upstream flowline lengths). A per-feature CUMULATIVE value, not a per-reach length — never SUM it across features." + SENT),
+ ("hydroseq","double","Hydrologic sequence number. Sorting descending traverses the network from headwaters downstream; unique per flowline within a unit."),
  ("uphydroseq","double","hydroseq of the next flowline UPSTREAM on the main path (0 at a headwater)."),
  ("dnhydroseq","double","hydroseq of the next flowline DOWNSTREAM on the main path (0 at a terminal reach). Pair with hydroseq to walk the network."),
  ("dnlevel","int32","streamleve of the next downstream main-path flowline."),
- ("levelpathi","double","Level path identifier: all flowlines on the same mainstem share this value, so it groups a river into one continuous path."),
+ ("levelpathi","double","Level path identifier: all flowlines on the same mainstem share this value, so it groups a river into one continuous path. Use this rather than mainpath, which is unset in this product."),
  ("terminalpa","double","Terminal path identifier: the hydroseq of the network outlet this flowline drains to. Groups flowlines by ultimate destination (ocean, sink, closed basin)."),
- ("pathlength","double","Distance in km along the main path from this flowline's downstream end to the network terminus. **NOT-COMPUTED SENTINEL: -9999** (-9 for streamcalc) on the same 2,745 flowlines, which carry no computed network attributes. Filter these out before any aggregate — an unfiltered SUM/AVG/MIN is poisoned by them."),
- ("maxelevsmo","double","Maximum (upstream-end) elevation in cm (divide by 100 for metres), from the smoothed profile. **-9998 is the 'not computed' sentinel (10,543 rows). WARNING: filter exactly `<> -9998` — do NOT filter all negatives: other negative elevations are REAL below-sea-level terrain** (10,349 rows drain below sea level; minimum -85.61 m in the Death Valley / Salton Sea basins). Observed valid maximum 4,193.73 m in the high Sierra."),
- ("minelevsmo","double","Minimum (downstream-end) elevation in cm (divide by 100 for metres), from the smoothed profile. **-9998 is the 'not computed' sentinel (10,543 rows). WARNING: filter exactly `<> -9998` — do NOT filter all negatives: other negative elevations are REAL below-sea-level terrain** (minimum -85.61 m, Death Valley). Same caution as maxelevsmo."),
- ("divergence","int32","Divergence code: 0=not part of a divergence, 1=main path of a divergence, 2=minor path of a divergence.", ["0","1","2"]),
- ("terminalfl","int32","Network-end flag (IsNetworkEnd, NoYes domain): 1 = this flowline is a network terminus.", ["0","1"]),
- ("startflag","int32","Headwater flag (IsHeadwater, NoYes domain): 1 = this flowline is a headwater (no upstream flowline).", ["0","1"]),
- ("areasqkm","double","Incremental catchment area in km² for this flowline's own catchment (not cumulative — that is totdasqkm)."),
- ("vpuid","string","Vector processing unit id as recorded in the source VAA table; mirrors hu4 for these units. Values: " + ", ".join(f"{h}={HU4_NAMES[h]}" for h, *_ in UNITS), [u[0] for u in UNITS]),
- ("hu4","string","4-digit hydrologic unit code (HU4) of the source VPU download, added at build time; also the key to the per-unit source manifest in the collection description. Values: " + ", ".join(f"{h}={HU4_NAMES[h]}" for h, *_ in UNITS), [u[0] for u in UNITS]),
- ("vpu_vintage","string","Publication date stamped on the source VPU filename, added at build time. VPUs differ in editing vintage, which is what drives lengthkm differences against the base-NHD asset — compare per unit using this column. Values: 2022-04-18=VPUs 1605 and 1606, 2022-09-01=VPU 1503, undated=the ten HU4 1801-1810 files, whose names carry no date stamp (vintage not published in the filename)", sorted({u[2] for u in UNITS})),
+ ("pathlength","double","Distance in km along the main path from this flowline's downstream end to the network terminus." + SENT),
+ ("maxelevsmo","double",
+  "Maximum (upstream-end) elevation in cm (divide by 100 for metres), from the smoothed profile. "
+  f"**-9998 is the 'not computed' sentinel ({f(s['elev_sentinel'])} rows). WARNING: filter exactly "
+  "`<> -9998` — do NOT filter all negatives: other negative elevations are REAL below-sea-level "
+  f"terrain** ({f(s['below_sea_rows'])} rows drain below sea level; minimum {s['elev_min_m']} m, in the "
+  f"Death Valley / Salton Sea basins). Observed valid maximum {s['elev_max_m']:,.2f} m."),
+ ("minelevsmo","double",
+  "Minimum (downstream-end) elevation in cm (divide by 100 for metres), from the smoothed profile. "
+  f"**-9998 is the 'not computed' sentinel ({f(s['elev_sentinel'])} rows). WARNING: filter exactly "
+  "`<> -9998` — do NOT filter all negatives: other negative elevations are REAL below-sea-level "
+  f"terrain** (minimum {s['elev_min_m']} m). Same caution as maxelevsmo."),
+ ("divergence","int32","Divergence code: 0=not part of a divergence, 1=main path of a divergence, 2=minor path of a divergence", s["divergence_values"]),
+ ("terminalfl","int32","Network-end flag (IsNetworkEnd, NoYes domain): 0=No, 1=Yes — 1 means this flowline is a network terminus", s["terminalfl_values"]),
+ ("startflag","int32","Headwater flag (IsHeadwater, NoYes domain): 0=No, 1=Yes — 1 means no upstream flowline", s["startflag_values"]),
+ ("areasqkm","double","Incremental catchment area in km2 for this flowline's own catchment (not cumulative — that is totdasqkm)."),
+ ("vpuid","string","Vector processing unit id as recorded inside the source VAA table — an identifier of the source download, not an enumerable class. Mirrors vpu_unit."),
+ ("vpu_unit","string",
+  "Identifier of the source VPU download this flowline came from, added at build time: a 4-digit HU4 "
+  "code, a 4-digit HU4 code with an 'i' suffix (5 Great Lakes units), or an 8-digit HU8 code (the "
+  f"{n_hu8} Alaska units). Join to the flowline-units asset for that unit's source filename, vintage "
+  "and measured coverage. Not a thematic class — it is the provenance key."),
+ ("vpu_level","string",
+  "Granularity of the source unit: HU4=4-digit hydrologic unit, HU8=8-digit hydrologic unit "
+  f"(Alaska/HUC2 19 only, {n_hu8} units)", s["vpu_level_values"]),
+ ("vpu_vintage","string",
+  "Publication date stamped on the source unit's filename, or 'undated' where the filename carries none "
+  f"({s['units'] - n_dated} of {s['units']} units). VPUs differ in editing vintage, which is what drives "
+  "lengthkm differences against the base-NHD asset — compare per unit using this column. Values: dates "
+  "in YYYY-MM-DD form, plus the literal 'undated'."),
+]
+
+UNIT_COLS = [
+ {"name":"vpu_unit","type":"string","description":"Identifier of the source VPU download (4-digit HU4, HU4 with 'i' suffix, or 8-digit HU8). Join key to the flowline assets."},
+ {"name":"vpu_level","type":"string","description":"Granularity of the unit: HU4=4-digit hydrologic unit, HU8=8-digit hydrologic unit (Alaska only)","values":["HU4","HU8"]},
+ {"name":"source_zip","type":"string","description":"Exact filename downloaded from prd-tnm/StagedProducts/Hydrography/NHDPlusHR/VPU/Current/GDB/. Not derivable from the unit code — some carry a date stamp, some do not."},
+ {"name":"vpu_vintage","type":"string","description":"Publication date from the source filename, or 'undated'."},
+ {"name":"flowlines","type":"int64","description":"Flowlines ingested from this unit."},
+ {"name":"innet_km","type":"double","description":"In-network flowline length in km for this unit (innetwork = 1)."},
+ {"name":"pct_order_nocoast","type":"double","description":"Percent of in-network, NON-COASTLINE length with streamorde > 0 — the acceptance metric."},
+ {"name":"pct_order_withcoast","type":"double","description":"The same percentage with coastline included in the denominator, for comparison only. Lower for coastal/island units because coastline carries no stream order by design — do not use this as a completeness measure."},
 ]
 
 def cols(include_geom, hexed=False):
@@ -161,17 +232,17 @@ stac = {
  "stac_extensions": ["https://stac-extensions.github.io/table/v1.2.0/schema.json"],
  "type": "Collection",
  "id": "usgs-nhdplus-hr-flowline",
- "title": "USGS NHDPlus High Resolution — Flowlines + network VAA (California)",
+ "title": "USGS NHDPlus High Resolution — Flowlines + network VAA (national)",
  "description": desc,
  "license": "public-domain",
  "keywords": ["hydrography","streams","rivers","flowline","stream order","Strahler","NHDPlus",
               "NHDPlus HR","value added attributes","VAA","drainage area","NHD","USGS",
-              "California","United States"],
+              "United States"],
  "providers": [
    {"name":"U.S. Geological Survey","roles":["producer","licensor"],
     "url":"https://www.usgs.gov/national-hydrography/nhdplus-high-resolution"},
    {"name":"Boettiger Lab","roles":["processor","host"],"url":"https://github.com/boettiger-lab"}],
- "extent": {"spatial": {"bbox": [[-124.57, 31.50, -112.55, 43.35]]},
+ "extent": {"spatial": {"bbox": [[-170.847, -14.374, 145.831, 70.204]]},
             "temporal": {"interval": [["2022-04-18T00:00:00Z", "2025-09-19T00:00:00Z"]]}},
  "links": [
    {"rel":"self","href":f"{B}/nhdplus-hr/flowline/stac-collection.json","type":"application/json"},
@@ -179,23 +250,23 @@ stac = {
    {"rel":"parent","href":f"{B}/stac-collection.json","type":"application/json"},
    {"rel":"describedby","href":f"{B}/README.md","type":"text/markdown","title":"NHD / NHDPlus HR documentation"},
    {"rel":"related","href":f"{B}/streams-by-order/stac-collection.json","type":"application/json",
-    "title":"Base NHD-H streams-by-order — denser network, Alaska coverage, flow permanence; sparse stream order"},
+    "title":"Base NHD-H streams-by-order — denser network, complete Alaska, flow permanence; sparse stream order"},
    {"rel":"about","href":"https://www.usgs.gov/national-hydrography/nhdplus-high-resolution","title":"USGS NHDPlus High Resolution"},
    {"rel":"license","href":"https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits","title":"USGS Public Domain","type":"text/html"}],
  "assets": {
    "flowline-parquet": {
      "href": f"{B}/nhdplus-hr/flowline.parquet",
      "type": "application/vnd.apache.parquet",
-     "title": "GeoParquet — 2,410,919 California NHDPlus HR flowlines with network VAA",
+     "title": f"GeoParquet — {f(s['features'])} NHDPlus HR flowlines with network VAA",
      "roles": ["data"],
      "description": "Cloud-native GeoParquet for DuckDB/Polars/GeoPandas. Geometry in OGC:CRS84 (lon, lat). One row per flowline — no per-feature row duplication.",
      "table:columns": cols(include_geom=True)},
    **({"flowline-pmtiles": {
      "href": f"{B}/nhdplus-hr/flowline.pmtiles",
      "type": "application/vnd.pmtiles",
-     "title": "PMTiles — California NHDPlus HR flowlines for web maps",
+     "title": "PMTiles — NHDPlus HR flowlines for web maps",
      "roles": ["visual"],
-     "description": "Vector tiles for MapLibre/Leaflet, zoom 0-12. The MapLibre `source-layer` is `flowline`. Style by streamorde to render the stream hierarchy; filter [\">\", [\"get\", \"streamorde\"], 0] to drop features with no computed order (coastline, canals, off-network reaches).",
+     "description": "Vector tiles for MapLibre/Leaflet, zoom 0-10. The MapLibre `source-layer` is `flowline`. Style by streamorde to render the stream hierarchy; filter [\">\", [\"get\", \"streamorde\"], 0] to drop features with no computed order (coastline, canals, off-network reaches). **Tiles drop features on dense tiles by design (--drop-densest-as-needed) — never compute quantities from them; use the GeoParquet or hex asset.**",
      "vector:layers": ["flowline"],
      "table:columns": lean(cols(include_geom=True))}} if os.environ.get("INCLUDE_PMTILES", "1") != "0" else {}),
    "flowline-hex": {
@@ -208,8 +279,28 @@ stac = {
      "h3:native_resolution": 8,
      "h3:parent_resolutions": [0],
      "table:columns": cols(include_geom=False, hexed=True)},
+   "flowline-units": {
+     "href": f"{B}/nhdplus-hr/flowline/units-manifest.csv",
+     "type": "text/csv",
+     "title": f"Per-unit source manifest and measured coverage ({s['units']} units)",
+     "roles": ["metadata"],
+     "description": f"One row per source VPU download ({n_hu4} HU4 + {n_hu8} HU8): its exact "
+                    "filename, publication vintage, flowline count, in-network length and measured "
+                    "stream-order coverage. This is how the collection records provenance per unit "
+                    "— filenames are not derivable from unit codes, and vintage is what explains "
+                    "lengthkm differences against the base-NHD asset.",
+     "table:columns": UNIT_COLS},
  },
 }
-with open('/tmp/nhdplus-hr-flowline-stac.json','w') as f:
-    json.dump(stac, f, indent=2, ensure_ascii=False); f.write("\n")
-print("wrote /tmp/nhdplus-hr-flowline-stac.json")
+with open(OUT, 'w') as out_fh:
+    json.dump(stac, out_fh, indent=2, ensure_ascii=False); out_fh.write("\n")
+cov = {c["vpu_unit"]: c for c in s["coverage"]}
+with open("/tmp/units-manifest.csv", "w", newline="") as fh:
+    w = csv.writer(fh)
+    w.writerow([c["name"] for c in UNIT_COLS])
+    for unit, level, zipname, vintage in units:
+        c = cov.get(unit, {})
+        w.writerow([unit, level, zipname, vintage, c.get("flowlines",""), c.get("innet_km",""),
+                    c.get("pct_nocoast",""), c.get("pct_withcoast","")])
+print(f"wrote {OUT} and /tmp/units-manifest.csv "
+      f"({s['units']} units: {n_hu4} HU4 + {n_hu8} HU8, {f(s['features'])} features)")
