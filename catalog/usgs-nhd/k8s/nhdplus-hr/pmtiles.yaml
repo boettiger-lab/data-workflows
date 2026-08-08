@@ -84,7 +84,7 @@ spec:
           # overview layer that tiles reliably; street-level detail is served by the H3 hex
           # and GeoParquet assets, not vector tiles. --simplification thins dense line
           # vertices to keep tiles small and fast.
-          tippecanoe -o /scratch/$DATASET.pmtiles -l $DATASET -z12 --drop-densest-as-needed --simplification 10 --force /scratch/$DATASET.geojsonl
+          tippecanoe -o /scratch/$DATASET.pmtiles -l $DATASET -z10 --drop-densest-as-needed --simplification 10 --force /scratch/$DATASET.geojsonl
 
           # Upload to S3 using rclone
           rclone copy /scratch/$DATASET.pmtiles nrp:public-usgs-nhd/nhdplus-hr/
