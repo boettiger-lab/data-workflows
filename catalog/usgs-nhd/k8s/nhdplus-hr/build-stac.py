@@ -88,6 +88,13 @@ SENT = (
     "— an unfiltered SUM/AVG/MIN is poisoned by them."
 )
 
+VINTAGE_DESC = (
+    "Publication date stamped on the source unit's filename, or 'undated' where the filename carries "
+    f"none ({s['units'] - n_dated} of {s['units']} units). VPUs differ in editing vintage, which is what "
+    "drives lengthkm differences against the base-NHD asset — compare per unit using this column. "
+    "Values: dates in YYYY-MM-DD form, plus the literal 'undated'."
+)
+
 FL_COLS = [
  ("_cng_fid","string","Universal per-feature identifier, unique across the whole collection. Built as '<vpu_unit>-<per-unit id>' because the per-unit conversion numbers rows from 1 independently, so raw ids collide between units. Use this for COUNT(DISTINCT) / dedup."),
  ("nhdplusid","decimal","NHDPlus High Resolution permanent feature id, and the join key to NHDPlusFlowlineVAA. Stored as an exact decimal: the source types it as a 64-bit float, and a float-equality join on a 14-digit id drops rows silently."),
@@ -170,18 +177,14 @@ FL_COLS = [
  ("vpu_level","string",
   "Granularity of the source unit: HU4=4-digit hydrologic unit, HU8=8-digit hydrologic unit "
   f"(Alaska/HUC2 19 only, {n_hu8} units)", s["vpu_level_values"]),
- ("vpu_vintage","string",
-  "Publication date stamped on the source unit's filename, or 'undated' where the filename carries none "
-  f"({s['units'] - n_dated} of {s['units']} units). VPUs differ in editing vintage, which is what drives "
-  "lengthkm differences against the base-NHD asset — compare per unit using this column. Values: dates "
-  "in YYYY-MM-DD form, plus the literal 'undated'."),
+ ("vpu_vintage","string",VINTAGE_DESC),
 ]
 
 UNIT_COLS = [
  {"name":"vpu_unit","type":"string","description":"Identifier of the source VPU download (4-digit HU4, HU4 with 'i' suffix, or 8-digit HU8). Join key to the flowline assets."},
  {"name":"vpu_level","type":"string","description":"Granularity of the unit: HU4=4-digit hydrologic unit, HU8=8-digit hydrologic unit (Alaska only)","values":["HU4","HU8"]},
  {"name":"source_zip","type":"string","description":"Exact filename downloaded from prd-tnm/StagedProducts/Hydrography/NHDPlusHR/VPU/Current/GDB/. Not derivable from the unit code — some carry a date stamp, some do not."},
- {"name":"vpu_vintage","type":"string","description":"Publication date from the source filename, or 'undated'."},
+ {"name":"vpu_vintage","type":"string","description":VINTAGE_DESC},
  {"name":"flowlines","type":"int64","description":"Flowlines ingested from this unit."},
  {"name":"innet_km","type":"double","description":"In-network flowline length in km for this unit (innetwork = 1)."},
  {"name":"pct_order_nocoast","type":"double","description":"Percent of in-network, NON-COASTLINE length with streamorde > 0 — the acceptance metric."},
