@@ -256,6 +256,31 @@ ogrinfo /vsicurl/<source-url>                                # multi-layer file
 
 Common patterns: Census TIGER = per-state (`tl_2024_{STATEFP}_tract.zip`); protected areas = per-region or national; rasters may be tiled.
 
+#### 💡 Read one small table out of a HUGE remote zip — range reads, no localize (#518)
+
+To inspect a schema, a lookup/domain table, or one layer's coverage inside a multi-GB zipped
+GDB, do **not** localize the archive (a PVC + 30 GB download for a 126-row table). GDAL's
+`/vsizip//vsicurl/` reads the zip central directory plus only the bytes it needs over HTTP
+range requests — a small cluster job, seconds to a couple of minutes:
+
+```bash
+# authoritative coded domain out of the archived 30 GB national GDB (internal endpoint)
+SRC="/vsizip//vsicurl/http://rook-ceph-rgw-nautiluss3.rook/public-usgs-nhd/raw/NHD_H_National_GDB.zip/NHD_H_National_GDB.gdb"
+ogr2ogr -f CSV /vsistdout/ "$SRC" NHDFCode          # 126 rows, ~25 s, no PVC
+ogrinfo -ro -q "$SRC" -dialect SQLITE \
+  -sql "SELECT COUNT(*), SUM(StreamOrde > 0) FROM NHDPlusFlowlineVAA"
+```
+
+- Works on a **public** source URL too (`/vsizip//vsicurl/https://prd-tnm.s3.amazonaws.com/...`) —
+  ideal for pre-flighting a candidate import before committing to a build.
+- Use `-dialect SQLITE`: **OGR SQL has no `CASE`**, and keep the SQL on **one line** (a folded
+  YAML block mangles multi-line SQL). `SUM(cond)` works in the SQLITE dialect.
+- Full-table `COUNT(*)` over range reads is slow (minutes) because it decodes every feature;
+  schema reads and small tables are fast. Aggregate on the small table, not the geometry layer.
+- Working manifests: `catalog/usgs-nhd/k8s/extract-fcode-domain.yaml`,
+  `catalog/usgs-nhd/k8s/preflight-nhdplus-hr-vaa.yaml`.
+- ⛔ Never hand-write a coded domain from memory (#294) — this is how you get the real one.
+
 ### Step 1b: Copy raw to `s3://<bucket>/raw/` FIRST
 
 External downloads are slow/rate-limited; restart from S3 if conversion fails. Subsequent jobs read `s3://<bucket>/raw/<file>` (or `/vsicurl/https://s3-west.nrp-nautilus.io/<bucket>/raw/<file>` for GDAL).
@@ -719,6 +744,23 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   - **Repeated features (polygon/point assets).** Handled by the REPEATED-vs-VARIES per-feature row-duplication rule above — run `scripts/audit-feature-dup.py` to get the verdict and document it. `verify-stac.py`'s `polygon-row-dup-candidate` **ADVISORY** is just the automatic CI tripwire that flags a `rows ≫ COUNT(DISTINCT id)` candidate; treat it as a prompt to run that auditor, not a defect on its own (the signal over-flags — the column may be a label or provenance key, not the feature id).
   - **NULL finest-parent cells.** If the hex build caps very large features at a coarser native resolution (WDPA: `h9` is NULL for the 1,297 biggest features, `h8` is complete), the hex asset description MUST name the complete column and say joins should use the coarsest shared resolution (or `h3_cell_to_parent()`), not the finest. `verify-stac.py` **HARD**-flags an undocumented NULL finest hex column.
   - **No-data sentinels.** Document sentinel/fill codes (e.g. land-cover `0`/`200`) so consumers `WHERE col NOT IN (...)` before `SUM`/`AVG` — an undocumented sentinel poisons aggregates to `NaN`.
+
+  ⛔ **MEASURE every added column's range and sentinels — never document one from upstream docs or
+  memory.** When a build introduces columns new to this catalog, run one query per new column
+  (`MIN`/`MAX`, `COUNT(*) FILTER (WHERE col < 0)`, distinct count) *before* writing STAC. This is
+  the #518 lesson generalised, and it recurred three times in one session while fixing #518
+  (data-workflows #205/#525):
+  - `-9999` on four NHDPlus VAA columns (and `-9` on a fifth) — **the same 2,745 rows** — was
+    documented nowhere in the first draft; an unfiltered `AVG(slope)`/`MIN(totdasqkm)` is poisoned.
+  - Worse than omission: a sentinel note copied from upstream documentation said "check for
+    negative values", which would have told consumers to discard **real** below-sea-level
+    elevations (10,349 rows, min −85.61 m in Death Valley). **A negative value is not automatically
+    a sentinel** — filter the exact sentinel (`<> -9998`), never a sign test, unless you have
+    measured that no legitimate negatives exist.
+  - A `values` array copied from a sibling collection missed 13 codes actually present. Coded
+    domains come from the authoritative source table (#294), and `values` from the ingest.
+  Record the measured ranges in the dataset's `BUILD.md` so the next reader inherits evidence
+  rather than assumption — see `catalog/usgs-nhd/k8s/nhdplus-hr/BUILD.md` for the pattern.
 
 - **Point datasets:** `description` or `"processing:notes"` MUST state each point resolved to one H3 cell at the processing resolution, and name the resolution. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 

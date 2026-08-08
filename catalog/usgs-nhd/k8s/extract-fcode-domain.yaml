@@ -1,0 +1,59 @@
+# Extract the authoritative NHDFCode domain table from the archived national GDB.
+# One-shot metadata job (data-workflows#518): the published STAC declared an incomplete
+# FCODE `values` array ("428xx=Pipeline variants" shorthand), which verify-stac.py HARD-fails
+# against the 37 codes actually ingested. Never hand-write a coded domain (#294) — read it
+# from the source GDB's own NHDFCode table and print it as CSV for the STAC edit.
+#
+# Reads the small NHDFCode table out of the 30 GB zip with HTTP range requests over the
+# INTERNAL endpoint (no localize, no PVC). Falls back to a small state GDB of the same
+# product if the range read is refused.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nhd-extract-fcode-domain
+  labels:
+    k8s-app: nhd-extract-fcode-domain
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nhd-extract-fcode-domain
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: extract
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: CPL_VSIL_CURL_ALLOWED_EXTENSIONS
+          value: .zip,.gdb
+        - name: GDAL_HTTP_MAX_RETRY
+          value: '5'
+        - name: GDAL_HTTP_RETRY_DELAY
+          value: '3'
+        command: [bash, -c]
+        args:
+        - |
+          set -o pipefail
+          NAT="/vsizip//vsicurl/http://rook-ceph-rgw-nautiluss3.rook/public-usgs-nhd/raw/NHD_H_National_GDB.zip/NHD_H_National_GDB.gdb"
+          echo "=== attempt 1: national GDB via range reads ==="
+          if ogrinfo -ro -q "$NAT" NHDFCode >/dev/null 2>&1; then
+            SRC="$NAT"
+          else
+            echo "range read failed; falling back to a state GDB of the same product"
+            curl -L --retry 5 -o /tmp/state.zip \
+              "https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/NHD/State/GDB/NHD_H_Delaware_State_GDB.zip"
+            unzip -q -o /tmp/state.zip -d /tmp/state
+            SRC="$(find /tmp/state -maxdepth 2 -name '*.gdb' | head -1)"
+          fi
+          echo "=== source: $SRC ==="
+          ogrinfo -ro -q "$SRC" NHDFCode -al | head -20
+          echo "=== NHDFCode as CSV ==="
+          ogr2ogr -f CSV /vsistdout/ "$SRC" NHDFCode
+        resources:
+          requests: {memory: 4Gi, cpu: '1', ephemeral-storage: 8Gi}
+          limits:  {memory: 8Gi, cpu: '2', ephemeral-storage: 10Gi}
