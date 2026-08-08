@@ -13,6 +13,7 @@ data:
     # <repo> <verb> [exclude globs...]
     blm sync */chunks/** */hex-staging/** 
     ca-dac sync */chunks/** */hex-staging/** 
+    ca30x30 sync */chunks/** */hex-staging/** ca-climate-zones/**
     calenviroscreen sync */chunks/** */hex-staging/** 
     carbon sync */chunks/** */hex-staging/** 
     census sync */chunks/** */hex-staging/** 

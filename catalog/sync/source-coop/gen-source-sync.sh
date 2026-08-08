@@ -19,8 +19,12 @@
 #   iucn  (IUCN Red List: no redistribution incl. derivatives).
 # NOT mirrored — not a catalogued dataset / work-in-progress:
 #   datacenters, im3 (raw files, no STAC), landfire (WIP, issue #203),
-#   ca30x30 + wlfw + working-lands (real data but not yet in the STAC catalog;
+#   wlfw + working-lands (real data but not yet in the STAC catalog;
 #   catalogue them first, then add here).
+#   (ca30x30 was in this list on the same "not yet catalogued" rationale. That
+#   became false: public-ca30x30 is registered in the root catalog with 12 child
+#   collections. All 12 now carry a verdict in license-inventory.md — 11 OK, and
+#   ca-climate-zones HOLD (no upstream LICENSE) which is excluded by sub-path.)
 # NOT mirrored — wyoming: a Wyoming-CLIPPED collection whose datasets (NLCD, RAP,
 #   etc.) now exist as full-extent buckets (public-land-cover, public-rap, ...).
 #   Kept on NRP as-is (apps wired to it); migrate its constituents into their
@@ -46,7 +50,7 @@ DEST_BUCKET="us-west-2.opendata.source.coop"
 # Catalogued, license-clear repos (== NRP public-<repo>).
 REPOS=(
   blm
-  ca-dac calenviroscreen carbon census cgs connectivity cpad ecoregion epa-water
+  ca-dac ca30x30 calenviroscreen carbon census cgs connectivity cpad ecoregion epa-water
   facts fire gbif gfw globio hazard high-seas inat indigenous land-cover mappinginequality
   mobi nci-frontiers ncp overturemaps padus parks population rap rivers
   social-vulnerability storms trails usfws usgs usgs-nhd usgs-wbd utah wetlands
@@ -56,6 +60,10 @@ REPOS=(
 # Space-separated rclone --exclude patterns, relative to the bucket root.
 declare -A EXCLUDES=(
   [rivers]="american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**"
+  # ca-climate-zones: source repo github.com/matthewkling/climclust has NO LICENSE
+  # file, so there is no redistribution grant. Drop the exclude once the Ackerly Lab
+  # confirms terms; everything else in public-ca30x30 is CC-BY / ODC-By / public-domain.
+  [ca30x30]="ca-climate-zones/**"
   [high-seas]="mpa-candidates/** imma/** imma.parquet imma.pmtiles"
   # hazard: flood-hazard (FEMA) + sea-level-rise (NOAA) are public-domain and mirror.
   # mid-century-habitat-climate-exposure (Thorne et al. 2016, CDFW-commissioned) is NOT a
