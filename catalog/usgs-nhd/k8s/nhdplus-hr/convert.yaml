@@ -27,8 +27,8 @@ metadata:
   labels:
     k8s-app: nhdplus-hr-convert
 spec:
-  completions: 13
-  parallelism: 7
+  completions: 266
+  parallelism: 40
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 0
@@ -72,8 +72,8 @@ spec:
         - |
           set -euo pipefail
           IDX="${JOB_COMPLETION_INDEX}"
-          read -r HU4 ZIP VINTAGE < <(sed -n "$((IDX+1))p" /cfg/units.txt)
-          echo "=== index $IDX -> HU4 $HU4 | $ZIP | vintage $VINTAGE ==="
+          read -r UNIT LEVEL ZIP VINTAGE < <(sed -n "$((IDX+1))p" /cfg/units.txt)
+          echo "=== index $IDX -> $LEVEL $UNIT | $ZIP | vintage $VINTAGE ==="
           mkdir -p /tmp/duck /tmp/gdb
 
           rclone copy "nrp:public-usgs-nhd/raw/nhdplus-hr/$ZIP" /tmp/ -P
@@ -92,9 +92,10 @@ spec:
           ogr2ogr -f Parquet /tmp/vaa.parquet "$GDB" NHDPlusFlowlineVAA
           ls -lh /tmp/fl.parquet /tmp/vaa.parquet
 
-          HU4="$HU4" VINTAGE="$VINTAGE" python3 - <<'PY'
+          UNIT="$UNIT" LEVEL="$LEVEL" VINTAGE="$VINTAGE" python3 - <<'PY'
           import os, sys, duckdb
-          hu4, vintage = os.environ['HU4'], os.environ['VINTAGE']
+          hu4, vintage = os.environ['UNIT'], os.environ['VINTAGE']
+          level = os.environ['LEVEL']
           con = duckdb.connect()
           con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
           con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
@@ -171,14 +172,15 @@ spec:
               (f'NULLIF(GREATEST(v."{vaa[c][0]}", 0), 0) AS {c}' if c in ('streamorde','streamleve')
                else f'v."{vaa[c][0]}" AS {c}') for c in VAA_COLS)
 
-          OUT = f"s3://public-usgs-nhd/nhdplus-hr/staging/units/hu4={hu4}/data_0.parquet"
+          OUT = f"s3://public-usgs-nhd/nhdplus-hr/staging/units/vpu_unit={hu4}/data_0.parquet"
           con.execute(f"""
             COPY (
               SELECT
               f."{fid}" AS _cng_fid,
               {sel_fl},
               {sel_vaa},
-              '{hu4}' AS hu4,
+              '{hu4}' AS vpu_unit,
+              '{level}' AS vpu_level,
               '{vintage}' AS vpu_vintage,
               {gexpr} AS geom
               FROM read_parquet('{FL}') f
@@ -194,8 +196,8 @@ spec:
           # then ST_FlipCoordinates into (lat,lon) under an OGC:CRS84 tag. The fix is in, but a
           # regression here would publish silently-transposed geometry, so assert on the actual
           # coordinates every run. Bounds are CA-wide; widen via env for the national fan-out.
-          lon_lo, lon_hi = float(os.environ.get('LON_MIN', -130)), float(os.environ.get('LON_MAX', -105))
-          lat_lo, lat_hi = float(os.environ.get('LAT_MIN', 30)),   float(os.environ.get('LAT_MAX', 45))
+          lon_lo, lon_hi = float(os.environ.get('LON_MIN', -180)), float(os.environ.get('LON_MAX', 180))
+          lat_lo, lat_hi = float(os.environ.get('LAT_MIN', -15)),   float(os.environ.get('LAT_MAX', 72))
           og = geom_expr(cols(OUT), 'o')[0]
           bx = con.execute(f"""
             SELECT MIN(ST_XMin({og})), MAX(ST_XMax({og})),

@@ -8,8 +8,8 @@ metadata:
   labels:
     k8s-app: nhdplus-hr-stage-raw
 spec:
-  completions: 13
-  parallelism: 7
+  completions: 266
+  parallelism: 40
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 0
@@ -36,8 +36,8 @@ spec:
         - |
           set -euo pipefail
           IDX="${JOB_COMPLETION_INDEX}"
-          read -r HU4 ZIP VINTAGE < <(sed -n "$((IDX+1))p" /cfg/units.txt)
-          echo "=== index $IDX -> HU4 $HU4 | $ZIP | vintage $VINTAGE ==="
+          read -r UNIT LEVEL ZIP VINTAGE < <(sed -n "$((IDX+1))p" /cfg/units.txt)
+          echo "=== index $IDX -> $LEVEL $UNIT | $ZIP | vintage $VINTAGE ==="
           BASE="https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/NHDPlusHR/VPU/Current/GDB"
 
           # skip if already archived (idempotent re-runs)

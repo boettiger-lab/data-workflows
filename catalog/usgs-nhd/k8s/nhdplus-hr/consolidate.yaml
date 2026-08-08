@@ -1,7 +1,7 @@
-# Step 3 + acceptance gate (#205): consolidate the per-HU4 staging parquet into
+# Step 3 + acceptance gate (#205): consolidate the per-unit staging parquet into
 # nhdplus-hr/flowline.parquet, then GATE on stream-order coverage before anything is published.
 #
-# ⛔ Acceptance criterion 1: FAIL if any HU4 has `streamorde > 0` on less than MIN_PCT (default
+# ⛔ Acceptance criterion 1: FAIL if any unit has `streamorde > 0` on less than MIN_PCT (default
 #    95) of its in-network length. The absence of exactly this check is why the base-NHD asset
 #    shipped with 15 of 22 HUC2 regions at 0.0% (#518). The gate runs BEFORE the flat file is
 #    written to its published path — a failing unit must not reach consumers.
@@ -61,16 +61,17 @@ spec:
           con.execute("SET memory_limit='60GB'; SET threads=8;")
           con.execute("SET temp_directory='/scratch/tmp'; SET preserve_insertion_order=false;")
 
-          SRC = 's3://public-usgs-nhd/nhdplus-hr/staging/units/hu4=*/data_0.parquet'
+          SRC = 's3://public-usgs-nhd/nhdplus-hr/staging/units/vpu_unit=*/data_0.parquet'
           OUT = 's3://public-usgs-nhd/nhdplus-hr/flowline.parquet'
           MIN_PCT = float(os.environ['MIN_PCT'])
 
-          units = con.execute(f"SELECT COUNT(DISTINCT hu4) FROM read_parquet('{SRC}', hive_partitioning=false)").fetchone()[0]
+          units = con.execute(f"SELECT COUNT(DISTINCT vpu_unit) FROM read_parquet('{SRC}', hive_partitioning=false)").fetchone()[0]
           print(f"units present: {units}", flush=True)
-          if units != 13:
-              sys.exit(f"FATAL expected 13 California HU4 units in staging, found {units}")
+          if units != 266:
+              sys.exit(f"FATAL expected 266 NHDPlus HR units in staging, found {units}")
 
-          # ---- criterion 1 + 2: per-HU4 coverage, measured with > 0 ----
+          # ---- criterion 1 + 2: per-unit coverage, measured with > 0 (units are HU4, HU4+i or,
+          # for Alaska/region 19, HU8 — hence vpu_unit rather than hu4) ----
           # ⛔ DENOMINATOR: in-network length EXCLUDING coastline (fcode 56600). Coastline is not
           # a stream and NHDPlus HR assigns it no VAA, so leaving it in the denominator penalises
           # coastal basins for a non-defect: HU4 1805 reads 94.29% with coastline and 100.00%
@@ -79,7 +80,7 @@ spec:
           # Both figures are reported, and the coastline-inclusive one goes in STAC too so the
           # difference is documented rather than rediscovered.
           rows = con.execute(f"""
-            SELECT hu4, vpu_vintage,
+            SELECT vpu_unit, vpu_vintage,
                    COUNT(*) AS n_flowlines,
                    ROUND(SUM(CASE WHEN innetwork = 1 THEN lengthkm ELSE 0 END), 0) AS innet_km,
                    ROUND(100.0 * SUM(CASE WHEN streamorde > 0 AND innetwork = 1 AND fcode <> 56600 THEN lengthkm ELSE 0 END)
@@ -91,11 +92,11 @@ spec:
                    MIN(streamorde) AS omin, MAX(streamorde) AS omax
             FROM read_parquet('{SRC}', hive_partitioning=false)
             GROUP BY 1, 2 ORDER BY 1""").fetchall()
-          print(f"{'HU4':6}{'vintage':12}{'flowlines':>11}{'in-net km':>11}"
+          print(f"{'UNIT':10}{'vintage':12}{'flowlines':>11}{'in-net km':>11}"
                 f"{'%no-coast':>11}{'%w/coast':>10}{'coast km':>10}{'gap km':>9}{'order':>8}", flush=True)
           bad = []
           for hu4, vin, n, km, pct_nc, pct_wc, coast, gap, omin, omax in rows:
-              print(f"{hu4:6}{vin:12}{n:11,}{km:11,.0f}{pct_nc:11.2f}{pct_wc:10.2f}"
+              print(f"{hu4:10}{vin:12}{n:11,}{km:11,.0f}{pct_nc:11.2f}{pct_wc:10.2f}"
                     f"{coast:10,.0f}{gap:9.1f}{f'{omin}-{omax}':>8}", flush=True)
               # gate on the coastline-excluded metric, plus a hard cap on any real gap
               if pct_nc is None or pct_nc < MIN_PCT:
@@ -103,7 +104,7 @@ spec:
               elif gap and km and (100.0 * gap / km) > 1.0:
                   bad.append((hu4, 'noncoastline_gap_pct', round(100.0 * gap / km, 2)))
           if bad:
-              sys.exit(f"FATAL acceptance criterion 1: HU4(s) failing the {MIN_PCT}% in-network "
+              sys.exit(f"FATAL acceptance criterion 1: unit(s) failing the {MIN_PCT}% in-network "
                        f"(coastline-excluded) stream-order gate: {bad}. NOT publishing.")
 
           # ---- criterion 6: sentinel normalised, range sane ----
@@ -134,7 +135,7 @@ spec:
           print("=== writing consolidated flat GeoParquet ===", flush=True)
           con.execute(f"""
             COPY (
-              SELECT hu4 || '-' || CAST(_cng_fid AS VARCHAR) AS _cng_fid,
+              SELECT vpu_unit || '-' || CAST(_cng_fid AS VARCHAR) AS _cng_fid,
                      * EXCLUDE (_cng_fid)
               FROM read_parquet('{SRC}', hive_partitioning=false)
             ) TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 2000);

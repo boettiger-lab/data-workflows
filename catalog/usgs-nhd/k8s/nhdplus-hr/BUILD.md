@@ -7,8 +7,8 @@ HUC2 regions at exactly 0.0% (#518); NHDPlus HR computes the network attributes 
 national-capable and fans out by extending `units-configmap.yaml`.
 
 **This is ADDITIVE. `streams-by-order` is not replaced** — it is the denser, more recently edited
-network and the only source for Alaska (NHDPlus HR has no HUC2 19). Use base NHD for extent and
-flow permanence, NHDPlus HR for order/drainage/routing.
+network and the *complete* source for Alaska (NHDPlus HR ships only 28 HU8 units of region 19).
+Use base NHD for extent and flow permanence, NHDPlus HR for order/drainage/routing.
 
 ## Result
 
@@ -39,9 +39,14 @@ rclone copyto /tmp/nhdplus-hr-flowline-stac.json nrp:public-usgs-nhd/nhdplus-hr/
    network and wrong `PathLength`; a GridCode bug merged sink-derived catchments in VPUIDs
    0903/1007/1015/1021/1022/1025; 0415 is a pre-Beta prototype. The corrected VPUs exist only as
    individual downloads.
-2. **Filenames are not derivable from the HU4 code.** 43 of 266 units carry a `YYYYMMDD` stamp and
-   33 are Great Lakes `…i` units. Enumerate the bucket listing; `units-configmap.yaml` is the
-   pinned list, and the stamp doubles as the vintage recorded per unit in STAC.
+2. **⛔ Filenames are not derivable from the unit code, AND THE UNIT LEVEL VARIES.** 266 zips =
+   **238 HU4** (233 plain + **5** `…i` Great Lakes units) + **28 HU8**, the HU8s being region 19
+   (Alaska); 43 carry a `YYYYMMDD` stamp. Enumerate the bucket listing and **match `_HU8_` as well
+   as `_HU4_`**. An earlier pass of this import matched only `_HU4_`, which (a) made Alaska look
+   absent — a false claim that reached the published STAC, the README and another team's issue
+   before it was caught — and (b) mislabelled all 33 unmatched files as `…i` units when only 5 are.
+   This is why the build column is **`vpu_unit` + `vpu_level`**, not `hu4`. `units-configmap.yaml`
+   is the pinned list and the stamp doubles as the vintage recorded per unit in STAC.
 3. **⛔ Column-name casing varies by VPU vintage** — lowercase in 1503/1605/1606, mixed case in
    1801–1810. A case-sensitive `ogr2ogr -select "NHDPlusID,StreamOrde"` returns **nothing** on the
    lowercase units, which would publish NULL order for those basins and look like a source problem
