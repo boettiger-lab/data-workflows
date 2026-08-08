@@ -112,8 +112,33 @@ them to discard California's genuinely below-sea-level terrain. A second pass th
 **When a build adds columns nobody in this catalog has used before, measure every one of their
 ranges and sentinels before writing STAC** — that is the #518 lesson applied to the fix for #518.
 
-## Open question (not blocking) — tracked as #525
+## `lengthkm` across the two products — RESOLVED (#525, closed)
 
-Which `lengthkm` is authoritative where the two products disagree (0% to +13% by basin on the same
-feature). Worth measuring both against a geodesic length on a sample before either is treated as
-canonical for length reporting.
+**Neither value is stale or miscomputed, and there is no "authoritative" side to pick.** Each
+product's stored `lengthkm` matches the projected (EPSG:3310) length of *its own* geometry to
+within 0.06% in aggregate (NHDPlus HR: +0.057% / −0.017% / +0.014% in 1606 / 1803 / 1809; base
+NHD-H: −0.026% in 1803; mean per-feature |diff| ~0.4%, i.e. projection noise).
+
+**And it is a minority tail, not a per-basin offset** — which is the part that changes the
+guidance. For the 74,610 shared features in HU4 1803, the *worst* basin at aggregate +10–13%:
+
+| | count | share |
+|---|---|---|
+| agree within 1% | **59,931** | **80.3%** |
+| base shorter by >1% | 9,676 | 13.0% |
+| base longer by >1% | 5,003 | 6.7% |
+| median `base_len / hr_len` | **1.0000** | — |
+
+So:
+- ⛔ **Never apply a per-basin correction factor** to reconcile the two — it would corrupt the 80%
+  of features that already agree exactly in order to fix the 20% that genuinely changed.
+- ⛔ Don't treat a per-feature cross-product length difference as an error; check whether that
+  feature is in the re-edited tail.
+- ✅ Compare **per-area network totals**, state which product each number came from, and remember
+  aggregate totals differ mainly because the products hold **different features** (base NHD has
+  289,426 km of ephemeral channel this vintage lacks), not because they measure the same ones
+  differently.
+
+Base-shorter outnumbering base-longer ~2:1 points at reach **subdivision** in the newer NHD
+(which holds ~2× the features in this basin), but that mechanism is *inferred* — the faithfulness
+and tail measurements above are what was actually verified.
