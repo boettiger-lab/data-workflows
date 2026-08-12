@@ -23,8 +23,9 @@
 #   catalogue them first, then add here).
 #   (ca30x30 was in this list on the same "not yet catalogued" rationale. That
 #   became false: public-ca30x30 is registered in the root catalog with 12 child
-#   collections. All 12 now carry a verdict in license-inventory.md — 11 OK, and
-#   ca-climate-zones HOLD (no upstream LICENSE) which is excluded by sub-path.)
+#   collections, all 12 now license-cleared OK in license-inventory.md and mirrored.
+#   ca-climate-zones was briefly HOLD (no upstream LICENSE); climclust has since
+#   added an MIT LICENSE, so it is now OK and the sub-path exclude was dropped.)
 # NOT mirrored — wyoming: a Wyoming-CLIPPED collection whose datasets (NLCD, RAP,
 #   etc.) now exist as full-extent buckets (public-land-cover, public-rap, ...).
 #   Kept on NRP as-is (apps wired to it); migrate its constituents into their
@@ -60,10 +61,9 @@ REPOS=(
 # Space-separated rclone --exclude patterns, relative to the bucket root.
 declare -A EXCLUDES=(
   [rivers]="american-rivers/campaigns/** american-rivers/ira-watersheds/** american-rivers/roo-cjest/**"
-  # ca-climate-zones: source repo github.com/matthewkling/climclust has NO LICENSE
-  # file, so there is no redistribution grant. Drop the exclude once the Ackerly Lab
-  # confirms terms; everything else in public-ca30x30 is CC-BY / ODC-By / public-domain.
-  [ca30x30]="ca-climate-zones/**"
+  # ca30x30: no excludes. ca-climate-zones was briefly HOLD (climclust had no LICENSE);
+  # the repo has since added an MIT LICENSE (STAC updated to license: MIT), so the whole
+  # bucket is now CC-BY / ODC-By / public-domain / MIT and mirrors in full.
   [high-seas]="mpa-candidates/** imma/** imma.parquet imma.pmtiles"
   # hazard: flood-hazard (FEMA) + sea-level-rise (NOAA) are public-domain and mirror.
   # mid-century-habitat-climate-exposure (Thorne et al. 2016, CDFW-commissioned) is NOT a
