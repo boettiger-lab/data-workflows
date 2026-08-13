@@ -48,6 +48,13 @@ Data-backed checks (delegated to the duckdb-geo MCP server, --no-data to skip):
     nominal-constant recipe (`… × cell_area_at_resolution_N`, a global average that ran
     the ca-30x30 CA extent ~6% low) and an inlined exact `h3_cell_area()` call; the
     area method belongs in the h3-guide, not baked into STAC where it goes stale (#389)
+  - HARD: a column the STAC declares that is absent from every parquet file (stale STAC)
+    or from only SOME files (heterogeneous/mixed-vintage build) — checked per file, not
+    against the unioned glob schema which hides a partial hole (#534/#520); ADVISORY for a
+    column present in the data but undocumented
+  - HARD: a vector hex holding fewer features than its flat GeoParquet — a silently
+    dropped feature (rfmo/rfb lost CCAMLR) that leaves schema + partitions intact and no
+    other check sees (#535/#520); COUNT(DISTINCT _cng_fid) vs flat COUNT(*)
 
 Advisory passes (never block):
   - recall: candidate string-categorical columns with a low DISTINCT count and no
@@ -1427,6 +1434,195 @@ def check_polygon_row_dup(doc: dict, mcp: MCPClient) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
+# #534 — declared STAC schema vs actual parquet schema (per file)
+# ---------------------------------------------------------------------------
+
+_PARTITION_KEY_RE = re.compile(r"/([^/=]+)=\*/")
+# GeoParquet 1.1 bbox-covering struct leaves: a STAC declares a single `bbox` column but
+# the file stores it as a struct with these leaves. Neither the `bbox` declaration nor the
+# leaves should be treated as absent/undocumented.
+_BBOX_COVER = {"xmin", "ymin", "zmin", "xmax", "ymax", "zmax"}
+
+
+def _partition_keys(href: str) -> set[str]:
+    """Hive partition keys are supplied by the PATH (e.g. /h0=*/, /year=*/), so a file
+    footer need not carry them; skip them from the declared-vs-file comparison so a
+    path-only partition key is never mis-reported as an absent column."""
+    return {m.lower() for m in _PARTITION_KEY_RE.findall(href)}
+
+
+def check_declared_schema_matches_data(doc: dict, mcp: MCPClient) -> list[Finding]:
+    """Every column the STAC declares must exist in the parquet, and vice versa — checked
+    PER FILE, not against the glob's unioned schema (data-workflows#534). A whole-glob
+    DESCRIBE shows a column present if ANY file has it, hiding a heterogeneous hole like
+    rfmo/rfb (#520: `_cng_fid` absent from 22/121 files). Footer reads only, no row scan.
+
+      declared but absent from EVERY file  -> HARD (stale STAC; a metadata fix)
+      declared but absent from SOME files  -> HARD (heterogeneous; a data rebuild)
+      present in data, undocumented        -> ADVISORY (self-describing contract; kept
+                                              advisory because nested/covering leaves make
+                                              a hard extra-column failure FP-prone)
+    """
+    out = []
+    for key, asset in doc.get("assets", {}).items():
+        if not is_parquet(asset):
+            continue
+        s3 = _to_s3(asset.get("href", ""))
+        if not s3:
+            continue
+        declared = [c.get("name", "") for c in asset.get("table:columns", []) if c.get("name")]
+        if not declared:
+            continue  # parquet-no-table-columns already HARD-flags a missing schema
+        part_keys = _partition_keys(asset.get("href", ""))
+        try:
+            total = int(mcp.query(
+                f"SELECT COUNT(DISTINCT file_name) AS n FROM parquet_schema('{s3}')")[0]["n"])
+            # `type IS NOT NULL` keeps only leaf columns, dropping the schema root and any
+            # struct group node (whose physical type is NULL) — so `parquet_schema`'s
+            # nested/struct entries do not read as phantom columns (#534 caveat).
+            rows = mcp.query(
+                "SELECT lower(name) AS name, COUNT(DISTINCT file_name) AS nf "
+                f"FROM parquet_schema('{s3}') WHERE type IS NOT NULL GROUP BY 1")
+        except (MCPError, ValueError, KeyError, IndexError) as e:
+            out.append(Finding(ADVISORY, "schema-match-check-failed",
+                               f"asset '{key}': could not read parquet footers ({e})."))
+            continue
+        if not total:
+            continue
+        present = {}
+        for r in rows:
+            try:
+                present[str(r["name"]).lower()] = int(r["nf"])
+            except (KeyError, ValueError, TypeError):
+                continue
+        # a `bbox` declared as one column may be stored as a covering struct — treat it as
+        # present if its leaves are (in as many files as the leaves appear).
+        bbox_leaf_files = (min((present[l] for l in _BBOX_COVER if l in present), default=0))
+
+        declared_lower = set()
+        for name in declared:
+            low = name.lower()
+            declared_lower.add(low)
+            if low in part_keys or _is_geom_col(name):
+                continue  # path-supplied partition key / writer-named geometry column
+            nf = present.get(low, 0)
+            if low == "bbox" and nf == 0:
+                nf = bbox_leaf_files  # covering-struct case
+            if nf == 0:
+                out.append(Finding(HARD, "declared-column-absent",
+                    f"asset '{key}': STAC declares column '{name}' but it is absent from "
+                    f"all {total} parquet file(s) — a stale/incorrect schema; fix the STAC "
+                    f"table:columns."))
+            elif nf < total:
+                out.append(Finding(HARD, "declared-column-heterogeneous",
+                    f"asset '{key}': STAC declares column '{name}' but it is missing from "
+                    f"{total - nf} of {total} parquet file(s) — a partial/mixed-vintage "
+                    f"build; rebuild the asset. See data-workflows#534/#520."))
+        for low, nf in sorted(present.items()):
+            if (nf == total and low not in declared_lower and low not in part_keys
+                    and not _is_geom_col(low) and low not in _BBOX_COVER and low != "bbox"):
+                out.append(Finding(ADVISORY, "undocumented-column",
+                    f"asset '{key}': parquet column '{low}' is present in all {total} "
+                    f"file(s) but not declared in table:columns — add it (assets must be "
+                    f"self-describing) or confirm it is intentional."))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# #535 — a vector hex must hold every feature of its flat GeoParquet
+# ---------------------------------------------------------------------------
+
+_COVERAGE_NOTE = re.compile(
+    r"sub-?cell|smaller than (one|a)[^.]{0,20}cell|no hex cell|polyfill[^.]{0,20}zero|"
+    r"features?[^.]{0,20}no[^.]{0,20}cell|features?[^.]{0,20}absent from the hex", re.I)
+
+
+def _asset_has_geom(asset: dict) -> bool:
+    return any(_is_geom_col(c.get("name", "")) for c in asset.get("table:columns", []))
+
+
+def _asset_stem(key: str) -> str:
+    for suf in ("-hex", "-parquet"):
+        if key.endswith(suf):
+            return key[: -len(suf)]
+    return key
+
+
+def check_hex_holds_all_features(doc: dict, mcp: MCPClient) -> list[Finding]:
+    """A vector hex must contain every feature of its flat GeoParquet — data-workflows#535.
+    A dropped feature (rfmo/rfb lost CCAMLR, #520) leaves the schema and every partition
+    intact, so no schema/dup check sees it; only a flat-vs-hex feature-count comparison does.
+
+    Keyed on `_cng_fid` (the #369 one-per-input-row id): flat COUNT(*) == flat
+    COUNT(DISTINCT _cng_fid), and the hex must show the same COUNT(DISTINCT _cng_fid) once
+    the feature->cell expansion is collapsed. Raster-derived hexes (no `_cng_fid`, no
+    feature concept) are skipped. A NULL `_cng_fid` makes the comparison untrustworthy —
+    #534 / the #369 check own that HARD, so here it downgrades to an advisory rather than
+    reporting a wrong number.
+    """
+    out = []
+    assets = doc.get("assets", {})
+    flats, hexes = {}, {}
+    for key, asset in assets.items():
+        if not is_parquet(asset):
+            continue
+        s3 = _to_s3(asset.get("href", ""))
+        if not s3:
+            continue
+        if is_hex_asset(key, asset):
+            cols = {c.get("name", "").lower() for c in asset.get("table:columns", [])}
+            if "_cng_fid" in cols:  # vector hex only — a raster reduce has no feature id
+                hexes[key] = (s3, asset)
+        elif _asset_has_geom(asset):   # a vector flat GeoParquet (has a geometry column)
+            flats.setdefault(_asset_stem(key), (key, s3))
+    for hkey, (h_s3, h_asset) in hexes.items():
+        flat = flats.get(_asset_stem(hkey))
+        if flat is None and len(flats) == 1 and len(hexes) == 1:
+            flat = next(iter(flats.values()))  # single flat + single hex: pair them
+        if flat is None:
+            continue  # cannot confidently pair (multi-layer with no stem match)
+        fkey, f_s3 = flat
+        try:
+            flat_n = int(mcp.query(
+                f"SELECT COUNT(*) AS n FROM read_parquet('{f_s3}')")[0]["n"])
+            hrow = mcp.query(
+                "SELECT COUNT(DISTINCT _cng_fid) AS d, "
+                "COUNT(*) FILTER (WHERE _cng_fid IS NULL) AS nulls "
+                f"FROM read_parquet('{h_s3}')")[0]
+            hex_n, hex_nulls = int(hrow["d"]), int(hrow["nulls"])
+        except (MCPError, ValueError, KeyError, IndexError) as e:
+            out.append(Finding(ADVISORY, "hex-coverage-check-failed",
+                               f"asset '{hkey}': could not compare feature coverage vs "
+                               f"'{fkey}' ({e})."))
+            continue
+        if hex_nulls:
+            out.append(Finding(ADVISORY, "hex-coverage-unverifiable",
+                f"asset '{hkey}': _cng_fid is NULL on {hex_nulls:,} row(s), so feature "
+                f"coverage vs '{fkey}' cannot be verified until the key is fixed "
+                f"(see the schema / _cng_fid checks)."))
+            continue
+        if hex_n == flat_n:
+            continue
+        if hex_n < flat_n:
+            desc = ((h_asset.get("description", "") or "") + " "
+                    + (doc.get("description", "") or ""))
+            if _COVERAGE_NOTE.search(desc):
+                continue  # documented legitimate shortfall (sub-cell geometries)
+            out.append(Finding(HARD, "hex-missing-features",
+                f"asset '{hkey}' holds {hex_n} of {flat_n} features from '{fkey}' "
+                f"(hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — {flat_n - hex_n} "
+                f"feature(s) silently dropped from the hex (data-workflows#535/#520). "
+                f"Re-hex; if a shortfall is legitimate (a feature smaller than one cell "
+                f"polyfills to zero cells), document it in the asset description."))
+        else:  # hex_n > flat_n
+            out.append(Finding(HARD, "hex-extra-features",
+                f"asset '{hkey}' has {hex_n} distinct _cng_fid but the flat '{fkey}' has "
+                f"only {flat_n} rows — the hex carries feature ids absent from the flat "
+                f"(inconsistent build)."))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -1459,6 +1655,8 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
         if client is not None:
             if do_data:
                 findings.extend(check_values_match_distinct(doc, client))
+                findings.extend(check_declared_schema_matches_data(doc, client))  # #534 (hard)
+                findings.extend(check_hex_holds_all_features(doc, client))        # #535 (hard)
                 findings.extend(check_null_hex_index(doc, client))      # #309 §2 (hard)
                 findings.extend(check_hex_row_uniqueness(doc, client))  # #509 (hard)
                 findings.extend(check_polygon_row_dup(doc, client))     # #309 §1 (advisory)
