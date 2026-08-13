@@ -1141,11 +1141,23 @@ def check_values_match_distinct(doc: dict, mcp: MCPClient) -> list[Finding]:
         # array pollutes the schema and breaks the self-describing fold — so exclude them
         # from the ingested DISTINCT set, the same way SQL NULL is already excluded.
         # Real "unknown" categories (UNK, Unknown, N/A) are intentional codes and stay.
+        #
+        # EXCEPTION (#511): only filter a token the schema does NOT itself declare. WDPA's
+        # NO_TAKE really has a 'None' class ("no no-take zone", 1,545 rows); unconditionally
+        # dropping it made the linter both hide a populated category AND report it as
+        # declared-but-absent — an asymmetric, self-contradictory finding. A token that is an
+        # explicit declared value is a genuine category, so keep it on the ingested side too.
+        declared_norm = {str(d).strip().lower() for d in declared}
+        artifact_tokens = [t for t in ("null", "nan", "none") if t not in declared_norm]
+        excl = ""
+        if artifact_tokens:
+            toks = ", ".join("'" + t + "'" for t in artifact_tokens)
+            excl = f"AND lower(trim(CAST(\"{col}\" AS VARCHAR))) NOT IN ({toks}) "
         sql = (
             f'WITH ingested AS (SELECT DISTINCT {norm(chr(34)+col+chr(34))} AS v '
             f"  FROM read_parquet('{s3}') WHERE \"{col}\" IS NOT NULL "
             f"    AND trim(CAST(\"{col}\" AS VARCHAR)) <> '' "
-            f"    AND lower(trim(CAST(\"{col}\" AS VARCHAR))) NOT IN ('null','nan','none')), "
+            f"    {excl}), "
             f"declared AS (SELECT {norm('v')} AS v FROM (VALUES {decl_rows}) t(v)) "
             f"SELECT 'missing' AS kind, v FROM ingested WHERE v NOT IN (SELECT v FROM declared) "
             f"UNION ALL "

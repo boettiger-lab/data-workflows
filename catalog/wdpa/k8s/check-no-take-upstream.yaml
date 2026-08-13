@@ -1,0 +1,56 @@
+# One-shot investigation (data-workflows#511): is NO_TAKE='All ' (trailing space, 857 rows
+# in wdpa.parquet) present UPSTREAM in the WDPA GDB, or introduced by our conversion?
+# Reads DISTINCT NO_TAKE with lengths straight from the staged source GDB over the INTERNAL
+# endpoint via /vsicurl/ range reads — no localize. Attribute-only scan (no geometry).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdpa-check-no-take-upstream
+  labels:
+    k8s-app: wdpa-check-no-take-upstream
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: wdpa-check-no-take-upstream
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: check
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: GDAL_DISABLE_READDIR_ON_OPEN
+          value: EMPTY_DIR
+        - name: GDAL_HTTP_MAX_RETRY
+          value: '5'
+        - name: GDAL_HTTP_RETRY_DELAY
+          value: '3'
+        command: [bash, -c]
+        args:
+        - |
+          set -o pipefail
+          SRC="/vsicurl/http://rook-ceph-rgw-nautiluss3.rook/public-wdpa/wdpa-june-2026/raw/WDPA_Jun2026_Public.gdb"
+          echo "=== source: $SRC ==="
+          ogrinfo -ro -q "$SRC" WDPA_poly_Jun2026 -dialect SQLITE \
+            -sql "SELECT '[' || NO_TAKE || ']' AS bracketed, length(NO_TAKE) AS len, COUNT(*) AS n FROM WDPA_poly_Jun2026 GROUP BY NO_TAKE ORDER BY n DESC"
+          echo "=== rows where NO_TAKE LIKE 'All%' (any trailing chars) ==="
+          ogrinfo -ro -q "$SRC" WDPA_poly_Jun2026 -dialect SQLITE \
+            -sql "SELECT DISTINCT '[' || NO_TAKE || ']' AS bracketed, length(NO_TAKE) AS len FROM WDPA_poly_Jun2026 WHERE NO_TAKE LIKE 'All%'"
+        resources:
+          requests: {memory: 4Gi, cpu: '1', ephemeral-storage: 8Gi}
+          limits:  {memory: 8Gi, cpu: '2', ephemeral-storage: 10Gi}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

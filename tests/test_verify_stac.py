@@ -373,5 +373,42 @@ class HexHoldsAllFeatures(unittest.TestCase):
         self.assertIn("104 of 105", f[0].message)
 
 
+class ValuesMatchDistinctArtifactTokens(unittest.TestCase):
+    """A declared null/nan/none is a real category, not a missing-value artifact (#511).
+
+    The filter that drops pandas/str(None) leakage from the ingested DISTINCT set must not
+    fire on a token the schema itself declares — otherwise a genuine, populated category
+    (WDPA NO_TAKE='None', 1,545 rows) is both hidden and reported as declared-but-absent.
+    The decision is made in Python before the query, so assert on the generated SQL."""
+
+    def _sql_for(self, values):
+        asset = {"href": "https://s3-west.nrp-nautilus.io/public-x/d.parquet",
+                 "type": PARQUET,
+                 "table:columns": [{"name": "NO_TAKE", "type": "string",
+                                    "values": values}]}
+        doc = {"assets": {"d-parquet": asset}}
+        mcp = StubMCP(rows=[])
+        vs.check_values_match_distinct(doc, mcp)
+        self.assertEqual(len(mcp.sql), 1)
+        return mcp.sql[0]
+
+    def test_undeclared_tokens_are_filtered(self):
+        sql = self._sql_for(["All", "Part"]).lower()
+        self.assertIn("not in ('null', 'nan', 'none')", sql)
+
+    def test_declared_none_is_kept_on_ingested_side(self):
+        sql = self._sql_for(["All", "Part", "None"]).lower()
+        # 'none' must drop out of the exclusion so the ingested 'None' survives to match.
+        self.assertIn("not in ('null', 'nan')", sql)
+        self.assertNotIn("'none'", sql.split(") t(v)")[0].split("declared")[0])
+
+    def test_all_artifact_tokens_declared_removes_exclusion(self):
+        sql = self._sql_for(["Null", "NaN", "None", "Real"]).lower()
+        # nothing left to exclude → no NOT IN artifact clause at all
+        self.assertNotIn("not in ('null'", sql)
+        self.assertNotIn("not in ('nan'", sql)
+        self.assertNotIn("not in ('none'", sql)
+
+
 if __name__ == "__main__":
     unittest.main()
