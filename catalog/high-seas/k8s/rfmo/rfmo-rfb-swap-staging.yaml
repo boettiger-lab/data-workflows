@@ -1,0 +1,51 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rfmo-rfb-swap-staging
+  labels: {k8s-app: rfmo-rfb-swap-staging}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: rfmo-rfb-swap-staging}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: swap
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command: [bash, -c]
+        args:
+        - |
+          set -euo pipefail
+          H=nrp:public-high-seas/rfmo/rfb/hex
+          S=nrp:public-high-seas/rfmo/rfb/hex-staging
+          echo "=== purge stale live hex/ (old data_00.parquet) ==="
+          rclone purge "$H" 2>/dev/null || true
+          echo "=== verify live hex/ is EMPTY before swap ==="
+          n=$(rclone lsf "$H" --recursive 2>/dev/null | wc -l)
+          echo "live hex/ file count = $n"
+          if [ "$n" -ne 0 ]; then echo "REFUSING: live hex/ not empty ($n files)"; exit 1; fi
+          echo "=== move hex-staging/ -> hex/ (server-side) ==="
+          rclone move "$S" "$H" --transfers 16 --checkers 16 -v --stats 30s
+          echo "=== verify hex-staging/ is empty after move ==="
+          ns=$(rclone lsf "$S" --recursive 2>/dev/null | wc -l)
+          echo "hex-staging/ file count after move = $ns"
+          nh=$(rclone lsf "$H" --recursive 2>/dev/null | grep -c 'data_0.parquet' || true)
+          echo "hex/ data_0.parquet partitions = $nh"
+          echo "=== done ==="
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rfmo-rfb-split-antimeridian
+  labels: {k8s-app: rfmo-rfb-split-antimeridian}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: rfmo-rfb-split-antimeridian}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: split
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command: [bash, -c]
+        args:
+        - |
+          set -e
+          # #520 antimeridian workaround (datasets #167 fails fast on these; retire once
+          # adaptive-res polyfill #98 lands). Split the 6 features whose bbox spans >180deg
+          # longitude (CCAMLR/IPHC/IWC/ACAP/APFIC/CCSBT) into 45deg longitude-band pieces
+          # (8 bands), each a separate row RETAINING the original _cng_fid + attributes, so
+          # the per-(feature,cell) dedup collapses them back to one feature. 45deg (not 90)
+          # because a 90deg band of the near-global IWC still estimates ~144M cells > the
+          # 134M per-feature cell-array limit; 45deg halves that to a safe ~72M. Flat stays
+          # 105 rows; this derived rfb-hexinput.parquet is the hex input only.
+          echo "=== purge stale chunks-staging ==="
+          rclone purge nrp:public-high-seas/rfmo/rfb/chunks-staging 2>/dev/null || true
+          echo "=== build rfb-hexinput.parquet ==="
+          python3 << 'PYEOF'
+          import duckdb, os
+          key=os.environ['AWS_ACCESS_KEY_ID']; secret=os.environ['AWS_SECRET_ACCESS_KEY']; ep=os.environ['AWS_S3_ENDPOINT']
+          con=duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute(f"CREATE SECRET s (TYPE S3, KEY_ID '{key}', SECRET '{secret}', ENDPOINT '{ep}', URL_STYLE 'path', USE_SSL false);")
+          src="s3://public-high-seas/rfmo/rfb.parquet"
+          out="s3://public-high-seas/rfmo/rfb-hexinput.parquet"
+          anti="13,41,92,93,102,38"   # _cng_fid of the 6 features with lon bbox span > 180 deg
+          con.execute(f"""
+            COPY (
+              SELECT * FROM read_parquet('{src}') WHERE _cng_fid NOT IN ({anti})
+              UNION ALL BY NAME
+              SELECT * FROM (
+                SELECT f.* EXCLUDE (geom),
+                       ST_CollectionExtract(
+                         ST_Intersection(ST_MakeValid(f.geom),
+                                         ST_MakeEnvelope(b.bmin,-90.0,b.bmax,90.0)), 3) AS geom
+                FROM read_parquet('{src}') f
+                CROSS JOIN (VALUES (-180.0,-135.0),(-135.0,-90.0),(-90.0,-45.0),(-45.0,0.0),(0.0,45.0),(45.0,90.0),(90.0,135.0),(135.0,180.0)) AS b(bmin,bmax)
+                WHERE f._cng_fid IN ({anti})
+              ) WHERE NOT ST_IsEmpty(geom) AND ST_Area(geom) > 0
+            ) TO '{out}' (FORMAT PARQUET, ROW_GROUP_SIZE 2000, COMPRESSION ZSTD, OVERWRITE_OR_IGNORE true);
+          """)
+          n=con.execute(f"SELECT COUNT(*) FROM read_parquet('{out}')").fetchone()[0]
+          nfid=con.execute(f"SELECT COUNT(DISTINCT _cng_fid) FROM read_parquet('{out}')").fetchone()[0]
+          maxspan=con.execute(f"SELECT MAX(ST_XMax(geom)-ST_XMin(geom)) FROM read_parquet('{out}')").fetchone()[0]
+          print(f"ROWS={n} DISTINCT_CNG_FID={nfid} MAX_LON_SPAN={maxspan}")
+          PYEOF
+          echo "=== done ==="
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

@@ -5,7 +5,7 @@ metadata:
   labels:
     k8s-app: rfmo-rfb-hex
 spec:
-  completions: 105
+  completions: 136   # 99 unchanged features + 37 antimeridian 45deg-band pieces
   parallelism: 50
   completionMode: Indexed
   # #325: CCAMLR (index for a valid, mid-size polygon) dropped because backoffLimit:0
@@ -58,7 +58,14 @@ spec:
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-high-seas/rfmo/rfb.parquet --output s3://public-high-seas/rfmo/rfb/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
+          # #520 rebuild: fold h7/h6 parents into the hex pass (--parent-resolutions 7,6,0)
+          # so the buggy add-parents SELECT * rewrite (dropped _cng_fid from 22 partitions)
+          # is eliminated. Write to a staging chunks prefix; repartition -> hex-staging.
+          # INPUT is rfb-hexinput.parquet: the flat with the 6 antimeridian features
+          # (lon bbox span >180deg) split into <=4 longitude-band pieces sharing their
+          # original _cng_fid (datasets #167 fails fast on unsplit ones; retire once #98
+          # adaptive-res polyfill lands). 136 rows = 99 unchanged + 37 45deg-band pieces.
+          cng-datasets vector --input s3://public-high-seas/rfmo/rfb-hexinput.parquet --output s3://public-high-seas/rfmo/rfb/chunks-staging --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 7,6,0
         resources:
           requests:
             cpu: '4'

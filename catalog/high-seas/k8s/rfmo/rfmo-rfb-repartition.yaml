@@ -39,32 +39,45 @@ spec:
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
         - name: TMPDIR
-          value: /tmp
+          value: /scratch
         - name: BUCKET
           value: public-high-seas
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
           readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: rfmo-rfb-repartition
         command:
         - bash
         - -c
         - |
           set -e
-          cng-datasets repartition --chunks-dir s3://public-high-seas/rfmo/rfb/chunks --output-dir s3://public-high-seas/rfmo/rfb/hex --source-parquet s3://public-high-seas/rfmo/rfb.parquet --cleanup --memory-limit 27GiB
+          # #520 rebuild: merge staging chunks into hex-staging (validated before the
+          # live hex/ prefix is purged and the staging swapped in).
+          # Purge any partial hex-staging from a prior failed run so the rerun is clean
+          # (repartition writes per-h0 and is not resume-safe across a mid-write OOM).
+          rclone purge nrp:public-high-seas/rfmo/rfb/hex-staging 2>/dev/null || true
+          # 100GiB memory-limit / 120Gi pod RAM: the densest ocean h0 partition is large
+          # now that full CCAMLR + IWC/IPHC/ACAP are correctly hexed; 27GiB/32Gi OOMed.
+          cng-datasets repartition --chunks-dir s3://public-high-seas/rfmo/rfb/chunks-staging --output-dir s3://public-high-seas/rfmo/rfb/hex-staging --source-parquet s3://public-high-seas/rfmo/rfb.parquet --cleanup --memory-limit 100GiB
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
-            ephemeral-storage: 200Gi
+            memory: 120Gi
+            ephemeral-storage: 50Gi
           limits:
             cpu: '4'
-            memory: 32Gi
-            ephemeral-storage: 200Gi
+            memory: 120Gi
+            ephemeral-storage: 50Gi
       volumes:
       - name: rclone-config
         secret:
           secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:
