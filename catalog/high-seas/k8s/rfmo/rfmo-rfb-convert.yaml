@@ -49,10 +49,12 @@ spec:
         - -c
         - |
           set -e
+          # --row-group-size 2000: geometry-heavy (CCAMLR is an 11,260 deg^2 polygon);
+          # 100000 packed chunks into the ~2.8 GB stoi crash band (#106). #520 rebuild.
           cng-convert-to-parquet \
             https://s3-west.nrp-nautilus.io/public-high-seas/raw/rfmo-rfb.zip \
             s3://public-high-seas/rfmo/rfb.parquet \
-            --row-group-size 100000
+            --row-group-size 2000
         resources:
           requests:
             cpu: '4'
