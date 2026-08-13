@@ -245,11 +245,41 @@ def _schema_doc(declared, href=HEX_HREF):
                                  "table:columns": [{"name": n} for n in declared]}}}
 
 
+class _SchemaMCP:
+    """Emulate the two discrepancy queries the check runs, from a
+    {column: number-of-files-containing-it} map.
+
+    Both comparisons happen in SQL and return only the columns that DISAGREE, so a stub
+    replaying a whole column list would not exercise what the check actually asks for.
+    The declared / known name lists are read back out of the SQL's VALUES clause.
+    """
+
+    def __init__(self, total, name_nf):
+        self.total, self.name_nf, self.sql = total, name_nf, []
+
+    @staticmethod
+    def _values(sql, marker):
+        head = sql.split(marker)[0]
+        return re.findall(r"\('([^']*)'\)", head[head.rfind("(VALUES"):])
+
+    def query(self, sql):
+        self.sql.append(sql)
+        if not self.total:
+            return []
+        if "LEFT JOIN present" in sql:
+            return [{"name": n, "nf": self.name_nf.get(n, 0), "total": self.total}
+                    for n in self._values(sql, ") d(name)")
+                    if self.name_nf.get(n, 0) < self.total]
+        if "FROM present p CROSS JOIN total" in sql:
+            known = self._values(sql, ") k(name)")
+            return [{"name": n, "total": self.total}
+                    for n, nf in sorted(self.name_nf.items())
+                    if nf == self.total and n not in known]
+        raise AssertionError(f"unscripted query: {sql}")
+
+
 def _schema_mcp(total, name_nf):
-    return ScriptedMCP([
-        ("AS n FROM parquet_metadata", [{"n": total}]),   # total-files query
-        ("GROUP BY 1", [{"name": n, "nf": nf} for n, nf in name_nf.items()]),
-    ])
+    return _SchemaMCP(total, name_nf)
 
 
 class DeclaredSchemaMatch(unittest.TestCase):
@@ -306,61 +336,79 @@ class DeclaredSchemaMatch(unittest.TestCase):
         self.assertNotIn("type IS NOT NULL", grouped)
 
 
-class DeclaredSchemaMatchNestedColumns(unittest.TestCase):
-    """Run the generated SQL against a REAL parquet footer carrying LIST / STRUCT / MAP
-    columns, rather than trusting that the SQL text looks right.
+class DeclaredSchemaMatchAgainstRealParquet(unittest.TestCase):
+    """Run the generated SQL against a REAL parquet footer, under the MCP's own result-row
+    cap, rather than trusting that the SQL text looks right.
 
-    iucn-taxonomy-2025 is the live case: nine populated `string[]` columns
-    (`common_names_en`, `synonyms`, `threat_codes`, …) were each reported HARD as
-    "absent from all 1 parquet file(s)", and the LIST's `element` leaf was reported as an
-    undocumented top-level column. Acting on either finding would have deleted correct
-    schema documentation or documented a column that does not exist.
+    Two live shapes this pins, both of which reported columns that exist as absent:
+
+      * NESTED columns — iucn-taxonomy-2025's nine populated `string[]` columns
+        (`common_names_en`, `synonyms`, `threat_codes`, …) each read as "absent from all 1
+        parquet file(s)" while the LIST's `element` leaf read as an undocumented top-level
+        column.
+      * WIDE assets — gbif-hex-2026-06 has 61 top-level columns and the MCP returns at
+        most 50 rows, so whichever 11 fell off the end read as absent.
+
+    Acting on either would have deleted correct schema documentation.
     """
 
-    ROWS = ("SELECT 1 AS _cng_fid, ['a','b'] AS names, {'p': 1, 'q': 2} AS box, "
+    MCP_ROW_CAP = 50   # the MCP query tool's result cap, reproduced here on purpose
+    ROWS = ("SELECT 1 AS _cng_fid, ['a','b'] AS names, {'xmin': 1, 'xmax': 2} AS bbox, "
             "MAP{'k':'v'} AS tags, 'x' AS plain")
 
-    def _run(self, declared):
+    def _run(self, declared, rows_sql=None):
         try:
             import duckdb
         except ImportError:                      # pragma: no cover - CI installs it
             self.skipTest("duckdb not installed")
         import tempfile
+        cap = self.MCP_ROW_CAP
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "data_0.parquet"
             con = duckdb.connect()
-            con.execute(f"COPY ({self.ROWS}) TO '{path}' (FORMAT PARQUET)")
+            con.execute(f"COPY ({rows_sql or self.ROWS}) TO '{path}' (FORMAT PARQUET)")
 
             class Exec:
-                """Point the check's footer reads at the local file. Both function names
-                are rewritten so this test is a true red/green against either
-                implementation instead of erroring out on the s3 path."""
+                """Point the check's footer reads at the local file, and truncate the way
+                the MCP does. Both function names are rewritten so this is a true
+                red/green against either implementation rather than erroring on the s3
+                path."""
 
                 def query(self, sql):
                     sql = re.sub(r"parquet_(metadata|schema)\('[^']*'\)",
                                  lambda m: f"parquet_{m.group(1)}('{path}')", sql)
                     cur = con.execute(sql)
                     names = [d[0] for d in cur.description]
-                    return [dict(zip(names, r)) for r in cur.fetchall()]
+                    return [dict(zip(names, r)) for r in cur.fetchall()][:cap]
 
             return vs.check_declared_schema_matches_data(_schema_doc(declared), Exec())
 
     def test_declared_nested_columns_are_not_reported_absent(self):
-        # THE iucn-taxonomy case: every one of these exists and holds data.
-        self.assertEqual(self._run(["_cng_fid", "names", "box", "tags", "plain"]), [],
+        # THE iucn-taxonomy case: every one of these exists and holds data. `bbox` is the
+        # GeoParquet 1.1 covering struct, declared as one column and stored as leaves.
+        self.assertEqual(self._run(["_cng_fid", "names", "bbox", "tags", "plain"]), [],
                          "a LIST / STRUCT / MAP column must not read as absent")
 
     def test_nested_machinery_is_not_an_undocumented_column(self):
-        # 'element', 'key', 'value' and the struct's fields are parts of a column, not
-        # columns; only the three real undeclared columns may be reported.
+        # 'element', 'key', 'value' and the struct's leaves are parts of a column, not
+        # columns; only the real undeclared columns may be reported. An undeclared bbox
+        # covering stays exempt — it is spatial-index machinery, not authored schema.
         f = self._run(["_cng_fid", "plain"])
         self.assertEqual({x.code for x in f}, {"undocumented-column"})
         named = sorted(re.search(r"parquet column '([^']+)'", x.message).group(1) for x in f)
-        self.assertEqual(named, ["box", "names", "tags"])
+        self.assertEqual(named, ["names", "tags"])
+
+    def test_a_wide_asset_survives_the_result_row_cap(self):
+        # THE gbif case: more columns than the MCP will return rows. Diffing a truncated
+        # column list in Python reports the tail as absent; diffing in SQL returns only
+        # the (here empty) discrepancy list.
+        wide = [f"c{i:02d}" for i in range(self.MCP_ROW_CAP + 11)]
+        f = self._run(wide, rows_sql="SELECT " + ", ".join(f"{i} AS {c}" for i, c in enumerate(wide)))
+        self.assertEqual(f, [], "a wide asset must not report its tail columns as absent")
 
     def test_a_genuinely_absent_column_still_hard_fails(self):
         # Mutation guard: the fix must not blind the check it is fixing.
-        f = self._run(["_cng_fid", "names", "box", "tags", "plain", "ghost"])
+        f = self._run(["_cng_fid", "names", "bbox", "tags", "plain", "ghost"])
         self.assertEqual([x.code for x in f], ["declared-column-absent"])
         self.assertEqual(f[0].severity, vs.HARD)
         self.assertIn("ghost", f[0].message)

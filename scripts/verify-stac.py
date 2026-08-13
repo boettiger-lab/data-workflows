@@ -1450,10 +1450,12 @@ def check_polygon_row_dup(doc: dict, mcp: MCPClient) -> list[Finding]:
 # ---------------------------------------------------------------------------
 
 _PARTITION_KEY_RE = re.compile(r"/([^/=]+)=\*/")
-# GeoParquet 1.1 bbox-covering struct leaves: a STAC declares a single `bbox` column but
-# the file stores it as a struct with these leaves. Neither the `bbox` declaration nor the
-# leaves should be treated as absent/undocumented.
-_BBOX_COVER = {"xmin", "ymin", "zmin", "xmax", "ymax", "zmax"}
+# A GeoParquet 1.1 bbox covering is spatial-index machinery, not a column an author writes
+# up, so an undeclared one is not an undocumented column. Its DECLARED side needs no
+# special case any more: the check reads a column's name from its leaf's path, so the
+# covering struct lands on 'bbox' — the name the STAC declares — like any other column.
+# The leaf names stay listed for a writer that emits them as real top-level columns.
+_BBOX_COVER = {"bbox", "xmin", "ymin", "zmin", "xmax", "ymax", "zmax"}
 
 
 def _partition_keys(href: str) -> set[str]:
@@ -1472,8 +1474,15 @@ def check_declared_schema_matches_data(doc: dict, mcp: MCPClient) -> list[Findin
       declared but absent from EVERY file  -> HARD (stale STAC; a metadata fix)
       declared but absent from SOME files  -> HARD (heterogeneous; a data rebuild)
       present in data, undocumented        -> ADVISORY (self-describing contract; kept
-                                              advisory because nested/covering leaves make
-                                              a hard extra-column failure FP-prone)
+                                              advisory because a lookup/crosswalk table
+                                              may carry a column nobody wrote up yet)
+
+    Both comparisons run IN SQL and return only the discrepancies, for the same reason
+    check_values_match_distinct does it: the MCP query tool caps a result at 50 rows, so
+    reading back a whole column list and diffing it in Python drops the tail of any asset
+    wider than that and reports the dropped columns as absent. gbif-hex-2026-06 has 61
+    top-level columns, and which 11 vanished varied run to run with the (unordered)
+    GROUP BY. A discrepancy list is short by construction — usually empty.
     """
     out = []
     for key, asset in doc.get("assets", {}).items():
@@ -1486,75 +1495,88 @@ def check_declared_schema_matches_data(doc: dict, mcp: MCPClient) -> list[Findin
         if not declared:
             continue  # parquet-no-table-columns already HARD-flags a missing schema
         part_keys = _partition_keys(asset.get("href", ""))
+        # A path-supplied partition key and the writer-named geometry column are exempt in
+        # both directions: neither has to appear in a footer, and neither is undocumented.
+        exempt = set(part_keys)
+        original = {}
+        for name in declared:
+            low = name.lower()
+            original.setdefault(low, name)   # report the STAC's own spelling back
+            if _is_geom_col(name):
+                exempt.add(low)
+        compare = [low for low in original if low not in exempt]
+        if not compare:
+            continue
+        # `present` reads TOP-LEVEL column names from each leaf chunk's `path_in_schema`,
+        # whose FIRST segment is the column that leaf belongs to: a `string[]` column reads
+        # 'common_names_en, list, element', a struct 'bbox, xmin', a map
+        # 'tags, key_value, key', a plain column just its own name.
+        #
+        # `parquet_schema`'s flat name list cannot answer this. The parquet schema is a TREE
+        # flattened in pre-order, and a LIST / STRUCT / MAP column is a group node whose
+        # physical `type` is NULL — the same NULL that marks the schema root. So filtering on
+        # `type IS NOT NULL` to drop the root also dropped the column itself, and kept the
+        # group's machinery leaves ('element', 'key', 'value', struct fields) in its place:
+        # every declared nested column read as absent while its leaves read as phantom
+        # top-level columns (iucn-taxonomy-2025: 9 populated `string[]` columns reported
+        # absent, plus an 'element' undocumented-column advisory). Splitting the leaf path is
+        # exact, needs no ordering assumption, and subsumes the GeoParquet `bbox` covering
+        # struct, which lands on 'bbox' like any other column.
+        #
+        # `parquet_metadata` is the column-chunk footer, so this stays a footer read. A file
+        # with no row groups has no chunks and drops out of both `present` and `total`, which
+        # is what we want: an empty file has no data to disagree with the STAC, and counting
+        # it would report every column as missing from it.
+        # MATERIALIZED so the footer is read once per query rather than once per CTE that
+        # references it — two queries, two reads, the same as the pair this replaced.
+        ctes = (f"WITH meta AS MATERIALIZED (SELECT lower(split_part(path_in_schema, ', ', 1)) "
+                f"AS name, file_name FROM parquet_metadata('{s3}')), "
+                "present AS (SELECT name, COUNT(DISTINCT file_name) AS nf FROM meta GROUP BY 1), "
+                "total AS (SELECT COUNT(DISTINCT file_name) AS n FROM meta) ")
+        cmp_values = ", ".join("('" + n.replace("'", "''") + "')" for n in sorted(compare))
+        known_values = ", ".join(
+            "('" + n.replace("'", "''") + "')" for n in sorted(set(original) | exempt))
         try:
-            total = int(mcp.query(
-                f"SELECT COUNT(DISTINCT file_name) AS n FROM parquet_metadata('{s3}')")[0]["n"])
-            # Read TOP-LEVEL column names from each leaf chunk's `path_in_schema`, whose
-            # FIRST segment is the column that leaf belongs to: a `string[]` column reads
-            # 'common_names_en, list, element', a struct 'bbox, xmin', a map
-            # 'tags, key_value, key', a plain column just its own name.
-            #
-            # `parquet_schema`'s flat name list cannot answer this. The parquet schema is a
-            # TREE flattened in pre-order, and a LIST / STRUCT / MAP column is a group node
-            # whose physical `type` is NULL — the same NULL that marks the schema root. So
-            # filtering on `type IS NOT NULL` to drop the root also drops the column itself,
-            # and it kept the group's machinery leaves ('element', 'key', 'value', struct
-            # fields) instead. Both halves misfire: every declared nested column HARD-failed
-            # `declared-column-absent` while its leaves read as phantom top-level columns
-            # (iucn-taxonomy-2025: 9 populated `string[]` columns reported absent, plus an
-            # 'element' undocumented-column advisory). Splitting the leaf path is exact and
-            # needs no ordering assumption. It also covers the `bbox` struct, whose fallback
-            # below stays for a writer that emits xmin/ymin as real top-level columns.
-            #
-            # `parquet_metadata` is the column-chunk footer, so this remains a footer read.
-            # A file with no row groups has no chunks and so drops out of both the presence
-            # map and `total`, which is what we want: an empty file has no data to disagree
-            # with the STAC, and counting it would report every column missing from it.
-            rows = mcp.query(
-                "SELECT lower(split_part(path_in_schema, ', ', 1)) AS name, "
-                f"COUNT(DISTINCT file_name) AS nf FROM parquet_metadata('{s3}') GROUP BY 1")
+            missing = mcp.query(
+                ctes + f"SELECT d.name AS name, COALESCE(p.nf, 0) AS nf, t.n AS total "
+                f"FROM (VALUES {cmp_values}) d(name) CROSS JOIN total t "
+                "LEFT JOIN present p ON p.name = d.name "
+                "WHERE t.n > 0 AND COALESCE(p.nf, 0) < t.n ORDER BY 1")
+            extra = mcp.query(
+                ctes + "SELECT p.name AS name, t.n AS total FROM present p CROSS JOIN total t "
+                f"WHERE t.n > 0 AND p.nf = t.n AND p.name NOT IN "
+                f"(SELECT * FROM (VALUES {known_values}) k(name)) ORDER BY 1")
         except (MCPError, ValueError, KeyError, IndexError) as e:
             out.append(Finding(ADVISORY, "schema-match-check-failed",
                                f"asset '{key}': could not read parquet footers ({e})."))
             continue
-        if not total:
-            continue
-        present = {}
-        for r in rows:
+        for r in missing:
             try:
-                present[str(r["name"]).lower()] = int(r["nf"])
+                low, nf, total = str(r["name"]).lower(), int(r["nf"]), int(r["total"])
             except (KeyError, ValueError, TypeError):
                 continue
-        # a `bbox` declared as one column may be stored as a covering struct — treat it as
-        # present if its leaves are (in as many files as the leaves appear).
-        bbox_leaf_files = (min((present[l] for l in _BBOX_COVER if l in present), default=0))
-
-        declared_lower = set()
-        for name in declared:
-            low = name.lower()
-            declared_lower.add(low)
-            if low in part_keys or _is_geom_col(name):
-                continue  # path-supplied partition key / writer-named geometry column
-            nf = present.get(low, 0)
-            if low == "bbox" and nf == 0:
-                nf = bbox_leaf_files  # covering-struct case
+            name = original.get(low, low)
             if nf == 0:
                 out.append(Finding(HARD, "declared-column-absent",
                     f"asset '{key}': STAC declares column '{name}' but it is absent from "
                     f"all {total} parquet file(s) — a stale/incorrect schema; fix the STAC "
                     f"table:columns."))
-            elif nf < total:
+            else:
                 out.append(Finding(HARD, "declared-column-heterogeneous",
                     f"asset '{key}': STAC declares column '{name}' but it is missing from "
                     f"{total - nf} of {total} parquet file(s) — a partial/mixed-vintage "
                     f"build; rebuild the asset. See data-workflows#534/#520."))
-        for low, nf in sorted(present.items()):
-            if (nf == total and low not in declared_lower and low not in part_keys
-                    and not _is_geom_col(low) and low not in _BBOX_COVER and low != "bbox"):
-                out.append(Finding(ADVISORY, "undocumented-column",
-                    f"asset '{key}': parquet column '{low}' is present in all {total} "
-                    f"file(s) but not declared in table:columns — add it (assets must be "
-                    f"self-describing) or confirm it is intentional."))
+        for r in extra:
+            try:
+                low, total = str(r["name"]).lower(), int(r["total"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            if _is_geom_col(low) or low in _BBOX_COVER or low.endswith("_bbox"):
+                continue
+            out.append(Finding(ADVISORY, "undocumented-column",
+                f"asset '{key}': parquet column '{low}' is present in all {total} "
+                f"file(s) but not declared in table:columns — add it (assets must be "
+                f"self-describing) or confirm it is intentional."))
     return out
 
 
