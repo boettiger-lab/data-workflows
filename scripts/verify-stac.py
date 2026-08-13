@@ -1488,13 +1488,31 @@ def check_declared_schema_matches_data(doc: dict, mcp: MCPClient) -> list[Findin
         part_keys = _partition_keys(asset.get("href", ""))
         try:
             total = int(mcp.query(
-                f"SELECT COUNT(DISTINCT file_name) AS n FROM parquet_schema('{s3}')")[0]["n"])
-            # `type IS NOT NULL` keeps only leaf columns, dropping the schema root and any
-            # struct group node (whose physical type is NULL) — so `parquet_schema`'s
-            # nested/struct entries do not read as phantom columns (#534 caveat).
+                f"SELECT COUNT(DISTINCT file_name) AS n FROM parquet_metadata('{s3}')")[0]["n"])
+            # Read TOP-LEVEL column names from each leaf chunk's `path_in_schema`, whose
+            # FIRST segment is the column that leaf belongs to: a `string[]` column reads
+            # 'common_names_en, list, element', a struct 'bbox, xmin', a map
+            # 'tags, key_value, key', a plain column just its own name.
+            #
+            # `parquet_schema`'s flat name list cannot answer this. The parquet schema is a
+            # TREE flattened in pre-order, and a LIST / STRUCT / MAP column is a group node
+            # whose physical `type` is NULL — the same NULL that marks the schema root. So
+            # filtering on `type IS NOT NULL` to drop the root also drops the column itself,
+            # and it kept the group's machinery leaves ('element', 'key', 'value', struct
+            # fields) instead. Both halves misfire: every declared nested column HARD-failed
+            # `declared-column-absent` while its leaves read as phantom top-level columns
+            # (iucn-taxonomy-2025: 9 populated `string[]` columns reported absent, plus an
+            # 'element' undocumented-column advisory). Splitting the leaf path is exact and
+            # needs no ordering assumption. It also covers the `bbox` struct, whose fallback
+            # below stays for a writer that emits xmin/ymin as real top-level columns.
+            #
+            # `parquet_metadata` is the column-chunk footer, so this remains a footer read.
+            # A file with no row groups has no chunks and so drops out of both the presence
+            # map and `total`, which is what we want: an empty file has no data to disagree
+            # with the STAC, and counting it would report every column missing from it.
             rows = mcp.query(
-                "SELECT lower(name) AS name, COUNT(DISTINCT file_name) AS nf "
-                f"FROM parquet_schema('{s3}') WHERE type IS NOT NULL GROUP BY 1")
+                "SELECT lower(split_part(path_in_schema, ', ', 1)) AS name, "
+                f"COUNT(DISTINCT file_name) AS nf FROM parquet_metadata('{s3}') GROUP BY 1")
         except (MCPError, ValueError, KeyError, IndexError) as e:
             out.append(Finding(ADVISORY, "schema-match-check-failed",
                                f"asset '{key}': could not read parquet footers ({e})."))

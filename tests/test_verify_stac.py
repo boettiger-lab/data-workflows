@@ -20,6 +20,7 @@ Run: python3 -m unittest discover -s tests -v
 """
 import importlib.util
 import pathlib
+import re
 import unittest
 
 _SRC = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "verify-stac.py"
@@ -246,7 +247,7 @@ def _schema_doc(declared, href=HEX_HREF):
 
 def _schema_mcp(total, name_nf):
     return ScriptedMCP([
-        ("AS n FROM parquet_schema", [{"n": total}]),   # total-files query
+        ("AS n FROM parquet_metadata", [{"n": total}]),   # total-files query
         ("GROUP BY 1", [{"name": n, "nf": nf} for n, nf in name_nf.items()]),
     ])
 
@@ -293,6 +294,76 @@ class DeclaredSchemaMatch(unittest.TestCase):
                "table:columns": [{"name": "_cng_fid"}, {"name": "geom"}]}}}
         f = vs.check_declared_schema_matches_data(doc, _schema_mcp(1, {"_cng_fid": 1}))
         self.assertEqual(f, [])
+
+    def test_column_names_come_from_the_leaf_path_not_the_flat_name_list(self):
+        # Dependency-free guard on the generated SQL: a nested column is a group node with
+        # a NULL physical type, so any name list filtered on `type IS NOT NULL` loses it.
+        doc = _schema_doc(["_cng_fid"])
+        mcp = _schema_mcp(1, {"_cng_fid": 1})
+        vs.check_declared_schema_matches_data(doc, mcp)
+        grouped = [s for s in mcp.sql if "GROUP BY 1" in s][0]
+        self.assertIn("path_in_schema", grouped)
+        self.assertNotIn("type IS NOT NULL", grouped)
+
+
+class DeclaredSchemaMatchNestedColumns(unittest.TestCase):
+    """Run the generated SQL against a REAL parquet footer carrying LIST / STRUCT / MAP
+    columns, rather than trusting that the SQL text looks right.
+
+    iucn-taxonomy-2025 is the live case: nine populated `string[]` columns
+    (`common_names_en`, `synonyms`, `threat_codes`, …) were each reported HARD as
+    "absent from all 1 parquet file(s)", and the LIST's `element` leaf was reported as an
+    undocumented top-level column. Acting on either finding would have deleted correct
+    schema documentation or documented a column that does not exist.
+    """
+
+    ROWS = ("SELECT 1 AS _cng_fid, ['a','b'] AS names, {'p': 1, 'q': 2} AS box, "
+            "MAP{'k':'v'} AS tags, 'x' AS plain")
+
+    def _run(self, declared):
+        try:
+            import duckdb
+        except ImportError:                      # pragma: no cover - CI installs it
+            self.skipTest("duckdb not installed")
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "data_0.parquet"
+            con = duckdb.connect()
+            con.execute(f"COPY ({self.ROWS}) TO '{path}' (FORMAT PARQUET)")
+
+            class Exec:
+                """Point the check's footer reads at the local file. Both function names
+                are rewritten so this test is a true red/green against either
+                implementation instead of erroring out on the s3 path."""
+
+                def query(self, sql):
+                    sql = re.sub(r"parquet_(metadata|schema)\('[^']*'\)",
+                                 lambda m: f"parquet_{m.group(1)}('{path}')", sql)
+                    cur = con.execute(sql)
+                    names = [d[0] for d in cur.description]
+                    return [dict(zip(names, r)) for r in cur.fetchall()]
+
+            return vs.check_declared_schema_matches_data(_schema_doc(declared), Exec())
+
+    def test_declared_nested_columns_are_not_reported_absent(self):
+        # THE iucn-taxonomy case: every one of these exists and holds data.
+        self.assertEqual(self._run(["_cng_fid", "names", "box", "tags", "plain"]), [],
+                         "a LIST / STRUCT / MAP column must not read as absent")
+
+    def test_nested_machinery_is_not_an_undocumented_column(self):
+        # 'element', 'key', 'value' and the struct's fields are parts of a column, not
+        # columns; only the three real undeclared columns may be reported.
+        f = self._run(["_cng_fid", "plain"])
+        self.assertEqual({x.code for x in f}, {"undocumented-column"})
+        named = sorted(re.search(r"parquet column '([^']+)'", x.message).group(1) for x in f)
+        self.assertEqual(named, ["box", "names", "tags"])
+
+    def test_a_genuinely_absent_column_still_hard_fails(self):
+        # Mutation guard: the fix must not blind the check it is fixing.
+        f = self._run(["_cng_fid", "names", "box", "tags", "plain", "ghost"])
+        self.assertEqual([x.code for x in f], ["declared-column-absent"])
+        self.assertEqual(f[0].severity, vs.HARD)
+        self.assertIn("ghost", f[0].message)
 
 
 # --- #535: a vector hex must hold every feature of its flat GeoParquet -------
