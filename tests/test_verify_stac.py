@@ -220,5 +220,158 @@ class PerCellAggregationExemption(unittest.TestCase):
         self.assertEqual(f[0].severity, vs.HARD)
 
 
+class ScriptedMCP:
+    """Replays canned rows keyed by a substring of the SQL (first match wins), so a check
+    that issues several different queries gets a different answer for each. Raises on an
+    unmatched query, so a test that forgets to script one fails loudly."""
+
+    def __init__(self, responses):
+        self.responses = list(responses)  # [(substr, rows), ...]
+        self.sql = []
+
+    def query(self, sql):
+        self.sql.append(sql)
+        for substr, rows in self.responses:
+            if substr in sql:
+                return rows
+        raise AssertionError(f"unscripted query: {sql}")
+
+
+# --- #534: declared STAC schema vs actual parquet schema (per file) ---------
+
+def _schema_doc(declared, href=HEX_HREF):
+    return {"assets": {"d-hex": {"href": href, "type": PARQUET,
+                                 "table:columns": [{"name": n} for n in declared]}}}
+
+
+def _schema_mcp(total, name_nf):
+    return ScriptedMCP([
+        ("AS n FROM parquet_schema", [{"n": total}]),   # total-files query
+        ("GROUP BY 1", [{"name": n, "nf": nf} for n, nf in name_nf.items()]),
+    ])
+
+
+class DeclaredSchemaMatch(unittest.TestCase):
+    def test_clean_reports_nothing(self):
+        # h0 is a path partition key (from /h0=*/), so it is legitimately skipped.
+        doc = _schema_doc(["_cng_fid", "rfb", "h0"])
+        mcp = _schema_mcp(2, {"_cng_fid": 2, "rfb": 2, "h0": 2})
+        self.assertEqual(vs.check_declared_schema_matches_data(doc, mcp), [])
+
+    def test_declared_absent_everywhere_is_hard(self):
+        doc = _schema_doc(["_cng_fid", "ghost"])
+        f = vs.check_declared_schema_matches_data(doc, _schema_mcp(2, {"_cng_fid": 2}))
+        self.assertEqual([x.code for x in f], ["declared-column-absent"])
+        self.assertEqual(f[0].severity, vs.HARD)
+        self.assertIn("ghost", f[0].message)
+
+    def test_heterogeneous_hole_is_hard_and_counts_files(self):
+        # THE #520 case: _cng_fid present in only some files.
+        doc = _schema_doc(["_cng_fid", "rfb"])
+        f = vs.check_declared_schema_matches_data(doc, _schema_mcp(121, {"_cng_fid": 99, "rfb": 121}))
+        self.assertEqual([x.code for x in f], ["declared-column-heterogeneous"])
+        self.assertEqual(f[0].severity, vs.HARD)
+        self.assertIn("22 of 121", f[0].message)
+
+    def test_undocumented_extra_is_advisory(self):
+        doc = _schema_doc(["_cng_fid"])
+        f = vs.check_declared_schema_matches_data(doc, _schema_mcp(2, {"_cng_fid": 2, "surprise": 2}))
+        self.assertEqual([x.code for x in f], ["undocumented-column"])
+        self.assertEqual(f[0].severity, vs.ADVISORY)
+        self.assertIn("surprise", f[0].message)
+
+    def test_partition_key_absent_from_footer_is_not_flagged(self):
+        # Mutation guard: a partition key lives in the PATH, not the footer. Declaring h0
+        # while parquet_schema shows no h0 must NOT read as an absent column.
+        doc = _schema_doc(["_cng_fid", "h0"])
+        f = vs.check_declared_schema_matches_data(doc, _schema_mcp(2, {"_cng_fid": 2}))
+        self.assertEqual(f, [])
+
+    def test_geometry_column_is_skipped(self):
+        # geometry may be writer-named differently; skip it both directions.
+        doc = {"assets": {"d-parquet": {"href": "https://x/d.parquet", "type": PARQUET,
+               "table:columns": [{"name": "_cng_fid"}, {"name": "geom"}]}}}
+        f = vs.check_declared_schema_matches_data(doc, _schema_mcp(1, {"_cng_fid": 1}))
+        self.assertEqual(f, [])
+
+
+# --- #535: a vector hex must hold every feature of its flat GeoParquet -------
+
+FLAT_HREF = "https://s3-west.nrp-nautilus.io/public-x/d/d.parquet"
+
+
+def _cov_doc(hex_cols=("_cng_fid", "h10", "h0"), with_flat=True, **hex_kw):
+    assets = {"d-hex": hex_asset(list(hex_cols), **hex_kw)}
+    if with_flat:
+        assets["d-parquet"] = {"href": FLAT_HREF, "type": PARQUET,
+            "table:columns": [{"name": "_cng_fid"}, {"name": "geom", "type": "geometry"}]}
+    return {"assets": assets}
+
+
+def _cov_mcp(flat_n, hex_d, hex_nulls=0):
+    return ScriptedMCP([
+        ("COUNT(*) AS n FROM read_parquet", [{"n": flat_n}]),
+        ("COUNT(DISTINCT _cng_fid) AS d", [{"d": hex_d, "nulls": hex_nulls}]),
+    ])
+
+
+class HexHoldsAllFeatures(unittest.TestCase):
+    def test_equal_counts_report_nothing(self):
+        self.assertEqual(
+            vs.check_hex_holds_all_features(_cov_doc(), _cov_mcp(105, 105)), [])
+
+    def test_short_hex_is_hard(self):
+        # THE #520 case: hex holds 104 of 105.
+        f = vs.check_hex_holds_all_features(_cov_doc(), _cov_mcp(105, 104))
+        self.assertEqual([x.code for x in f], ["hex-missing-features"])
+        self.assertEqual(f[0].severity, vs.HARD)
+        self.assertIn("104 of 105", f[0].message)
+
+    def test_raster_hex_without_cng_fid_is_skipped_not_queried(self):
+        doc = _cov_doc(hex_cols=("h8", "h0"), with_flat=False)
+        mcp = _cov_mcp(1, 1)
+        self.assertEqual(vs.check_hex_holds_all_features(doc, mcp), [])
+        self.assertEqual(mcp.sql, [], "must not query a raster-derived hex")
+
+    def test_null_key_is_advisory_not_hard(self):
+        f = vs.check_hex_holds_all_features(_cov_doc(), _cov_mcp(105, 90, hex_nulls=15))
+        self.assertEqual([x.code for x in f], ["hex-coverage-unverifiable"])
+        self.assertEqual(f[0].severity, vs.ADVISORY)
+
+    def test_documented_shortfall_is_accepted(self):
+        doc = _cov_doc(description="Two features are smaller than one cell and polyfill "
+                                   "to zero cells, so are absent from the hex.")
+        self.assertEqual(vs.check_hex_holds_all_features(doc, _cov_mcp(105, 103)), [])
+
+    def test_extra_features_is_hard(self):
+        f = vs.check_hex_holds_all_features(_cov_doc(), _cov_mcp(105, 106))
+        self.assertEqual([x.code for x in f], ["hex-extra-features"])
+        self.assertEqual(f[0].severity, vs.HARD)
+
+    def test_multilayer_pairs_by_stem_not_any_two(self):
+        # rfb short, vme complete: only rfb must be flagged, and rfb's hex must be compared
+        # to rfb's flat (by stem), never to vme's.
+        rfb_hex = "https://s3-west.nrp-nautilus.io/public-x/rfmo/rfb/hex/h0=*/data_0.parquet"
+        vme_hex = "https://s3-west.nrp-nautilus.io/public-x/rfmo/vme/hex/h0=*/data_0.parquet"
+        flat = lambda p: {"href": f"https://s3-west.nrp-nautilus.io/public-x/rfmo/{p}.parquet",
+                          "type": PARQUET,
+                          "table:columns": [{"name": "_cng_fid"}, {"name": "geom", "type": "geometry"}]}
+        doc = {"assets": {
+            "rfb-hex": hex_asset(["_cng_fid", "h8", "h0"], href=rfb_hex),
+            "vme-hex": hex_asset(["_cng_fid", "h8", "h0"], href=vme_hex),
+            "rfb-parquet": flat("rfb"), "vme-parquet": flat("vme"),
+        }}
+        mcp = ScriptedMCP([
+            ("read_parquet('s3://public-x/rfmo/rfb.parquet')", [{"n": 105}]),
+            ("read_parquet('s3://public-x/rfmo/vme.parquet')", [{"n": 50}]),
+            ("rfb/hex/h0=*/data_0.parquet')", [{"d": 104, "nulls": 0}]),
+            ("vme/hex/h0=*/data_0.parquet')", [{"d": 50, "nulls": 0}]),
+        ])
+        f = vs.check_hex_holds_all_features(doc, mcp)
+        self.assertEqual([x.code for x in f], ["hex-missing-features"])
+        self.assertIn("rfb-hex", f[0].message)
+        self.assertIn("104 of 105", f[0].message)
+
+
 if __name__ == "__main__":
     unittest.main()
