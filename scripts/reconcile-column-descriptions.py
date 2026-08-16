@@ -62,8 +62,22 @@ FLAT_SPECIFIC = re.compile(
     re.I)
 
 
+# Index / key columns are never per-feature magnitudes — they must not be named in a
+# "never SUM, dedup" note even if their hex text happens to mention repetition.
+SAFE_COLS = {"_cng_fid", "bbox", "fid", "ogc_fid", "objectid"}
+_H3 = re.compile(r"^h\d{1,2}$")
+
+
 def norm(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
+
+
+def grain_neutral(text: str) -> str:
+    """Drop whole sentences that make a flat-grain-specific claim, leaving a canonical text
+    true on every asset. Returns '' if nothing survives (then the column needs judgment)."""
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    kept = [p for p in parts if p and not FLAT_SPECIFIC.search(p)]
+    return norm(" ".join(kept))
 
 
 def fetch(url: str) -> dict:
@@ -108,68 +122,149 @@ def divergent_columns(doc: dict) -> dict:
     return {n: d for n, d in m.items() if len({norm(x) for x in d.values()}) > 1}
 
 
-def reconcile(doc: dict, verbose=False) -> dict:
+def _h3_canonical(name: str) -> str:
+    """Grain-neutral text for an H3 index column. Grain (native vs rollup) is declared by
+    h3:native_resolution / h3:parent_resolutions on the asset, so the column text must not
+    encode it (that is exactly what makes h-columns diverge across hex/hex-fractions)."""
+    n = int(name[1:])
+    if n == 0:
+        return "H3 cell ID at resolution 0; the Hive partition key for hive-partitioned reads."
+    return f"H3 cell ID at resolution {n}."
+
+
+def _has_cng_fid(asset: dict) -> bool:
+    """A vector feature hex carries _cng_fid; a raster reduction (categorical/continuous hex)
+    does not. A '_cng_fid dedup' note only makes sense on the former."""
+    return any(c.get("name") == "_cng_fid" for c in asset.get("table:columns", []))
+
+
+def _apply_canonical(doc: dict, name: str, canonical: str, report: dict,
+                     stripped_by_asset: dict) -> None:
+    """Set `canonical` as the description of `name` on every asset that carries it, recording
+    any hex per-feature-magnitude column whose inline dedup clause is thereby stripped."""
+    for ak, a in doc.get("assets", {}).items():
+        for c in a.get("table:columns", []):
+            if c.get("name") != name:
+                continue
+            old = c.get("description", "")
+            if norm(old) == norm(canonical):
+                continue
+            # Only a vector feature hex (has _cng_fid) can carry a per-feature dedup note.
+            # A raster reduction hex has no _cng_fid — its "do not SUM" is a categorical
+            # caution, not a per-feature-duplication clause, so never relocate one there.
+            if (is_hex_href(a.get("href", "")) and DEDUP_CLAUSE.search(old)
+                    and name.lower() not in SAFE_COLS and not _H3.match(name)
+                    and _has_cng_fid(a)):
+                stripped_by_asset.setdefault(ak, []).append(name)
+            c["description"] = canonical
+    report["changed"].append(name)
+
+
+def _ensure_hex_notes(doc: dict, stripped_by_asset: dict, report: dict) -> None:
+    """Relocate stripped per-feature dedup clauses to the hex asset description (the location
+    the #303 fold always renders and that satisfies check_hex_dup_warning)."""
+    for ak, names in stripped_by_asset.items():
+        asset = doc["assets"][ak]
+        if ASSET_NOTE.search(asset.get("description", "") or ""):
+            continue
+        uniq = sorted(set(names))
+        note = (f" Per-feature attribute columns ({', '.join(uniq)}) are repeated on every "
+                f"hex cell the feature covers, so a raw SUM over hex rows double-counts; dedup "
+                f"by _cng_fid first, e.g. SELECT DISTINCT _cng_fid, {uniq[0]}.")
+        asset["description"] = ((asset.get("description", "") or "").rstrip() + note).strip()
+        report["hex_notes_added"].append({"asset": ak, "columns": uniq})
+
+
+def _apply_overrides(doc: dict, ov: dict, report: dict, stripped_by_asset: dict) -> None:
+    """Apply a hand-authored per-collection override: set canonical text for named columns on
+    every asset, and append any asset-specific notes to the named asset descriptions."""
+    for name, text in (ov.get("columns") or {}).items():
+        _apply_canonical(doc, name, text, report, stripped_by_asset)
+        report.setdefault("overridden", []).append(name)
+    for ak, note in (ov.get("asset_notes") or {}).items():
+        if ak in doc.get("assets", {}):
+            cur = doc["assets"][ak].get("description", "") or ""
+            if norm(note) not in norm(cur):
+                doc["assets"][ak]["description"] = (cur.rstrip() + " " + note).strip()
+
+
+def _resolve_generic(doc: dict, name: str, per: dict, report: dict,
+                     stripped_by_asset: dict) -> bool:
+    """Resolve a divergent column with no flat canonical by the safe mechanical rules:
+    grain-neutral H3 columns, or a clean superset (one variant contains all the others).
+    Returns True if resolved; False means it needs a hand-authored override."""
+    if _H3.match(name):
+        _apply_canonical(doc, name, _h3_canonical(name), report, stripped_by_asset)
+        return True
+    longest = max(per.values(), key=lambda t: len(norm(t)))
+    if all(norm(v) in norm(longest) for v in per.values()):
+        base = min(per.values(), key=lambda t: len(norm(t)))
+        _apply_canonical(doc, name, base, report, stripped_by_asset)
+        return True
+    return False
+
+
+def reconcile(doc: dict, verbose=False, allow_no_flat=False, overrides=None) -> dict:
     """Mutate doc in place. Return a report dict."""
     report = {"id": doc.get("id", "?"), "status": "ok", "changed": [], "skipped": [],
               "hex_notes_added": [], "reason": ""}
+    stripped_by_asset: dict[str, list[str]] = {}
+
+    # 1) Hand-authored overrides first (judgment cohort). They win over any auto rule.
+    ov = (overrides or {}).get(doc.get("id", ""), {})
+    if ov:
+        _apply_overrides(doc, ov, report, stripped_by_asset)
+
     div = divergent_columns(doc)
     if not div:
-        report["status"] = "already-clean"
+        _ensure_hex_notes(doc, stripped_by_asset, report)
+        report["status"] = "already-clean" if not report["changed"] else "ok"
         return report
+
     fk = flat_asset_key(doc)
-    if not fk:
+    if fk:
+        # 2a) AUTO cohort: canonical = the flat GeoParquet asset's text.
+        flat_cols = {c.get("name", ""): c.get("description", "")
+                     for c in doc["assets"][fk].get("table:columns", [])}
+        for name in sorted(div):
+            if name not in flat_cols or not flat_cols[name]:
+                # Column absent from the flat asset (typically a hex-only H3 index). Fall back
+                # to the mechanical no-flat rules; only skip if those can't resolve it.
+                if allow_no_flat and _resolve_generic(doc, name, div[name], report,
+                                                      stripped_by_asset):
+                    continue
+                report["skipped"].append(name)
+                report.setdefault("skip_reasons", {})[name] = "not on flat asset"
+                continue
+            canonical = flat_cols[name]
+            if FLAT_SPECIFIC.search(canonical):
+                scrubbed = grain_neutral(canonical)
+                if scrubbed and not FLAT_SPECIFIC.search(scrubbed):
+                    canonical = scrubbed
+                    report.setdefault("scrubbed", []).append(name)
+                else:
+                    report["skipped"].append(name)
+                    report.setdefault("skip_reasons", {})[name] = "flat text wholly grain-specific"
+                    continue
+            _apply_canonical(doc, name, canonical, report, stripped_by_asset)
+    elif allow_no_flat:
+        # 2b) JUDGMENT cohort: no flat canonical. Auto-resolve only the safe, mechanical
+        # classes — grain-neutral H3 columns and clean supersets (one variant is a superset
+        # of the others). Genuine data-column divergences are left for --overrides.
+        for name, per in sorted(div.items()):
+            if not _resolve_generic(doc, name, per, report, stripped_by_asset):
+                report["skipped"].append(name)
+                report.setdefault("skip_reasons", {})[name] = "genuine divergence (needs override)"
+    else:
         report["status"] = "judgment"
         report["reason"] = "no flat GeoParquet asset"
         report["skipped"] = sorted(div)
         return report
-    flat_cols = {c.get("name", ""): c.get("description", "")
-                 for c in doc["assets"][fk].get("table:columns", [])}
 
-    # Per hex asset, the per-feature-total column names whose inline dedup clause we strip.
-    stripped_by_asset: dict[str, list[str]] = {}
-
-    for name, per in sorted(div.items()):
-        if name not in flat_cols or not flat_cols[name]:
-            report["skipped"].append(name)
-            report.setdefault("skip_reasons", {})[name] = "not on flat asset"
-            continue
-        canonical = flat_cols[name]
-        if FLAT_SPECIFIC.search(canonical):
-            report["skipped"].append(name)
-            report.setdefault("skip_reasons", {})[name] = "flat text is grain-specific"
-            continue
-        # Apply canonical to every asset that carries this column; record hex strips.
-        for ak, a in doc.get("assets", {}).items():
-            for c in a.get("table:columns", []):
-                if c.get("name") != name:
-                    continue
-                old = c.get("description", "")
-                if norm(old) == norm(canonical):
-                    continue
-                if is_hex_href(a.get("href", "")) and DEDUP_CLAUSE.search(old):
-                    stripped_by_asset.setdefault(ak, []).append(name)
-                c["description"] = canonical
-        report["changed"].append(name)
-
-    # Ensure the per-feature dedup note survives at the hex asset description level — the
-    # location the #303 fold always renders and that satisfies check_hex_dup_warning. Added
-    # only when we actually stripped an inline clause and the hex asset lacks its own note.
-    for ak, names in stripped_by_asset.items():
-        asset = doc["assets"][ak]
-        if ASSET_NOTE.search(asset.get("description", "") or ""):
-            continue  # already carries a note
-        cols_list = ", ".join(sorted(set(names)))
-        note = (f" Per-feature attribute columns ({cols_list}) are repeated on every hex "
-                f"cell the feature covers, so a raw SUM over hex rows double-counts; dedup "
-                f"by _cng_fid first, e.g. SELECT DISTINCT _cng_fid, {sorted(set(names))[0]}.")
-        asset["description"] = (asset.get("description", "") or "").rstrip()
-        asset["description"] = (asset["description"] + note).strip()
-        report["hex_notes_added"].append({"asset": ak, "columns": sorted(set(names))})
-
-    # Post-check: recompute divergences.
+    _ensure_hex_notes(doc, stripped_by_asset, report)
     remaining = divergent_columns(doc)
     report["remaining"] = sorted(remaining)
-    if remaining and not report["skipped"]:
+    if remaining:
         report["status"] = "partial"
     return report
 
@@ -181,6 +276,13 @@ def main():
     p.add_argument("--bucket", help="bucket (with --dataset) to derive the collection URL")
     p.add_argument("--dataset", default="")
     p.add_argument("--out", default="/tmp/recon", help="output dir for reconciled JSON")
+    p.add_argument("--no-flat", action="store_true",
+                   help="also reconcile collections with no flat GeoParquet asset (JUDGMENT "
+                        "cohort): grain-neutral H3 columns + clean supersets auto; genuine "
+                        "data-column divergences need --overrides")
+    p.add_argument("--overrides", help="JSON file of hand-authored canonical text: "
+                                       "{collection_id: {columns: {col: text}, "
+                                       "asset_notes: {asset_key: note}}}")
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args()
 
@@ -191,12 +293,14 @@ def main():
     if not srcs:
         p.error("provide a collection URL/file or --bucket [--dataset]")
 
+    overrides = json.loads(Path(args.overrides).read_text()) if args.overrides else None
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
     reports = []
     for src in srcs:
         doc = load(src)
-        rep = reconcile(doc, verbose=args.verbose)
+        rep = reconcile(doc, verbose=args.verbose, allow_no_flat=args.no_flat,
+                        overrides=overrides)
         reports.append(rep)
         if rep["status"] in ("ok", "partial") and rep["changed"]:
             cid = doc.get("id", "collection")
@@ -210,6 +314,8 @@ def main():
             print(f"  reason: {rep['reason']}")
         if rep["changed"]:
             print(f"  reconciled ({len(rep['changed'])}): {', '.join(rep['changed'])}")
+        if rep.get("scrubbed"):
+            print(f"  (grain-specific clause scrubbed from: {', '.join(rep['scrubbed'])})")
         for hn in rep["hex_notes_added"]:
             print(f"  + hex note on '{hn['asset']}' for: {', '.join(hn['columns'])}")
         if rep["skipped"]:
