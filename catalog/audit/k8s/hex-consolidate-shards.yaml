@@ -14,6 +14,21 @@
 # destructive rclone step. Only then does it delete the extra shards (data_[1-9]*.parquet) and
 # overwrite data_0.parquet with the verified merge. If the assert fails the partition is left
 # untouched and the pod exits non-zero. Idempotent: a partition already holding one file is skipped.
+#
+# CRASH WINDOW between the delete and the copy — why the staged merge is authoritative on resume.
+# The flip deletes the extra shards first, so a pod that dies mid-partition leaves data_0 holding
+# only its original subset of the rows. That state is indistinguishable, by file COUNT alone, from
+# a partition that was never fragmented, so a naive retry would re-list one file, call the
+# partition clean, and silently publish the truncated result. (Copying the merge in FIRST does not
+# fix this: it trades the truncation for a partition holding merged + stale shards, where the
+# retry's re-merge DOUBLES every row.) Two rules close it:
+#   1. Staging is written before any delete and is NOT purged until every partition verifies, so
+#      it always holds a merge built from the complete shard set. On resume, an existing staged
+#      file is trusted over the live partition and re-copied rather than re-merged.
+#   2. After the flip, each partition's row count is re-read and compared against the staged
+#      count; a mismatch fails the pod loudly with staging left intact for recovery.
+# Residual: if the staged file is itself unreadable AND the live partition was already truncated,
+# neither copy can recover it — recover from the MinIO mirror, not from this job.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,7 +38,6 @@ data:
   targets.txt: |
     public-inat/hexagon
     public-ecoregion/ecoregion/hex
-    public-wdpa/wdpa-december-2025/hex
     public-iucn/richness/hex
 ---
 apiVersion: batch/v1
@@ -34,11 +48,14 @@ metadata:
   labels:
     k8s-app: hex-consolidate-shards
 spec:
-  completions: 4
-  parallelism: 4
+  # One completion per line of targets.txt. public-wdpa/wdpa-december-2025/hex was a 4th target;
+  # that whole superseded edition has since been purged (hex-consolidate-cleanup.yaml), so the
+  # line is gone and completions drops to 3.
+  completions: 3
+  parallelism: 3
   completionMode: Indexed
   backoffLimitPerIndex: 2
-  maxFailedIndexes: 4
+  maxFailedIndexes: 3
   ttlSecondsAfterFinished: 604800
   podFailurePolicy:
     rules:
@@ -83,7 +100,10 @@ spec:
           echo "=== #332 consolidate [$JOB_COMPLETION_INDEX] $TARGET ==="
 
           # List actual files, never assume names. Relative paths under nrp:TARGET/.
-          rclone lsf -R --files-only --include '*.parquet' "nrp:${TARGET}/" > /tmp/parts.txt
+          # A target prefix that no longer exists (purged/renamed dataset) is a SKIP, not a
+          # failure — this job is an idempotent audit pass, re-runnable after the catalog moves on.
+          rclone lsf -R --files-only --include '*.parquet' "nrp:${TARGET}/" > /tmp/parts.txt || {
+            echo "RESULT $TARGET SKIP prefix-absent-or-unreadable"; exit 0; }
           echo "partition files: $(wc -l < /tmp/parts.txt)"
           test -s /tmp/parts.txt || { echo "RESULT $TARGET SKIP no-parquet-files"; exit 0; }
 
@@ -114,31 +134,71 @@ spec:
           done = []
           for d, fs in sorted(frag.items()):
               glob = "s3://{}/{}/*.parquet".format(target, d)
-              total = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(glob)).fetchone()[0]
               dst = "s3://{}-consolidate-staging/{}/data_0.parquet".format(target, d)
-              con.execute("COPY (SELECT * FROM read_parquet('{}')) TO '{}' "
-                          "(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(glob, dst))
-              got = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(dst)).fetchone()[0]
-              assert got == total, '{} {}: merged {} != summed shards {}'.format(target, d, got, total)
-              print('  staged {}/{}: {} shards -> 1 file, {} rows'.format(target, d, len(fs), total), flush=True)
-              done.append(d)
+              # Resume path: a staged merge left by an earlier attempt was built from the COMPLETE
+              # shard set, before anything was deleted. The live partition carries no such
+              # guarantee (it may have been truncated by a crash mid-flip), so never re-merge over
+              # a staged file — re-copy it.
+              try:
+                  total = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(dst)).fetchone()[0]
+                  print('  resume {}/{}: staged merge present, {} rows'.format(target, d, total), flush=True)
+              except Exception:
+                  total = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(glob)).fetchone()[0]
+                  con.execute("COPY (SELECT * FROM read_parquet('{}')) TO '{}' "
+                              "(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(glob, dst))
+                  got = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(dst)).fetchone()[0]
+                  assert got == total, '{} {}: merged {} != summed shards {}'.format(target, d, got, total)
+                  print('  staged {}/{}: {} shards -> 1 file, {} rows'.format(target, d, len(fs), total), flush=True)
+              done.append((d, total))
 
           with open('/tmp/flip.txt', 'w') as f:
-              for d in done:
-                  f.write(d + '\n')
+              for d, total in done:
+                  f.write('{}\t{}\n'.format(d, total))
           print('RESULT {} STAGED partitions={} rewritten={}'.format(target, len(parts), len(done)))
           PY
 
           # Swap in verified merges. Delete the extra shards FIRST (partition briefly holds only
           # the original data_0 subset), then overwrite data_0 with the merged file. This never
-          # exposes an over-count (merged + stale shards) window.
+          # exposes an over-count (merged + stale shards) window, which a retry would re-merge
+          # into duplicated rows; the truncation it can expose instead is recoverable from
+          # staging and is caught by the post-flip verify below.
           if [ -s /tmp/flip.txt ]; then
-            while read -r DIR; do
+            while IFS=$'\t' read -r DIR EXPECTED; do
               rclone delete "nrp:${TARGET}/${DIR}/" --include 'data_[1-9]*.parquet'
               rclone copyto "nrp:${TARGET}-consolidate-staging/${DIR}/data_0.parquet" \
                             "nrp:${TARGET}/${DIR}/data_0.parquet"
-              echo "consolidated ${TARGET}/${DIR}"
+              echo "consolidated ${TARGET}/${DIR} (expect ${EXPECTED} rows)"
             done < /tmp/flip.txt
+
+            # Verify the LIVE partitions, not the staging copies. Fails the pod (and so skips the
+            # purge below) if any consolidated partition does not hold exactly the staged rows.
+            python3 - "$TARGET" <<'PY'
+          import os, sys, duckdb
+          target = sys.argv[1]
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("CREATE SECRET s3 (TYPE S3, KEY_ID '{}', SECRET '{}', ENDPOINT '{}', "
+                      "URL_STYLE 'path', USE_SSL false)".format(
+                          os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'],
+                          os.environ['AWS_S3_ENDPOINT']))
+          bad = []
+          for line in open('/tmp/flip.txt'):
+              d, expected = line.rstrip('\n').split('\t')
+              live = "s3://{}/{}/*.parquet".format(target, d)
+              got = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(live)).fetchone()[0]
+              if got != int(expected):
+                  bad.append((d, int(expected), got))
+              print('  verified {}/{}: {} rows'.format(target, d, got), flush=True)
+          if bad:
+              for d, expected, got in bad:
+                  print('MISMATCH {}/{}: expected {} rows, live partition has {}'.format(
+                      target, d, expected, got))
+              print('staging retained at s3://{}-consolidate-staging/ for recovery'.format(target))
+              raise SystemExit(1)
+          print('RESULT {} VERIFIED partitions={}'.format(target, len(open('/tmp/flip.txt').readlines())))
+          PY
+
             rclone purge "nrp:${TARGET}-consolidate-staging" 2>/dev/null || true
           fi
           echo "=== done [$JOB_COMPLETION_INDEX] $TARGET ==="
