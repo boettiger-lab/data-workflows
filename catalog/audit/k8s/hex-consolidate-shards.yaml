@@ -23,8 +23,10 @@
 # fix this: it trades the truncation for a partition holding merged + stale shards, where the
 # retry's re-merge DOUBLES every row.) Two rules close it:
 #   1. Staging is written before any delete and is NOT purged until every partition verifies, so
-#      it always holds a merge built from the complete shard set. On resume, an existing staged
-#      file is trusted over the live partition and re-copied rather than re-merged.
+#      it always holds a merge built from the complete shard set. Each run therefore LISTS the
+#      staging prefix and adds those partitions to its work set — a truncated partition is
+#      invisible in the live listing (one file reads as unfragmented), so it can only be found
+#      this way. A staged file is then re-copied, never re-merged over.
 #   2. After the flip, each partition's row count is re-read and compared against the staged
 #      count; a mismatch fails the pod loudly with staging left intact for recovery.
 # Residual: if the staged file is itself unreadable AND the live partition was already truncated,
@@ -107,6 +109,15 @@ spec:
           echo "partition files: $(wc -l < /tmp/parts.txt)"
           test -s /tmp/parts.txt || { echo "RESULT $TARGET SKIP no-parquet-files"; exit 0; }
 
+          # Anything already in staging is the residue of an earlier attempt that did not reach
+          # its purge. Those partitions MUST be resumed from staging, and they are invisible in
+          # the listing above once the flip has deleted their extra shards — a crash-truncated
+          # partition holds exactly one file and looks unfragmented. Existence comes from this
+          # listing, never from catching a read error on the staged object.
+          rclone lsf -R --files-only --include '*.parquet' \
+            "nrp:${TARGET}-consolidate-staging/" > /tmp/staged.txt 2>/dev/null || true
+          echo "staged files from a previous attempt: $(wc -l < /tmp/staged.txt)"
+
           python3 - "$TARGET" <<'PY'
           import os, sys, duckdb, collections
           target = sys.argv[1]
@@ -115,8 +126,14 @@ spec:
           for r in rels:
               parts[os.path.dirname(r)].append(r)
           frag = {d: sorted(fs) for d, fs in parts.items() if len(fs) > 1}
-          print('partitions: {}  fragmented: {}'.format(len(parts), len(frag)), flush=True)
-          if not frag:
+          staged = {os.path.dirname(l.strip()) for l in open('/tmp/staged.txt') if l.strip()}
+          # Candidates = fragmented live partitions PLUS every partition left in staging by an
+          # earlier attempt. The second set is the crash-recovery path: those partitions may
+          # already read as unfragmented while holding only a truncated data_0.
+          cands = sorted(set(frag) | staged)
+          print('partitions: {}  fragmented: {}  staged-from-previous-attempt: {}'.format(
+              len(parts), len(frag), len(staged)), flush=True)
+          if not cands:
               print('RESULT {} CLEAN partitions={}'.format(target, len(parts)))
               open('/tmp/flip.txt', 'w'); raise SystemExit(0)
 
@@ -132,17 +149,19 @@ spec:
                           os.environ['AWS_S3_ENDPOINT']))
 
           done = []
-          for d, fs in sorted(frag.items()):
+          for d in cands:
               glob = "s3://{}/{}/*.parquet".format(target, d)
               dst = "s3://{}-consolidate-staging/{}/data_0.parquet".format(target, d)
-              # Resume path: a staged merge left by an earlier attempt was built from the COMPLETE
-              # shard set, before anything was deleted. The live partition carries no such
-              # guarantee (it may have been truncated by a crash mid-flip), so never re-merge over
-              # a staged file — re-copy it.
-              try:
+              if d in staged:
+                  # A staged merge is authoritative: it was written from the COMPLETE shard set
+                  # before anything was deleted, whereas the live partition may have been
+                  # truncated by a crash mid-flip. Re-copy it; never re-merge over it. Any error
+                  # reading it now is a real failure and stops the pod — absence was already
+                  # settled by the rclone listing, so it cannot be a missing object.
                   total = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(dst)).fetchone()[0]
                   print('  resume {}/{}: staged merge present, {} rows'.format(target, d, total), flush=True)
-              except Exception:
+              else:
+                  fs = frag[d]
                   total = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(glob)).fetchone()[0]
                   con.execute("COPY (SELECT * FROM read_parquet('{}')) TO '{}' "
                               "(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(glob, dst))
@@ -199,7 +218,19 @@ spec:
           print('RESULT {} VERIFIED partitions={}'.format(target, len(open('/tmp/flip.txt').readlines())))
           PY
 
-            rclone purge "nrp:${TARGET}-consolidate-staging" 2>/dev/null || true
+            # Purge staging and CONFIRM it is empty. rclone purge can silently no-op under S3
+            # load (AGENTS.md "purge-and-VERIFY-empty"), and leftover staging is not inert here:
+            # the resume path treats a staged file as authoritative, so a stale merge surviving
+            # into a LATER run — after the dataset has been refreshed with different rows — would
+            # be copied over the newer partition. Fail loudly instead, so a lingering staging
+            # prefix always means "the previous run needs attention".
+            rclone purge "nrp:${TARGET}-consolidate-staging" || true
+            LEFT=$(rclone lsf -R --files-only "nrp:${TARGET}-consolidate-staging/" 2>/dev/null | wc -l)
+            if [ "$LEFT" -ne 0 ]; then
+              echo "ERROR: staging purge left ${LEFT} file(s) under ${TARGET}-consolidate-staging"
+              exit 1
+            fi
+            echo "staging purged and verified empty"
           fi
           echo "=== done [$JOB_COMPLETION_INDEX] $TARGET ==="
         resources:
