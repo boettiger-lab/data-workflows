@@ -536,10 +536,11 @@ def check_column_description_consistency(doc: dict) -> list[Finding]:
         h10 text said "one row per (feature, h10) pair", true for the hex asset and wrong
         for the per-cell hex-weights assets.
 
-    ADVISORY rather than HARD for now: pre-gate collections have not been swept yet
-    (data-workflows#509), so a hard failure would block unrelated PRs. Promote to HARD
-    once the catalog is fold-clean. Columns with no description (a lean PMTiles asset,
-    per the PMTiles standard) are skipped — omitting text is not disagreeing about it.
+    HARD as of data-workflows#532: the catalog-wide backlog (99 collections, 558 columns)
+    was swept and reconciled, so a divergence is now a new regression to fix at creation, not
+    inherited debt. It shipped ADVISORY in #512 only because the pre-gate cohort had not been
+    swept yet (#509). Columns with no description (a lean PMTiles asset, per the PMTiles
+    standard) are skipped — omitting text is not disagreeing about it.
     """
     out = []
     seen: dict[str, tuple[str, str]] = {}
@@ -554,7 +555,7 @@ def check_column_description_consistency(doc: dict) -> list[Finding]:
             seen.setdefault(name, (key, text))
     for name, assets in sorted(clashes.items()):
         winner = seen[name][0]
-        out.append(Finding(ADVISORY, "column-description-divergent",
+        out.append(Finding(HARD, "column-description-divergent",
             f"column '{name}' is documented differently on {sorted(assets)} — the #303 fold "
             f"keeps the first-seen text (from '{winner}') and silently drops the others. Use "
             f"one text everywhere; put asset-specific notes in that asset's `description`."))
