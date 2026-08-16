@@ -175,7 +175,7 @@ class ColumnDescriptionConsistency(unittest.TestCase):
         }}
         f = vs.check_column_description_consistency(doc)
         self.assertEqual([x.code for x in f], ["column-description-divergent"])
-        self.assertEqual(f[0].severity, vs.ADVISORY)
+        self.assertEqual(f[0].severity, vs.HARD)  # promoted from ADVISORY in #532
         self.assertIn("d-parquet", f[0].message)  # first-seen wins
 
     def test_identical_text_is_fine(self):
