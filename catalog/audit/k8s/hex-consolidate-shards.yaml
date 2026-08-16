@@ -1,0 +1,158 @@
+# data-workflows#332 — consolidate multi-shard h0 partitions into a single data_0.parquet.
+#
+# A handful of published hex datasets were written by an older DuckDB directory-target COPY
+# that auto-sharded each h0 partition into data_0..data_N.parquet (per-thread/row-group).
+# Over-fragmented partitions are slow to open. This is a CONSOLIDATION pass, NOT a re-hex and
+# NOT a dedup: rows are preserved exactly (plain SELECT *), only the file layout changes.
+#
+# One pod per target hex-root. Files are grouped by their PARTITION DIRECTORY (path minus the
+# filename), so a target may span nested sublayers (public-iucn/richness/hex/<layer>/h0=*).
+# Only directories holding >1 parquet file are touched; single-file partitions are no-ops.
+#
+# SAFETY: per fragmented partition it stages the merged union to a -consolidate-staging prefix
+# and asserts COUNT(*) of the merged file == the summed COUNT(*) of the shards BEFORE any
+# destructive rclone step. Only then does it delete the extra shards (data_[1-9]*.parquet) and
+# overwrite data_0.parquet with the verified merge. If the assert fails the partition is left
+# untouched and the pod exits non-zero. Idempotent: a partition already holding one file is skipped.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hex-consolidate-targets
+  namespace: geo-workflows
+data:
+  targets.txt: |
+    public-inat/hexagon
+    public-ecoregion/ecoregion/hex
+    public-wdpa/wdpa-december-2025/hex
+    public-iucn/richness/hex
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hex-consolidate-shards
+  namespace: geo-workflows
+  labels:
+    k8s-app: hex-consolidate-shards
+spec:
+  completions: 4
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 4
+  ttlSecondsAfterFinished: 604800
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  template:
+    metadata:
+      labels:
+        k8s-app: hex-consolidate-shards
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: consolidate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        - name: JOB_COMPLETION_INDEX
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: targets, mountPath: /config, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          TARGET=$(sed -n "$((JOB_COMPLETION_INDEX + 1))p" /config/targets.txt)
+          test -n "$TARGET" || { echo "no target for index $JOB_COMPLETION_INDEX"; exit 0; }
+          echo "=== #332 consolidate [$JOB_COMPLETION_INDEX] $TARGET ==="
+
+          # List actual files, never assume names. Relative paths under nrp:TARGET/.
+          rclone lsf -R --files-only --include '*.parquet' "nrp:${TARGET}/" > /tmp/parts.txt
+          echo "partition files: $(wc -l < /tmp/parts.txt)"
+          test -s /tmp/parts.txt || { echo "RESULT $TARGET SKIP no-parquet-files"; exit 0; }
+
+          python3 - "$TARGET" <<'PY'
+          import os, sys, duckdb, collections
+          target = sys.argv[1]
+          rels = [l.strip() for l in open('/tmp/parts.txt') if l.strip()]
+          parts = collections.defaultdict(list)
+          for r in rels:
+              parts[os.path.dirname(r)].append(r)
+          frag = {d: sorted(fs) for d, fs in parts.items() if len(fs) > 1}
+          print('partitions: {}  fragmented: {}'.format(len(parts), len(frag)), flush=True)
+          if not frag:
+              print('RESULT {} CLEAN partitions={}'.format(target, len(parts)))
+              open('/tmp/flip.txt', 'w'); raise SystemExit(0)
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("SET preserve_insertion_order=false")
+          con.execute("SET temp_directory='/tmp/duckdb-spill'")
+          con.execute("SET memory_limit='20GiB'")
+          con.execute("CREATE SECRET s3 (TYPE S3, KEY_ID '{}', SECRET '{}', ENDPOINT '{}', "
+                      "URL_STYLE 'path', USE_SSL false)".format(
+                          os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'],
+                          os.environ['AWS_S3_ENDPOINT']))
+
+          done = []
+          for d, fs in sorted(frag.items()):
+              glob = "s3://{}/{}/*.parquet".format(target, d)
+              total = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(glob)).fetchone()[0]
+              dst = "s3://{}-consolidate-staging/{}/data_0.parquet".format(target, d)
+              con.execute("COPY (SELECT * FROM read_parquet('{}')) TO '{}' "
+                          "(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(glob, dst))
+              got = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(dst)).fetchone()[0]
+              assert got == total, '{} {}: merged {} != summed shards {}'.format(target, d, got, total)
+              print('  staged {}/{}: {} shards -> 1 file, {} rows'.format(target, d, len(fs), total), flush=True)
+              done.append(d)
+
+          with open('/tmp/flip.txt', 'w') as f:
+              for d in done:
+                  f.write(d + '\n')
+          print('RESULT {} STAGED partitions={} rewritten={}'.format(target, len(parts), len(done)))
+          PY
+
+          # Swap in verified merges. Delete the extra shards FIRST (partition briefly holds only
+          # the original data_0 subset), then overwrite data_0 with the merged file. This never
+          # exposes an over-count (merged + stale shards) window.
+          if [ -s /tmp/flip.txt ]; then
+            while read -r DIR; do
+              rclone delete "nrp:${TARGET}/${DIR}/" --include 'data_[1-9]*.parquet'
+              rclone copyto "nrp:${TARGET}-consolidate-staging/${DIR}/data_0.parquet" \
+                            "nrp:${TARGET}/${DIR}/data_0.parquet"
+              echo "consolidated ${TARGET}/${DIR}"
+            done < /tmp/flip.txt
+            rclone purge "nrp:${TARGET}-consolidate-staging" 2>/dev/null || true
+          fi
+          echo "=== done [$JOB_COMPLETION_INDEX] $TARGET ==="
+        resources:
+          requests: {cpu: '4', memory: 24Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 24Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: targets
+        configMap: {name: hex-consolidate-targets}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
