@@ -283,9 +283,9 @@ class DeclaredSchemaMatch(unittest.TestCase):
     preview cap can't drop wide-schema columns and fabricate 'absent' findings, #509).
     These run that real SQL against a synthetic parquet_schema relation."""
 
-    def _run(self, name_nf, declared, href=HEX_HREF):
+    def _run(self, name_nf, declared, href=HEX_HREF, raw_rows=None):
         import duckdb
-        rows = _present(name_nf)
+        rows = raw_rows if raw_rows is not None else _present(name_nf)
         vals = ", ".join(
             "('%s','%s',%s)" % (n, f, "NULL" if t is None else "'%s'" % t)
             for (n, f, t) in rows)
@@ -334,6 +334,27 @@ class DeclaredSchemaMatch(unittest.TestCase):
     def test_geometry_column_is_skipped(self):
         # geometry may be writer-named differently; skip it both directions.
         f = self._run({"_cng_fid": 1}, ["_cng_fid", "geom"], href="https://x/d.parquet")
+        self.assertEqual(f, [])
+
+    def test_nested_list_column_is_present_not_absent(self):
+        # A top-level LIST column (`country_codes VARCHAR[]`) is a parquet GROUP node with
+        # physical type NULL; its only leaf is the internal `element`. Declaring it must NOT
+        # read as absent (data-workflows#509: iucn-taxonomy, Overture names/sources).
+        raw = [("_cng_fid", "f0", "INT"),
+               ("country_codes", "f0", None),   # LIST group node
+               ("list", "f0", None), ("element", "f0", "BYTE_ARRAY")]
+        f = self._run({}, ["_cng_fid", "country_codes"], raw_rows=raw)
+        self.assertEqual(f, [])
+
+    def test_multilevel_partition_key_not_flagged(self):
+        # Two-level hive partition Z=*/h0=*: both keys are path-supplied, so declaring `h0`
+        # must not read as absent (the consecutive partitions share a slash, #509).
+        self.assertEqual(
+            vs._partition_keys("https://x/glwd/class-area-hex/Z=*/h0=*/data_0.parquet"),
+            {"z", "h0"})
+        raw = [("area_ha", "f0", "INT")]   # file stores neither Z nor h0
+        f = self._run({}, ["area_ha", "h0"], raw_rows=raw,
+                      href="https://x/glwd/class-area-hex/Z=*/h0=*/data_0.parquet")
         self.assertEqual(f, [])
 
     def test_wide_schema_is_not_truncated(self):
