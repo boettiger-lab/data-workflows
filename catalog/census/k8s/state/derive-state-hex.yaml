@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: census-2024-state-derive-hex
-  namespace: biodiversity
+  namespace: geo-workflows
   labels:
     k8s-app: census-2024-state-derive-hex
 spec:
@@ -63,9 +63,11 @@ spec:
             SET s3_url_style='path';
           """)
 
-          # Load state attributes (56 rows — trivial)
+          # Load state attributes (56 rows — trivial). _cng_fid is carried from the
+          # flat so the hex shares the flat's per-feature id by construction (#549).
           state = conn.execute("""
-            SELECT REGION, DIVISION, STATEFP, STATENS, GEOID, GEOIDFQ,
+            SELECT _cng_fid,
+                   REGION, DIVISION, STATEFP, STATENS, GEOID, GEOIDFQ,
                    STUSPS, NAME, LSAD, MTFCC, FUNCSTAT,
                    ALAND, AWATER, INTPTLAT, INTPTLON
             FROM read_parquet('s3://public-census/census-2024/state.parquet')
@@ -87,6 +89,7 @@ spec:
                 COPY (
                   SELECT DISTINCT
                     t.h8,
+                    s._cng_fid,
                     s.REGION, s.DIVISION, s.STATEFP, s.STATENS,
                     s.GEOID, s.GEOIDFQ, s.STUSPS, s.NAME,
                     s.LSAD, s.MTFCC, s.FUNCSTAT,

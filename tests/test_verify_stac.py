@@ -459,5 +459,44 @@ class ValuesMatchDistinctArtifactTokens(unittest.TestCase):
         self.assertNotIn("not in ('none'", sql)
 
 
+class HexFidMatchesFlat(unittest.TestCase):
+    """#549: a vector hex must carry the SAME _cng_fid numbering as its flat GeoParquet.
+    Presence (#369) and cardinality (#535) both pass a renumbered hex; this joins on
+    _cng_fid and asserts a shared witness attribute agrees. The query returns a single
+    aggregate row, so a stub replaying that row exercises the finding logic."""
+
+    def _doc(self, witness=True):
+        flat_cols = [{"name": "_cng_fid", "type": "int64"}, {"name": "geom", "type": "geometry"}]
+        hex_cols = ["_cng_fid", "h0"]
+        if witness:
+            flat_cols.insert(1, {"name": "GEOID", "type": "string"})
+            hex_cols.insert(1, "GEOID")
+        return {"assets": {
+            "d-parquet": {"href": "https://s3-west.nrp-nautilus.io/public-x/d.parquet",
+                          "type": PARQUET, "table:columns": flat_cols},
+            "d-hex": hex_asset(hex_cols)}}
+
+    def test_mismatch_is_hard(self):
+        f = vs.check_hex_fid_matches_flat(self._doc(), StubMCP(rows=[{"n_join": 56, "mism": 56, "fdist": 56}]))
+        self.assertEqual([x.code for x in f], ["hex-fid-mismatch"])
+        self.assertEqual(f[0].severity, vs.HARD)
+
+    def test_full_agreement_is_clean(self):
+        f = vs.check_hex_fid_matches_flat(self._doc(), StubMCP(rows=[{"n_join": 56, "mism": 0, "fdist": 56}]))
+        self.assertEqual(f, [])
+
+    def test_constant_witness_is_advisory_not_hard(self):
+        # fdist<=1: the witness can't distinguish a permutation, so never a false HARD.
+        f = vs.check_hex_fid_matches_flat(self._doc(), StubMCP(rows=[{"n_join": 56, "mism": 56, "fdist": 1}]))
+        self.assertEqual([x.code for x in f], ["hex-fid-identity-unverifiable"])
+        self.assertEqual(f[0].severity, vs.ADVISORY)
+
+    def test_no_shared_witness_is_advisory_and_unqueried(self):
+        mcp = StubMCP(rows=[{"n_join": 1, "mism": 1, "fdist": 1}])
+        f = vs.check_hex_fid_matches_flat(self._doc(witness=False), mcp)
+        self.assertEqual([x.code for x in f], ["hex-fid-identity-unverifiable"])
+        self.assertEqual(mcp.sql, [], "no witness → must not query")
+
+
 if __name__ == "__main__":
     unittest.main()

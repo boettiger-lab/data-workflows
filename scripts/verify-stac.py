@@ -52,6 +52,10 @@ Data-backed checks (delegated to the duckdb-geo MCP server, --no-data to skip):
     or from only SOME files (heterogeneous/mixed-vintage build) — checked per file, not
     against the unioned glob schema which hides a partial hole (#534/#520); ADVISORY for a
     column present in the data but undocumented
+  - HARD: a vector hex whose `_cng_fid` numbers features differently than its flat
+    GeoParquet (#549). Presence (#369) and cardinality (#535) both pass when a hex
+    merely renumbers features, but the id then points at a different feature per asset;
+    caught by joining hex->flat on `_cng_fid` and asserting a shared attribute agrees.
   - HARD: a vector hex holding fewer features than its flat GeoParquet — a silently
     dropped feature (rfmo/rfb lost CCAMLR) that leaves schema + partitions intact and no
     other check sees (#535/#520); COUNT(DISTINCT _cng_fid) vs flat COUNT(*)
@@ -1680,6 +1684,108 @@ def check_hex_holds_all_features(doc: dict, mcp: MCPClient) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
+# #549 — a vector hex must share the flat GeoParquet's _cng_fid numbering
+# ---------------------------------------------------------------------------
+
+# Columns that cannot serve as an identity witness: the row-unique ids, the H3
+# index columns, and the geometry/bbox scaffolding. A witness must be a plain
+# per-feature attribute carried verbatim onto every hex cell.
+_WITNESS_SKIP = re.compile(
+    r"^(h\d+|_cng_fid|ogc_fid|objectid|fid|gid|uid|bbox|geometry|geom|shape)$", re.I)
+# Preferred witnesses first: a stable source id / name is least likely to be
+# re-typed and most likely to vary across features.
+_WITNESS_PREF = ("geoid", "geoidfq", "geoidfull", "name", "namelsad", "stusps", "statefp")
+
+
+def _pick_witness(flat_cols: dict, hex_cols: dict) -> str | None:
+    """A shared, non-id attribute column present on both assets to compare on."""
+    shared = {c for c in set(flat_cols) & set(hex_cols) if not _WITNESS_SKIP.match(c)}
+    if not shared:
+        return None
+    for pref in _WITNESS_PREF:
+        if pref in shared:
+            return pref
+    strs = sorted(c for c in shared
+                  if any(t in (flat_cols.get(c, "") or "").lower()
+                         for t in ("char", "string", "varchar", "utf8")))
+    return strs[0] if strs else sorted(shared)[0]
+
+
+def check_hex_fid_matches_flat(doc: dict, mcp: MCPClient) -> list[Finding]:
+    """A vector hex must carry the SAME `_cng_fid` numbering as its flat GeoParquet
+    (data-workflows#549).
+
+    `_cng_fid` is the universal per-feature id (#369). The #369 presence check and the
+    #535 cardinality check both pass when a hex merely *renumbers* the features — e.g. a
+    custom derive step that assigned its own ROW_NUMBER instead of carrying the flat's id
+    (census-2024 state/county did exactly this, agreeing with the flat on only 10/56 and
+    1/3,235 features). The id then points at a different feature depending on which asset
+    you read. Caught here by joining hex->flat on `_cng_fid` and asserting a shared
+    per-feature attribute (a source id / name) agrees. Raster-derived hexes have no
+    `_cng_fid` and are skipped; a witness that is constant across the whole flat cannot
+    distinguish a permutation, so that downgrades to advisory rather than a wrong pass.
+    """
+    out = []
+    assets = doc.get("assets", {})
+    flats, hexes = {}, {}
+    for key, asset in assets.items():
+        if not is_parquet(asset):
+            continue
+        s3 = _to_s3(asset.get("href", ""))
+        if not s3:
+            continue
+        cols = {c.get("name", "").lower(): (c.get("type", "") or "")
+                for c in asset.get("table:columns", [])}
+        if is_hex_asset(key, asset):
+            if "_cng_fid" in cols:
+                hexes[key] = (s3, cols)
+        elif _asset_has_geom(asset):
+            if "_cng_fid" in cols:
+                flats.setdefault(_asset_stem(key), (key, s3, cols))
+    for hkey, (h_s3, h_cols) in hexes.items():
+        flat = flats.get(_asset_stem(hkey))
+        if flat is None and len(flats) == 1 and len(hexes) == 1:
+            flat = next(iter(flats.values()))  # single flat + single hex: pair them
+        if flat is None:
+            continue
+        fkey, f_s3, f_cols = flat
+        witness = _pick_witness(f_cols, h_cols)
+        if witness is None:
+            out.append(Finding(ADVISORY, "hex-fid-identity-unverifiable",
+                f"asset '{hkey}': shares no non-id attribute column with flat '{fkey}', "
+                f"so the flat<->hex _cng_fid numbering cannot be verified."))
+            continue
+        try:
+            row = mcp.query(
+                f'WITH h AS (SELECT DISTINCT _cng_fid, "{witness}" AS w '
+                f"FROM read_parquet('{h_s3}')), "
+                f'f AS (SELECT _cng_fid, "{witness}" AS w FROM read_parquet(\'{f_s3}\')) '
+                "SELECT COUNT(*) AS n_join, "
+                "COUNT(*) FILTER (WHERE h.w IS DISTINCT FROM f.w) AS mism, "
+                "COUNT(DISTINCT f.w) AS fdist "
+                "FROM h JOIN f USING (_cng_fid)")[0]
+            matched, mism, fdist = int(row["n_join"]), int(row["mism"]), int(row["fdist"])
+        except (MCPError, ValueError, KeyError, IndexError) as e:
+            out.append(Finding(ADVISORY, "hex-fid-identity-check-failed",
+                f"asset '{hkey}': could not compare _cng_fid numbering vs '{fkey}' ({e})."))
+            continue
+        if fdist <= 1:
+            out.append(Finding(ADVISORY, "hex-fid-identity-unverifiable",
+                f"asset '{hkey}': the only shared attribute ('{witness}') is constant "
+                f"across '{fkey}', so a _cng_fid permutation cannot be detected."))
+            continue
+        if mism:
+            out.append(Finding(HARD, "hex-fid-mismatch",
+                f"asset '{hkey}': _cng_fid identifies a different feature than the flat "
+                f"'{fkey}' on {mism:,} of {matched:,} ids (join on _cng_fid; '{witness}' "
+                f"disagrees) — the hex was built with its own feature numbering instead of "
+                f"carrying the flat's _cng_fid (data-workflows#549). Rebuild the hex so it "
+                f"preserves the flat's _cng_fid: the standard cng-datasets vector path does "
+                f"this automatically; a custom derive step must SELECT the flat's _cng_fid."))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -1714,6 +1820,7 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
                 findings.extend(check_values_match_distinct(doc, client))
                 findings.extend(check_declared_schema_matches_data(doc, client))  # #534 (hard)
                 findings.extend(check_hex_holds_all_features(doc, client))        # #535 (hard)
+                findings.extend(check_hex_fid_matches_flat(doc, client))          # #549 (hard)
                 findings.extend(check_null_hex_index(doc, client))      # #309 §2 (hard)
                 findings.extend(check_hex_row_uniqueness(doc, client))  # #509 (hard)
                 findings.extend(check_polygon_row_dup(doc, client))     # #309 §1 (advisory)
