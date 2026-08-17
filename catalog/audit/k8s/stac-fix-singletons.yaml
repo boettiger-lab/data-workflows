@@ -1,0 +1,84 @@
+# data-workflows#509 — two singleton STAC fixes from the pre-gate audit:
+#  1. tpl/conservation-almanac-2024-funding: license is 'proprietary' with no {rel:license}
+#     link. Mirror the sibling conservation-almanac-2024-sites' canonical TPL terms link.
+#  2. cgs/sierra-nevada-atlas/map-unit-polys: the MapUnit column (266 distinct geologic map
+#     unit codes) was flagged as a coded categorical missing a `values` array. It is a
+#     high-cardinality classification, so add the enumerated code domain (no per-code
+#     definitions — those live in the Sierra Nevada Geologic Atlas legend) to every asset
+#     carrying MapUnit, keeping the value set identical across assets (#303).
+# (mpa-candidates' proprietary-without-terms is NOT fixed here — no public terms URL exists
+#  for that research dataset; it needs the data owner to supply the canonical terms.)
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: mapunit-codes, namespace: geo-workflows}
+data:
+  codes.txt: |
+    BCB|BCT|CMBS|CMFG|CMFL|CMFM|CMFS|CMFU|CMFV|CMLM|CMLV|CMMB|CMMS|CPJP|CPPB|CPTG|CPTL|CPTO|CPTS|CPTV|CWCG|CWCH|CWGR|CWSS|CWSV|EPS|ERP|FRM|FRS|FRU|FZM|FZMg|FZMl|FZMs|FZMu|FZMv|FZS|Gbg|Gbl|Gbm|Gbr|Gbv|Gbvc|Gby|Gc|Gca|Gcc|Gco|Gcr|Gdm|Gdp|Gegg|Gegm|Gep|Gfg|Gg|Ggb|Ggu|Ggv|Ghb|Ghor|Gid|Gidg|Gido|Giv|Givg|Gja|Gjam|Gjm|Gks|Glkt|Glu|Gm|Gmg|Gmm|Gmo|Gmw|Gnm|Gop|Gpa|Gpal|Gpc|Gph|Gpp|Gps|Grp|Gsb|Gsc|Gscm|Gscp|Gse|Gsf|Gsj|Gsjd|Gsjg|Gsl|Gsm|Gso|Gsp|Gspm|Gsr|Gte|Gtt|Gtu|Gu|Gwa|Gwc|Gwh|Gyo|Gyr|Gyrd|HSS|HSV|I1|I2|I3|I4|KE|KR|KSM|KSV|MRCC|MRCG|MRCS|MRDGG|MRDGS|MRDPH|MRGP|MRKA|MRKI|MRSM|NSRO|NSSA|NSSB|NSSF|NSSM|NSST|NSTS|NSTT|OW|PAS|PS|SCGG|SCGV|SHKOG|SHKOV|SL|TL|TSS|WLS|WLV|YAAB|YAAM|YACB|YACC|YACG|YACGb|YACGv|YACL|YACM|YACU|YACV|YALC|YALD|YALG|YALO|YALU|YALV|YOCF|YOMO|YOOC|YOSD|YOSG|YOSU|YOSV|YSFB|YSFC|YSFS|YSFV|YSJC|YSJD|YSJG|YSJL|YSJO|YSJS|YSJV|YSSC|YSSCd|YSSCg|YSSCl|YSSCm|YSSCu|YSSCv|YSSG|YSSM|YSSS|YSSU|aca|aft|al-i|al-o|al-vo|al-y|auv|ba|ba-y|ben|bob|bop|bpv|bt|chi|cos|cov|covy|cpf|cpv|cuv|dos|dpb|eol|gl|gol|gtv|imf|io|ivs|kin|krf|lc-i|lc-y|ljb|ls|lve|lvg|lvmi|lvmo|lvmy|mco|mcy|mhd|mic|mmv|ms|na|nev|oso|otb|pvg|sep|sg|shc|skv|tec|tej|tkt|tmb|tml|ttv|tus|tuv|unmapped|v-i|v-vo|v-y|water|wit|wlk
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-fix-singletons
+  namespace: geo-workflows
+  labels: {k8s-app: stac-fix-singletons}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-fix-singletons}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: codes, mountPath: /config, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, subprocess
+          codes = [c for c in open('/config/codes.txt').read().strip().split('|') if c]
+
+          # 1. conservation-almanac-2024-funding — add the TPL license link
+          k = 'nrp:public-tpl/conservation-almanac-2024-funding/stac-collection.json'
+          d = json.loads(subprocess.check_output(['rclone','cat',k]))
+          if not any(l.get('rel')=='license' for l in d.get('links',[])):
+              d.setdefault('links',[]).append({'rel':'license',
+                  'href':'https://www.tpl.org/legal-disclosure-terms-use','type':'text/html'})
+              open('/tmp/a.json','w').write(json.dumps(d,indent=2)); json.load(open('/tmp/a.json'))
+              subprocess.check_call(['rclone','copyto','/tmp/a.json',k])
+              print('conservation-almanac-2024-funding: added license link')
+          else:
+              print('conservation-almanac-2024-funding: already has license link')
+
+          # 2. map-unit-polys — add MapUnit `values` on every asset carrying it
+          k = 'nrp:public-cgs/sierra-nevada-atlas/map-unit-polys/stac-collection.json'
+          d = json.loads(subprocess.check_output(['rclone','cat',k]))
+          changed = []
+          for ak, a in d.get('assets',{}).items():
+              for col in a.get('table:columns',[]):
+                  if col.get('name','').lower() == 'mapunit':
+                      col['values'] = codes
+                      changed.append(ak)
+          if changed:
+              open('/tmp/b.json','w').write(json.dumps(d,indent=2)); json.load(open('/tmp/b.json'))
+              subprocess.check_call(['rclone','copyto','/tmp/b.json',k])
+              print(f'map-unit-polys: added {len(codes)} MapUnit values on {changed}')
+          else:
+              print('map-unit-polys: no MapUnit column without values')
+          print('done')
+          PY
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: codes, configMap: {name: mapunit-codes}}
