@@ -1,0 +1,125 @@
+# data-workflows#509 — add a sub-cell coverage note to the hex asset of the 46
+# hex-missing-features collections whose shortfall is a legitimate footprint effect
+# (features smaller than one native H3 cell polyfill to zero cells). Verified by H3
+# polyfill: for these, the features absent from the hex produce zero cells at the native
+# resolution (present-feature controls pass; missing features produce none), so a re-hex
+# is a no-op — the correct remediation is documentation, which the #535 gate accepts.
+# EXCLUDED (need investigation / rebuild, NOT a doc-note): wyoming/blm-sma (disjoint
+# _cng_fid, 277 of 865k hexed, 35% of flat WOULD hex), overturemaps/countries and
+# wetlands/nwi (large missing fraction, likely antimeridian / coverage-cap).
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: coverage-note-map, namespace: geo-workflows}
+data:
+  map.tsv: |
+    https://s3-west.nrp-nautilus.io/public-blm/mineral-materials/stac-collection.json	34277	35670
+    https://s3-west.nrp-nautilus.io/public-ca-dac/stac-collection.json	25606	25607
+    https://s3-west.nrp-nautilus.io/public-fire/usgs-fires-2021/combined/stac-collection.json	71510	135061
+    https://s3-west.nrp-nautilus.io/public-hazard/flood-hazard/stac-collection.json	5631497	5631998
+    https://s3-west.nrp-nautilus.io/public-high-seas/iho/stac-collection.json	284	285
+    https://s3-west.nrp-nautilus.io/public-mappinginequality/stac-collection.json	10151	10154
+    https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined/stac-collection.json	518152	656986
+    https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/campaigns/stac-collection.json	739	740
+    https://s3-west.nrp-nautilus.io/public-blm/mining-claims/stac-collection.json	610911	655792
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2021/stac-collection.json	90530	90538
+    https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement/stac-collection.json	271292	341954
+    https://s3-west.nrp-nautilus.io/public-tpl/conservation-almanac-2024-sites/stac-collection.json	53191	67428
+    https://s3-west.nrp-nautilus.io/public-wdpa/wdoecm-may-2026/stac-collection.json	2594	7378
+    https://s3-west.nrp-nautilus.io/public-blm/non-energy-leasables/stac-collection.json	6894	7106
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2022/stac-collection.json	113358	113360
+    https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee/stac-collection.json	231880	296456
+    https://s3-west.nrp-nautilus.io/public-blm/coal-cases/stac-collection.json	2886	3857
+    https://s3-west.nrp-nautilus.io/public-blm/oil-gas-agreements/stac-collection.json	32344	32787
+    https://s3-west.nrp-nautilus.io/public-ca30x30/2024/conserved-areas-terrestrial/stac-collection.json	124067	124075
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2023/stac-collection.json	116356	116359
+    https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/firep/stac-collection.json	21877	22810
+    https://s3-west.nrp-nautilus.io/public-high-seas/seafloor-geomorphology/stac-collection.json	132693	152079
+    https://s3-west.nrp-nautilus.io/public-indigenous/landmark/indicative-poly-stac.json	17462	17539
+    https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/marine/stac-collection.json	1724	1739
+    https://s3-west.nrp-nautilus.io/public-tpl/wcb-approved-projects/stac-collection.json	3583	3915
+    https://s3-west.nrp-nautilus.io/public-blm/geothermal-leases/stac-collection.json	7199	7394
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2024/stac-collection.json	123523	123526
+    https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/rxburn/stac-collection.json	10092	10675
+    https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation/stac-collection.json	3354	3439
+    https://s3-west.nrp-nautilus.io/public-social-vulnerability/2022/stac-collection.json	84119	84120
+    https://s3-west.nrp-nautilus.io/public-trails/federal-trails-2026/stac-collection.json	122063	127619
+    https://s3-west.nrp-nautilus.io/public-blm/locatable-operations/stac-collection.json	2238	2399
+    https://s3-west.nrp-nautilus.io/public-blm/oil-gas-participating-areas/stac-collection.json	2545	2562
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2025/stac-collection.json	120993	123980
+    https://s3-west.nrp-nautilus.io/public-census/acs-2020-2024/blockgroup/stac-collection.json	242747	242748
+    https://s3-west.nrp-nautilus.io/public-indigenous/landmark/iplc-poly-stac.json	106914	124616
+    https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/roo-cjest/stac-collection.json	73767	74134
+    https://s3-west.nrp-nautilus.io/public-blm/lua-leases-permits-easements/stac-collection.json	37477	39598
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/all-years/stac-collection.json	563977	567763
+    https://s3-west.nrp-nautilus.io/public-cgs/sierra-nevada-atlas/map-unit-polys/stac-collection.json	6187	6221
+    https://s3-west.nrp-nautilus.io/public-hydrobasins/stac-collection.json	291	292
+    https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/provinces/stac-collection.json	7	8
+    https://s3-west.nrp-nautilus.io/public-usfws/critical-habitat/final/stac-collection.json	679	728
+    https://s3-west.nrp-nautilus.io/public-blm/lua-row/stac-collection.json	191959	196751
+    https://s3-west.nrp-nautilus.io/public-epa-water/epa-sab-v3/cws/stac-collection.json	44128	44656
+    https://s3-west.nrp-nautilus.io/public-usfws/critical-habitat/proposed/stac-collection.json	48	49
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-coverage-notes
+  namespace: geo-workflows
+  labels: {k8s-app: stac-coverage-notes}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-coverage-notes}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: notes
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: map, mountPath: /config, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -uo pipefail
+          python3 - <<'PY'
+          import json, subprocess, re
+          for line in open('/config/map.tsv'):
+              line=line.rstrip('\n')
+              if not line.strip(): continue
+              url, holds, total = line.split('\t')
+              holds, total = int(holds), int(total)
+              missing = total - holds
+              key = 'nrp:' + re.sub(r'https?://s3-west\.nrp-nautilus\.io/', '', url)
+              cid = url.split('/public-')[-1].replace('/stac-collection.json','')
+              try:
+                  doc = json.loads(subprocess.check_output(['rclone','cat',key]))
+              except Exception as e:
+                  print(f"{cid}\tERROR-read\t{e}"); continue
+              hk = next((k for k in doc.get('assets',{}) if k.endswith('-hex')), None)
+              if not hk: print(f"{cid}\tSKIP\tno hex asset"); continue
+              a = doc['assets'][hk]
+              base = a.get('description','') or ''
+              if 'polyfill to zero' in base or 'absent from the hex' in base:
+                  print(f"{cid}\tSKIP\talready-noted"); continue
+              note = (f" {missing:,} of {total:,} source features are smaller than one native "
+                      "H3 cell and polyfill to zero cells, so they are absent from the hex; "
+                      "query the flat GeoParquet for complete feature coverage.")
+              a['description'] = base + note
+              open('/tmp/o.json','w').write(json.dumps(doc, indent=2))
+              json.load(open('/tmp/o.json'))
+              subprocess.check_call(['rclone','copyto','/tmp/o.json',key])
+              print(f"{cid}\tNOTED\tmissing={missing}")
+          print("done")
+          PY
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: map, configMap: {name: coverage-note-map}}
