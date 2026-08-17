@@ -1,0 +1,486 @@
+HARD(2)	28s	https://s3-west.nrp-nautilus.io/public-blm/mineral-materials/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [mineral-materials] asset 'mineral-materials-hex': STAC declares column 'bbox' but it is absent from all 8 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [mineral-materials] asset 'mineral-materials-hex' holds 34277 of 35670 features from 'mineral-materials-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1393 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(2)	152s	https://s3-west.nrp-nautilus.io/public-ca-dac/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [ca-dac-eda-2023] asset 'dac-blockgroup-hex' holds 25606 of 25607 features from 'dac-blockgroup-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+    [HARD][hex-missing-features] [ca-dac-eda-2023] asset 'eda-blockgroup-hex' holds 25606 of 25607 features from 'eda-blockgroup-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	23s	https://s3-west.nrp-nautilus.io/public-ca30x30/ecoregion/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-ca30x30/stac-collection.json	exit=0
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-calenviroscreen/stac-collection.json	exit=0
+CLEAN	28s	https://s3-west.nrp-nautilus.io/public-census/census-2024/place/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-cgs/stac-collection.json	exit=0
+HARD(2)	6s	https://s3-west.nrp-nautilus.io/public-cpad/cpad-holdings-stac-collection.json	exit=1
+    [HARD][table-columns-collection-level] [cpad-holdings-2025b] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [cpad-holdings-2025b] parquet asset 'holdings-parquet' has no 'table:columns'.
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-epa-water/stac-collection.json	exit=0
+HARD(1)	13s	https://s3-west.nrp-nautilus.io/public-fire/usgs-fires-2021/combined/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [usgs-fires-2021-combined] asset 'combined-hex' holds 71510 of 135061 features from 'combined-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 63551 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp1rcp26-2050-wbvert/stac-collection.json	exit=0
+HARD(1)	61s	https://s3-west.nrp-nautilus.io/public-hazard/flood-hazard/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [flood-hazard] asset 'flood-hazard-hex' holds 5631497 of 5631998 features from 'flood-hazard-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 501 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(1)	36s	https://s3-west.nrp-nautilus.io/public-high-seas/iho/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [iho-maritime-boundaries] asset 'eez-hex' holds 284 of 285 features from 'eez-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	47s	https://s3-west.nrp-nautilus.io/public-high-seas/meow/stac-collection.json	exit=0
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-icca/icca-registry/icca-polygon/stac-collection.json	exit=0
+TIMEOUT	300s	https://s3-west.nrp-nautilus.io/public-iucn/iucn-ranges-2025/stac-collection.json
+HARD(3)	15s	https://s3-west.nrp-nautilus.io/public-mappinginequality/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [mappinginequality] asset 'mappinginequality-parquet': STAC declares column 'geom_bbox' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [mappinginequality] asset 'mappinginequality-hex': STAC declares column 'geom_bbox' but it is absent from all 6 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [mappinginequality] asset 'mappinginequality-hex' holds 10151 of 10154 features from 'mappinginequality-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 3 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(1)	55s	https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [pad-us-4.1-combined] asset 'combined-hex' holds 518152 of 656986 features from 'combined-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 138834 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	20s	https://s3-west.nrp-nautilus.io/public-parks/park-access-2020/tract-acres-per-thousand/stac-collection.json	exit=0
+HARD(1)	9s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/campaigns/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [american-rivers-campaigns] asset 'campaigns-hex' holds 739 of 740 features from 'campaigns-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(1)	12s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/wild-scenic-eligible/stac-collection.json	exit=1
+    [HARD][hex-duplicate-feature-cell-rows] [american-rivers-wild-scenic-eligible] asset 'wild-scenic-eligible-hex': 10 rows (0.014%) are duplicate (finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) pair, so COUNT(*) and any per-cell SUM over this asset are inflated. Almost certainly a vector hex built before the 2026-07-12 polyfill fix (boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite or re-hex. See data-workflows#509.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-storms/stac-collection.json	exit=0
+CLEAN	2s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/sgcn-species-units/stac-collection.json	exit=0
+HARD(4)	9s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/priority-geographies/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [missouri-ccs-2022-priority-geographies] asset 'priority-geographies-parquet': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-priority-geographies] asset 'priority-geographies-parquet': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-priority-geographies] asset 'priority-geographies-hex': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-priority-geographies] asset 'priority-geographies-hex': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+HARD(1)	3s	https://s3-west.nrp-nautilus.io/public-tpl/conservation-almanac-2024-funding/stac-collection.json	exit=1
+    [HARD][license-link-missing] [conservation-almanac-2024-funding] license is 'proprietary' but there is no {'rel':'license'} link to the canonical terms URL (exempt only for a meta-collection with child links, whose per-child licenses govern; this is a leaf).
+CLEAN	21s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/service-areas/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-usfws/critical-habitat/stac-collection.json	exit=0
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-usgs-ungulate-migration/ungulate-routes/stac-collection.json	exit=0
+CLEAN	25s	https://s3-west.nrp-nautilus.io/public-usgs/mrds/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-wdpa/stac-collection.json	exit=0
+HARD(1)	34s	https://s3-west.nrp-nautilus.io/public-wyoming/blm-sma/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [wyoming-blm-sma] asset 'blm-sma-hex' holds 277 of 865059 features from 'blm-sma-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 864782 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(3)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/sagebrush-design/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-sagebrush-design] asset 'sagebrush-design-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/sagebrush-design/hex/'.
+    [HARD][hex-no-native-res] [wyoming-sagebrush-design] asset 'sagebrush-design-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-sagebrush-design] asset 'sagebrush-design-hex' missing 'h3:parent_resolutions'.
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-pronghorn-seasonal/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-pronghorn-seasonal] asset 'wgfd-pronghorn-seasonal-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-pronghorn-seasonal/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-pronghorn-seasonal] asset 'wgfd-pronghorn-seasonal-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-pronghorn-seasonal] asset 'wgfd-pronghorn-seasonal-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-pronghorn-seasonal] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-pronghorn-seasonal] parquet asset 'wgfd-pronghorn-seasonal-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-pronghorn-seasonal] parquet asset 'wgfd-pronghorn-seasonal-hex' has no 'table:columns'.
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/778c843a-f963-435a-a5d8-c25eac9ba400/scratchpad/slice-0.txt
+CLEAN	17s	https://s3-west.nrp-nautilus.io/public-barred-owl/stac-collection.json	exit=0
+HARD(2)	65s	https://s3-west.nrp-nautilus.io/public-blm/mining-claims/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [mining-claims] asset 'mining-claims-hex': STAC declares column 'bbox' but it is absent from all 7 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [mining-claims] asset 'mining-claims-hex' holds 610911 of 655792 features from 'mining-claims-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 44881 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	29s	https://s3-west.nrp-nautilus.io/public-ca-wolves/rca-boundary/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-ca30x30/fmmp-2022/stac-collection.json	exit=0
+HARD(1)	10s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2021/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [williamson-act-2021] asset 'williamson-act-2021-hex' holds 90530 of 90538 features from 'williamson-act-2021-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 8 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+TIMEOUT	300s	https://s3-west.nrp-nautilus.io/public-carbon/stac-collection.json
+CLEAN	33s	https://s3-west.nrp-nautilus.io/public-census/census-2024/state/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-connectivity/climate-migration-routes/stac-collection.json	exit=0
+HARD(2)	7s	https://s3-west.nrp-nautilus.io/public-cpad/cpad-units-stac-collection.json	exit=1
+    [HARD][table-columns-collection-level] [cpad-units-2025b] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [cpad-units-2025b] parquet asset 'units-parquet' has no 'table:columns'.
+TIMEOUT	300s	https://s3-west.nrp-nautilus.io/public-facts/common-attributes-2026-06/stac-collection.json
+HARD(1)	166s	https://s3-west.nrp-nautilus.io/public-gbif/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [gbif-derived] asset 'gbif-hex-2026-06': STAC declares column 'issue' but it is absent from all 122 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp3rcp60-2050-overall/stac-collection.json	exit=0
+CLEAN	7s	https://s3-west.nrp-nautilus.io/public-hazard/mid-century-habitat-climate-exposure/stac-collection.json	exit=0
+HARD(1)	15s	https://s3-west.nrp-nautilus.io/public-high-seas/imma/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [imma] asset 'imma-hex': STAC declares column 'bbox' but it is absent from all 81 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+HARD(1)	11s	https://s3-west.nrp-nautilus.io/public-high-seas/mpa-candidates/stac-collection.json	exit=1
+    [HARD][license-link-missing] [mpa-candidates] license is 'proprietary' but there is no {'rel':'license'} link to the canonical terms URL (exempt only for a meta-collection with child links, whose per-child licenses govern; this is a leaf).
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-icca/stac-collection.json	exit=0
+CLEAN	63s	https://s3-west.nrp-nautilus.io/public-iucn/stac-collection.json	exit=0
+CLEAN	4s	https://s3-west.nrp-nautilus.io/public-mobi/mobi-species-richness-all/stac-collection.json	exit=0
+HARD(1)	28s	https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [pad-us-4.1-easement] asset 'easement-hex' holds 271292 of 341954 features from 'easement-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 70662 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-parks/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/dam-removal/stac-collection.json	exit=0
+CLEAN	21s	https://s3-west.nrp-nautilus.io/public-social-vulnerability/2000/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-swap/california/stac-collection.json	exit=0
+CLEAN	2s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/sgcn-species/stac-collection.json	exit=0
+HARD(2)	6s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/stream-reach-coa/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [missouri-ccs-2022-stream-reach-coa] asset 'stream-reach-coa-parquet': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-stream-reach-coa] asset 'stream-reach-coa-hex': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+HARD(1)	22s	https://s3-west.nrp-nautilus.io/public-tpl/conservation-almanac-2024-sites/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [conservation-almanac-2024-sites] asset 'conservation-almanac-2024-sites-hex' holds 53191 of 67428 features from 'conservation-almanac-2024-sites-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 14237 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/urban-areas/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-usfws/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-usgs/stac-collection.json	exit=0
+HARD(2)	13s	https://s3-west.nrp-nautilus.io/public-wdpa/wdoecm-may-2026/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [wdoecm-may-2026] asset 'wdoecm-parquet': STAC declares column 'objectid' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [wdoecm-may-2026] asset 'wdoecm-hex' holds 2594 of 7378 features from 'wdoecm-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 4784 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(3)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/nlcd-2024/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-nlcd-2024] asset 'nlcd-2024-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/nlcd-2024/hex/'.
+    [HARD][hex-no-native-res] [wyoming-nlcd-2024] asset 'nlcd-2024-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-nlcd-2024] asset 'nlcd-2024-hex' missing 'h3:parent_resolutions'.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-wyoming/stac-collection.json	exit=0
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wy-counties/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wy-counties] asset 'wy-counties-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wy-counties/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wy-counties] asset 'wy-counties-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wy-counties] asset 'wy-counties-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wy-counties] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wy-counties] parquet asset 'wy-counties-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wy-counties] parquet asset 'wy-counties-hex' has no 'table:columns'.
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/778c843a-f963-435a-a5d8-c25eac9ba400/scratchpad/slice-1.txt
+CLEAN	225s	https://s3-west.nrp-nautilus.io/public-blm/acquisitions/stac-collection.json	exit=1
+HARD(2)	43s	https://s3-west.nrp-nautilus.io/public-blm/non-energy-leasables/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [non-energy-leasables] asset 'non-energy-leasables-hex': STAC declares column 'bbox' but it is absent from all 9 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [non-energy-leasables] asset 'non-energy-leasables-hex' holds 6894 of 7106 features from 'non-energy-leasables-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 212 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	4s	https://s3-west.nrp-nautilus.io/public-ca-wolves/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-ca30x30/freshwater-species-richness/stac-collection.json	exit=0
+HARD(1)	10s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2022/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [williamson-act-2022] asset 'williamson-act-2022-hex' holds 113358 of 113360 features from 'williamson-act-2022-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 2 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	24s	https://s3-west.nrp-nautilus.io/public-cdfw/ace/terrestrial-biodiversity-summary/stac-collection.json	exit=0
+CLEAN	56s	https://s3-west.nrp-nautilus.io/public-census/census-2024/tract/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-connectivity/present-day-connectivity/categories/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-cpad/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-facts/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-gfw/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp3rcp60-2050-plants/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-hazard/sea-level-rise/stac-collection.json	exit=0
+CLEAN	50s	https://s3-west.nrp-nautilus.io/public-high-seas/longhurst/stac-collection.json	exit=0
+CLEAN	271s	https://s3-west.nrp-nautilus.io/public-high-seas/rfmo/stac-collection.json	exit=0
+CLEAN	45s	https://s3-west.nrp-nautilus.io/public-inat/stac-collection.json	exit=0
+HARD(9)	6s	https://s3-west.nrp-nautilus.io/public-iucn/taxonomy/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [iucn-taxonomy-2025] asset 'taxonomy-parquet': STAC declares column 'common_names_en' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [iucn-taxonomy-2025] asset 'taxonomy-parquet': STAC declares column 'conservation_action_codes' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [iucn-taxonomy-2025] asset 'taxonomy-parquet': STAC declares column 'country_codes' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [iucn-taxonomy-2025] asset 'taxonomy-parquet': STAC declares column 'habitat_codes' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [iucn-taxonomy-2025] asset 'taxonomy-parquet': STAC declares column 'plant_growth_forms' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [iucn-taxonomy-2025] asset 'taxonomy-parquet': STAC declares column 'research_needed_codes' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [iucn-taxonomy-2025] asset 'taxonomy-parquet': STAC declares column 'synonyms' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [iucn-taxonomy-2025] asset 'taxonomy-parquet': STAC declares column 'threat_codes' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [iucn-taxonomy-2025] asset 'taxonomy-parquet': STAC declares column 'use_trade_codes' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+TIMEOUT	300s	https://s3-west.nrp-nautilus.io/public-nci-frontiers/stac-collection.json
+HARD(1)	117s	https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [pad-us-4.1-fee] asset 'fee-hex' holds 231880 of 296456 features from 'fee-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 64576 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	68s	https://s3-west.nrp-nautilus.io/public-population/ghs-pop-2020/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/ira-watersheds/stac-collection.json	exit=0
+CLEAN	24s	https://s3-west.nrp-nautilus.io/public-social-vulnerability/2010/stac-collection.json	exit=0
+CLEAN	6s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/bay-delta-conservation-unit/stac-collection.json	exit=0
+CLEAN	2s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/strategies/stac-collection.json	exit=0
+HARD(4)	6s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/wetland-coa/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [missouri-ccs-2022-wetland-coa] asset 'wetland-coa-parquet': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-wetland-coa] asset 'wetland-coa-parquet': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-wetland-coa] asset 'wetland-coa-hex': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-wetland-coa] asset 'wetland-coa-hex': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+HARD(1)	20s	https://s3-west.nrp-nautilus.io/public-tpl/landvote/stac-collection.json	exit=1
+    [HARD][hex-duplicate-feature-cell-rows] [landvote] asset 'landvote-hex': 940 rows (0.003%) are duplicate (finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) pair, so COUNT(*) and any per-cell SUM over this asset are inflated. Almost certainly a vector hex built before the 2026-07-12 polyfill fix (boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite or re-hex. See data-workflows#509.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-tpl/stac-collection.json	exit=0
+CLEAN	189s	https://s3-west.nrp-nautilus.io/public-usgs-nhd/nhdplus-hr/flowline/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu10/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-utah/bears-ears/stac-collection.json	exit=0
+CLEAN	65s	https://s3-west.nrp-nautilus.io/public-wdpa/wdpa/stac-collection.json	exit=0
+HARD(3)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/pad-us/stac-collection.json	exit=1
+    [HARD][table-columns-collection-level] [wyoming-pad-us] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-pad-us] parquet asset 'fee-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-pad-us] parquet asset 'easement-parquet' has no 'table:columns'.
+HARD(2)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/ungulate-migration/stac-collection.json	exit=1
+    [HARD][table-columns-collection-level] [wyoming-ungulate-migration] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-ungulate-migration] parquet asset 'ungulate-migration-parquet' has no 'table:columns'.
+HARD(6)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/wyoming-places/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wyoming-places] asset 'wyoming-places-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wyoming-places/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wyoming-places] asset 'wyoming-places-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wyoming-places] asset 'wyoming-places-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wyoming-places] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wyoming-places] parquet asset 'wyoming-places-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wyoming-places] parquet asset 'wyoming-places-hex' has no 'table:columns'.
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/778c843a-f963-435a-a5d8-c25eac9ba400/scratchpad/slice-2.txt
+HARD(2)	33s	https://s3-west.nrp-nautilus.io/public-blm/coal-cases/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [coal-cases] asset 'coal-cases-hex': STAC declares column 'bbox' but it is absent from all 9 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [coal-cases] asset 'coal-cases-hex' holds 2886 of 3857 features from 'coal-cases-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 971 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(2)	90s	https://s3-west.nrp-nautilus.io/public-blm/oil-gas-agreements/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [oil-gas-agreements] asset 'oil-gas-agreements-hex': STAC declares column 'bbox' but it is absent from all 7 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [oil-gas-agreements] asset 'oil-gas-agreements-hex' holds 32344 of 32787 features from 'oil-gas-agreements-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 443 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(1)	54s	https://s3-west.nrp-nautilus.io/public-ca30x30/2024/conserved-areas-terrestrial/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [ca30x30-conserved-areas-terrestrial-2024] asset 'conserved-areas-terrestrial-hex' holds 124067 of 124075 features from 'conserved-areas-terrestrial-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 8 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-ca30x30/groundwater-dependent-ecosystems/stac-collection.json	exit=0
+HARD(1)	19s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2023/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [williamson-act-2023] asset 'williamson-act-2023-hex' holds 116356 of 116359 features from 'williamson-act-2023-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 3 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	20s	https://s3-west.nrp-nautilus.io/public-cdfw/fish-passage-pad/stac-collection.json	exit=0
+CLEAN	87s	https://s3-west.nrp-nautilus.io/public-census/census-2025/sldl/stac-collection.json	exit=0
+CLEAN	5s	https://s3-west.nrp-nautilus.io/public-connectivity/present-day-connectivity/flow/stac-collection.json	exit=0
+HARD(3)	0s	https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json	exit=1
+    [HARD][license-missing] [boettiger-lab-datasets] collection has no top-level `license` — set the upstream SPDX id (or other/various/proprietary/public-domain).
+    [HARD][nav-parent-missing] [boettiger-lab-datasets] missing required navigation link rel='parent'.
+    [HARD][temporal-extent-missing] [boettiger-lab-datasets] collection has no `extent` object.
+HARD(1)	20s	https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/firep/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [calfire-2024-firep] asset 'firep-hex' holds 21877 of 22810 features from 'firep-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 933 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-2015-overall/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp3rcp60-2050-wbvert/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-hazard/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-high-seas/megamove/corridors/stac-collection.json	exit=0
+HARD(1)	15s	https://s3-west.nrp-nautilus.io/public-high-seas/seafloor-geomorphology/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [seafloor-geomorphology] asset 'seafloor-geomorphology-hex' holds 132693 of 152079 features from 'seafloor-geomorphology-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 19386 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(1)	21s	https://s3-west.nrp-nautilus.io/public-indigenous/landmark/indicative-poly-stac.json	exit=1
+    [HARD][hex-missing-features] [landmark-indicative-poly] asset 'indicative-poly-hex' holds 17462 of 17539 features from 'indicative-poly-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 77 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(1)	34s	https://s3-west.nrp-nautilus.io/public-kba/kba-2026-03/sites/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [kba-2026-03-sites] asset 'sites-hex': STAC declares column 'bbox' but it is absent from all 110 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-ncp/stac-collection.json	exit=0
+HARD(1)	237s	https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/marine/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [pad-us-4.1-marine] asset 'marine-hex' holds 1724 of 1739 features from 'marine-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 15 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-population/stac-collection.json	exit=0
+HARD(1)	16s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/nri-2016/stac-collection.json	exit=1
+    [HARD][hex-duplicate-feature-cell-rows] [american-rivers-nri-2016] asset 'nri-2016-hex': 18 rows (0.012%) are duplicate (finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) pair, so COUNT(*) and any per-cell SUM over this asset are inflated. Almost certainly a vector hex built before the 2026-07-12 polyfill fix (boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite or re-hex. See data-workflows#509.
+CLEAN	30s	https://s3-west.nrp-nautilus.io/public-social-vulnerability/2020/stac-collection.json	exit=0
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/conservation-units/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/targets/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-swap/missouri/stac-collection.json	exit=0
+CLEAN	38s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/parks/stac-collection.json	exit=0
+HARD(1)	14s	https://s3-west.nrp-nautilus.io/public-tpl/wcb-approved-projects/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [wcb-approved-projects] asset 'wcb-approved-projects-hex' holds 3583 of 3915 features from 'wcb-approved-projects-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 332 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	31s	https://s3-west.nrp-nautilus.io/public-usgs-nhd/perennial-streams/stac-collection.json	exit=0
+CLEAN	22s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu12/stac-collection.json	exit=0
+CLEAN	21s	https://s3-west.nrp-nautilus.io/public-utah/coal-deposits/stac-collection.json	exit=0
+HARD(1)	78s	https://s3-west.nrp-nautilus.io/public-wetlands/glwd/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [wetlands-glwd-v2] asset 'glwd-class-area-hex': STAC declares column 'h0' but it is absent from all 2327 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-wyoming/priority-areas-gye/stac-collection.json	exit=0
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-elk-crucial/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-elk-crucial] asset 'wgfd-elk-crucial-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-elk-crucial/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-elk-crucial] asset 'wgfd-elk-crucial-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-elk-crucial] asset 'wgfd-elk-crucial-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-elk-crucial] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-elk-crucial] parquet asset 'wgfd-elk-crucial-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-elk-crucial] parquet asset 'wgfd-elk-crucial-hex' has no 'table:columns'.
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/778c843a-f963-435a-a5d8-c25eac9ba400/scratchpad/slice-3.txt
+HARD(2)	28s	https://s3-west.nrp-nautilus.io/public-blm/geothermal-leases/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [geothermal-leases] asset 'geothermal-leases-hex': STAC declares column 'bbox' but it is absent from all 7 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [geothermal-leases] asset 'geothermal-leases-hex' holds 7199 of 7394 features from 'geothermal-leases-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 195 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	195s	https://s3-west.nrp-nautilus.io/public-blm/oil-gas-leases/stac-collection.json	exit=1
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-ca30x30/ca-climate-zones/stac-collection.json	exit=0
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-ca30x30/groundwater-dependent-ecosystems/vegetation/stac-collection.json	exit=0
+HARD(1)	10s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2024/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [williamson-act-2024] asset 'williamson-act-2024-hex' holds 123523 of 123526 features from 'williamson-act-2024-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 3 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-cdfw/stac-collection.json	exit=0
+TIMEOUT	301s	https://s3-west.nrp-nautilus.io/public-census/census-2025/sldu/stac-collection.json
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-connectivity/regional-connectivity-linkages/stac-collection.json	exit=0
+CLEAN	29s	https://s3-west.nrp-nautilus.io/public-dem/copernicus-glo90/stac-collection.json	exit=0
+HARD(1)	17s	https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/rxburn/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [calfire-2024-rxburn] asset 'rxburn-hex' holds 10092 of 10675 features from 'rxburn-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 583 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-2015-plants/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp5rcp85-2050-overall/stac-collection.json	exit=0
+CLEAN	56s	https://s3-west.nrp-nautilus.io/public-high-seas/ebsa/stac-collection.json	exit=0
+CLEAN	18s	https://s3-west.nrp-nautilus.io/public-high-seas/megamove/immegas/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-high-seas/stac-collection.json	exit=0
+CLEAN	2s	https://s3-west.nrp-nautilus.io/public-indigenous/landmark/indicative-pt-stac.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-kba/stac-collection.json	exit=0
+HARD(5)	59s	https://s3-west.nrp-nautilus.io/public-overturemaps/2026-02-18.0/counties/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [overture-divisions-counties-2026-02-18] asset 'counties-parquet': STAC declares column 'names' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [overture-divisions-counties-2026-02-18] asset 'counties-parquet': STAC declares column 'sources' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [overture-divisions-counties-2026-02-18] asset 'counties-hex': STAC declares column 'names' but it is absent from all 87 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [overture-divisions-counties-2026-02-18] asset 'counties-hex': STAC declares column 'sources' but it is absent from all 87 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-duplicate-feature-cell-rows] [overture-divisions-counties-2026-02-18] asset 'counties-hex': 19,599 rows (0.011%) are duplicate (finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) pair, so COUNT(*) and any per-cell SUM over this asset are inflated. Almost certainly a vector hex built before the 2026-07-12 polyfill fix (boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite or re-hex. See data-workflows#509.
+HARD(1)	107s	https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [pad-us-4.1-proclamation] asset 'proclamation-hex' holds 3354 of 3439 features from 'proclamation-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 85 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	26s	https://s3-west.nrp-nautilus.io/public-rap/rap-arte/stac-collection.json	exit=0
+HARD(1)	12s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/nri-2024/stac-collection.json	exit=1
+    [HARD][hex-duplicate-feature-cell-rows] [american-rivers-nri-2024] asset 'nri-2024-hex': 19 rows (0.011%) are duplicate (finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) pair, so COUNT(*) and any per-cell SUM over this asset are inflated. Almost certainly a vector hex built before the 2026-07-12 polyfill fix (boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite or re-hex. See data-workflows#509.
+HARD(1)	54s	https://s3-west.nrp-nautilus.io/public-social-vulnerability/2022/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [svi-2022] asset 'tract-hex' holds 84119 of 84120 features from 'tract-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	6s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/marine-bioregions/stac-collection.json	exit=0
+HARD(4)	6s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/cave-karst-coa/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [missouri-ccs-2022-cave-karst-coa] asset 'cave-karst-coa-parquet': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-cave-karst-coa] asset 'cave-karst-coa-parquet': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-cave-karst-coa] asset 'cave-karst-coa-hex': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-cave-karst-coa] asset 'cave-karst-coa-hex': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-swap/nevada/stac-collection.json	exit=0
+CLEAN	2s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/parkscore/stac-collection.json	exit=0
+HARD(1)	15s	https://s3-west.nrp-nautilus.io/public-trails/federal-trails-2026/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [federal-trails-2026] asset 'federal-trails-2026-hex' holds 122063 of 127619 features from 'federal-trails-2026-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 5556 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-usgs-nhd/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu2/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-utah/grand-staircase-escalante/stac-collection.json	exit=0
+HARD(1)	27s	https://s3-west.nrp-nautilus.io/public-wetlands/nwi/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [wetlands-nwi] asset 'nwi-hex' holds 11273455 of 38065251 features from 'nwi-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 26791796 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(3)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/rap-arte/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-rap-arte] asset 'rap-arte-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/rap-arte/hex/'.
+    [HARD][hex-no-native-res] [wyoming-rap-arte] asset 'rap-arte-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-rap-arte] asset 'rap-arte-hex' missing 'h3:parent_resolutions'.
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-elk-seasonal/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-elk-seasonal] asset 'wgfd-elk-seasonal-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-elk-seasonal/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-elk-seasonal] asset 'wgfd-elk-seasonal-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-elk-seasonal] asset 'wgfd-elk-seasonal-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-elk-seasonal] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-elk-seasonal] parquet asset 'wgfd-elk-seasonal-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-elk-seasonal] parquet asset 'wgfd-elk-seasonal-hex' has no 'table:columns'.
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/778c843a-f963-435a-a5d8-c25eac9ba400/scratchpad/slice-4.txt
+HARD(2)	21s	https://s3-west.nrp-nautilus.io/public-blm/locatable-operations/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [locatable-operations] asset 'locatable-operations-hex': STAC declares column 'bbox' but it is absent from all 5 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [locatable-operations] asset 'locatable-operations-hex' holds 2238 of 2399 features from 'locatable-operations-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 161 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(2)	27s	https://s3-west.nrp-nautilus.io/public-blm/oil-gas-participating-areas/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [oil-gas-participating-areas] asset 'oil-gas-participating-areas-hex': STAC declares column 'bbox' but it is absent from all 7 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [oil-gas-participating-areas] asset 'oil-gas-participating-areas-hex' holds 2545 of 2562 features from 'oil-gas-participating-areas-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 17 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	94s	https://s3-west.nrp-nautilus.io/public-ca30x30/conserved-areas-terrestrial-2025/stac-collection.json	exit=0
+CLEAN	19s	https://s3-west.nrp-nautilus.io/public-ca30x30/groundwater-dependent-ecosystems/wetlands/stac-collection.json	exit=0
+HARD(1)	12s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2025/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [williamson-act-2025] asset 'williamson-act-2025-hex' holds 120993 of 123980 features from 'williamson-act-2025-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 2987 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(1)	94s	https://s3-west.nrp-nautilus.io/public-census/acs-2020-2024/blockgroup/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [acs-2020-2024-blockgroup] asset 'blockgroup-hex' holds 242747 of 242748 features from 'blockgroup-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-census/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-connectivity/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-dem/stac-collection.json	exit=0
+CLEAN	19s	https://s3-west.nrp-nautilus.io/public-fire/calfire-2025/firep/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-2015-wbvert/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp5rcp85-2050-plants/stac-collection.json	exit=0
+CLEAN	18s	https://s3-west.nrp-nautilus.io/public-high-seas/ecs/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-high-seas/megamove/residencies/stac-collection.json	exit=0
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-human-modification/stac-collection.json	exit=0
+HARD(1)	87s	https://s3-west.nrp-nautilus.io/public-indigenous/landmark/iplc-poly-stac.json	exit=1
+    [HARD][hex-missing-features] [landmark-iplc-poly] asset 'iplc-poly-hex' holds 106914 of 124616 features from 'iplc-poly-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 17702 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+TIMEOUT	300s	https://s3-west.nrp-nautilus.io/public-land-cover/cgls-lc100-2019/stac-collection.json
+HARD(3)	57s	https://s3-west.nrp-nautilus.io/public-overturemaps/2026-02-18.0/countries/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [overture-divisions-countries-2026-02-18] asset 'countries-parquet': STAC declares column 'names' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [overture-divisions-countries-2026-02-18] asset 'countries-parquet': STAC declares column 'sources' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][hex-missing-features] [overture-divisions-countries-2026-02-18] asset 'countries-hex' holds 195 of 378 features from 'countries-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 183 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-padus/stac-collection.json	exit=0
+CLEAN	5s	https://s3-west.nrp-nautilus.io/public-rap/rap-iag/stac-collection.json	exit=0
+HARD(2)	138s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/roo-cjest/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [american-rivers-roo-cjest] asset 'roo-cjest-hex' holds 73767 of 74134 features from 'roo-cjest-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 367 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+    [HARD][hex-duplicate-feature-cell-rows] [american-rivers-roo-cjest] asset 'roo-cjest-hex': 64 rows (0.000%) are duplicate (finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) pair, so COUNT(*) and any per-cell SUM over this asset are inflated. Almost certainly a vector hex built before the 2026-07-12 polyfill fix (boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite or re-hex. See data-workflows#509.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-social-vulnerability/stac-collection.json	exit=0
+HARD(2)	11s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/noaa-esu-dps/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [swap-2025-noaa-esu-dps] asset 'noaa-esu-dps-parquet': STAC declares column 'objectid' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [swap-2025-noaa-esu-dps] asset 'noaa-esu-dps-hex': STAC declares column 'objectid' but it is absent from all 2 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+HARD(4)	7s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/forest-woodland-coa/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [missouri-ccs-2022-forest-woodland-coa] asset 'forest-woodland-coa-parquet': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-forest-woodland-coa] asset 'forest-woodland-coa-parquet': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-forest-woodland-coa] asset 'forest-woodland-coa-hex': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-forest-woodland-coa] asset 'forest-woodland-coa-hex': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+HARD(2)	10s	https://s3-west.nrp-nautilus.io/public-swap/nevada/swap-2022/key-habitats/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [nevada-swap-2022-key-habitats] asset 'key-habitats-parquet': STAC declares column 'objectid' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [nevada-swap-2022-key-habitats] asset 'key-habitats-hex': STAC declares column 'objectid' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/places/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-trails/stac-collection.json	exit=0
+CLEAN	44s	https://s3-west.nrp-nautilus.io/public-usgs-nhd/streams-by-order/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu4/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-utah/stac-collection.json	exit=0
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-wetlands/ramsar/stac-collection.json	exit=0
+HARD(3)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/rap-iag/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-rap-iag] asset 'rap-iag-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/rap-iag/hex/'.
+    [HARD][hex-no-native-res] [wyoming-rap-iag] asset 'rap-iag-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-rap-iag] asset 'rap-iag-hex' missing 'h3:parent_resolutions'.
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-mule-deer-crucial/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-mule-deer-crucial] asset 'wgfd-mule-deer-crucial-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-mule-deer-crucial/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-mule-deer-crucial] asset 'wgfd-mule-deer-crucial-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-mule-deer-crucial] asset 'wgfd-mule-deer-crucial-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-mule-deer-crucial] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-mule-deer-crucial] parquet asset 'wgfd-mule-deer-crucial-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-mule-deer-crucial] parquet asset 'wgfd-mule-deer-crucial-hex' has no 'table:columns'.
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/778c843a-f963-435a-a5d8-c25eac9ba400/scratchpad/slice-5.txt
+HARD(1)	32s	https://s3-west.nrp-nautilus.io/public-blm/lua-leases-permits-easements/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [lua-leases-permits-easements] asset 'lua-leases-permits-easements-hex' holds 37477 of 39598 features from 'lua-leases-permits-easements-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 2121 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(1)	76s	https://s3-west.nrp-nautilus.io/public-blm/oil-shale-leases/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [oil-shale-leases] asset 'oil-shale-leases-hex': STAC declares column 'bbox' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-ca30x30/cwhr/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-ca30x30/plant-richness/stac-collection.json	exit=0
+HARD(1)	12s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/all-years/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [williamson-act-all-years] asset 'williamson-act-all-years-hex' holds 563977 of 567763 features from 'williamson-act-all-years-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 3786 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	104s	https://s3-west.nrp-nautilus.io/public-census/census-2024/cd/stac-collection.json	exit=0
+HARD(2)	16s	https://s3-west.nrp-nautilus.io/public-cgs/sierra-nevada-atlas/map-unit-polys/stac-collection.json	exit=1
+    [HARD][categorical] [sierra-nevada-atlas-map-unit-polys] asset 'map-unit-polys-descriptions', column 'MapUnit': coded categorical column missing 'values' array.
+    [HARD][hex-missing-features] [sierra-nevada-atlas-map-unit-polys] asset 'map-unit-polys-hex' holds 6187 of 6221 features from 'map-unit-polys-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 34 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-connectivity/wildlife-movement-barriers/stac-collection.json	exit=0
+HARD(1)	56s	https://s3-west.nrp-nautilus.io/public-ecoregion/stac-collection.json	exit=1
+    [HARD][hex-duplicate-feature-cell-rows] [wwf-ecoregions-2017] asset 'ecoregion-hex': 6,356 rows (0.003%) are duplicate (finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) pair, so COUNT(*) and any per-cell SUM over this asset are inflated. Almost certainly a vector hex built before the 2026-07-12 polyfill fix (boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite or re-hex. See data-workflows#509.
+CLEAN	17s	https://s3-west.nrp-nautilus.io/public-fire/calfire-2025/rxburn/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp1rcp26-2050-overall/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp5rcp85-2050-wbvert/stac-collection.json	exit=0
+CLEAN	21s	https://s3-west.nrp-nautilus.io/public-high-seas/gebco-2025/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-high-seas/megamove/stac-collection.json	exit=0
+HARD(1)	46s	https://s3-west.nrp-nautilus.io/public-hydrobasins/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [hydrobasins-v1c] asset 'level-03-hex' holds 291 of 292 features from 'level-03-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-indigenous/landmark/iplc-pt-stac.json	exit=0
+TIMEOUT	300s	https://s3-west.nrp-nautilus.io/public-land-cover/nlcd/stac-collection.json
+HARD(2)	27s	https://s3-west.nrp-nautilus.io/public-overturemaps/2026-02-18.0/regions/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [overture-divisions-regions-2026-02-18] asset 'regions-parquet': STAC declares column 'names' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [overture-divisions-regions-2026-02-18] asset 'regions-parquet': STAC declares column 'sources' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-parks/park-access-2020/half-mile-access/stac-collection.json	exit=0
+CLEAN	7s	https://s3-west.nrp-nautilus.io/public-rap/rap-pfg-cover/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/stac-collection.json	exit=0
+CLEAN	55s	https://s3-west.nrp-nautilus.io/public-storms/ibtracs-v04r01/lines/stac-collection.json	exit=0
+HARD(1)	18s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/provinces/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [swap-2025-provinces] asset 'provinces-hex' holds 7 of 8 features from 'provinces-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(4)	8s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/glade-coa/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [missouri-ccs-2022-glade-coa] asset 'glade-coa-parquet': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-glade-coa] asset 'glade-coa-parquet': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-glade-coa] asset 'glade-coa-hex': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-glade-coa] asset 'glade-coa-hex': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+HARD(1)	49s	https://s3-west.nrp-nautilus.io/public-swap/nevada/swap-2022/species-distributions/stac-collection.json	exit=1
+    [HARD][hex-duplicate-feature-cell-rows] [nevada-swap-2022-species-distributions] asset 'species-distributions-hex': 1 rows (0.000%) are duplicate (finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) pair, so COUNT(*) and any per-cell SUM over this asset are inflated. Almost certainly a vector hex built before the 2026-07-12 polyfill fix (boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite or re-hex. See data-workflows#509.
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/priority-areas-place/stac-collection.json	exit=0
+HARD(1)	20s	https://s3-west.nrp-nautilus.io/public-usfws/critical-habitat/final/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [usfws-critical-habitat-final] asset 'final-hex' holds 679 of 728 features from 'final-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 49 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-usgs-ungulate-migration/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu6/stac-collection.json	exit=0
+CLEAN	47s	https://s3-west.nrp-nautilus.io/public-utah/udogm/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-wetlands/stac-collection.json	exit=0
+HARD(3)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/rap-pfg-biomass/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-rap-pfg-cover] asset 'rap-pfg-cover-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/rap-pfg-biomass/hex/'.
+    [HARD][hex-no-native-res] [wyoming-rap-pfg-cover] asset 'rap-pfg-cover-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-rap-pfg-cover] asset 'rap-pfg-cover-hex' missing 'h3:parent_resolutions'.
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-mule-deer-seasonal/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-mule-deer-seasonal] asset 'wgfd-mule-deer-seasonal-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-mule-deer-seasonal/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-mule-deer-seasonal] asset 'wgfd-mule-deer-seasonal-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-mule-deer-seasonal] asset 'wgfd-mule-deer-seasonal-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-mule-deer-seasonal] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-mule-deer-seasonal] parquet asset 'wgfd-mule-deer-seasonal-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-mule-deer-seasonal] parquet asset 'wgfd-mule-deer-seasonal-hex' has no 'table:columns'.
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/778c843a-f963-435a-a5d8-c25eac9ba400/scratchpad/slice-6.txt
+HARD(1)	90s	https://s3-west.nrp-nautilus.io/public-blm/lua-row/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [lua-row] asset 'lua-row-hex' holds 191959 of 196751 features from 'lua-row-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 4792 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-blm/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-ca30x30/cwhr13/stac-collection.json	exit=0
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-ca30x30/rarity-weighted-endemic-plant-richness/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/stac-collection.json	exit=0
+CLEAN	24s	https://s3-west.nrp-nautilus.io/public-census/census-2024/county/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-cgs/sierra-nevada-atlas/stac-collection.json	exit=0
+HARD(2)	5s	https://s3-west.nrp-nautilus.io/public-cpad/cced-stac-collection.json	exit=1
+    [HARD][table-columns-collection-level] [cced-2025b] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [cced-2025b] parquet asset 'cced-parquet' has no 'table:columns'.
+HARD(1)	41s	https://s3-west.nrp-nautilus.io/public-epa-water/epa-sab-v3/cws/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [epa-sab-v3-cws] asset 'sab-cws-hex' holds 44128 of 44656 features from 'sab-cws-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 528 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+HARD(3)	113s	https://s3-west.nrp-nautilus.io/public-fire/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [fire-perimeters] asset 'firep-hex' holds 21877 of 22810 features from 'firep-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 933 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+    [HARD][hex-missing-features] [fire-perimeters] asset 'rxburn-hex' holds 10092 of 10675 features from 'rxburn-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 583 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+    [HARD][hex-missing-features] [fire-perimeters] asset 'combined-hex' holds 71510 of 135061 features from 'combined-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 63551 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp1rcp26-2050-plants/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-globio/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-high-seas/hydrothermal-vents/stac-collection.json	exit=0
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-high-seas/megamove/tracked-individuals/stac-collection.json	exit=0
+CLEAN	17s	https://s3-west.nrp-nautilus.io/public-icca/icca-registry/icca-point/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-indigenous/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-land-cover/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-overturemaps/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-parks/park-access-2020/no-park-access/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-rap/stac-collection.json	exit=0
+HARD(1)	10s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/wild-scenic-designated/stac-collection.json	exit=1
+    [HARD][hex-duplicate-feature-cell-rows] [american-rivers-wild-scenic-designated] asset 'wild-scenic-designated-hex': 4 rows (0.015%) are duplicate (finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) pair, so COUNT(*) and any per-cell SUM over this asset are inflated. Almost certainly a vector hex built before the 2026-07-12 polyfill fix (boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite or re-hex. See data-workflows#509.
+CLEAN	30s	https://s3-west.nrp-nautilus.io/public-storms/ibtracs-v04r01/points/stac-collection.json	exit=0
+HARD(1)	19s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/sgcn-ranges/stac-collection.json	exit=1
+    [HARD][hex-duplicate-feature-cell-rows] [swap-2025-sgcn-ranges] asset 'sgcn-ranges-hex': 1,315 rows (0.003%) are duplicate (finest-cell, _cng_fid) pairs — one hex row must be one (feature, cell) pair, so COUNT(*) and any per-cell SUM over this asset are inflated. Almost certainly a vector hex built before the 2026-07-12 polyfill fix (boettiger-lab/datasets#150); remediate with a SELECT DISTINCT * rewrite or re-hex. See data-workflows#509.
+HARD(4)	6s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/grassland-prairie-savanna-coa/stac-collection.json	exit=1
+    [HARD][declared-column-absent] [missouri-ccs-2022-grassland-prairie-savanna-coa] asset 'grassland-prairie-savanna-coa-parquet': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-grassland-prairie-savanna-coa] asset 'grassland-prairie-savanna-coa-parquet': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-grassland-prairie-savanna-coa] asset 'grassland-prairie-savanna-coa-hex': STAC declares column 'shape__area' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+    [HARD][declared-column-absent] [missouri-ccs-2022-grassland-prairie-savanna-coa] asset 'grassland-prairie-savanna-coa-hex': STAC declares column 'shape__length' but it is absent from all 1 parquet file(s) — a stale/incorrect schema; fix the STAC table:columns.
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-swap/stac-collection.json	exit=0
+CLEAN	18s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/priority-areas-urban-area/stac-collection.json	exit=0
+HARD(1)	26s	https://s3-west.nrp-nautilus.io/public-usfws/critical-habitat/proposed/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [usfws-critical-habitat-proposed] asset 'proposed-hex' holds 48 of 49 features from 'proposed-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	14s	https://s3-west.nrp-nautilus.io/public-usgs-ungulate-migration/ungulate-ranges/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu8/stac-collection.json	exit=0
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-utah/ugs-mineral-occurrences/stac-collection.json	exit=0
+TIMEOUT	301s	https://s3-west.nrp-nautilus.io/public-wui/stac-collection.json
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/sage-grouse-priority/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-sage-grouse-priority] asset 'sage-grouse-priority-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/sage-grouse-priority/hex/'.
+    [HARD][hex-no-native-res] [wyoming-sage-grouse-priority] asset 'sage-grouse-priority-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-sage-grouse-priority] asset 'sage-grouse-priority-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-sage-grouse-priority] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-sage-grouse-priority] parquet asset 'sage-grouse-priority-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-sage-grouse-priority] parquet asset 'sage-grouse-priority-hex' has no 'table:columns'.
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-pronghorn-crucial/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-pronghorn-crucial] asset 'wgfd-pronghorn-crucial-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-pronghorn-crucial/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-pronghorn-crucial] asset 'wgfd-pronghorn-crucial-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-pronghorn-crucial] asset 'wgfd-pronghorn-crucial-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-pronghorn-crucial] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-pronghorn-crucial] parquet asset 'wgfd-pronghorn-crucial-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-pronghorn-crucial] parquet asset 'wgfd-pronghorn-crucial-hex' has no 'table:columns'.
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/778c843a-f963-435a-a5d8-c25eac9ba400/scratchpad/slice-7.txt

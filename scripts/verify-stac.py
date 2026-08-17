@@ -1047,6 +1047,15 @@ def _first_text(result: dict) -> str:
     return ""
 
 
+# The duckdb-geo MCP renders at most a 50-row markdown PREVIEW and appends a warning
+# ("⚠️ Showing the first 50 rows only …"). A check that row-parses that preview as if it
+# were the whole result silently drops the tail — this is how check_declared_schema_matches_data
+# fabricated ~110 'absent' columns on every >50-column asset (SVI, FACTS; data-workflows#509).
+# Refuse to return a truncated preview: every check must compute its result server-side
+# (aggregate / set-diff) so the row count stays small, or it degrades to an advisory here.
+_TRUNCATED_PREVIEW_RE = re.compile(r"first\s+\d+\s+rows only", re.I)
+
+
 def _rows_from_tool_result(result: dict):
     """The query tool returns a markdown table in a text block. We only need the
     single projected column's values, so parse the markdown table generically."""
@@ -1055,6 +1064,9 @@ def _rows_from_tool_result(result: dict):
     sc = result.get("structuredContent")
     if isinstance(sc, dict) and isinstance(sc.get("rows"), list):
         return sc["rows"]
+    if _TRUNCATED_PREVIEW_RE.search(text or ""):
+        raise MCPError("MCP returned a truncated preview (first N rows only) — the query "
+                       "must aggregate / set-diff server-side, not row-parse a large table")
     return _parse_markdown_table(text)
 
 
@@ -1464,6 +1476,13 @@ def _partition_keys(href: str) -> set[str]:
     return {m.lower() for m in _PARTITION_KEY_RE.findall(href)}
 
 
+def _names_values(names) -> str:
+    """`('a'),('b'),…` — a de-duplicated, lowercased, quote-escaped name set for a SQL
+    VALUES anti-join. Callers guarantee the set is non-empty."""
+    esc = sorted({str(n).lower().replace("'", "''") for n in names})
+    return ", ".join(f"('{n}')" for n in esc)
+
+
 def check_declared_schema_matches_data(doc: dict, mcp: MCPClient) -> list[Finding]:
     """Every column the STAC declares must exist in the parquet, and vice versa — checked
     PER FILE, not against the glob's unioned schema (data-workflows#534). A whole-glob
@@ -1475,6 +1494,13 @@ def check_declared_schema_matches_data(doc: dict, mcp: MCPClient) -> list[Findin
       present in data, undocumented        -> ADVISORY (self-describing contract; kept
                                               advisory because nested/covering leaves make
                                               a hard extra-column failure FP-prone)
+
+    The declared-vs-present set difference is computed IN SQL, returning only the
+    discrepancies, because the MCP `query` tool caps its output at a 50-row markdown
+    preview — a wide asset (SVI: 162 columns) row-parsed in Python would silently drop
+    every column past row 50 and fabricate ~110 'absent' findings (data-workflows#509).
+    The HARD (absent/heterogeneous) and ADVISORY (undocumented) diffs run as separate
+    queries so a large undocumented set can't truncate away the critical HARD result.
     """
     out = []
     for key, asset in doc.get("assets", {}).items():
@@ -1487,55 +1513,73 @@ def check_declared_schema_matches_data(doc: dict, mcp: MCPClient) -> list[Findin
         if not declared:
             continue  # parquet-no-table-columns already HARD-flags a missing schema
         part_keys = _partition_keys(asset.get("href", ""))
+        declared_lower = {n.lower() for n in declared}
+        has_bbox = "bbox" in declared_lower
+        # Names to verify present: exclude path-supplied partition keys, the writer-named
+        # geometry column, and bbox (validated separately as a possible covering struct).
+        to_check = {n for n in declared_lower
+                    if n not in part_keys and n not in GEOM_COLS and n != "bbox"}
+        # `type IS NOT NULL` keeps only leaf columns, dropping the schema root / struct
+        # group nodes (physical type NULL) so they aren't phantom columns (#534 caveat).
+        base = (f"WITH sch AS (SELECT lower(name) AS name, file_name, type "
+                f"FROM parquet_schema('{s3}')), "
+                f"files AS (SELECT COUNT(DISTINCT file_name) AS total FROM sch), "
+                f"present AS (SELECT name, COUNT(DISTINCT file_name) AS nf FROM sch "
+                f"WHERE type IS NOT NULL GROUP BY 1) ")
         try:
-            total = int(mcp.query(
-                f"SELECT COUNT(DISTINCT file_name) AS n FROM parquet_schema('{s3}')")[0]["n"])
-            # `type IS NOT NULL` keeps only leaf columns, dropping the schema root and any
-            # struct group node (whose physical type is NULL) — so `parquet_schema`'s
-            # nested/struct entries do not read as phantom columns (#534 caveat).
-            rows = mcp.query(
-                "SELECT lower(name) AS name, COUNT(DISTINCT file_name) AS nf "
-                f"FROM parquet_schema('{s3}') WHERE type IS NOT NULL GROUP BY 1")
+            total = int(mcp.query(base + "SELECT total FROM files")[0]["total"])
+            parts = []
+            if to_check:
+                parts.append(
+                    f"SELECT d.name AS name, COALESCE(p.nf,0) AS nf "
+                    f"FROM (VALUES {_names_values(to_check)}) d(name) "
+                    f"LEFT JOIN present p ON p.name = d.name "
+                    f"WHERE COALESCE(p.nf,0) < (SELECT total FROM files)")
+            if has_bbox:
+                cover = ", ".join(f"'{c}'" for c in sorted(_BBOX_COVER))
+                # bbox is present if declared directly OR stored as its covering leaves
+                bexpr = (f"COALESCE((SELECT nf FROM present WHERE name='bbox'), "
+                         f"(SELECT MIN(nf) FROM present WHERE name IN ({cover})), 0)")
+                parts.append(f"SELECT 'bbox' AS name, {bexpr} AS nf "
+                             f"WHERE {bexpr} < (SELECT total FROM files)")
+            hard_rows = mcp.query(base + " UNION ALL ".join(parts)) if parts else []
         except (MCPError, ValueError, KeyError, IndexError) as e:
             out.append(Finding(ADVISORY, "schema-match-check-failed",
                                f"asset '{key}': could not read parquet footers ({e})."))
             continue
         if not total:
             continue
-        present = {}
-        for r in rows:
+        for r in hard_rows:
             try:
-                present[str(r["name"]).lower()] = int(r["nf"])
+                nm, nf = str(r["name"]), int(r["nf"])
             except (KeyError, ValueError, TypeError):
                 continue
-        # a `bbox` declared as one column may be stored as a covering struct — treat it as
-        # present if its leaves are (in as many files as the leaves appear).
-        bbox_leaf_files = (min((present[l] for l in _BBOX_COVER if l in present), default=0))
-
-        declared_lower = set()
-        for name in declared:
-            low = name.lower()
-            declared_lower.add(low)
-            if low in part_keys or _is_geom_col(name):
-                continue  # path-supplied partition key / writer-named geometry column
-            nf = present.get(low, 0)
-            if low == "bbox" and nf == 0:
-                nf = bbox_leaf_files  # covering-struct case
             if nf == 0:
                 out.append(Finding(HARD, "declared-column-absent",
-                    f"asset '{key}': STAC declares column '{name}' but it is absent from "
+                    f"asset '{key}': STAC declares column '{nm}' but it is absent from "
                     f"all {total} parquet file(s) — a stale/incorrect schema; fix the STAC "
                     f"table:columns."))
-            elif nf < total:
+            else:
                 out.append(Finding(HARD, "declared-column-heterogeneous",
-                    f"asset '{key}': STAC declares column '{name}' but it is missing from "
+                    f"asset '{key}': STAC declares column '{nm}' but it is missing from "
                     f"{total - nf} of {total} parquet file(s) — a partial/mixed-vintage "
                     f"build; rebuild the asset. See data-workflows#534/#520."))
-        for low, nf in sorted(present.items()):
-            if (nf == total and low not in declared_lower and low not in part_keys
-                    and not _is_geom_col(low) and low not in _BBOX_COVER and low != "bbox"):
+        # ADVISORY: columns present in every file but undeclared. Separate query so a
+        # truncation on a large undocumented set (guarded in _rows_from_tool_result) is
+        # caught here and skipped rather than dropping the HARD result above.
+        keep = declared_lower | part_keys | GEOM_COLS | _BBOX_COVER | {"bbox"}
+        try:
+            undoc = mcp.query(
+                base + f"SELECT p.name AS name FROM present p, files "
+                f"WHERE p.nf = files.total AND p.name NOT IN "
+                f"(SELECT name FROM (VALUES {_names_values(keep)}) k(name))")
+        except (MCPError, ValueError, KeyError, IndexError):
+            undoc = []  # truncated/failed advisory — non-critical
+        for r in undoc:
+            nm = str(r.get("name", ""))
+            if nm:
                 out.append(Finding(ADVISORY, "undocumented-column",
-                    f"asset '{key}': parquet column '{low}' is present in all {total} "
+                    f"asset '{key}': parquet column '{nm}' is present in all {total} "
                     f"file(s) but not declared in table:columns — add it (assets must be "
                     f"self-describing) or confirm it is intentional."))
     return out

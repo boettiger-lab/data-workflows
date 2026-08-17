@@ -20,6 +20,7 @@ Run: python3 -m unittest discover -s tests -v
 """
 import importlib.util
 import pathlib
+import re
 import unittest
 
 _SRC = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "verify-stac.py"
@@ -237,6 +238,27 @@ class ScriptedMCP:
         raise AssertionError(f"unscripted query: {sql}")
 
 
+class TruncationGuard(unittest.TestCase):
+    """The MCP caps output at a 50-row markdown preview; consuming it as complete is how
+    check_declared_schema_matches_data fabricated ~110 'absent' columns (#509). The client
+    must refuse a truncated preview rather than silently return a partial row set."""
+
+    @staticmethod
+    def _result(text):
+        return {"content": [{"type": "text", "text": text}]}
+
+    def test_truncated_preview_raises(self):
+        text = ("| name |\n|:--|\n| a |\n| b |\n\n"
+                "⚠️ Showing the first 50 rows only — this is a preview, not the full result.")
+        with self.assertRaises(vs.MCPError):
+            vs._rows_from_tool_result(self._result(text))
+
+    def test_full_result_parses(self):
+        text = "| name | nf |\n|:--|--:|\n| a | 2 |\n| b | 2 |"
+        self.assertEqual(vs._rows_from_tool_result(self._result(text)),
+                         [{"name": "a", "nf": "2"}, {"name": "b", "nf": "2"}])
+
+
 # --- #534: declared STAC schema vs actual parquet schema (per file) ---------
 
 def _schema_doc(declared, href=HEX_HREF):
@@ -244,38 +266,61 @@ def _schema_doc(declared, href=HEX_HREF):
                                  "table:columns": [{"name": n} for n in declared]}}}
 
 
-def _schema_mcp(total, name_nf):
-    return ScriptedMCP([
-        ("AS n FROM parquet_schema", [{"n": total}]),   # total-files query
-        ("GROUP BY 1", [{"name": n, "nf": nf} for n, nf in name_nf.items()]),
-    ])
+def _present(name_nf):
+    """Expand a {name: files_present} map into synthetic parquet_schema rows
+    (name, file_name, type). The total file count is COUNT(DISTINCT file_name), so the
+    scenario must include a column present in every file (the common case)."""
+    rows = []
+    for name, nf in name_nf.items():
+        for i in range(nf):
+            rows.append((name, f"f{i}", "INT"))
+    return rows
 
 
+@unittest.skipUnless(importlib.util.find_spec("duckdb"), "duckdb not installed")
 class DeclaredSchemaMatch(unittest.TestCase):
+    """The declared-vs-present set difference is computed IN SQL (so the MCP's 50-row
+    preview cap can't drop wide-schema columns and fabricate 'absent' findings, #509).
+    These run that real SQL against a synthetic parquet_schema relation."""
+
+    def _run(self, name_nf, declared, href=HEX_HREF):
+        import duckdb
+        rows = _present(name_nf)
+        vals = ", ".join(
+            "('%s','%s',%s)" % (n, f, "NULL" if t is None else "'%s'" % t)
+            for (n, f, t) in rows)
+        repl = "(SELECT * FROM (VALUES %s) _s(name, file_name, type))" % vals
+
+        class Exec:
+            def query(self, sql):
+                con = duckdb.connect()
+                sql2 = re.sub(r"parquet_schema\('[^']*'\)", lambda m: repl, sql)
+                cur = con.execute(sql2)
+                names = [d[0] for d in cur.description]
+                return [dict(zip(names, r)) for r in cur.fetchall()]
+
+        return vs.check_declared_schema_matches_data(_schema_doc(declared, href), Exec())
+
     def test_clean_reports_nothing(self):
         # h0 is a path partition key (from /h0=*/), so it is legitimately skipped.
-        doc = _schema_doc(["_cng_fid", "rfb", "h0"])
-        mcp = _schema_mcp(2, {"_cng_fid": 2, "rfb": 2, "h0": 2})
-        self.assertEqual(vs.check_declared_schema_matches_data(doc, mcp), [])
+        f = self._run({"_cng_fid": 2, "rfb": 2}, ["_cng_fid", "rfb", "h0"])
+        self.assertEqual(f, [])
 
     def test_declared_absent_everywhere_is_hard(self):
-        doc = _schema_doc(["_cng_fid", "ghost"])
-        f = vs.check_declared_schema_matches_data(doc, _schema_mcp(2, {"_cng_fid": 2}))
+        f = self._run({"_cng_fid": 2}, ["_cng_fid", "ghost"])
         self.assertEqual([x.code for x in f], ["declared-column-absent"])
         self.assertEqual(f[0].severity, vs.HARD)
         self.assertIn("ghost", f[0].message)
 
     def test_heterogeneous_hole_is_hard_and_counts_files(self):
         # THE #520 case: _cng_fid present in only some files.
-        doc = _schema_doc(["_cng_fid", "rfb"])
-        f = vs.check_declared_schema_matches_data(doc, _schema_mcp(121, {"_cng_fid": 99, "rfb": 121}))
+        f = self._run({"_cng_fid": 99, "rfb": 121}, ["_cng_fid", "rfb"])
         self.assertEqual([x.code for x in f], ["declared-column-heterogeneous"])
         self.assertEqual(f[0].severity, vs.HARD)
         self.assertIn("22 of 121", f[0].message)
 
     def test_undocumented_extra_is_advisory(self):
-        doc = _schema_doc(["_cng_fid"])
-        f = vs.check_declared_schema_matches_data(doc, _schema_mcp(2, {"_cng_fid": 2, "surprise": 2}))
+        f = self._run({"_cng_fid": 2, "surprise": 2}, ["_cng_fid"])
         self.assertEqual([x.code for x in f], ["undocumented-column"])
         self.assertEqual(f[0].severity, vs.ADVISORY)
         self.assertIn("surprise", f[0].message)
@@ -283,15 +328,19 @@ class DeclaredSchemaMatch(unittest.TestCase):
     def test_partition_key_absent_from_footer_is_not_flagged(self):
         # Mutation guard: a partition key lives in the PATH, not the footer. Declaring h0
         # while parquet_schema shows no h0 must NOT read as an absent column.
-        doc = _schema_doc(["_cng_fid", "h0"])
-        f = vs.check_declared_schema_matches_data(doc, _schema_mcp(2, {"_cng_fid": 2}))
+        f = self._run({"_cng_fid": 2}, ["_cng_fid", "h0"])
         self.assertEqual(f, [])
 
     def test_geometry_column_is_skipped(self):
         # geometry may be writer-named differently; skip it both directions.
-        doc = {"assets": {"d-parquet": {"href": "https://x/d.parquet", "type": PARQUET,
-               "table:columns": [{"name": "_cng_fid"}, {"name": "geom"}]}}}
-        f = vs.check_declared_schema_matches_data(doc, _schema_mcp(1, {"_cng_fid": 1}))
+        f = self._run({"_cng_fid": 1}, ["_cng_fid", "geom"], href="https://x/d.parquet")
+        self.assertEqual(f, [])
+
+    def test_wide_schema_is_not_truncated(self):
+        # #509 regression: 160 present+declared columns must all read present. A row-parsed
+        # 50-row preview would fabricate ~110 'absent' findings here.
+        wide = {f"col{i}": 1 for i in range(160)}
+        f = self._run(wide, [f"col{i}" for i in range(160)], href="https://x/d.parquet")
         self.assertEqual(f, [])
 
 
