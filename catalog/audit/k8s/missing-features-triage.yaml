@@ -1,0 +1,152 @@
+# data-workflows#509 — classify the 50 hex-missing-features collections: is the shortfall
+# a legitimate SUB-CELL footprint effect (features smaller than one native H3 cell polyfill
+# to zero cells -> a documentation note) or a genuine DROP (features large enough to contain
+# a cell are absent -> a re-hex)? Per collection it computes, for the features present in the
+# flat GeoParquet but absent from the hex (_cng_fid anti-join), the ST_Area_Spheroid
+# distribution vs the native cell area. Read-only: no writes.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: missing-feats-targets, namespace: geo-workflows}
+data:
+  urls.txt: |
+    https://s3-west.nrp-nautilus.io/public-blm/mineral-materials/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-ca-dac/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-fire/usgs-fires-2021/combined/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-hazard/flood-hazard/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-high-seas/iho/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-mappinginequality/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/campaigns/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-wyoming/blm-sma/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-blm/mining-claims/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2021/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-tpl/conservation-almanac-2024-sites/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-wdpa/wdoecm-may-2026/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-blm/non-energy-leasables/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2022/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-blm/coal-cases/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-blm/oil-gas-agreements/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-ca30x30/2024/conserved-areas-terrestrial/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2023/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/firep/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-high-seas/seafloor-geomorphology/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-indigenous/landmark/indicative-poly-stac.json
+    https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/marine/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-tpl/wcb-approved-projects/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-blm/geothermal-leases/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2024/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/rxburn/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-social-vulnerability/2022/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-trails/federal-trails-2026/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-wetlands/nwi/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-blm/locatable-operations/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-blm/oil-gas-participating-areas/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2025/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-census/acs-2020-2024/blockgroup/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-indigenous/landmark/iplc-poly-stac.json
+    https://s3-west.nrp-nautilus.io/public-overturemaps/2026-02-18.0/countries/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/roo-cjest/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-blm/lua-leases-permits-easements/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/all-years/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-cgs/sierra-nevada-atlas/map-unit-polys/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-hydrobasins/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/provinces/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-usfws/critical-habitat/final/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-blm/lua-row/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-epa-water/epa-sab-v3/cws/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-fire/stac-collection.json
+    https://s3-west.nrp-nautilus.io/public-usfws/critical-habitat/proposed/stac-collection.json
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: missing-features-triage
+  namespace: geo-workflows
+  labels: {k8s-app: missing-features-triage}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: missing-features-triage}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: triage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: targets, mountPath: /config, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -uo pipefail
+          python3 - <<'PY'
+          import json, urllib.request, os, duckdb, re
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial")
+          con.execute("SET http_retries=8; SET http_retry_wait_ms=3000; SET preserve_insertion_order=false")
+          con.execute("SET temp_directory='/tmp/spill'; SET memory_limit='24GiB'")
+          con.execute("CREATE SECRET s3 (TYPE S3, KEY_ID '{}', SECRET '{}', ENDPOINT '{}', URL_STYLE 'path', USE_SSL false)".format(
+              os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'], os.environ['AWS_S3_ENDPOINT']))
+          # H3 average cell area (m^2) by resolution
+          CELL = {0:4.357e12,1:6.097e11,2:8.680e10,3:1.239e10,4:1.770e9,5:2.529e8,6:3.613e7,
+                  7:5.161e6,8:7.373e5,9:1.053e5,10:1.505e4,11:2.150e3,12:3.070e2}
+          def s3(h):
+              m=re.match(r'https?://s3-west\.nrp-nautilus\.io/(.+)', h); return 's3://'+m.group(1) if m else h
+          for url in [l.strip() for l in open('/config/urls.txt') if l.strip()]:
+              cid = url.split('/public-')[-1].replace('/stac-collection.json','')
+              try:
+                  d = json.loads(urllib.request.urlopen(url, timeout=30).read())
+                  assets = d.get('assets', {})
+                  hexa = next((a for k,a in assets.items() if k.endswith('-hex')), None)
+                  flat = next((a for k,a in assets.items() if k.endswith('-parquet')
+                               and any(c.get('name','').lower() in ('geom','geometry','shape') for c in a.get('table:columns',[]))), None)
+                  if not flat:
+                      flat = next((a for k,a in assets.items() if k.endswith('-parquet') and 'hex' not in k), None)
+                  if not hexa or not flat: print(f"{cid}\tSKIP\tno flat/hex asset"); continue
+                  fp, hp = s3(flat['href']), s3(hexa['href'])
+                  fcols = [c[0] for c in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{fp}')").fetchall()]
+                  gcol = next((c for c in fcols if c.lower() in ('geom','geometry','shape')), None)
+                  if '_cng_fid' not in fcols or not gcol: print(f"{cid}\tSKIP\tno _cng_fid/geom on flat"); continue
+                  hcols = [c[0] for c in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{hp}')").fetchall()]
+                  hres = sorted([int(c[1:]) for c in hcols if re.fullmatch(r'h\d+', c)])
+                  native = hres[-1] if hres else 8
+                  cell = CELL.get(native, 1.5e4)
+                  row = con.execute(f"""
+                    WITH hx AS (SELECT DISTINCT _cng_fid FROM read_parquet('{hp}')),
+                         miss AS (SELECT ST_Area_Spheroid("{gcol}") AS a
+                                  FROM read_parquet('{fp}') f
+                                  WHERE f._cng_fid NOT IN (SELECT _cng_fid FROM hx))
+                    SELECT COUNT(*),
+                           COUNT(*) FILTER (WHERE a > {cell}),
+                           median(a) FILTER (WHERE a = a),
+                           MAX(a) FILTER (WHERE a = a),
+                           COUNT(*) FILTER (WHERE a <> a OR a IS NULL)
+                    FROM miss""").fetchone()
+                  # ST_Area_Spheroid is NaN on invalid geoms (a<>a); treat those as sub-cell-
+                  # like (a degenerate feature that polyfilled to zero), so classification keys
+                  # on the fraction of GENUINELY LARGE (> one native cell) missing features.
+                  n, n_big, med, mx, n_nan = row
+                  n = n or 0; n_big = n_big or 0
+                  pct_big = (n_big/n) if n else 0.0
+                  verdict = 'REHEX' if pct_big>0.20 else ('SUBCELL' if pct_big<0.05 else 'REVIEW')
+                  print(f"{cid}\t{verdict}\tres{native} cell={cell:.0f} missing={n} big={n_big} "
+                        f"pct_big={pct_big:.1%} nan_geom={n_nan or 0} med={(med or 0):.0f} max={(mx or 0):.0f}", flush=True)
+              except Exception as e:
+                  print(f"{cid}\tERROR\t{str(e)[:100]}", flush=True)
+          print("=== triage done ===")
+          PY
+        resources:
+          requests: {cpu: '4', memory: 28Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '4', memory: 28Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: targets, configMap: {name: missing-feats-targets}}
