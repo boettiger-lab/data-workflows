@@ -1,0 +1,81 @@
+# data-workflows#509 — STAC metadata fix for the 5 Wyoming RASTER-derived collections
+# flagged by the pre-gate audit: hex asset href was a bare directory (not the h0=* glob)
+# and lacked h3:native_resolution / h3:parent_resolutions. Fix is purely ADDITIVE to the
+# hex asset (the table:columns are already present) — no description surgery.
+#
+# Native resolution measured from the actual hex h-columns; parents = [0] (only h0 + the
+# native column are stored). Runs in-cluster because STAC is canonical on NRP S3 and the
+# workflow namespace holds the only NRP write credential. Idempotent + verified per file.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-fix-wyoming-raster
+  namespace: geo-workflows
+  labels: {k8s-app: stac-fix-wyoming-raster}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels: {k8s-app: stac-fix-wyoming-raster}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, subprocess
+
+          # collection path -> hex native resolution (measured from stored h-columns)
+          FIXES = {
+              'public-wyoming/rap-arte': 9,
+              'public-wyoming/rap-iag': 9,
+              'public-wyoming/rap-pfg-biomass': 10,
+              'public-wyoming/sagebrush-design': 8,
+              'public-wyoming/nlcd-2024': 8,
+          }
+          for path, native in FIXES.items():
+              key = f'nrp:{path}/stac-collection.json'
+              doc = json.loads(subprocess.check_output(['rclone', 'cat', key]))
+              changed = []
+              for k, a in doc.get('assets', {}).items():
+                  if not k.endswith('-hex'):
+                      continue
+                  href = a.get('href', '')
+                  if href.rstrip('/').endswith('/hex'):
+                      a['href'] = href.rstrip('/') + '/h0=*/data_0.parquet'
+                      changed.append('href')
+                  if a.get('h3:native_resolution') != native:
+                      a['h3:native_resolution'] = native
+                      changed.append('native')
+                  if a.get('h3:parent_resolutions') != [0]:
+                      a['h3:parent_resolutions'] = [0]
+                      changed.append('parents')
+              if not changed:
+                  print(f'  {path}: already correct, skip'); continue
+              open('/tmp/o.json', 'w').write(json.dumps(doc, indent=2))
+              json.load(open('/tmp/o.json'))  # validate re-parses
+              subprocess.check_call(['rclone', 'copyto', '/tmp/o.json', key])
+              print(f'  {path}: FIXED {changed} native={native}')
+          print('done')
+          PY
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
