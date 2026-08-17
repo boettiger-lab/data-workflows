@@ -2,6 +2,23 @@
 
 # World Database of Protected Areas (WDPA)
 
+> ⚠️ **Historical recipe — the prefix it targets no longer exists.** Everything in this
+> directory built the **December 2025** edition under `s3://public-wdpa/wdpa-december-2025/`,
+> which was superseded by the canonical date-independent `wdpa` collection (June 2026) and
+> **purged in #332** (12.6 GiB, tree-orphaned). The scripts and job manifests here are kept as
+> the provenance record of that build; their default paths are left as they ran, so they will
+> fail if re-run as-is. Current data:
+>
+> | asset | URL |
+> |---|---|
+> | GeoParquet | `s3://public-wdpa/wdpa.parquet` |
+> | PMTiles | `s3://public-wdpa/wdpa-june-2026.pmtiles` |
+> | H3 hex | `s3://public-wdpa/wdpa/hex/h0=*/data_0.parquet` |
+> | STAC | https://s3-west.nrp-nautilus.io/public-wdpa/wdpa/stac-collection.json |
+>
+> A future refresh should go through the standard `cng-datasets workflow` path
+> (AGENTS.md Step 2), not these bespoke scripts.
+
 ## Source Data
 
 Original geodatabase: `s3://public-wdpa/wdpa-december-2025/raw/WDPA_Dec2025_Public.gdb`

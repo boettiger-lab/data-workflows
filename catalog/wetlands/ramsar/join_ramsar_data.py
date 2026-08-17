@@ -45,7 +45,11 @@ def main():
     # Define data sources
     ramsar_polygons = "s3://public-wetlands/ramsar/ramsar_wetlands.parquet"
     site_details = "s3://public-wetlands/ramsar/site-details.parquet"
-    wdpa = "s3://public-wdpa/wdpa-december-2025/WDPA_Dec2025.parquet"
+    # Canonical, date-independent WDPA collection (currently the June 2026 edition). The
+    # superseded wdpa-december-2025 prefix this used to read was purged in #332; all eight
+    # columns selected below (NAME, DESIG, DESIG_ENG, ISO3, REP_AREA, GIS_AREA, SHAPE,
+    # STATUS_YR) are present in this parquet.
+    wdpa = "s3://public-wdpa/wdpa.parquet"
     centroids = "s3://public-wetlands/ramsar/raw/features_centroid_publishedPoint.parquet"
     
     print("\n=== Step 1: Join existing ramsar polygons with site details ===")
