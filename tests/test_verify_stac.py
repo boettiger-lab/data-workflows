@@ -519,5 +519,31 @@ class HexFidMatchesFlat(unittest.TestCase):
         self.assertEqual(mcp.sql, [], "no witness → must not query")
 
 
+class CatalogNotCollection(unittest.TestCase):
+    """A STAC Catalog (the root) is structural — it has no license or extent, and the root
+    has no parent. The Collection checks must skip it (data-workflows#509)."""
+
+    def _root(self):
+        root = "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
+        return {"type": "Catalog", "id": "boettiger-lab-datasets", "links": [
+            {"rel": "self", "href": root}, {"rel": "root", "href": root},
+            {"rel": "child", "href": "https://s3-west.nrp-nautilus.io/public-x/stac-collection.json"}]}
+
+    def test_catalog_needs_no_license(self):
+        self.assertEqual(vs.check_license(self._root()), [])
+
+    def test_catalog_needs_no_temporal_extent(self):
+        self.assertEqual(vs.check_temporal_extent(self._root()), [])
+
+    def test_root_needs_no_parent_link(self):
+        self.assertEqual([f.code for f in vs.check_nav_links(self._root())], [])
+
+    def test_non_root_still_needs_parent(self):
+        d = {"type": "Collection", "license": "CC-BY-4.0", "links": [
+            {"rel": "self", "href": "https://s3-west.nrp-nautilus.io/public-x/stac-collection.json"},
+            {"rel": "root", "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"}]}
+        self.assertIn("nav-parent-missing", [f.code for f in vs.check_nav_links(d)])
+
+
 if __name__ == "__main__":
     unittest.main()
