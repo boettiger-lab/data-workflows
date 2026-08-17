@@ -1,0 +1,214 @@
+# data-workflows#509 — row-dup remediation batch 2 (2026-08). The catalog-wide pre-gate
+# verify-stac sweep (catalog/audit/pregate-verify-sweep) found 10 vector hex assets with
+# duplicate (finest-cell, _cng_fid) rows that were NOT in the original #521 target list —
+# built after that sweep or missed by it (incl. `ecoregion`, previously assumed clean).
+# Same proven, self-protecting script as hex-dedup-sweep.yaml.
+#
+# One pod per target. Per partition file it first runs a CHEAP gate (COUNT(*) vs
+# COUNT(DISTINCT (finest non-NULL cell, _cng_fid)) over two columns), and only for files
+# that actually have duplicates does it run the expensive full-row check — which keeps
+# padus-4-1/fee (610M rows) and census sldl/sldu (630M+) tractable.
+#
+# Filenames are LISTED, never assumed: the catalog uses both data_0.parquet and
+# data_00.parquet, and hardcoding the former made a first run error out on every
+# collection using the latter.
+#
+# SAFETY: a target is rewritten only if its duplicate groups are byte-identical full rows,
+# checked on the duplicate groups alone. If any group holds differing rows the duplicates
+# carry information, SELECT DISTINCT * would not collapse them, and the target is SKIPPED
+# and reported rather than rewritten. Cell and feature counts are asserted unchanged per
+# file before any swap.
+#
+# The cell key is the finest NON-NULL h column, never h3:native_resolution: a build that
+# caps large features at a coarser resolution leaves the native column NULL for them and
+# COUNT(DISTINCT) drops NULL keys — on WDPA that read as 77,991,738 duplicates against a
+# true count of 0.
+#
+# Idempotent: re-running is safe and cheap on already-clean targets.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hex-dedup-rowdup-targets
+  namespace: geo-workflows
+data:
+  targets.txt: |
+    public-rivers/american-rivers/wild-scenic-eligible/hex
+    public-rivers/american-rivers/wild-scenic-designated/hex
+    public-rivers/american-rivers/nri-2016/hex
+    public-rivers/american-rivers/nri-2024/hex
+    public-rivers/american-rivers/roo-cjest/hex
+    public-tpl/landvote/hex
+    public-overturemaps/2026-02-18.0/counties/hex
+    public-ecoregion/ecoregion/hex
+    public-swap/nevada/swap-2022/species-distributions/hex
+    public-swap/california/swap-2025/sgcn-ranges/hex
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hex-dedup-rowdup
+  namespace: geo-workflows
+  labels:
+    k8s-app: hex-dedup-rowdup
+spec:
+  completions: 10
+  parallelism: 10
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 10
+  ttlSecondsAfterFinished: 604800
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  template:
+    metadata:
+      labels:
+        k8s-app: hex-dedup-rowdup
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: sweep
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: targets, mountPath: /config, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          TARGET=$(sed -n "$((JOB_COMPLETION_INDEX + 1))p" /config/targets.txt)
+          test -n "$TARGET" || { echo "no target for index $JOB_COMPLETION_INDEX"; exit 0; }
+          echo "=== #509 sweep [$JOB_COMPLETION_INDEX] $TARGET ==="
+
+          # List the actual parquet FILES, never assume a filename: the catalog uses both
+          # data_0.parquet and data_00.parquet, and assuming the former made this job error out
+          # on every collection using the latter.
+          rclone lsf -R --files-only --include '*.parquet' "nrp:${TARGET}/" > /tmp/parts.txt
+          echo "partition files: $(wc -l < /tmp/parts.txt)"
+          test -s /tmp/parts.txt || { echo "RESULT $TARGET SKIP no-parquet-files"; exit 0; }
+
+          python3 - "$TARGET" <<'PY'
+          import os, sys, duckdb
+
+          target = sys.argv[1]
+          rels = [l.strip() for l in open('/tmp/parts.txt') if l.strip()]
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute("SET preserve_insertion_order=false")
+          con.execute("SET temp_directory='/tmp/duckdb-spill'")
+          con.execute("SET memory_limit='52GiB'")
+          con.execute("CREATE SECRET s3 (TYPE S3, KEY_ID '{}', SECRET '{}', ENDPOINT '{}', "
+                      "URL_STYLE 'path', USE_SSL false)".format(
+                          os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'],
+                          os.environ['AWS_S3_ENDPOINT']))
+
+          first = "s3://{}/{}".format(target, rels[0])
+          cols = [r[0] for r in con.execute("DESCRIBE SELECT * FROM read_parquet('{}')".format(first)).fetchall()]
+          hcols = sorted([c for c in cols if c.startswith('h') and c[1:].isdigit()],
+                         key=lambda c: int(c[1:]), reverse=True)
+          if '_cng_fid' not in cols or not hcols:
+              print('RESULT {} SKIP not-a-vector-hex'.format(target)); open('/tmp/flip.txt','w'); raise SystemExit(0)
+          # finest NON-NULL cell per row: a build that caps big features coarser leaves the native
+          # column NULL, and COUNT(DISTINCT) drops NULL keys (WDPA: 77.99M phantom duplicates).
+          cell = "COALESCE(" + ", ".join('"{}"::VARCHAR'.format(h) for h in hcols) + ", 'z')"
+
+          # Partition schemas are NOT guaranteed uniform: public-high-seas/rfmo/rfb/hex has
+          # _cng_fid in 99 of 121 files and absent from the other 22, while its STAC declares
+          # the column. Check every file rather than trusting the first, and report instead of
+          # crashing — a target missing its dedup key cannot be safely deduped here.
+          missing = [r for r in rels if '_cng_fid' not in
+                     {c[0] for c in con.execute("DESCRIBE SELECT * FROM read_parquet('s3://{}/{}')"
+                                                .format(target, r)).fetchall()}]
+          if missing:
+              print('RESULT {} SKIP heterogeneous-schema files-missing-_cng_fid={}/{} e.g. {}'.format(
+                  target, len(missing), len(rels), missing[0]))
+              open('/tmp/flip.txt','w'); raise SystemExit(0)
+
+          dirty, tot_rows, tot_dup = [], 0, 0
+          for rel in rels:
+              src = "s3://{}/{}".format(target, rel)
+              n, p = con.execute("SELECT COUNT(*), COUNT(DISTINCT ({} || '-' || _cng_fid::VARCHAR)) "
+                                 "FROM read_parquet('{}')".format(cell, src)).fetchone()
+              tot_rows += n; tot_dup += (n - p)
+              if n != p:
+                  dirty.append((rel, n, p))
+
+          if not dirty:
+              print('RESULT {} CLEAN rows={}'.format(target, tot_rows)); open('/tmp/flip.txt','w'); raise SystemExit(0)
+
+          # Safety gate, bounded to the duplicate groups only: are they byte-identical full rows?
+          # If not, SELECT DISTINCT * would not collapse them and a rewrite could destroy data.
+          flip = []
+          for rel, n, p in dirty:
+              src = "s3://{}/{}".format(target, rel)
+              grp, distinct_grp = con.execute("""
+                  WITH s AS (SELECT * FROM read_parquet('{src}')),
+                       k AS (SELECT {cell} AS c, _cng_fid FROM s GROUP BY 1,2 HAVING COUNT(*) > 1),
+                       dup AS (SELECT s.* FROM s SEMI JOIN k ON {cell} = k.c AND s._cng_fid = k._cng_fid)
+                  SELECT (SELECT COUNT(*) FROM k), (SELECT COUNT(*) FROM (SELECT DISTINCT * FROM dup))
+              """.format(src=src, cell=cell)).fetchone()
+              if grp != distinct_grp:
+                  print('RESULT {} SKIP not-byte-identical file={} groups={} distinct={}'.format(
+                      target, rel, grp, distinct_grp))
+                  open('/tmp/flip.txt','w'); raise SystemExit(0)
+              flip.append((rel, n, p))
+
+          for rel, n, p in flip:
+              src = "s3://{}/{}".format(target, rel)
+              dst = "s3://{}-dedup-staging/{}".format(target, rel)
+              con.execute("COPY (SELECT DISTINCT * FROM read_parquet('{}')) TO '{}' "
+                          "(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)".format(src, dst))
+              got, gcell, gfid = con.execute(
+                  "SELECT COUNT(*), COUNT(DISTINCT ({c})), COUNT(DISTINCT _cng_fid) "
+                  "FROM read_parquet('{d}')".format(c=cell, d=dst)).fetchone()
+              ocell, ofid = con.execute(
+                  "SELECT COUNT(DISTINCT ({c})), COUNT(DISTINCT _cng_fid) "
+                  "FROM read_parquet('{s}')".format(c=cell, s=src)).fetchone()
+              assert got == p, '{} {}: staged {} != expected {}'.format(target, rel, got, p)
+              assert gcell == ocell and gfid == ofid, '{} {}: cell/feature count changed'.format(target, rel)
+              print('  staged {} {}: {} -> {}'.format(target, rel, n, p), flush=True)
+
+          with open('/tmp/flip.txt', 'w') as f:
+              for rel, n, p in flip:
+                  f.write(rel + '\n')
+          print('RESULT {} FIXED rows={} dup={} files={}'.format(target, tot_rows, tot_dup, len(flip)))
+          PY
+
+          if [ -s /tmp/flip.txt ]; then
+            while read -r REL; do
+              rclone copyto "nrp:${TARGET}-dedup-staging/${REL}" "nrp:${TARGET}/${REL}"
+              echo "swapped ${TARGET}/${REL}"
+            done < /tmp/flip.txt
+            rclone purge "nrp:${TARGET}-dedup-staging" 2>/dev/null || true
+          fi
+          echo "=== done [$JOB_COMPLETION_INDEX] $TARGET ==="
+        resources:
+          requests: {cpu: '4', memory: 56Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 56Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: targets
+        configMap: {name: hex-dedup-rowdup-targets}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
