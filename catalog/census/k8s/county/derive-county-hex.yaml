@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: census-2024-county-derive-hex
-  namespace: biodiversity
+  namespace: geo-workflows
   labels:
     k8s-app: census-2024-county-derive-hex
 spec:
@@ -63,9 +63,11 @@ spec:
             SET s3_url_style='path';
           """)
 
-          # Load county attributes (3,235 rows — trivial)
+          # Load county attributes (3,235 rows — trivial). _cng_fid is carried from the
+          # flat so the hex shares the flat's per-feature id by construction (#549).
           county = conn.execute("""
-            SELECT STATEFP, COUNTYFP, COUNTYNS, GEOID, GEOIDFQ,
+            SELECT _cng_fid,
+                   STATEFP, COUNTYFP, COUNTYNS, GEOID, GEOIDFQ,
                    NAME, NAMELSAD, LSAD, CLASSFP, MTFCC,
                    CSAFP, CBSAFP, METDIVFP, FUNCSTAT,
                    ALAND, AWATER, INTPTLAT, INTPTLON
@@ -88,6 +90,7 @@ spec:
                 COPY (
                   SELECT DISTINCT
                     t.h8,
+                    c._cng_fid,
                     c.STATEFP, c.COUNTYFP, c.COUNTYNS, c.GEOID, c.GEOIDFQ,
                     c.NAME, c.NAMELSAD, c.LSAD, c.CLASSFP, c.MTFCC,
                     c.CSAFP, c.CBSAFP, c.METDIVFP, c.FUNCSTAT,
