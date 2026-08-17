@@ -292,6 +292,8 @@ def is_cog(asset: dict) -> bool:
 
 def check_license(doc: dict) -> list[Finding]:
     out = []
+    if doc.get("type") == "Catalog":
+        return out  # a STAC Catalog is structural — it carries no license (only Collections do)
     lic = doc.get("license")
     links = doc.get("links", [])
     has_license_link = any(l.get("rel") == "license" for l in links)
@@ -345,7 +347,14 @@ def check_nav_links(doc: dict) -> list[Finding]:
     for l in links:
         by_rel.setdefault(l.get("rel"), []).append(l)
 
+    # The root catalog (its `self` == its `root`) has no parent by definition.
+    self_href = (by_rel.get("self") or [{}])[0].get("href", "")
+    root_href = (by_rel.get("root") or [{}])[0].get("href", "")
+    is_root = bool(self_href) and self_href == root_href
+
     for rel in ("self", "root", "parent"):
+        if rel == "parent" and is_root:
+            continue
         got = by_rel.get(rel)
         if not got:
             out.append(Finding(HARD, f"nav-{rel}-missing",
@@ -400,6 +409,8 @@ RFC3339 = re.compile(
 
 def check_temporal_extent(doc: dict) -> list[Finding]:
     out = []
+    if doc.get("type") == "Catalog":
+        return out  # a STAC Catalog has no spatial/temporal extent (only Collections do)
     extent = doc.get("extent")
     if not isinstance(extent, dict):
         return [Finding(HARD, "temporal-extent-missing",
