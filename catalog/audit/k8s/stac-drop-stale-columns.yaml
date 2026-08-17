@@ -1,0 +1,110 @@
+# data-workflows#509 — drop genuinely-stale columns from table:columns so the STAC matches
+# the parquet (#534). These are the declared-column-absent findings that remain AFTER the
+# nested-column / multi-level-partition check fix: columns the data really lacks —
+#   bbox on the BLM/imma/kba HEX assets (the hex carries no bbox or its leaves),
+#   shape__area / shape__length on swap/missouri (the data has the Esri `Shape.STArea()` /
+#     `Shape.STLength()` names instead — those become undocumented-advisory, not HARD),
+#   objectid on swap/wdoecm (the data has OBJECTID_1 / none; _cng_fid is the id).
+# In-cluster (STAC canonical on NRP S3); drops are grouped per collection and validated.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: drop-stale-map, namespace: geo-workflows}
+data:
+  map.tsv: |
+    https://s3-west.nrp-nautilus.io/public-blm/coal-cases/stac-collection.json	coal-cases-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-blm/geothermal-leases/stac-collection.json	geothermal-leases-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-blm/locatable-operations/stac-collection.json	locatable-operations-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-blm/mineral-materials/stac-collection.json	mineral-materials-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-blm/mining-claims/stac-collection.json	mining-claims-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-blm/non-energy-leasables/stac-collection.json	non-energy-leasables-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-blm/oil-gas-agreements/stac-collection.json	oil-gas-agreements-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-blm/oil-gas-participating-areas/stac-collection.json	oil-gas-participating-areas-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-blm/oil-shale-leases/stac-collection.json	oil-shale-leases-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-high-seas/imma/stac-collection.json	imma-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-kba/kba-2026-03/sites/stac-collection.json	sites-hex	bbox
+    https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/noaa-esu-dps/stac-collection.json	noaa-esu-dps-parquet	objectid
+    https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/noaa-esu-dps/stac-collection.json	noaa-esu-dps-hex	objectid
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/cave-karst-coa/stac-collection.json	cave-karst-coa-parquet	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/cave-karst-coa/stac-collection.json	cave-karst-coa-hex	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/forest-woodland-coa/stac-collection.json	forest-woodland-coa-parquet	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/forest-woodland-coa/stac-collection.json	forest-woodland-coa-hex	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/glade-coa/stac-collection.json	glade-coa-parquet	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/glade-coa/stac-collection.json	glade-coa-hex	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/grassland-prairie-savanna-coa/stac-collection.json	grassland-prairie-savanna-coa-parquet	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/grassland-prairie-savanna-coa/stac-collection.json	grassland-prairie-savanna-coa-hex	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/priority-geographies/stac-collection.json	priority-geographies-parquet	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/priority-geographies/stac-collection.json	priority-geographies-hex	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/stream-reach-coa/stac-collection.json	stream-reach-coa-parquet	shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/stream-reach-coa/stac-collection.json	stream-reach-coa-hex	shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/wetland-coa/stac-collection.json	wetland-coa-parquet	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/wetland-coa/stac-collection.json	wetland-coa-hex	shape__area,shape__length
+    https://s3-west.nrp-nautilus.io/public-swap/nevada/swap-2022/key-habitats/stac-collection.json	key-habitats-parquet	objectid
+    https://s3-west.nrp-nautilus.io/public-swap/nevada/swap-2022/key-habitats/stac-collection.json	key-habitats-hex	objectid
+    https://s3-west.nrp-nautilus.io/public-wdpa/wdoecm-may-2026/stac-collection.json	wdoecm-parquet	objectid
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-drop-stale-columns
+  namespace: geo-workflows
+  labels: {k8s-app: stac-drop-stale-columns}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-drop-stale-columns}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: drop
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: map, mountPath: /config, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -uo pipefail
+          python3 - <<'PY'
+          import json, subprocess, re
+          from collections import defaultdict
+          groups = defaultdict(dict)   # url -> {asset: set(cols)}
+          for line in open('/config/map.tsv'):
+              line=line.rstrip('\n')
+              if not line.strip(): continue
+              url, asset, cols = line.split('\t')
+              groups[url].setdefault(asset, set()).update(c.lower() for c in cols.split(','))
+          for url, amap in groups.items():
+              key='nrp:'+re.sub(r'https?://s3-west\.nrp-nautilus\.io/','',url)
+              cid=url.split('/public-')[-1].replace('/stac-collection.json','')
+              try:
+                  doc=json.loads(subprocess.check_output(['rclone','cat',key]))
+              except Exception as e:
+                  print(f"{cid}\tERROR-read\t{e}"); continue
+              changed=[]
+              for asset, drop in amap.items():
+                  a=doc.get('assets',{}).get(asset)
+                  if not a or 'table:columns' not in a:
+                      print(f"{cid}\t{asset}\tSKIP no-asset/table:columns"); continue
+                  before=len(a['table:columns'])
+                  a['table:columns']=[c for c in a['table:columns'] if c.get('name','').lower() not in drop]
+                  removed=before-len(a['table:columns'])
+                  changed.append(f"{asset}:-{removed}({','.join(sorted(drop))})")
+              if not changed: continue
+              open('/tmp/o.json','w').write(json.dumps(doc, indent=2))
+              json.load(open('/tmp/o.json'))
+              subprocess.check_call(['rclone','copyto','/tmp/o.json',key])
+              print(f"{cid}\tDROPPED\t{'; '.join(changed)}")
+          print("done")
+          PY
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: map, configMap: {name: drop-stale-map}}
