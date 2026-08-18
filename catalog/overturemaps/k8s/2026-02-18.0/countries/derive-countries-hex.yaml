@@ -133,3 +133,6 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
+# NOTE: regions/hex and counties/hex were re-hexed via the standard cng-datasets vector
+# pipeline to carry _cng_fid (same custom-derive defect); all three overture divisions
+# collections now verify clean. See #562.
