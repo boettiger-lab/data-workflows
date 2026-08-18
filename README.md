@@ -84,41 +84,32 @@ Key commands:
 | `kubectl get jobs` | Monitors job status | Your laptop |
 | Everything else | Processing, S3 uploads, etc. | Kubernetes pods |
 
-## Sync, Backup & Public Mirror
+## Backups & the public mirror — not in this repo
 
-NRP S3 is canonical. Two off-NRP destinations, driven by k8s Jobs under `catalog/sync/`:
+NRP S3 is canonical. It is backed up to office MinIO and, where the licence allows, mirrored to
+Source Cooperative — but **both tiers are owned end to end by
+[geo-agent-ops](https://github.com/boettiger-lab/geo-agent-ops)**, running in a namespace this
+repo has no membership in, with credentials it does not hold. That tier derives its own scope
+and vendors its own code: nothing here is read by it, and nothing here can execute it.
 
-| Destination | Purpose | Scope | Mechanism |
-|---|---|---|---|
-| **MinIO** (`minio.carlboettiger.info`) | **private backup** of every public bucket (and the only off-NRP copy for license-restricted data) | all `public-*` | per-bucket Jobs `catalog/sync/k8s/sync-public-*.yaml` |
-| **Source Cooperative** (`source.coop`) | **public mirror** for discoverability | catalogued **and** license-clear datasets only | weekly **`source-sync` CronJob** (+ per-bucket `source-sync-*.yaml` for backfill) |
+| Destination | Purpose | Owner |
+|---|---|---|
+| **MinIO** (`minio.carlboettiger.info`) | private off-domain backup of every public bucket; the sole home for class-3 private data | geo-agent-ops |
+| **Source Cooperative** (`data.source.coop/cboettig/<repo>`) | public mirror, licence-gated | geo-agent-ops |
 
-```bash
-# MinIO backup (private)
-kubectl apply -f catalog/sync/k8s/sync-public-census.yaml      # one bucket
-kubectl apply -f catalog/sync/k8s/                             # all
-
-# source.coop public mirror — see the campaign docs first (scope is license-gated)
-catalog/sync/source-coop/dry-run-local.sh census               # preview (no writes)
-catalog/sync/source-coop/run-source-sync.sh census             # one repo (manual/backfill)
-kubectl -n biodiversity create job --from=cronjob/source-sync source-sync-manual  # run the weekly job now
-
-kubectl get jobs | grep -E 'sync-public|source-sync'           # monitor
-```
-
-Each job runs `rclone sync` with bandwidth throttling. When adding a new NRP bucket, add a MinIO sync job (see [AGENTS.md](AGENTS.md) Step 7).
-
-**source.coop is a standing automated mirror, not a one-shot.** A weekly **`source-sync` CronJob** (Sundays 08:00 UTC, `catalog/sync/k8s/source-sync-cron.yaml`) re-syncs every in-scope repo and then re-applies the **Phase 2 STAC href-rewrite** (`rewrite-stac-hrefs.py`, which repoints mirrored STAC hrefs to `data.source.coop/…`; a plain sync would clobber it). It does **not** auto-discover new NRP buckets — scope is the generated `source-sync-scope` ConfigMap. **Adding a bucket** means following the *add-a-repo loop* in the campaign README, including **manually creating the `cboettig/<repo>` product in the source.coop web UI first** (the create API is disabled); a repo added to scope before its product exists fails its own sync *visibly* (continue-on-error) rather than auto-creating anything.
-
-**source.coop mirror — read before touching it:** [`catalog/sync/source-coop/README.md`](catalog/sync/source-coop/README.md) is the campaign plan (scope policy, the **add-a-repo loop**, the weekly CronJob, account-wide-credentials safety, the Phase 2 STAC rewrite). Scope is the `REPOS`/`MODE`/`EXCLUDES` arrays in `gen-source-sync.sh`; per-collection license verdicts are in `license-inventory.md`. Some datasets **cannot** be mirrored (license forbids redistribution — WDPA/IUCN/ICCA/HydroBASINS) and stay MinIO-only. Tracking + status: **issue #158**.
+**What this repo owes them is one field: an accurate STAC `license` on every collection**, which
+is the advisory input the mirror-scope auditor reads. See [AGENTS.md](AGENTS.md) Step 7.
+Redistribution verdicts — holds, blocklist, per-collection excludes — live in geo-agent-ops
+`scripts/check-source-scope.py`. If a mirror looks wrong, file an issue there; there is nothing
+in this repo to change.
 
 ## Infrastructure
 
-- **Cluster:** NRP Nautilus, namespace `biodiversity`
+- **Cluster:** NRP Nautilus, namespace `geo-workflows` (see AGENTS.md Hard Boundary 3)
 - **S3:** Ceph object storage (S3-compatible, not AWS)
 - **Public endpoint:** `https://s3-west.nrp-nautilus.io/<bucket>/<path>`
-- **MinIO backup:** `minio.carlboettiger.info` (private backup; synced via `catalog/sync/k8s/sync-public-*.yaml`)
-- **Source Cooperative:** `us-west-2.opendata.source.coop/cboettig/<repo>` (public mirror, license-gated; see `catalog/sync/source-coop/`)
-- **Secrets:** `aws` and `rclone-config` are pre-configured in the namespace (`rclone-config` has `nrp`, `minio`, and `source` remotes)
+- **MinIO backup:** `minio.carlboettiger.info` (private backup; owned + run by geo-agent-ops)
+- **Source Cooperative:** `data.source.coop/cboettig/<repo>` (public mirror, licence-gated; owned + run by geo-agent-ops)
+- **Secrets:** `aws` and `rclone-config` are pre-configured in the namespace. `rclone-config` holds the `nrp` remote **only** — the MinIO and source.coop remotes live in a separate secret in the backup namespace, by design.
 
 See [.github/copilot-instructions.md](.github/copilot-instructions.md) for detailed infrastructure context.
