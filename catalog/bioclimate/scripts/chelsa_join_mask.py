@@ -6,10 +6,15 @@ share an h8 key -- this joins them into one wide row per cell.
 
 Three things happen here that cannot happen earlier:
 
-1. **Units.** `cng-datasets` does not apply the GeoTIFF scale/offset, so hex values are raw
-   integers. Because `exact_extract`'s area-weighted mean and CHELSA's scale/offset are both
-   linear, `mean(scale*x + offset) == scale*mean(x) + offset` -- applying the transform here is
-   exactly equivalent to applying it to the raster, and saves building a float COG per member.
+1. **Units are ALREADY PHYSICAL -- do not transform them here.** `cng-datasets` hands the raster
+   *path* to `exactextract`, whose GDAL source applies the GeoTIFF scale/offset, so hex values
+   arrive in degrees C / mm, not raw integers. Measured on the Amazon h0: min 1.51, max 30.15,
+   mean 27.32 (degrees C). Applying the transform again yielded ~-273, which the plausibility
+   bound below caught.
+
+   Note the contrast with `chelsa_ensemble.py`, which reads via `gdal.Band.ReadAsArray` --
+   that path does NOT apply scale/offset, so the explicit transform there is correct. The two
+   files legitimately differ; do not "fix" one to match the other.
 
 2. **Ensemble statistics.** All five member values are kept as columns; the upstream product
    ships per-GCM files and no ensemble product, so the members are the faithful representation.
@@ -42,8 +47,6 @@ def main() -> int:
     ap.add_argument("--var", required=True, help="variable prefix, e.g. bio1")
     ap.add_argument("--members", required=True,
                     help="comma-separated member column suffixes, e.g. gfdl_esm4,ipsl_cm6a_lr,...")
-    ap.add_argument("--scale", type=float, required=True)
-    ap.add_argument("--offset", type=float, required=True)
     ap.add_argument("--hex-root", required=True)
     ap.add_argument("--mask", required=True)
     ap.add_argument("--out", required=True)
@@ -69,10 +72,8 @@ def main() -> int:
         print("WARNING: member partitions differ in row count; join keeps the intersection")
 
     base = members[0]
-    # Physical units: raw * scale + offset, applied per member.
-    phys = [f"({base}t.{var}_{base} * {args.scale} + {args.offset})" if m == base
-            else f"({m}t.{var}_{m} * {args.scale} + {args.offset})"
-            for m in members]
+    # Values are already in physical units (see module docstring) -- pass them straight through.
+    phys = [f"{m}t.{var}_{m}" for m in members]
     sel_members = ", ".join(f"{e} AS {var}_{m}" for e, m in zip(phys, members))
     arr = "[" + ", ".join(phys) + "]"
 

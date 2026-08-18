@@ -82,9 +82,9 @@ spec:
           META=$(python3 /opt/scripts/chelsa_read_meta.py --input "$META_URL")
           echo "source metadata: $META"
           eval "$META"
-          if [ -z "${SCALE:-}" ] || [ -z "${OFFSET:-}" ]; then
-            echo "ERROR: could not read scale/offset from source" >&2; exit 1
-          fi
+          # SCALE/OFFSET are informational only: exactextract applies them when cng-datasets
+          # reads the raster, so hex values arrive already in physical units. NODATA is the
+          # value actually used below.
           NODATA_ARG=""
           if [ -n "${NODATA:-}" ]; then NODATA_ARG="--nodata ${NODATA}"; fi
 
@@ -131,7 +131,6 @@ spec:
           set +e
           python3 /opt/scripts/chelsa_join_mask.py \
             --h0 "${H0}" --var "${VAR}" --members "${MEMBER_LIST}" \
-            --scale "${SCALE}" --offset "${OFFSET}" \
             --hex-root /tmp/hex --mask /tmp/mask/eco.parquet --out /tmp/final.parquet \
             --sane-min "${SANE_MIN}" --sane-max "${SANE_MAX}"
           rc=$?

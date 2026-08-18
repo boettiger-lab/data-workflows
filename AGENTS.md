@@ -952,6 +952,27 @@ outlier flagged above — a 1 km raster sitting near where auto-detection points
 the convention. Tracked upstream in
 [`boettiger-lab/datasets#182`](https://github.com/boettiger-lab/datasets/issues/182).
 
+⛔ **`cng-datasets raster` output is in PHYSICAL units — do NOT apply the GeoTIFF scale/offset
+again.** The hex step hands the raster *path* to `exactextract`, whose GDAL source applies the
+band's `scale`/`offset`, so the values written to parquet are already degrees C, mm, metres —
+not the stored integers. Grepping `cng_datasets/raster/cog.py` for `GetScale` finds nothing and
+is **misleading**: the conversion happens a layer down, inside exactextract.
+
+Measured on CHELSA bio1 (stored UInt16, `Scale=0.1 Offset=-273.15`), Amazon h0 at res 5:
+`min=1.51 max=30.15 mean=27.32` — plainly degrees C. Re-applying the transform produced
+`-273.5 … -269.9`, which is only obviously wrong if something checks it.
+
+- **A double-scaled column passes every structural check.** Row counts, partition coverage, NULL
+  counts and any `median BETWEEN min AND max` invariant all stay perfectly consistent, because a
+  linear transform applied twice preserves ordering and cardinality. Only a **physical
+  plausibility bound** catches it — assert the measured range against what the quantity can
+  actually be (e.g. surface air temperature within −95…60 °C) before publishing.
+- The same bound doubles as a **nodata-leak detector**: a surviving sentinel drags a mean toward
+  the sentinel and blows the bound.
+- **Reading the same raster with `gdal.Band.ReadAsArray` does NOT apply scale/offset** — that
+  path needs the explicit transform. Two scripts in the same build can legitimately differ on
+  this; check which reader each uses before "fixing" one to match the other.
+
 ### Vector workflow parameters
 
 | Param | Default | When to change |
