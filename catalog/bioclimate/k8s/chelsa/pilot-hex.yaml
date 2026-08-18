@@ -95,11 +95,15 @@ spec:
             --retries 5 --low-level-retries 20 --retries-sleep 10s
           H0=$(python3 /opt/scripts/chelsa_h0_for_index.py --grid /tmp/h0grid.parquet --index ${H0IDX})
           echo "h0-index ${H0IDX} -> h0 cell ${H0}"
-          if ! rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" \
-               /tmp/mask/eco.parquet --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null; then
+          # NOTE: `rclone copyto` exits 0 when the source does not exist, so its exit code
+          # cannot be used to detect a missing partition — test for the file itself.
+          rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" \
+            /tmp/mask/eco.parquet --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null || true
+          if [ ! -s /tmp/mask/eco.parquet ]; then
             echo "no ecoregion (land) partition for h0=${H0} — all-ocean, skipping before hexing"
             exit 0
           fi
+          echo "land mask for h0=${H0}: $(stat -c %s /tmp/mask/eco.parquet) bytes"
 
           for i in 0 1 2 3 4; do
             G=${GCMS[$i]}; C=${COLS[$i]}
