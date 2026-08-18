@@ -1,9 +1,12 @@
-# PILOT hex (data-workflows #564): bio1 ssp370 2041-2070, p10/p50/p90, res 8, parents 5,4,0.
-# 366 completions = 3 quantiles x 122 h0.  Index -> (quantile, h0): QI=idx/122, H0=idx%122.
+# PILOT hex (data-workflows #564): bio1, ssp370, 2041-2070 -> ONE wide hex, res 8, parents 5,4,0.
+#
+# 122 completions = one pod per h0. Each pod hexes all three ensemble quantiles and joins them
+# locally on h8, so the wide hex is produced directly — no cross-pod merge job and no 195M-row
+# distributed join. The full build generalizes this to 7 variables x 3 quantiles per pod.
 #
 # Land mask: CHELSA is a full-globe surface (VALID_PERCENT 99.999, real values over ocean), so
-# each h0 partition is semi-joined against the WWF Terrestrial Ecoregions h8 hex before upload.
-# h0 cells with no land have no ecoregion partition -> nothing is written (no empty partitions).
+# the joined partition is semi-joined against the WWF Terrestrial Ecoregions h8 hex before
+# upload. An h0 with no ecoregion partition is all-ocean and writes nothing (no empty partitions).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -11,11 +14,11 @@ metadata:
   namespace: geo-workflows
   labels: {k8s-app: chelsa-pilot-hex}
 spec:
-  completions: 366
+  completions: 122
   parallelism: 24
   completionMode: Indexed
   backoffLimitPerIndex: 3
-  maxFailedIndexes: 40
+  maxFailedIndexes: 15
   ttlSecondsAfterFinished: 86400
   template:
     metadata: {labels: {k8s-app: chelsa-pilot-hex}}
@@ -43,42 +46,43 @@ spec:
         - {name: GDAL_DATA,           value: /usr/share/gdal}
         - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
         - {name: CNG_HEX_WORKERS,     value: '8'}
+        - {name: VAR,                 value: bio1}
         - {name: SSP,                 value: ssp370}
         - {name: PERIOD,              value: 2041-2070}
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /opt/scripts, readOnly: true}
         command:
         - bash
         - -c
         - |
           set -euo pipefail
-          QUANTS=(10 50 90)
-          IDX=${JOB_COMPLETION_INDEX}
-          QI=$(( IDX / 122 )); H0IDX=$(( IDX % 122 ))
-          Q=${QUANTS[$QI]}
-          COL="bio1_p${Q}"
-          echo "=== idx $IDX -> quantile p${Q}, h0-index $H0IDX ==="
+          H0IDX=${JOB_COMPLETION_INDEX}
+          PREFIX="public-bioclimate/chelsa-2-1/${SSP}/${PERIOD}"
+          rm -rf /tmp/hex /tmp/mask /tmp/cache && mkdir -p /tmp/hex /tmp/mask /tmp/cache
+          echo "=== h0-index ${H0IDX}, ${VAR} ${SSP} ${PERIOD} ==="
 
-          rm -rf /tmp/hex && mkdir -p /tmp/hex /tmp/mask
-          cng-datasets raster \
-            --input "s3://public-bioclimate/chelsa-2-1/${SSP}/${PERIOD}/bio1-p${Q}-cog.tif" \
-            --output-parquet /tmp/hex \
-            --h0-index ${H0IDX} \
-            --resolution 8 --parent-resolutions 5,4,0 \
-            --value-column "${COL}" \
-            --hex-resampling mean \
-            --nodata "-9999" \
-            --local-cache-dir /tmp/cache
+          for Q in 10 50 90; do
+            echo "--- hexing p${Q}"
+            cng-datasets raster \
+              --input "s3://${PREFIX}/${VAR}-p${Q}-cog.tif" \
+              --output-parquet "/tmp/hex/p${Q}" \
+              --h0-index ${H0IDX} \
+              --resolution 8 --parent-resolutions 5,4,0 \
+              --value-column "${VAR}_p${Q}" \
+              --hex-resampling mean \
+              --nodata "-9999" \
+              --local-cache-dir /tmp/cache
+          done
 
-          PART=$(ls -d /tmp/hex/h0=* 2>/dev/null | head -1 || true)
+          PART=$(ls -d /tmp/hex/p50/h0=* 2>/dev/null | head -1 || true)
           if [ -z "$PART" ]; then
-            echo "no hex output for h0-index ${H0IDX} (raster does not cover it) — nothing to do"
+            echo "no hex output for h0-index ${H0IDX} — raster does not cover it, nothing to do"
             exit 0
           fi
           H0=$(basename "$PART" | sed 's/^h0=//')
-          echo "h0 cell = $H0"
+          echo "h0 cell = ${H0}"
 
-          # Land mask: pull this h0's ecoregion partition. Absent => no land in this h0.
           if ! rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" \
                /tmp/mask/eco.parquet --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null; then
             echo "no ecoregion (land) partition for h0=${H0} — all-ocean, skipping"
@@ -86,36 +90,21 @@ spec:
           fi
 
           set +e
-          python3 - <<'PY'
-          import duckdb, glob, os, sys
-          src = glob.glob('/tmp/hex/h0=*/data_0.parquet')[0]
-          con = duckdb.connect()
-          before = con.execute(f"SELECT COUNT(*) FROM read_parquet('{src}')").fetchone()[0]
-          con.execute(f"""
-              COPY (
-                  SELECT r.* FROM read_parquet('{src}') r
-                  SEMI JOIN (SELECT DISTINCT h8 FROM read_parquet('/tmp/mask/eco.parquet')) m
-                  ON r.h8 = m.h8
-              ) TO '/tmp/masked.parquet'
-              (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
-          """)
-          after = con.execute("SELECT COUNT(*) FROM read_parquet('/tmp/masked.parquet')").fetchone()[0]
-          print(f"MASK rows_before={before} rows_after={after} kept={100.0*after/before if before else 0:.2f}%")
-          if after == 0:
-              print("EMPTY after mask — not uploading")
-              sys.exit(3)
-          PY
+          python3 /opt/scripts/chelsa_join_mask.py \
+            --h0 "${H0}" --var "${VAR}" \
+            --hex-root /tmp/hex --mask /tmp/mask/eco.parquet --out /tmp/final.parquet
           rc=$?
           set -e
-          if [ "$rc" -eq 3 ]; then echo "skipping empty partition (all-ocean after mask)"; exit 0; fi
-          if [ "$rc" -ne 0 ]; then echo "mask step failed rc=$rc"; exit "$rc"; fi
+          if [ "$rc" -eq 3 ]; then echo "empty after land mask — skipping h0=${H0}"; exit 0; fi
+          if [ "$rc" -ne 0 ]; then echo "join/mask failed rc=${rc}"; exit "$rc"; fi
 
-          rclone copyto /tmp/masked.parquet \
-            "nrp:public-bioclimate/chelsa-2-1/${SSP}/${PERIOD}/hex-staging/bio1-p${Q}/h0=${H0}/data_0.parquet" \
+          rclone copyto /tmp/final.parquet \
+            "nrp:${PREFIX}/hex/h0=${H0}/data_0.parquet" \
             --retries 5 --low-level-retries 20 --retries-sleep 10s
-          echo "index $IDX complete"
+          echo "h0=${H0} complete"
         resources:
-          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 40Gi}
-          limits:   {cpu: '8', memory: 64Gi, ephemeral-storage: 40Gi}
+          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 45Gi}
+          limits:   {cpu: '8', memory: 64Gi, ephemeral-storage: 45Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: chelsa-scripts}}
