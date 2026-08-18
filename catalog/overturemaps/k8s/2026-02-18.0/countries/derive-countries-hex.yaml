@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: om-2026-derive-countries-hex
-  namespace: biodiversity
+  namespace: geo-workflows
   labels:
     k8s-app: om-2026-derive-countries-hex
 spec:
@@ -31,11 +31,11 @@ spec:
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 56Gi
             ephemeral-storage: 20Gi
           limits:
             cpu: '4'
-            memory: 32Gi
+            memory: 56Gi
             ephemeral-storage: 20Gi
         env:
         - name: AWS_ACCESS_KEY_ID
@@ -66,6 +66,8 @@ spec:
         - |-
           set -e
           echo "=== Deriving countries/hex from regions/hex ==="
+          # Purge the stale hex (old schema had no _cng_fid) so the new schema is clean.
+          rclone purge nrp:public-overturemaps/2026-02-18.0/countries/hex/ 2>/dev/null || true
 
           python3 - <<'PYEOF'
           import duckdb, os
@@ -73,8 +75,8 @@ spec:
           con = duckdb.connect()
           con.execute("INSTALL httpfs; LOAD httpfs")
           con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
-          con.execute("SET threads=4")
-          con.execute("SET memory_limit='28GB'")
+          con.execute("SET threads=4"); con.execute("SET temp_directory='/tmp/spill'")
+          con.execute("SET memory_limit='48GB'")
 
           endpoint = os.environ.get("AWS_S3_ENDPOINT", "rook-ceph-rgw-nautiluss3.rook")
           key = os.environ["AWS_ACCESS_KEY_ID"]
@@ -87,12 +89,33 @@ spec:
               )
           """)
 
-          print("Deriving countries/hex from regions/hex via SELECT DISTINCT...")
+          # Derive countries/hex from the LAND regions/hex, carrying each country's LAND
+          # feature _cng_fid + attributes so the hex shares the flat's per-feature id (#549).
+          # Each country code has exactly ONE land feature (class='land'), so the join is 1:1.
+          # The 159 maritime (class='maritime', territorial-waters) features have no land
+          # regions to derive from and are intentionally absent — documented on the STAC hex
+          # asset (query the flat GeoParquet for maritime geometry).
+          con.execute("""
+              CREATE OR REPLACE TABLE land AS
+              SELECT _cng_fid, admin_level, class, country, division_id, id, is_land,
+                     is_territorial, name_en, region, subtype, theme, type, version
+              FROM read_parquet('s3://public-overturemaps/2026-02-18.0/countries.parquet')
+              WHERE class = 'land'
+          """)
+          print("Deriving countries/hex from regions/hex, carrying land _cng_fid...")
+          # DISTINCT over the NARROW key (h8, h0, _cng_fid) then stream-join the 14 land
+          # attributes — DISTINCT over the wide row OOMs (the attrs are functionally
+          # determined by _cng_fid, so they need not be in the DISTINCT).
           con.execute("""
               COPY (
-                  SELECT DISTINCT h8, h0, country
-                  FROM read_parquet('s3://public-overturemaps/2026-02-18.0/regions/hex/h0=*/data_0.parquet')
-                  WHERE country IS NOT NULL
+                  WITH cells AS (
+                      SELECT DISTINCT r.h8, r.h0, l._cng_fid
+                      FROM read_parquet('s3://public-overturemaps/2026-02-18.0/regions/hex/h0=*/data_0.parquet') r
+                      JOIN land l ON r.country = l.country
+                      WHERE r.country IS NOT NULL
+                  )
+                  SELECT c.h8, c.h0, l.*
+                  FROM cells c JOIN land l USING (_cng_fid)
               )
               TO 's3://public-overturemaps/2026-02-18.0/countries/hex/'
               (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (h0), OVERWRITE_OR_IGNORE true)
