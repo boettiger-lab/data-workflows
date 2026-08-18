@@ -1,12 +1,20 @@
-# PILOT hex (data-workflows #564): bio1, ssp370, 2041-2070 -> ONE wide hex, res 8, parents 5,4,0.
+# PILOT hex (data-workflows #564): bio1, ssp370, 2041-2070 -> one wide hex, res 8, parents 5,4,0.
 #
-# 122 completions = one pod per h0. Each pod hexes all three ensemble quantiles and joins them
-# locally on h8, so the wide hex is produced directly — no cross-pod merge job and no 195M-row
-# distributed join. The full build generalizes this to 7 variables x 3 quantiles per pod.
+# 122 completions = one pod per h0. Each pod hexes all FIVE GCM members straight from the staged
+# raw rasters and joins them locally on h8, producing the wide hex directly -- no per-member COG
+# and no cross-pod merge.
+#
+# Columns per cell: the five members (upstream-faithful; CHELSA ships per-GCM files and no
+# ensemble product) plus median/min/max. A five-member ensemble is summarised by its median and
+# full range; percentiles need a larger ensemble to mean anything.
+#
+# Units: cng-datasets does not apply the GeoTIFF scale/offset, so it is applied in the join.
+# exact_extract's area-weighted mean and the scale/offset are both linear, so
+# mean(scale*x + offset) == scale*mean(x) + offset -- equivalent, and avoids building float COGs.
 #
 # Land mask: CHELSA is a full-globe surface (VALID_PERCENT 99.999, real values over ocean), so
-# the joined partition is semi-joined against the WWF Terrestrial Ecoregions h8 hex before
-# upload. An h0 with no ecoregion partition is all-ocean and writes nothing (no empty partitions).
+# the joined partition is semi-joined against the WWF Terrestrial Ecoregions h8 hex. An h0 with
+# no ecoregion partition is all-ocean and writes nothing (no empty partitions).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -49,6 +57,10 @@ spec:
         - {name: VAR,                 value: bio1}
         - {name: SSP,                 value: ssp370}
         - {name: PERIOD,              value: 2041-2070}
+        # Plausibility bounds for annual mean temperature in degrees C. A wrong scale/offset is
+        # otherwise invisible -- raw integers look like perfectly ordinary numbers.
+        - {name: SANE_MIN,            value: '-95'}
+        - {name: SANE_MAX,            value: '60'}
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         - {name: scripts, mountPath: /opt/scripts, readOnly: true}
@@ -57,25 +69,41 @@ spec:
         - -c
         - |
           set -euo pipefail
+          GCMS=(GFDL-ESM4 IPSL-CM6A-LR MPI-ESM1-2-HR MRI-ESM2-0 UKESM1-0-LL)
+          COLS=(gfdl_esm4 ipsl_cm6a_lr mpi_esm1_2_hr mri_esm2_0 ukesm1_0_ll)
           H0IDX=${JOB_COMPLETION_INDEX}
-          PREFIX="public-bioclimate/chelsa-2-1/${SSP}/${PERIOD}"
+          RAW="public-bioclimate/raw/chelsa-2-1/${PERIOD}"
           rm -rf /tmp/hex /tmp/mask /tmp/cache && mkdir -p /tmp/hex /tmp/mask /tmp/cache
           echo "=== h0-index ${H0IDX}, ${VAR} ${SSP} ${PERIOD} ==="
 
-          for Q in 10 50 90; do
-            echo "--- hexing p${Q}"
+          # scale/offset/nodata read FROM THE FILE -- they differ per variable upstream.
+          FIRST_GL=$(echo "${GCMS[0]}" | tr 'A-Z' 'a-z')
+          META_URL="/vsicurl/https://${AWS_PUBLIC_ENDPOINT}/${RAW}/${GCMS[0]}/${SSP}/CHELSA_${VAR}_${PERIOD}_${FIRST_GL}_${SSP}_V.2.1.tif"
+          META=$(python3 /opt/scripts/chelsa_read_meta.py --input "$META_URL")
+          echo "source metadata: $META"
+          eval "$META"
+          if [ -z "${SCALE:-}" ] || [ -z "${OFFSET:-}" ]; then
+            echo "ERROR: could not read scale/offset from source" >&2; exit 1
+          fi
+          NODATA_ARG=""
+          if [ -n "${NODATA:-}" ]; then NODATA_ARG="--nodata ${NODATA}"; fi
+
+          for i in 0 1 2 3 4; do
+            G=${GCMS[$i]}; C=${COLS[$i]}
+            GL=$(echo "$G" | tr 'A-Z' 'a-z')
+            echo "--- hexing member $G -> ${VAR}_${C}"
             cng-datasets raster \
-              --input "s3://${PREFIX}/${VAR}-p${Q}-cog.tif" \
-              --output-parquet "/tmp/hex/p${Q}" \
+              --input "s3://${RAW}/${G}/${SSP}/CHELSA_${VAR}_${PERIOD}_${GL}_${SSP}_V.2.1.tif" \
+              --output-parquet "/tmp/hex/${VAR}_${C}" \
               --h0-index ${H0IDX} \
               --resolution 8 --parent-resolutions 5,4,0 \
-              --value-column "${VAR}_p${Q}" \
+              --value-column "${VAR}_${C}" \
               --hex-resampling mean \
-              --nodata "-9999" \
+              ${NODATA_ARG} \
               --local-cache-dir /tmp/cache
           done
 
-          PART=$(ls -d /tmp/hex/p50/h0=* 2>/dev/null | head -1 || true)
+          PART=$(ls -d /tmp/hex/${VAR}_${COLS[0]}/h0=* 2>/dev/null | head -1 || true)
           if [ -z "$PART" ]; then
             echo "no hex output for h0-index ${H0IDX} — raster does not cover it, nothing to do"
             exit 0
@@ -89,17 +117,20 @@ spec:
             exit 0
           fi
 
+          MEMBER_LIST=$(IFS=,; echo "${COLS[*]}")
           set +e
           python3 /opt/scripts/chelsa_join_mask.py \
-            --h0 "${H0}" --var "${VAR}" \
-            --hex-root /tmp/hex --mask /tmp/mask/eco.parquet --out /tmp/final.parquet
+            --h0 "${H0}" --var "${VAR}" --members "${MEMBER_LIST}" \
+            --scale "${SCALE}" --offset "${OFFSET}" \
+            --hex-root /tmp/hex --mask /tmp/mask/eco.parquet --out /tmp/final.parquet \
+            --sane-min "${SANE_MIN}" --sane-max "${SANE_MAX}"
           rc=$?
           set -e
           if [ "$rc" -eq 3 ]; then echo "empty after land mask — skipping h0=${H0}"; exit 0; fi
           if [ "$rc" -ne 0 ]; then echo "join/mask failed rc=${rc}"; exit "$rc"; fi
 
           rclone copyto /tmp/final.parquet \
-            "nrp:${PREFIX}/hex/h0=${H0}/data_0.parquet" \
+            "nrp:public-bioclimate/chelsa-2-1/${SSP}/${PERIOD}/hex/h0=${H0}/data_0.parquet" \
             --retries 5 --low-level-retries 20 --retries-sleep 10s
           echo "h0=${H0} complete"
         resources:
