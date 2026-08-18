@@ -941,6 +941,17 @@ missing `h8` and conclude the dataset is broken.
 discards detail the source genuinely has — do it only when feature size or RAM forces it, and
 record the reason in the issue.
 
+⛔ **ALWAYS pass `--h3-resolution` explicitly for a raster — never rely on auto-detection.**
+`cng-datasets` picks the resolution whose average H3 *edge* is nearest **3× the pixel width**
+(~9 source pixels per cell). That agrees with the table above at fine pixels (100 m → 9,
+300 m → 8) and **diverges as pixels coarsen**: 500 m → h7 and **~1 km → h6**, neither of which
+carries **`h8`**, so the resulting dataset silently fails to join the rest of the catalog. The
+mismatch is only ever reported as an informational log line (`ℹ Using finer resolution h8 (user
+specified) instead of detected h6`), never an error. This is the likely origin of the gHM `h7`
+outlier flagged above — a 1 km raster sitting near where auto-detection points rather than at
+the convention. Tracked upstream in
+[`boettiger-lab/datasets#182`](https://github.com/boettiger-lab/datasets/issues/182).
+
 ### Vector workflow parameters
 
 | Param | Default | When to change |
