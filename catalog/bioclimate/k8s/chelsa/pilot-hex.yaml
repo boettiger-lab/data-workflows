@@ -140,7 +140,7 @@ spec:
           if [ "$rc" -ne 0 ]; then echo "join/mask failed rc=${rc}"; exit "$rc"; fi
 
           rclone copyto /tmp/final.parquet \
-            "nrp:public-bioclimate/chelsa-2-1/${SSP}/${PERIOD}/hex/h0=${H0}/data_0.parquet" \
+            "nrp:public-bioclimate/chelsa-2-1/${SSP}-${PERIOD}/hex/h0=${H0}/data_0.parquet" \
             --retries 5 --low-level-retries 20 --retries-sleep 10s
           echo "h0=${H0} complete"
         resources:
