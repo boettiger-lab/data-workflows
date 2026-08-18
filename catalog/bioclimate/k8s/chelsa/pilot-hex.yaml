@@ -1,0 +1,159 @@
+# PILOT hex (data-workflows #564): bio1, ssp370, 2041-2070 -> one wide hex, res 8, parents 5,4,0.
+#
+# 122 completions = one pod per h0. Each pod hexes all FIVE GCM members straight from the staged
+# raw rasters and joins them locally on h8, producing the wide hex directly -- no per-member COG
+# and no cross-pod merge.
+#
+# Columns per cell: the five members (upstream-faithful; CHELSA ships per-GCM files and no
+# ensemble product) plus median/min/max. A five-member ensemble is summarised by its median and
+# full range; percentiles need a larger ensemble to mean anything.
+#
+# Units: values arrive ALREADY IN PHYSICAL UNITS and must NOT be transformed again. cng-datasets
+# hands the raster path to exactextract, whose GDAL source applies the GeoTIFF scale/offset, so
+# the hex holds degrees C / mm, not raw integers. Measured on the Amazon h0 at res 5:
+# min 1.51, max 30.15, mean 27.32 -- plainly degrees C. Re-applying the transform yielded
+# -273.5 .. -269.9. A double-scaled column passes every structural check (row counts, coverage,
+# NULL counts, median-within-range), so only the physical plausibility bound below catches it.
+# See skill `raster-hexing`. NOTE: gdal.Band.ReadAsArray does NOT apply scale/offset -- the
+# ensemble script uses that path and applies the transform explicitly. The two differ on purpose.
+#
+# Land mask: CHELSA is a full-globe surface (VALID_PERCENT 99.999, real values over ocean), so
+# the joined partition is semi-joined against the WWF Terrestrial Ecoregions h8 hex. An h0 with
+# no ecoregion partition is all-ocean and writes nothing (no empty partitions).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chelsa-pilot-hex
+  namespace: geo-workflows
+  labels: {k8s-app: chelsa-pilot-hex}
+spec:
+  completions: 122
+  parallelism: 24
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 15
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: chelsa-pilot-hex}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        - {name: VAR,                 value: bio1}
+        - {name: SSP,                 value: ssp370}
+        - {name: PERIOD,              value: 2041-2070}
+        # Plausibility bounds for annual mean temperature in degrees C. A wrong scale/offset is
+        # otherwise invisible -- raw integers look like perfectly ordinary numbers.
+        - {name: SANE_MIN,            value: '-95'}
+        - {name: SANE_MAX,            value: '60'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /opt/scripts, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          GCMS=(GFDL-ESM4 IPSL-CM6A-LR MPI-ESM1-2-HR MRI-ESM2-0 UKESM1-0-LL)
+          COLS=(gfdl_esm4 ipsl_cm6a_lr mpi_esm1_2_hr mri_esm2_0 ukesm1_0_ll)
+          H0IDX=${JOB_COMPLETION_INDEX}
+          RAW="public-bioclimate/raw/chelsa-2-1/${PERIOD}"
+          rm -rf /tmp/hex /tmp/mask /tmp/cache && mkdir -p /tmp/hex /tmp/mask /tmp/cache
+          echo "=== h0-index ${H0IDX}, ${VAR} ${SSP} ${PERIOD} ==="
+
+          # scale/offset/nodata read FROM THE FILE -- they differ per variable upstream.
+          FIRST_GL=$(echo "${GCMS[0]}" | tr 'A-Z' 'a-z')
+          META_URL="/vsicurl/https://${AWS_PUBLIC_ENDPOINT}/${RAW}/${GCMS[0]}/${SSP}/CHELSA_${VAR}_${PERIOD}_${FIRST_GL}_${SSP}_V.2.1.tif"
+          META=$(python3 /opt/scripts/chelsa_read_meta.py --input "$META_URL")
+          echo "source metadata: $META"
+          eval "$META"
+          # SCALE/OFFSET are informational only: exactextract applies them when cng-datasets
+          # reads the raster, so hex values arrive already in physical units. NODATA is the
+          # value actually used below.
+          NODATA_ARG=""
+          if [ -n "${NODATA:-}" ]; then NODATA_ARG="--nodata ${NODATA}"; fi
+
+          # Skip an all-ocean h0 BEFORE hexing: resolve the index to its h0 cell and look for a
+          # land partition. Only 108 of 122 h0 cells intersect the land mask, so this avoids
+          # hexing five members for a result that would be discarded.
+          rclone copyto nrp:public-grids/hex/h0-valid.parquet /tmp/h0grid.parquet \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+          H0=$(python3 /opt/scripts/chelsa_h0_for_index.py --grid /tmp/h0grid.parquet --index ${H0IDX})
+          echo "h0-index ${H0IDX} -> h0 cell ${H0}"
+          # NOTE: `rclone copyto` exits 0 when the source does not exist, so its exit code
+          # cannot be used to detect a missing partition — test for the file itself.
+          rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" \
+            /tmp/mask/eco.parquet --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null || true
+          if [ ! -s /tmp/mask/eco.parquet ]; then
+            echo "no ecoregion (land) partition for h0=${H0} — all-ocean, skipping before hexing"
+            exit 0
+          fi
+          echo "land mask for h0=${H0}: $(stat -c %s /tmp/mask/eco.parquet) bytes"
+
+          for i in 0 1 2 3 4; do
+            G=${GCMS[$i]}; C=${COLS[$i]}
+            GL=$(echo "$G" | tr 'A-Z' 'a-z')
+            echo "--- hexing member $G -> ${VAR}_${C}"
+            cng-datasets raster \
+              --input "s3://${RAW}/${G}/${SSP}/CHELSA_${VAR}_${PERIOD}_${GL}_${SSP}_V.2.1.tif" \
+              --output-parquet "/tmp/hex/${VAR}_${C}" \
+              --h0-index ${H0IDX} \
+              --resolution 8 --parent-resolutions 5,4,0 \
+              --value-column "${VAR}_${C}" \
+              --hex-resampling mean \
+              ${NODATA_ARG} \
+              --local-cache-dir /tmp/cache
+          done
+
+          PART=$(ls -d /tmp/hex/${VAR}_${COLS[0]}/h0=* 2>/dev/null | head -1 || true)
+          if [ -z "$PART" ]; then
+            echo "no hex output for h0-index ${H0IDX} — raster does not cover it, nothing to do"
+            exit 0
+          fi
+          H0_OUT=$(basename "$PART" | sed 's/^h0=//')
+          if [ "$H0_OUT" != "$H0" ]; then
+            echo "ERROR: hex wrote h0=${H0_OUT} but the grid says index ${H0IDX} is h0=${H0}" >&2
+            exit 1
+          fi
+
+          MEMBER_LIST=$(IFS=,; echo "${COLS[*]}")
+          set +e
+          python3 /opt/scripts/chelsa_join_mask.py \
+            --h0 "${H0}" --var "${VAR}" --members "${MEMBER_LIST}" \
+            --hex-root /tmp/hex --mask /tmp/mask/eco.parquet --out /tmp/final.parquet \
+            --sane-min "${SANE_MIN}" --sane-max "${SANE_MAX}"
+          rc=$?
+          set -e
+          if [ "$rc" -eq 3 ]; then echo "empty after land mask — skipping h0=${H0}"; exit 0; fi
+          if [ "$rc" -ne 0 ]; then echo "join/mask failed rc=${rc}"; exit "$rc"; fi
+
+          rclone copyto /tmp/final.parquet \
+            "nrp:public-bioclimate/chelsa-2-1/${SSP}-${PERIOD}/hex/h0=${H0}/data_0.parquet" \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+          echo "h0=${H0} complete"
+        resources:
+          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 45Gi}
+          limits:   {cpu: '8', memory: 64Gi, ephemeral-storage: 45Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: chelsa-scripts}}

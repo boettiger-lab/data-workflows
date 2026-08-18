@@ -1,0 +1,128 @@
+"""CHELSA v2.1 GCM-ensemble reduction -> physical-unit float32 COG (data-workflows #564).
+
+Reads the N per-GCM rasters for one (variable, ssp, period) triple and writes one COG per
+requested ensemble quantile, in physical units.
+
+Design notes (all driven by the measured preflight on #564):
+  * scale/offset and nodata are read FROM EACH FILE (`GetScale`/`GetOffset`/`GetNoDataValue`),
+    never hardcoded -- CHELSA declares different sentinels per variable (bio1/bio4/bio12 use 0,
+    bio15 uses 65535), so a single batch-wide constant would corrupt the output.
+  * a pixel is nodata in the output if it is nodata in ANY member -- the ensemble is only
+    defined where every GCM has a value.
+  * bio12 saturates at the UInt16 ceiling (65535); those pixels are flagged, counted, and
+    reported so the clipping is visible rather than silently averaged.
+  * processed in row blocks so a 43200x20880 x N-member stack never has to fit in RAM.
+"""
+import argparse
+import os
+import sys
+
+import numpy as np
+from osgeo import gdal
+
+gdal.UseExceptions()
+
+UINT16_CEIL = 65535
+OUT_NODATA = -9999.0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", action="append", required=True, help="per-GCM source raster (repeat)")
+    ap.add_argument("--out-prefix", required=True, help="output path prefix; quantile is appended")
+    ap.add_argument("--quantiles", default="10,50,90")
+    ap.add_argument("--block-rows", type=int, default=512)
+    args = ap.parse_args()
+
+    qs = [float(q) for q in args.quantiles.split(",")]
+    srcs = [gdal.Open(p) for p in args.input]
+    n = len(srcs)
+    if n < 2:
+        print("ERROR: need at least 2 members for an ensemble", file=sys.stderr)
+        return 1
+
+    b0 = srcs[0].GetRasterBand(1)
+    xsize, ysize = srcs[0].RasterXSize, srcs[0].RasterYSize
+    scale = b0.GetScale() if b0.GetScale() is not None else 1.0
+    offset = b0.GetOffset() if b0.GetOffset() is not None else 0.0
+    nodata = b0.GetNoDataValue()
+
+    # Every member must share grid, scale/offset and sentinel, or the ensemble is meaningless.
+    for p, ds in zip(args.input, srcs):
+        b = ds.GetRasterBand(1)
+        if (ds.RasterXSize, ds.RasterYSize) != (xsize, ysize):
+            print(f"ERROR: grid mismatch in {p}", file=sys.stderr)
+            return 1
+        s = b.GetScale() if b.GetScale() is not None else 1.0
+        o = b.GetOffset() if b.GetOffset() is not None else 0.0
+        if (s, o) != (scale, offset) or b.GetNoDataValue() != nodata:
+            print(f"ERROR: scale/offset/nodata mismatch in {p}: "
+                  f"{(s, o, b.GetNoDataValue())} != {(scale, offset, nodata)}", file=sys.stderr)
+            return 1
+
+    print(f"members={n} grid={xsize}x{ysize} scale={scale} offset={offset} nodata={nodata}")
+
+    drv = gdal.GetDriverByName("GTiff")
+    opts = ["COMPRESS=ZSTD", "PREDICTOR=3", "TILED=YES", "BIGTIFF=YES"]
+    tmp_paths, outs = [], []
+    for q in qs:
+        tp = f"{args.out_prefix}_p{int(q)}.tmp.tif"
+        ds = drv.Create(tp, xsize, ysize, 1, gdal.GDT_Float32, options=opts)
+        ds.SetGeoTransform(srcs[0].GetGeoTransform())
+        ds.SetProjection(srcs[0].GetProjection())
+        ds.GetRasterBand(1).SetNoDataValue(OUT_NODATA)
+        tmp_paths.append(tp)
+        outs.append(ds)
+
+    n_valid = n_nodata = n_saturated = 0
+    vmin, vmax = np.inf, -np.inf
+
+    for y in range(0, ysize, args.block_rows):
+        rows = min(args.block_rows, ysize - y)
+        stack = np.empty((n, rows, xsize), dtype=np.float64)
+        bad = np.zeros((rows, xsize), dtype=bool)
+        for i, ds in enumerate(srcs):
+            a = ds.GetRasterBand(1).ReadAsArray(0, y, xsize, rows)
+            if nodata is not None:
+                bad |= (a == nodata)
+            n_saturated += int((a == UINT16_CEIL).sum())
+            stack[i] = a
+
+        vals = np.percentile(stack, qs, axis=0)          # (len(qs), rows, xsize)
+        vals = vals * scale + offset                      # -> physical units
+
+        n_valid += int((~bad).sum())
+        n_nodata += int(bad.sum())
+        if (~bad).any():
+            vmin = min(vmin, float(vals[:, ~bad].min()))
+            vmax = max(vmax, float(vals[:, ~bad].max()))
+
+        for k, ds in enumerate(outs):
+            band = vals[k]
+            band[bad] = OUT_NODATA
+            ds.GetRasterBand(1).WriteArray(band.astype(np.float32), 0, y)
+        print(f"  rows {y}-{y + rows} done", flush=True)
+
+    for ds in outs:
+        ds.FlushCache()
+    outs = None
+
+    # Rewrite as proper COGs.
+    for tp, q in zip(tmp_paths, qs):
+        final = f"{args.out_prefix}_p{int(q)}.tif"
+        print(f"COG -> {final}")
+        gdal.Translate(final, tp, format="COG",
+                       creationOptions=["COMPRESS=ZSTD", "PREDICTOR=3",
+                                        "OVERVIEWS=IGNORE_EXISTING", "BIGTIFF=YES"])
+        os.remove(tp)
+
+    total = n_valid + n_nodata
+    print(f"MEASURED valid={n_valid} nodata={n_nodata} "
+          f"({100.0 * n_valid / total:.4f}% valid)")
+    print(f"MEASURED physical range: min={vmin:.4f} max={vmax:.4f}")
+    print(f"MEASURED source pixels at UInt16 ceiling ({UINT16_CEIL}) across all members: {n_saturated}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

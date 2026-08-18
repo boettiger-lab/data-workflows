@@ -1,0 +1,80 @@
+# Stage all CHELSA v2.1 bioclim source rasters to s3://public-bioclimate/raw/ (data-workflows #564).
+# 322 files = 7 vars x (5 GCM x 3 ssp x 3 period) futures + 7 baseline, ~92.5 GB.
+# Index maps to one (period, GCM, ssp) triple = 7 files; index 45 is the 1981-2010 baseline.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chelsa-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: chelsa-stage-raw}
+spec:
+  completions: 46           # 45 future triples (3 periods x 5 GCMs x 3 ssps) + 1 baseline
+  parallelism: 10
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: chelsa-stage-raw}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          U=https://os.zhdk.cloud.switch.ch/chelsav2/GLOBAL/climatologies
+          VARS="1 4 5 6 12 15 17"
+          PERIODS=(2011-2040 2041-2070 2071-2100)
+          GCMS=(GFDL-ESM4 IPSL-CM6A-LR MPI-ESM1-2-HR MRI-ESM2-0 UKESM1-0-LL)
+          SSPS=(ssp126 ssp370 ssp585)
+          IDX=${JOB_COMPLETION_INDEX}
+          mkdir -p /tmp/stage && cd /tmp/stage
+          if [ "$IDX" -eq 45 ]; then
+            echo "=== baseline 1981-2010 ==="
+            for v in $VARS; do
+              f="CHELSA_bio${v}_1981-2010_V.2.1.tif"
+              echo "-> $f"
+              curl -sS --fail --retry 5 --retry-delay 10 -o "$f" "$U/1981-2010/bio/$f"
+            done
+            rclone copy /tmp/stage nrp:public-bioclimate/raw/chelsa-2-1/1981-2010/ \
+              -P --retries 5 --low-level-retries 20 --retries-sleep 10s
+          else
+            PI=$(( IDX / 15 )); R=$(( IDX % 15 )); GI=$(( R / 3 )); SI=$(( R % 3 ))
+            P=${PERIODS[$PI]}; G=${GCMS[$GI]}; S=${SSPS[$SI]}
+            GL=$(echo "$G" | tr 'A-Z' 'a-z')
+            echo "=== idx $IDX -> period=$P gcm=$G ssp=$S ==="
+            for v in $VARS; do
+              f="CHELSA_bio${v}_${P}_${GL}_${S}_V.2.1.tif"
+              echo "-> $f"
+              curl -sS --fail --retry 5 --retry-delay 10 -o "$f" "$U/$P/$G/$S/bio/$f"
+            done
+            rclone copy /tmp/stage "nrp:public-bioclimate/raw/chelsa-2-1/${P}/${G}/${S}/" \
+              -P --retries 5 --low-level-retries 20 --retries-sleep 10s
+          fi
+          echo "index $IDX staged OK"
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
