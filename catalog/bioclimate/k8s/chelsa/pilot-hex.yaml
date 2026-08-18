@@ -88,6 +88,19 @@ spec:
           NODATA_ARG=""
           if [ -n "${NODATA:-}" ]; then NODATA_ARG="--nodata ${NODATA}"; fi
 
+          # Skip an all-ocean h0 BEFORE hexing: resolve the index to its h0 cell and look for a
+          # land partition. Only 108 of 122 h0 cells intersect the land mask, so this avoids
+          # hexing five members for a result that would be discarded.
+          rclone copyto nrp:public-grids/hex/h0-valid.parquet /tmp/h0grid.parquet \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+          H0=$(python3 /opt/scripts/chelsa_h0_for_index.py --grid /tmp/h0grid.parquet --index ${H0IDX})
+          echo "h0-index ${H0IDX} -> h0 cell ${H0}"
+          if ! rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" \
+               /tmp/mask/eco.parquet --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null; then
+            echo "no ecoregion (land) partition for h0=${H0} — all-ocean, skipping before hexing"
+            exit 0
+          fi
+
           for i in 0 1 2 3 4; do
             G=${GCMS[$i]}; C=${COLS[$i]}
             GL=$(echo "$G" | tr 'A-Z' 'a-z')
@@ -108,13 +121,10 @@ spec:
             echo "no hex output for h0-index ${H0IDX} — raster does not cover it, nothing to do"
             exit 0
           fi
-          H0=$(basename "$PART" | sed 's/^h0=//')
-          echo "h0 cell = ${H0}"
-
-          if ! rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" \
-               /tmp/mask/eco.parquet --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null; then
-            echo "no ecoregion (land) partition for h0=${H0} — all-ocean, skipping"
-            exit 0
+          H0_OUT=$(basename "$PART" | sed 's/^h0=//')
+          if [ "$H0_OUT" != "$H0" ]; then
+            echo "ERROR: hex wrote h0=${H0_OUT} but the grid says index ${H0IDX} is h0=${H0}" >&2
+            exit 1
           fi
 
           MEMBER_LIST=$(IFS=,; echo "${COLS[*]}")
