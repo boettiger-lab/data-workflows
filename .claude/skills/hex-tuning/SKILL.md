@@ -58,7 +58,8 @@ empty joins). So encode the joins into the data, don't hope the model derives th
   (e.g. large marine areas hexed at `h5`) to keep hex cell-count/RAM sane. Such a dataset
   *cannot* carry `h8` (finer than native); consumers roll finer data **up** to `h5` to join it.
   Use a coarse native res because the feature size forces it, never as a cost shortcut on data
-  that should be `h8`.
+  that should be `h8`. **For rasters the same applies but the driver is the source pixel, not
+  feature size** — see skill `raster-hexing`.
 - **A dataset may declare a *set* of parents** (e.g. native `h8` with `--parent-resolutions
   "5,4,0"` → columns `h8,h5,h4,h0`) so it joins at several standard resolutions at once. Pick the
   parent set from the resolutions of the datasets it will be joined against.
