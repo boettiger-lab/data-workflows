@@ -1,0 +1,77 @@
+# PILOT (data-workflows #564): bio1, ssp370, 2041-2070 -> p10/p50/p90 physical-unit COGs.
+# One pod: reads the 5 GCM members from s3://public-bioclimate/raw/, reduces, uploads 3 COGs.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chelsa-pilot-ensemble
+  namespace: geo-workflows
+  labels: {k8s-app: chelsa-pilot-ensemble}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: chelsa-pilot-ensemble}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: ensemble
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: GDAL_CACHEMAX,       value: '2048'}
+        - {name: VAR,                 value: '1'}
+        - {name: SSP,                 value: ssp370}
+        - {name: PERIOD,              value: 2041-2070}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /opt/scripts, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          GCMS="GFDL-ESM4 IPSL-CM6A-LR MPI-ESM1-2-HR MRI-ESM2-0 UKESM1-0-LL"
+          mkdir -p /tmp/in /tmp/out && cd /tmp/in
+          ARGS=""
+          for G in $GCMS; do
+            GL=$(echo "$G" | tr 'A-Z' 'a-z')
+            F="CHELSA_bio${VAR}_${PERIOD}_${GL}_${SSP}_V.2.1.tif"
+            echo "localizing $G/$F"
+            rclone copyto "nrp:public-bioclimate/raw/chelsa-2-1/${PERIOD}/${G}/${SSP}/${F}" "/tmp/in/${G}.tif" \
+              --retries 5 --low-level-retries 20 --retries-sleep 10s
+            ARGS="$ARGS --input /tmp/in/${G}.tif"
+          done
+          ls -la /tmp/in
+          python3 /opt/scripts/chelsa_ensemble.py $ARGS \
+            --out-prefix "/tmp/out/bio${VAR}_${SSP}_${PERIOD}" --quantiles 10,50,90
+          ls -la /tmp/out
+          for q in 10 50 90; do
+            SRC="/tmp/out/bio${VAR}_${SSP}_${PERIOD}_p${q}.tif"
+            DST="nrp:public-bioclimate/chelsa-2-1/${SSP}/${PERIOD}/bio${VAR}-p${q}-cog.tif"
+            echo "uploading -> $DST"
+            rclone copyto "$SRC" "$DST" -P --retries 5 --low-level-retries 20 --retries-sleep 10s
+          done
+          echo "PILOT ENSEMBLE COMPLETE"
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '4', memory: 32Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: chelsa-scripts}}

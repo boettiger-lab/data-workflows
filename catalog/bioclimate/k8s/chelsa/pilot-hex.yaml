@@ -1,0 +1,121 @@
+# PILOT hex (data-workflows #564): bio1 ssp370 2041-2070, p10/p50/p90, res 8, parents 5,4,0.
+# 366 completions = 3 quantiles x 122 h0.  Index -> (quantile, h0): QI=idx/122, H0=idx%122.
+#
+# Land mask: CHELSA is a full-globe surface (VALID_PERCENT 99.999, real values over ocean), so
+# each h0 partition is semi-joined against the WWF Terrestrial Ecoregions h8 hex before upload.
+# h0 cells with no land have no ecoregion partition -> nothing is written (no empty partitions).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chelsa-pilot-hex
+  namespace: geo-workflows
+  labels: {k8s-app: chelsa-pilot-hex}
+spec:
+  completions: 366
+  parallelism: 24
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 40
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: chelsa-pilot-hex}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        - {name: SSP,                 value: ssp370}
+        - {name: PERIOD,              value: 2041-2070}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          QUANTS=(10 50 90)
+          IDX=${JOB_COMPLETION_INDEX}
+          QI=$(( IDX / 122 )); H0IDX=$(( IDX % 122 ))
+          Q=${QUANTS[$QI]}
+          COL="bio1_p${Q}"
+          echo "=== idx $IDX -> quantile p${Q}, h0-index $H0IDX ==="
+
+          rm -rf /tmp/hex && mkdir -p /tmp/hex /tmp/mask
+          cng-datasets raster \
+            --input "s3://public-bioclimate/chelsa-2-1/${SSP}/${PERIOD}/bio1-p${Q}-cog.tif" \
+            --output-parquet /tmp/hex \
+            --h0-index ${H0IDX} \
+            --resolution 8 --parent-resolutions 5,4,0 \
+            --value-column "${COL}" \
+            --hex-resampling mean \
+            --nodata "-9999" \
+            --local-cache-dir /tmp/cache
+
+          PART=$(ls -d /tmp/hex/h0=* 2>/dev/null | head -1 || true)
+          if [ -z "$PART" ]; then
+            echo "no hex output for h0-index ${H0IDX} (raster does not cover it) — nothing to do"
+            exit 0
+          fi
+          H0=$(basename "$PART" | sed 's/^h0=//')
+          echo "h0 cell = $H0"
+
+          # Land mask: pull this h0's ecoregion partition. Absent => no land in this h0.
+          if ! rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" \
+               /tmp/mask/eco.parquet --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null; then
+            echo "no ecoregion (land) partition for h0=${H0} — all-ocean, skipping"
+            exit 0
+          fi
+
+          set +e
+          python3 - <<'PY'
+          import duckdb, glob, os, sys
+          src = glob.glob('/tmp/hex/h0=*/data_0.parquet')[0]
+          con = duckdb.connect()
+          before = con.execute(f"SELECT COUNT(*) FROM read_parquet('{src}')").fetchone()[0]
+          con.execute(f"""
+              COPY (
+                  SELECT r.* FROM read_parquet('{src}') r
+                  SEMI JOIN (SELECT DISTINCT h8 FROM read_parquet('/tmp/mask/eco.parquet')) m
+                  ON r.h8 = m.h8
+              ) TO '/tmp/masked.parquet'
+              (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+          """)
+          after = con.execute("SELECT COUNT(*) FROM read_parquet('/tmp/masked.parquet')").fetchone()[0]
+          print(f"MASK rows_before={before} rows_after={after} kept={100.0*after/before if before else 0:.2f}%")
+          if after == 0:
+              print("EMPTY after mask — not uploading")
+              sys.exit(3)
+          PY
+          rc=$?
+          set -e
+          if [ "$rc" -eq 3 ]; then echo "skipping empty partition (all-ocean after mask)"; exit 0; fi
+          if [ "$rc" -ne 0 ]; then echo "mask step failed rc=$rc"; exit "$rc"; fi
+
+          rclone copyto /tmp/masked.parquet \
+            "nrp:public-bioclimate/chelsa-2-1/${SSP}/${PERIOD}/hex-staging/bio1-p${Q}/h0=${H0}/data_0.parquet" \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+          echo "index $IDX complete"
+        resources:
+          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 64Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
