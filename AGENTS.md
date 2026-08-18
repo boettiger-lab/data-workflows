@@ -891,12 +891,55 @@ empty joins). So encode the joins into the data, don't hope the model derives th
   (e.g. large marine areas hexed at `h5`) to keep hex cell-count/RAM sane. Such a dataset
   *cannot* carry `h8` (finer than native); consumers roll finer data **up** to `h5` to join it.
   Use a coarse native res because the feature size forces it, never as a cost shortcut on data
-  that should be `h8`.
+  that should be `h8`. **For rasters the same applies but the driver is the source pixel, not
+  feature size** — see the resolution table below.
 - **A dataset may declare a *set* of parents** (e.g. native `h8` with `--parent-resolutions
   "5,4,0"` → columns `h8,h5,h4,h0`) so it joins at several standard resolutions at once. Pick the
   parent set from the resolutions of the datasets it will be joined against.
 - Always record the chosen native + parents in the issue (scope) and in the hex asset's
   `h3:native_resolution` / `h3:parent_resolutions` (STAC).
+
+
+#### ⭐ For RASTERS, native resolution is set by the SOURCE PIXEL — match it, never oversample
+
+The `h8` default above is a **vector** convention. For a raster, native resolution is not a
+preference, it is a **measurement**: read the source pixel size and pick the H3 resolution that
+matches it. Hexing finer than the source pixel adds **no information** — it replicates each
+pixel value across many cells, costs ~7× rows and ~7× build time per resolution step, and
+publishes a hex whose apparent detail is a lie about the source.
+
+**Measure the pixel first** (`gdalinfo` → `Pixel Size`; convert degrees to km at the relevant
+latitude), then read off the established anchors:
+
+| Source pixel | ≈ pixel area | Native H3 | H3 cell area | Example |
+|---|---|---|---|---|
+| 30 m | 0.001 km² | **10** | 0.015 km² | NLCD, Hansen — `h10` is our finest, so 30 m is *under*sampled; accept it |
+| 100 m | 0.01 km² | **9** | 0.105 km² | |
+| 250–500 m | 0.06–0.25 km² | **8** | 0.74 km² | MODIS-class |
+| ~1 km | 1 km² | **8** | 0.74 km² | CHELSA / WorldClim bioclim, gHM |
+| ~5 km | 25 km² | **6** | 36 km² | LOCA2, gridMET |
+| ~10 km | 100 km² | **5** | 253 km² | |
+| 0.25° (~25 km) | 625 km² | **5** | 253 km² | NEX-GDDP-CMIP6 |
+| 0.5° (~50 km) | 2 500 km² | **4** | 1 770 km² | |
+| 1° (~100 km) | 10 000 km² | **3** | 12 400 km² | raw GCM output |
+
+The anchors are not a single formula — the fine end deliberately puts several source pixels in
+each cell so an area-weighted reduce has something to average, while the coarse end lands
+within a factor of ~2–3 either way (0.25° sits almost exactly between `h4` and `h5`; we take
+`h5` so no detail is discarded). **The guardrail is what matters:** compute
+`pixel_area ÷ cell_area` and if it exceeds ~10, the resolution is wrong. A 0.25° climate pixel
+hexed at `h8` is an **~850× oversample** — 850 identical rows per real value.
+
+**Consequence — coarse sources cannot carry `h8`, and that is correct.** Any raster whose
+native resolution is coarser than 8 (every global climate product) has **no `h8` column**,
+because `h8` would be finer than the data supports. Same sanctioned case as continent-scale
+vector features: consumers roll finer catalog data **up** to the coarse resolution to join it,
+never the reverse. State this in the hex asset `description` so an agent does not hunt for a
+missing `h8` and conclude the dataset is broken.
+
+**Undersampling is a deliberate choice too, never a default.** Going coarser than the pixel
+discards detail the source genuinely has — do it only when feature size or RAM forces it, and
+record the reason in the issue.
 
 ### Vector workflow parameters
 
@@ -927,7 +970,7 @@ Raster completions are always **122** — not configurable.
 Most rework here comes from skipped pre-flight checks, not hard problems. Do, in order:
 
 1. **Pre-flight the COG** with one GDAL job (rclone-localize → read; never `/vsis3` for GDAL — it's flaky/node-dependent). Report size, dtype, **real nodata** (published STAC nodata is often wrong), and the value summary that becomes your validation truth (class histogram for `mode`; pixel-SUM for `sum`; min/max/mean for `mean`). **Confirm the COG is non-empty** — published "total" COGs have shipped 100% nodata.
-2. **Resolution = match the source pixel** (≈100 m → res 9; ≈500 m → res 8). Don't bump blindly; res finer than the pixel is 7× cost for no gain.
+2. **Resolution = match the source pixel** — see the raster resolution table under *For RASTERS, native resolution is set by the SOURCE PIXEL* above (≈100 m → res 9; ≈500 m → res 8; 0.25° → res 5). Don't bump blindly; res finer than the pixel is 7× cost for no gain.
 3. **Hex job musts:** mount the `rclone-config` secret (the tool localizes the COG via rclone first; generated YAML omits it → fails), `backoffLimitPerIndex: 2` + `maxFailedIndexes` (not `backoffLimit: 0`), output to a **staging** prefix. `:latest` has the seam fix — no runtime clone.
 4. **Validate value AND coverage.** `sum`: hex `SUM` == COG pixel-SUM. Note `sum`/area layers are a **full h0 grid** (one row per cell, `value = 0` where the feature is absent) — same shape as carbon/ghs-pop; that's expected, not bloat. Check that the count of **nonzero** cells matches the feature extent, not the total. `mode`: sparse (cells with no valid pixel are dropped); only canonical codes + distribution tracks the histogram. **Seam (all reducers):** dateline h0 `576707042908045311` — fixed builds span ±180°, buggy ones are bloated and miss the dateline.
    **⛔ h0-partition COVERAGE gate (data-workflows #409).** An indexed 122-completion hex Job that dies/gets-preempted mid-run can leave a *subset* of h0 partitions on S3 and get published as if complete. Two defenses, both required: (a) never treat a hex build as done unless the k8s Job reports `Complete=True` with empty `failedIndexes` — a partial run must surface as `Failed`, so keep `backoffLimitPerIndex` + `maxFailedIndexes` (never `backoffLimit: 0`); and (b) after the job, run the cheap partition-set gate against a reference build from the same COG (e.g. the fractional-coverage layer) or an explicit expected h0 set:
