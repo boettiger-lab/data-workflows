@@ -58,4 +58,4 @@ kubectl apply -f $D/ace-terrestrial-biodiversity-summary-repartition.yaml
 - `s3://public-cdfw/ace/terrestrial-biodiversity-summary/stac-collection.json` — `ace-terrestrial-biodiversity-summary`
 - `s3://public-cdfw/README.md`
 - Registered as a child of the root catalog (`public-data/stac/catalog.json`).
-- MinIO mirror: `catalog/sync/k8s/sync-public-cdfw.yaml`.
+- Backup + mirror are owned by geo-agent-ops; nothing to register here (AGENTS.md Step 7).

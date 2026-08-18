@@ -153,48 +153,30 @@ kubectl -n geo-workflows get jobs | grep <name>
   MinIO mint** for that one bucket (`mc admin user svcacct add <parent> --policy <one-bucket>
   --expiry …`; the `wyoming-publish` model) — **never** a standing broad MinIO key.
 
-### Backups & recovery live in a SEPARATE namespace (why workflow `rclone-config` is nrp-only)
+### Why the workflow `rclone-config` is nrp-only
 
-The namespace split is a two-sided security boundary: **workflow/build jobs** run in
-`geo-workflows` (NRP-canonical creds only); **backup/mirror jobs** run in a *different*
-namespace the workflow agent has no membership in, so a confused or compromised build job
-**cannot reach the backup credentials** and therefore cannot propagate a delete/corruption
-into the backups (recovery, not just prevention). Concretely (geo-agent-ops
-`DATA_WORKFLOWS_HARDENING.md`, plan step 3):
+Build jobs run in `geo-workflows` with NRP-canonical credentials only. The MinIO and source.coop
+remotes live in a different secret, in a namespace this repo has no membership in, owned by
+geo-agent-ops. The separation is deliberate and two-sided: a confused or compromised build job
+cannot reach the backup credentials, so it cannot propagate a delete or a corruption into the
+backups. Recovery, not just prevention.
 
-- **Secret split.** The `nrp:` remote (internal Ceph RGW) lives in `rclone-config` inside the
-  workflow namespaces (`geo-workflows`, `biodiversity`). The MinIO + source.coop remotes live
-  in a **separate `rclone-backup` secret** that exists **only in `boettiger-lab`** (the
-  Carl-only namespace serving as the interim `backup` ns; a dedicated `backup` ns is planned).
-  **So a workflow-namespace `rclone-config` that contains only `[nrp]` is CORRECT and
-  intentional — not a missing-remote bug.** (Verified 2026-07-12 during #392: `rclone-config`
-  in both `geo-workflows` and `biodiversity` holds `[nrp]` only, internal endpoint
-  `http://rook-ceph-rgw-nautiluss3.rook`, `upload_concurrency=16`, `chunk_size=64Mi`.)
-- **Backup jobs run in `boettiger-lab`.** All ~81 `sync-*` / `source-sync-*` Jobs & CronJobs
-  (`catalog/sync/k8s/**`, Steps 7/7b) declare `namespace: boettiger-lab` and mount
-  `rclone-backup`. **Do not** move a backup job into `geo-workflows`/`biodiversity`, and
-  **never** add a MinIO/source.coop remote or the `rclone-backup` secret to a workflow
-  namespace — that would re-open the boundary this split exists to close.
-- **Data-workflow agents never hold backup creds.** You submit *builds* (NRP) and, for
-  class-3 private inputs, a scoped **expiring** per-bucket MinIO mint (above). You do **not**
-  run the mirror jobs by hand from a build namespace; the backup CronJobs in `boettiger-lab`
-  own that.
+What that means for a build, concretely:
 
-**MinIO is NOT "just a backup" — it plays three roles**, and treating it as only-a-backup is a
-recurring, dangerous mistake:
-1. **Canonical / SOLE home for PRIVATE, non-redistributable data** (`private-wyoming`,
-   `private-tpl`, …) — this data lives **nowhere else** (not on NRP, not on source.coop).
-   Losing MinIO loses it. Reading such inputs from MinIO with a *scoped* key is normal.
-2. **Immutable vault / system-of-record backup** for the *public* buckets.
-3. **The fine-grained-IAM tier** (users, per-bucket policies, service-accounts, STS/expiry) —
-   **NRP has none of this** (one omnipotent key, no self-service scoping). This is *why* private
-   data is homed on MinIO and *why* every credential-scoping move targets MinIO.
+- **A workflow-namespace `rclone-config` holding only `[nrp]` is CORRECT** — not a
+  missing-remote bug. (Verified 2026-07-12 during #392 in both `geo-workflows` and
+  `biodiversity`: internal endpoint `http://rook-ceph-rgw-nautiluss3.rook`,
+  `upload_concurrency=16`, `chunk_size=64Mi`.)
+- **Never add a MinIO or source.coop remote — or the `rclone-backup` secret — to a workflow
+  namespace.** That re-opens the boundary the split exists to close.
+- **Treat NRP canonical as corruptible.** It is not the last copy, and restoring it is not your
+  job and not within your reach.
 
-**Two failure domains.** NRP canonical Ceph S3 and the on-cluster `rustfs` copy share the **same
-rook Ceph cluster** — only **office MinIO** is an independent domain. So MinIO is the true
-off-domain wall (immutable/object-lock); rustfs is a fast hot-restore + cross-domain 2nd copy,
-not an immutability guarantee. Treat **NRP canonical as corruptible** and recoverable from the
-MinIO vault — which is the whole reason the agent is confined to the NRP-only namespace.
+**MinIO matters to a build for exactly one reason:** it is the canonical, **sole** home for
+class-3 private data (`private-wyoming`, `private-tpl`, …), which lives on no NRP bucket and no
+mirror — losing MinIO loses it. Reading such an input through a scoped, expiring, single-bucket
+mint (above) is normal, and is the only MinIO access a build job ever has. MinIO's other roles
+(backup vault; the fine-grained-IAM tier NRP lacks) belong to geo-agent-ops.
 
 ## What You Produce
 
@@ -781,65 +763,42 @@ rclone copyto /tmp/parent.json nrp:<bucket>/stac-collection.json
 
 Only touch the root when adding a **new** top-level sub-catalog.
 
-### Step 7: Register a new bucket for backup + mirror — ⛔ REGISTRATION ONLY, you NEVER execute
+### Step 7: License the collection — you register NOTHING for backup or mirror
 
-**Hard boundary — this is the whole point of the namespace split.** Import jobs run in
-**`geo-workflows`**, which holds only NRP creds (`aws` + nrp-only `rclone-config`; verify with
-`kubectl -n geo-workflows get secrets`). You have **no MinIO and no source.coop credentials**,
-and the backup MinIO user **`geo-workflow`** — an office-MinIO IAM user + svcacct key whose
-material lives in the **`rclone-backup` Secret in the `boettiger-lab` namespace** (NOT here;
-note the confusing near-identical name vs the `geo-workflows` namespace, they are unrelated) —
-is **not reachable from an import job and must never be referenced.** Backup + mirror
-**execution and credentials are owned by the geo-agent-ops agent in `boettiger-lab`.**
+Backups and the source.coop mirror are **owned end to end by geo-agent-ops**, in a namespace
+this repo has no membership in. That tier derives its own scope, holds its own credentials, and
+vendors its own code. In its own words (geo-agent-ops `k8s/minio-sync-cron.yaml`):
 
-Therefore, from this repo/namespace you MUST NOT:
-- create, `kubectl apply`/`delete`, or read logs of any `sync-*` / `source-sync-*` / `minio-sync` Job or CronJob;
-- hand-edit any `catalog/sync/k8s/*.yaml` — they carry a **"GENERATED … do not edit by hand"** header;
-- create a source.coop repo, or set a MinIO bucket anon-read / access policy;
-- add a MinIO or source.coop remote (or the `rclone-backup` secret) to a workflow namespace.
+> data-workflows supplies NOTHING to the backup tier — no code, no scope, no manifest.
+> It produces datasets on NRP and nothing else.
 
-**What you DO — register scope via a PR to *this* repo, and nothing more:**
+So there is **no registration step here** — not for a new bucket, not for an existing one, not
+for a new collection in an existing bucket. Nothing in this repo is read by the backup tier.
 
-- **Reused existing bucket** (e.g. `public-carbon`, `public-land-cover`, `public-hydrobasins`,
-  `public-wetlands`): already in scope — **nothing to do.**
-- **New bucket → MinIO backup (every catalogued `public-*` bucket):** add the name (minus
-  `public-`) to the `BUCKETS` array in `catalog/sync/minio/gen-minio-sync.sh`, run
-  `./gen-minio-sync.sh`, and commit the regenerated files (per-bucket jobs +
-  `minio-sync-cron-config.yaml` + `minio-sync-cron.yaml`). Do not apply them.
-- **source.coop mirror — eligibility is per-DATASET, decided by each collection's STAC
-  `license`, NOT by its bucket.** source.coop is public open-data infrastructure, so
-  **NonCommercial (NC) and ShareAlike (SA) ARE eligible** — mirror them, propagate the clause,
-  label the license (NC restricts a downstream *user*, not open hosting). Only two things make a
-  dataset NON-eligible, both about redistributing derivatives: **No-Derivatives (`CC-*-ND`)** —
-  our pipeline emits derivatives (COG/hex), so ND blocks — and **custom no-redistribution /
-  request-access terms** (WDPA, WD-OECM, IUCN, ICCA, HydroSHEDS-HydroBASINS class). Record each
-  collection's verdict (`OK`/`OK-NC`/`NO`/`HOLD`) in `license-inventory.md`, then realize it in
-  `catalog/sync/source-coop/gen-source-sync.sh`:
-  - eligible dataset → its bucket in `REPOS`;
-  - a **non-eligible dataset sharing a bucket with eligible ones** → keep the bucket in `REPOS`
-    but add a sub-path `--exclude` via `EXCLUDES` (prior art: `rivers` excludes
-    `american-rivers/{campaigns,ira-watersheds,roo-cjest}`, `high-seas` excludes `mpa-candidates`);
-  - a bucket **entirely** non-eligible (WDPA / WD-OECM / IUCN / ICCA / HydroSHEDS-HydroBASINS
-    class) → not in `REPOS` at all.
-  Then `./gen-source-sync.sh` and commit.
+**Your one obligation is metadata.** Every collection must carry an accurate SPDX `license` and
+a license link in its STAC (Step 5). That field is the *advisory input* the mirror-scope auditor
+reads, so it is how a licence fact actually reaches the backup tier — and a wrong one is how
+data gets over- or under-published.
 
-Then **hand execution to geo-agent-ops** (note it in the PR / issue): applying the regenerated
-scope, the first backfill, source.coop repo creation (manual in the web UI — the create API is
-disabled), and the MinIO anon-read policy (a freshly-mirrored bucket 403s to clients until it is
-set) all happen in `boettiger-lab`, not here.
+- Record the **licence fact**: what upstream granted, with evidence. That is a STAC field and it
+  belongs here.
+- Do **not** record a **redistribution verdict** ("may we mirror this?"). That decision, and its
+  holds and blocklist, live in geo-agent-ops `scripts/check-source-scope.py`. A verdict written
+  down in this repo reaches nothing.
+- If a licence is genuinely unconfirmed, say so — `license: "other"` **and** a description that
+  states it. Never assert an SPDX id upstream did not grant, and never list a provider as
+  `licensor` when no licence was granted; the auditor acts on a clean-looking `license` string.
+  This has gone wrong in both directions: `rivers/american-rivers/*` asserted `CC-BY-4.0` with
+  no `licensor` behind it, and `hazard/mid-century-habitat-climate-exposure` asserts
+  `CC-BY-4.0` while its own description says the terms "require confirmation".
+- Notice a scope problem — something mirrored that should not be, or held that should not be —
+  **file an issue on geo-agent-ops.** Do not try to fix it here; there is nothing here to fix.
 
-**Reference (owned by geo-agent-ops, for your understanding — not commands for you to run):**
-MinIO is the private backup of every `public-*` bucket and the *only* off-NRP copy for
-no-redistribution datasets; a weekly **`minio-sync` CronJob** (Sat 08:00 UTC) syncs it and then
-re-applies a phase-2 host-swap STAC rewrite (`catalog/sync/minio/rewrite-stac-hrefs.py`, #354)
-so MinIO is a self-contained navigable DR catalog (all hrefs, incl. `root`/`parent`, point at
-`minio.carlboettiger.info`). Public, mirror-eligible datasets are *also* mirrored to **Source
-Cooperative** (`cboettig/<repo>`, repo = bucket minus `public-`) by a weekly **`source-sync`
-CronJob** (Sun 08:00 UTC), which re-applies its own phase-2 rewrite (→ `data.source.coop`,
-leaving `root`/`parent` NRP-canonical) and publishes the GLEN root catalog (#351). Scope for
-both lives in the generated ConfigMaps, whose single source of truth is the two `gen-*.sh`
-scripts you edit above. Campaign status: source.coop **#158**; hardening **geo-agent-ops#21**
-(`DATA_WORKFLOWS_HARDENING.md`).
+⛔ **Never execute any part of the backup or mirror tier from this repo or namespace.** No
+`kubectl` against `sync-*` / `source-sync-*` / `minio-sync` Jobs or CronJobs, no source.coop
+repo creation, no MinIO bucket policy, and never add a MinIO or source.coop remote (or the
+`rclone-backup` secret) to a workflow namespace. You hold none of those credentials, and that is
+the design, not an oversight.
 
 ## Memory and Chunking Mental Model
 
