@@ -1,0 +1,119 @@
+# data-workflows#509 — the two BLM collections whose hex shortfall was invisible until the
+# sweep harness stopped scoring a failed verify as CLEAN (both sat in RESULTS-2026-08-17.txt
+# as "CLEAN … exit=1").
+#
+# TRIAGED, not assumed. For both, EVERY missing feature has NULL geometry — nothing was
+# dropped by the build, and a re-hex would change nothing:
+#
+#   acquisitions    97,529 flat rows − 752 null geom   = 96,777 hex features  ✓ exact
+#   oil-gas-leases 466,415 flat rows − 8,482 null geom = 457,933 hex features ✓ exact
+#
+#   missing rows with a NON-null geometry that would polyfill: 0 in both
+#   (checked with h3_polygon_wkt_to_cells_string at native resolution 10)
+#
+# So this is the FACTS case (aspatial activity records), not the NWI case (a real drop):
+# the fix is to say so on the asset. Wording mirrors facts/common-attributes-2026-06 so the
+# same situation reads the same way across the catalog.
+#
+# oil-gas-leases also carries a stale `bbox` in its hex table:columns — the hex parquet has
+# no such column (the #534 check flags it). Dropped here, same as the #559 batch.
+#
+# In-cluster because STAC is canonical on NRP S3. Idempotent: re-running changes nothing.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: stac-fix-509-blm, namespace: geo-workflows}
+data:
+  fix.py: |
+    import json, subprocess, sys
+
+    FAIL = []
+
+    def read(key):
+        return json.loads(subprocess.check_output(['rclone', 'cat', key]))
+
+    def write(key, doc):
+        open('/tmp/o.json', 'w').write(json.dumps(doc, indent=2))
+        json.load(open('/tmp/o.json'))          # re-parse before publishing
+        subprocess.check_call(['rclone', 'copyto', '/tmp/o.json', key])
+
+    NOTE = ('Aspatial records: {n} of {tot} records have no geometry — BLM records held '
+            'without a mapped spatial extent. They are present in the GeoParquet but absent '
+            'from the hex, which requires geometry. Filter WHERE geom IS NOT NULL to '
+            'restrict the flat to the {mapped} mapped records the hex covers.')
+
+    TARGETS = {
+        'nrp:public-blm/acquisitions/stac-collection.json': {
+            'asset': 'acquisitions-hex',
+            'note': NOTE.format(n='752', tot='97,529', mapped='96,777'),
+            'drop': [],
+        },
+        'nrp:public-blm/oil-gas-leases/stac-collection.json': {
+            'asset': 'oil-gas-leases-hex',
+            'note': NOTE.format(n='8,482', tot='466,415', mapped='457,933'),
+            'drop': ['bbox'],
+        },
+    }
+
+    for key, spec in TARGETS.items():
+        cid = key.split('/public-')[-1].replace('/stac-collection.json', '')
+        doc = read(key)
+        a = doc.get('assets', {}).get(spec['asset'])
+        if a is None:
+            FAIL.append('%s: no asset %s' % (cid, spec['asset'])); continue
+        changed = []
+        desc = (a.get('description') or '').rstrip()
+        if spec['note'] in desc:
+            print('%s\t%s\tALREADY-NOTED' % (cid, spec['asset']))
+        else:
+            a['description'] = (desc + ' ' + spec['note']).strip()
+            changed.append('coverage-note')
+        if spec['drop']:
+            drop = {c.lower() for c in spec['drop']}
+            before = len(a.get('table:columns', []))
+            a['table:columns'] = [c for c in a.get('table:columns', [])
+                                  if c.get('name', '').lower() not in drop]
+            removed = before - len(a['table:columns'])
+            if removed:
+                changed.append('dropped %d stale column(s): %s' % (removed, ','.join(sorted(drop))))
+        if not changed:
+            continue
+        write(key, doc)
+        print('%s\t%s\tFIXED\t%s' % (cid, spec['asset'], '; '.join(changed)))
+
+    if FAIL:
+        print('FAILURES:')
+        for f in FAIL:
+            print('  ' + f)
+        sys.exit(1)
+    print('done')
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-fix-509-blm
+  namespace: geo-workflows
+  labels: {k8s-app: stac-fix-509-blm}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-fix-509-blm}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: fix, mountPath: /config, readOnly: true}
+        command: [bash, -c, "set -uo pipefail; python3 /config/fix.py"]
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: fix, configMap: {name: stac-fix-509-blm}}
