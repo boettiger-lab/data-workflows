@@ -37,6 +37,79 @@ cng-datasets raster-workflow --dataset wyoming/rap-arte \
 ```
 Extra options: `--target-extent "xmin,ymin,xmax,ymax"` (EPSG:4326 clip), `--target-resolution <degrees>`, `--band <n>` (1-indexed), `--output-cog-name <key>`.
 
+## ⭐ For RASTERS, native resolution is set by the SOURCE PIXEL — match it, never oversample
+
+The `h8` default (see AGENTS.md, *Hex sizing and resolution*) is a **vector** convention. For a raster, native resolution is not a
+preference, it is a **measurement**: read the source pixel size and pick the H3 resolution that
+matches it. Hexing finer than the source pixel adds **no information** — it replicates each
+pixel value across many cells, costs ~7× rows and ~7× build time per resolution step, and
+publishes a hex whose apparent detail is a lie about the source.
+
+**Measure the pixel first** (`gdalinfo` → `Pixel Size`; convert degrees to km at the relevant
+latitude), then read off the established anchors:
+
+| Source pixel | ≈ pixel area | Native H3 | H3 cell area | Example |
+|---|---|---|---|---|
+| 30 m | 0.001 km² | **10** | 0.015 km² | NLCD, Hansen — `h10` is our finest, so 30 m is *under*sampled; accept it |
+| 100 m | 0.01 km² | **9** | 0.105 km² | |
+| 250–500 m | 0.06–0.25 km² | **8** | 0.74 km² | MODIS-class |
+| ~1 km | 1 km² | **8** | 0.74 km² | CHELSA / WorldClim bioclim, gHM |
+| ~5 km | 25 km² | **6** | 36 km² | LOCA2, gridMET |
+| ~10 km | 100 km² | **5** | 253 km² | |
+| 0.25° (~25 km) | 625 km² | **5** | 253 km² | NEX-GDDP-CMIP6 |
+| 0.5° (~50 km) | 2 500 km² | **4** | 1 770 km² | |
+| 1° (~100 km) | 10 000 km² | **3** | 12 400 km² | raw GCM output |
+
+The anchors are not a single formula — the fine end deliberately puts several source pixels in
+each cell so an area-weighted reduce has something to average, while the coarse end lands
+within a factor of ~2–3 either way (0.25° sits almost exactly between `h4` and `h5`; we take
+`h5` so no detail is discarded). **The guardrail is what matters:** compute
+`pixel_area ÷ cell_area` and if it exceeds ~10, the resolution is wrong. A 0.25° climate pixel
+hexed at `h8` is an **~850× oversample** — 850 identical rows per real value.
+
+**Consequence — coarse sources cannot carry `h8`, and that is correct.** Any raster whose
+native resolution is coarser than 8 (every global climate product) has **no `h8` column**,
+because `h8` would be finer than the data supports. Same sanctioned case as continent-scale
+vector features: consumers roll finer catalog data **up** to the coarse resolution to join it,
+never the reverse. State this in the hex asset `description` so an agent does not hunt for a
+missing `h8` and conclude the dataset is broken.
+
+**Undersampling is a deliberate choice too, never a default.** Going coarser than the pixel
+discards detail the source genuinely has — do it only when feature size or RAM forces it, and
+record the reason in the issue.
+
+⛔ **ALWAYS pass `--h3-resolution` explicitly for a raster — never rely on auto-detection.**
+`cng-datasets` picks the resolution whose average H3 *edge* is nearest **3× the pixel width**
+(~9 source pixels per cell). That agrees with the table above at fine pixels (100 m → 9,
+300 m → 8) and **diverges as pixels coarsen**: 500 m → h7 and **~1 km → h6**, neither of which
+carries **`h8`**, so the resulting dataset silently fails to join the rest of the catalog. The
+mismatch is only ever reported as an informational log line (`ℹ Using finer resolution h8 (user
+specified) instead of detected h6`), never an error. This is the likely origin of the gHM `h7`
+outlier — a 1 km raster sitting near where auto-detection points rather than at
+the convention. Tracked upstream in
+[`boettiger-lab/datasets#182`](https://github.com/boettiger-lab/datasets/issues/182).
+
+⛔ **`cng-datasets raster` output is in PHYSICAL units — do NOT apply the GeoTIFF scale/offset
+again.** The hex step hands the raster *path* to `exactextract`, whose GDAL source applies the
+band's `scale`/`offset`, so the values written to parquet are already degrees C, mm, metres —
+not the stored integers. Grepping `cng_datasets/raster/cog.py` for `GetScale` finds nothing and
+is **misleading**: the conversion happens a layer down, inside exactextract.
+
+Measured on CHELSA bio1 (stored UInt16, `Scale=0.1 Offset=-273.15`), Amazon h0 at res 5:
+`min=1.51 max=30.15 mean=27.32` — plainly degrees C. Re-applying the transform produced
+`-273.5 … -269.9`, which is only obviously wrong if something checks it.
+
+- **A double-scaled column passes every structural check.** Row counts, partition coverage, NULL
+  counts and any `median BETWEEN min AND max` invariant all stay perfectly consistent, because a
+  linear transform applied twice preserves ordering and cardinality. Only a **physical
+  plausibility bound** catches it — assert the measured range against what the quantity can
+  actually be (e.g. surface air temperature within −95…60 °C) before publishing.
+- The same bound doubles as a **nodata-leak detector**: a surviving sentinel drags a mean toward
+  the sentinel and blows the bound.
+- **Reading the same raster with `gdal.Band.ReadAsArray` does NOT apply scale/offset** — that
+  path needs the explicit transform. Two scripts in the same build can legitimately differ on
+  this; check which reader each uses before "fixing" one to match the other.
+
 ## ⚠️ Mosaicking a MANY-tile source (thousands of 1° tiles) into one global COG — two traps
 
 For a source shipped as thousands of small tiles (Copernicus GLO-30/90 DEM = 26,475 tiles; many
@@ -103,7 +176,7 @@ Raster completions are always **122** — not configurable.
 Most rework here comes from skipped pre-flight checks, not hard problems. Do, in order:
 
 1. **Pre-flight the COG** with one GDAL job (rclone-localize → read; never `/vsis3` for GDAL — it's flaky/node-dependent). Report size, dtype, **real nodata** (published STAC nodata is often wrong), and the value summary that becomes your validation truth (class histogram for `mode`; pixel-SUM for `sum`; min/max/mean for `mean`). **Confirm the COG is non-empty** — published "total" COGs have shipped 100% nodata.
-2. **Resolution = match the source pixel** (≈100 m → res 9; ≈500 m → res 8). Don't bump blindly; res finer than the pixel is 7× cost for no gain.
+2. **Resolution = match the source pixel** — see the resolution table in *For RASTERS, native resolution is set by the SOURCE PIXEL* above (≈100 m → res 9; ≈500 m → res 8; 0.25° → res 5). Don't bump blindly; res finer than the pixel is 7× cost for no gain.
 3. **Hex job musts:** mount the `rclone-config` secret (the tool localizes the COG via rclone first; generated YAML omits it → fails), `backoffLimitPerIndex: 2` + `maxFailedIndexes` (not `backoffLimit: 0`), output to a **staging** prefix. `:latest` has the seam fix — no runtime clone.
 4. **Validate value AND coverage.** `sum`: hex `SUM` == COG pixel-SUM. Note `sum`/area layers are a **full h0 grid** (one row per cell, `value = 0` where the feature is absent) — same shape as carbon/ghs-pop; that's expected, not bloat. Check that the count of **nonzero** cells matches the feature extent, not the total. `mode`: sparse (cells with no valid pixel are dropped); only canonical codes + distribution tracks the histogram. **Seam (all reducers):** dateline h0 `576707042908045311` — fixed builds span ±180°, buggy ones are bloated and miss the dateline.
    **⛔ h0-partition COVERAGE gate (data-workflows #409).** An indexed 122-completion hex Job that dies/gets-preempted mid-run can leave a *subset* of h0 partitions on S3 and get published as if complete. Two defenses, both required: (a) never treat a hex build as done unless the k8s Job reports `Complete=True` with empty `failedIndexes` — a partial run must surface as `Failed`, so keep `backoffLimitPerIndex` + `maxFailedIndexes` (never `backoffLimit: 0`); and (b) after the job, run the cheap partition-set gate against a reference build from the same COG (e.g. the fractional-coverage layer) or an explicit expected h0 set:
