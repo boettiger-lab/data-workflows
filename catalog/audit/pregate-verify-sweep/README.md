@@ -21,6 +21,32 @@ big `COUNT(DISTINCT)` datasets, and caps each collection at `PERCOLL_TIMEOUT` (d
 300 s). It posts SQL to the public duckdb-geo MCP, so it is not bound by laptop resources
 — but keep `SLICES` modest (≤8) to stay friendly on the shared MCP.
 
+## Snapshot — 2026-08-19 (266 collections, current checker)
+
+`250 CLEAN · 16 HARD · 0 TIMEOUT · 0 ERROR`. Full run in `RESULTS-2026-08-19.txt`.
+
+This is the first pass in which **every** collection has been evaluated by the current
+rule set: the 8 collections that timed out on 08-17 all completed here (900 s per-collection
+cap), and `check_hex_fid_matches_flat` (#549) landed *after* the 08-17 run, so the 161
+collections clean then had never seen it. It immediately found one real
+`hex-fid-mismatch` (`high-seas/hydrothermal-vents`, 720 of 720 ids disagree).
+
+The 16 remaining HARD collections:
+
+| what | colls | disposition |
+|---|--:|---|
+| **Wyoming vector family** (`wgfd-*`, `wyoming-places`, `wy-counties`, `sage-grouse-priority`, `pad-us`, `ungulate-migration`) | 11 | **Not a metadata fix.** Pre-#369 builds with no `_cng_fid`, so writing `table:columns` would trip the #369 gate — they need reprocessing, their recipes are no longer in this repo, and the work overlaps #225. Needs a scoping decision first. |
+| `wyoming/blm-sma` | 1 | Genuinely broken build (277 of 865,059); spun out to **#561**. |
+| `blm/acquisitions` | 1 | `hex-missing-features` (96,777 of 97,529) — surfaced only once the harness stopped scoring a failed verify as CLEAN. Needs the polyfill ground-truth triage. |
+| `high-seas/hydrothermal-vents` | 1 | `hex-fid-mismatch` — the #549 class: the hex carries its own `_cng_fid` numbering. Needs a re-hex, or a hex rebuilt from the flat's ids. |
+| `ca-dac` | 1 | **Stale row** — the sweep read this collection before the STAC fix landed mid-run; it verifies PASS now. |
+| `high-seas/mpa-candidates` | 1 | `license-link-missing`, deferred in #560 pending canonical terms from the data owner. |
+
+`blm/oil-gas-leases` is not in the list above only because it was fixed-in-name-only by the
+old harness bug: it is genuinely HARD too (`declared-column-absent` on the hex `bbox`, plus
+`hex-missing-features` 457,933 of 466,415), confirmed by an individual re-run. Both former
+`CLEAN … exit=1` rows were real defects.
+
 ## Snapshot — 2026-08-17 (266 collections, checker at commit that fixed the truncation bug)
 
 `161 CLEAN · 97 HARD · 8 TIMEOUT`. Full run in `RESULTS-2026-08-17.txt`.

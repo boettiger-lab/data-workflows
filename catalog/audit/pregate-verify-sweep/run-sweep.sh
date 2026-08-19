@@ -42,8 +42,8 @@ run_slice() {  # $1 slice file, $2 result file
       # A nonzero exit with no [HARD] line means the verifier itself failed (an MCP error,
       # an unreadable collection) — it is NOT a clean verdict, and recording it as one hides
       # an unverified collection behind a pass. Two blm collections sat in the 2026-08-17
-      # results as "CLEAN ... exit=1" this way; one of them (blm/acquisitions) is really
-      # HARD. See data-workflows#509.
+      # results as "CLEAN ... exit=1" this way, and re-running BOTH against the current
+      # checker reports real HARD findings. See data-workflows#509.
       if [ "$n" -eq 0 ] && [ $rc -ne 0 ]; then
         echo "ERROR	${el}s	$url	exit=$rc" >> "$2"
         echo "$raw" | tail -5 | sed 's/^/    /' >> "$2"
