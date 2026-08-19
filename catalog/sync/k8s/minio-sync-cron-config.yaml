@@ -12,6 +12,7 @@ data:
   buckets.txt: |
     # <bucket> <verb> [exclude globs...]
     barred-owl sync */chunks/** */hex-staging/** 
+    bioclimate sync */chunks/** */hex-staging/** raw/**
     blm sync */chunks/** */hex-staging/** 
     ca30x30 sync */chunks/** */hex-staging/** 
     ca-dac sync */chunks/** */hex-staging/** 

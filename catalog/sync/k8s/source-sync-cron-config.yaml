@@ -11,6 +11,7 @@ metadata:
 data:
   repos.txt: |
     # <repo> <verb> [exclude globs...]
+    bioclimate sync */chunks/** */hex-staging/** 
     blm sync */chunks/** */hex-staging/** 
     ca-dac sync */chunks/** */hex-staging/** 
     ca30x30 sync */chunks/** */hex-staging/** 

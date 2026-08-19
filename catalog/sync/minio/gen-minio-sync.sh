@@ -49,7 +49,7 @@ ARCHIVE_BUCKET="backup-archive"
 
 # NRP catalog buckets backed up to MinIO (== NRP public-<bucket>).
 BUCKETS=(
-  barred-owl blm
+  barred-owl bioclimate blm
   ca30x30 ca-dac calenviroscreen carbon ca-wolves cdfw census cgs connectivity cpad
   data datacenters dem ecoregion epa-water facts fire gbif gfw globio grids hazard high-seas
   human-modification hydrobasins icca im3 inat indigenous iucn kba land-cover
@@ -65,6 +65,10 @@ declare -A EXCLUDES=(
   # dem raw/ is a re-pullable mirror of Copernicus GLO-90 on AWS Open Data
   # (26k small tiles, not a published STAC artifact) — skip from the DR mirror.
   [dem]='raw/**'
+  # bioclimate raw/ is a 92.5 GB re-pullable mirror of the CHELSA v2.1 archive on the
+  # WSL/SWITCH object store (CC0, stable academic host), staged only so a rebuild need not
+  # re-download it. Same rationale as dem: not a published STAC artifact.
+  [bioclimate]='raw/**'
 )
 
 # Per-bucket rclone verb. Default "sync" (mirror-with-delete; deletions are
