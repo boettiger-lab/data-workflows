@@ -1,6 +1,17 @@
 # Stage all CHELSA v2.1 bioclim source rasters to s3://public-bioclimate/raw/ (data-workflows #564).
 # 322 files = 7 vars x (5 GCM x 3 ssp x 3 period) futures + 7 baseline, ~92.5 GB.
 # Index maps to one (period, GCM, ssp) triple = 7 files; index 45 is the 1981-2010 baseline.
+#
+# RE-RUNNABLE BY DESIGN. Each index skips files already present at its destination, so
+# re-applying this Job heals a partial run at the cost of a listing per index. Never hand-write
+# a one-off retry Job for a failed index -- delete and re-apply this one.
+#
+# The upstream host (os.zhdk.cloud.switch.ch) resets connections under concurrency:
+# `curl: (35) Recv failure: Connection reset by peer`. **`curl --retry` does NOT cover error 35
+# without `--retry-all-errors`** -- so the original `--retry 5` was decorative for this failure
+# mode, every attempt died instantly on the first file, and index 5 burned all four tries in
+# seconds while the run reported a clean 45/46. Hence --retry-all-errors, a stall detector, an
+# outer per-file loop, and lower parallelism to stop provoking the resets.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -9,9 +20,9 @@ metadata:
   labels: {k8s-app: chelsa-stage-raw}
 spec:
   completions: 46           # 45 future triples (3 periods x 5 GCMs x 3 ssps) + 1 baseline
-  parallelism: 10
+  parallelism: 5           # politer to the upstream host; 10 provoked connection resets
   completionMode: Indexed
-  backoffLimitPerIndex: 3
+  backoffLimitPerIndex: 5
   maxFailedIndexes: 6
   ttlSecondsAfterFinished: 86400
   template:
@@ -50,27 +61,62 @@ spec:
           SSPS=(ssp126 ssp370 ssp585)
           IDX=${JOB_COMPLETION_INDEX}
           mkdir -p /tmp/stage && cd /tmp/stage
+
+          # --retry-all-errors is the load-bearing flag: plain --retry ignores curl error 35
+          # (connection reset), which is exactly how this host fails. --speed-limit/--speed-time
+          # turn a stalled transfer into a retryable error instead of a hang. -C - resumes a
+          # partial file across attempts within this pod.
+          fetch() {   # fetch <url> <outfile>
+            local url=$1 out=$2 attempt
+            for attempt in 1 2 3; do
+              if curl -sS --fail --location -C - -o "$out" "$url" \
+                   --retry 8 --retry-delay 15 --retry-all-errors --retry-max-time 900 \
+                   --connect-timeout 30 --speed-limit 10240 --speed-time 120 ; then
+                [ -s "$out" ] && return 0
+                echo "   empty file after curl success, retrying" >&2
+              fi
+              echo "   fetch attempt $attempt failed for $(basename "$out"), backing off" >&2
+              rm -f "$out"; sleep $(( attempt * 30 ))
+            done
+            return 1
+          }
+
+          # stage <dest-prefix> <url-dir> <filename>...
+          stage() {
+            local dest=$1 urldir=$2; shift 2
+            local have f n=0
+            have=$(rclone lsf "$dest" 2>/dev/null || true)
+            for f in "$@"; do
+              if grep -qxF "$f" <<<"$have"; then echo "-> $f (already staged, skip)"; continue; fi
+              echo "-> $f"
+              fetch "$urldir/$f" "$f"
+              n=$(( n + 1 ))
+            done
+            if [ "$n" -gt 0 ]; then
+              rclone copy /tmp/stage "$dest" -P --retries 5 --low-level-retries 20 --retries-sleep 10s
+            else
+              echo "   nothing new to upload"
+            fi
+            # Assert the destination holds every expected file before reporting success, so a
+            # partial index can never be recorded as complete.
+            have=$(rclone lsf "$dest" 2>/dev/null || true)
+            for f in "$@"; do
+              grep -qxF "$f" <<<"$have" || { echo "MISSING at dest after staging: $f" >&2; exit 1; }
+            done
+            echo "verified $# file(s) at $dest"
+          }
+
           if [ "$IDX" -eq 45 ]; then
             echo "=== baseline 1981-2010 ==="
-            for v in $VARS; do
-              f="CHELSA_bio${v}_1981-2010_V.2.1.tif"
-              echo "-> $f"
-              curl -sS --fail --retry 5 --retry-delay 10 -o "$f" "$U/1981-2010/bio/$f"
-            done
-            rclone copy /tmp/stage nrp:public-bioclimate/raw/chelsa-2-1/1981-2010/ \
-              -P --retries 5 --low-level-retries 20 --retries-sleep 10s
+            FILES=(); for v in $VARS; do FILES+=("CHELSA_bio${v}_1981-2010_V.2.1.tif"); done
+            stage nrp:public-bioclimate/raw/chelsa-2-1/1981-2010/ "$U/1981-2010/bio" "${FILES[@]}"
           else
             PI=$(( IDX / 15 )); R=$(( IDX % 15 )); GI=$(( R / 3 )); SI=$(( R % 3 ))
             P=${PERIODS[$PI]}; G=${GCMS[$GI]}; S=${SSPS[$SI]}
             GL=$(echo "$G" | tr 'A-Z' 'a-z')
             echo "=== idx $IDX -> period=$P gcm=$G ssp=$S ==="
-            for v in $VARS; do
-              f="CHELSA_bio${v}_${P}_${GL}_${S}_V.2.1.tif"
-              echo "-> $f"
-              curl -sS --fail --retry 5 --retry-delay 10 -o "$f" "$U/$P/$G/$S/bio/$f"
-            done
-            rclone copy /tmp/stage "nrp:public-bioclimate/raw/chelsa-2-1/${P}/${G}/${S}/" \
-              -P --retries 5 --low-level-retries 20 --retries-sleep 10s
+            FILES=(); for v in $VARS; do FILES+=("CHELSA_bio${v}_${P}_${GL}_${S}_V.2.1.tif"); done
+            stage "nrp:public-bioclimate/raw/chelsa-2-1/${P}/${G}/${S}/" "$U/$P/$G/$S/bio" "${FILES[@]}"
           fi
           echo "index $IDX staged OK"
         resources:
