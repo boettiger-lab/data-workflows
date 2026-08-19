@@ -1,0 +1,151 @@
+# data-workflows#577, defect 2 — measure WHY 1,017 flat rows have no hex representation.
+#
+# #577 acceptance criterion 2 allows an absent feature to stand if its cause is measured
+# and documented. The direct test is the polyfill itself: run h3_polygon_wkt_to_cells on
+# each unrepresented polygon and see whether it yields zero cells. A polygon that contains
+# no H3 cell centre polyfills to nothing — the standard sub-cell shortfall — as opposed to
+# a dropped chunk, which would yield cells but still be missing from the built hex.
+#
+# Tested at resolution 8, the FINEST resolution this dataset's multi-resolution scheme
+# assigns (8 / 6 / 5 by feature area). Res 8 is the most generous case: if a polygon
+# yields no cell even at res 8, it cannot yield one at 6 or 5 either, so a zero here is
+# conclusive regardless of which native resolution the feature would have been given.
+#
+# Read-only. Writes nothing.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-577-polyfill-groundtruth
+  labels:
+    k8s-app: iucn-577-polyfill-groundtruth
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-577-polyfill-groundtruth
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: polyfill-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          python3 << 'PYEOF'
+          import duckdb, os
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("INSTALL h3 FROM community; LOAD h3;")
+          con.execute("INSTALL spatial; LOAD spatial;")
+          con.execute("SET memory_limit='26GB';")
+          con.execute("SET temp_directory='/tmp/duckdb-spill';")
+          con.execute(f"""
+            CREATE SECRET nrp (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}',
+              ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}', URL_STYLE 'path', USE_SSL false);
+          """)
+
+          SUMMARY = 's3://public-iucn/iucn-ranges-2025/staging-577/hex-fid-summary.parquet'
+          FLAT    = 's3://public-iucn/iucn-ranges-2025.parquet'
+
+          # Hex-side part counts per natural key (M), from the small summary table.
+          con.execute(f"""
+            CREATE TEMP TABLE hx AS
+            SELECT id_no, presence, origin, seasonal, COUNT(*) AS m
+            FROM read_parquet('{SUMMARY}') GROUP BY 1,2,3,4;
+          """)
+          # Flat-side rows per natural key (N).
+          con.execute(f"""
+            CREATE TEMP TABLE fl AS
+            SELECT id_no, presence, origin, seasonal, COUNT(*) AS n
+            FROM read_parquet('{FLAT}') GROUP BY 1,2,3,4;
+          """)
+          # Every key that lost at least one part: absent entirely (no hx row) or partial.
+          con.execute("""
+            CREATE TEMP TABLE affected AS
+            SELECT f.id_no, f.presence, f.origin, f.seasonal, f.n,
+                   COALESCE(h.m, 0) AS m
+            FROM fl f LEFT JOIN hx h USING (id_no, presence, origin, seasonal)
+            WHERE COALESCE(h.m, 0) < f.n;
+          """)
+          nk, nrows = con.execute(
+            "SELECT COUNT(*), SUM(n - m) FROM affected").fetchone()
+          print(f"affected range records: {nk}, unrepresented flat rows: {nrows}", flush=True)
+
+          # Pull just those features' geometries and polyfill each at res 8.
+          print("polyfilling affected geometries at res 8 ...", flush=True)
+          con.execute(f"""
+            CREATE TEMP TABLE probe AS
+            SELECT f._cng_fid, f.id_no, f.presence, f.origin, f.seasonal,
+                   a.n, a.m,
+                   ST_Area_Spheroid(f.geometry)/1e6 AS km2,
+                   len(h3_polygon_wkt_to_cells(ST_AsText(f.geometry), 8)) AS cells_res8
+            FROM read_parquet('{FLAT}') f
+            JOIN affected a USING (id_no, presence, origin, seasonal);
+          """)
+          tot = con.execute("SELECT COUNT(*) FROM probe").fetchone()[0]
+          print(f"geometries probed: {tot}", flush=True)
+
+          # Per key: how many of its parts polyfill to zero at the finest resolution?
+          row = con.execute("""
+            SELECT
+              COUNT(*) FILTER (WHERE cells_res8 = 0) AS parts_zero_cells,
+              COUNT(*) FILTER (WHERE cells_res8 > 0) AS parts_nonzero_cells
+            FROM probe
+          """).fetchone()
+          print(f"  parts yielding 0 cells at res 8: {row[0]}")
+          print(f"  parts yielding >0 cells        : {row[1]}")
+
+          # The decisive per-key test: the number of parts that DO polyfill should equal
+          # the number the hex actually holds (m). Where it does, the shortfall is fully
+          # explained by sub-cell geometry; where it exceeds m, a real part went missing.
+          agree = con.execute("""
+            WITH per_key AS (
+              SELECT id_no, presence, origin, seasonal, any_value(m) AS m,
+                     COUNT(*) FILTER (WHERE cells_res8 > 0) AS nonzero
+              FROM probe GROUP BY 1,2,3,4)
+            SELECT COUNT(*) AS keys,
+                   COUNT(*) FILTER (WHERE nonzero = m) AS explained_exactly,
+                   COUNT(*) FILTER (WHERE nonzero > m) AS unexplained_missing,
+                   COUNT(*) FILTER (WHERE nonzero < m) AS more_in_hex_than_polyfill,
+                   SUM(GREATEST(nonzero - m, 0)) AS unexplained_rows
+            FROM per_key
+          """).fetchone()
+          print(f"affected keys                    : {agree[0]}")
+          print(f"  shortfall fully sub-cell       : {agree[1]}")
+          print(f"  keys with UNEXPLAINED loss     : {agree[2]}  ({agree[4]} rows)")
+          print(f"  keys where hex > polyfill(res8): {agree[3]}  (expected: coarser native res)")
+
+          zero_area = con.execute(
+            "SELECT COUNT(*) FROM probe WHERE km2 = 0 OR isnan(km2)").fetchone()[0]
+          print(f"  degenerate (zero/NaN area) parts: {zero_area}")
+          print("DONE")
+          PYEOF
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
