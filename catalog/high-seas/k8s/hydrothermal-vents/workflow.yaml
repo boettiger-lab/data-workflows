@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: hydrothermal-vents-workflow
-  namespace: biodiversity
+  namespace: geo-workflows
 spec:
   template:
     spec:
@@ -11,30 +11,30 @@ spec:
         - "\nset -e\n\necho \"Starting hydrothermal-vents workflow...\"\n\n# Step\
           \ 0: Setup bucket with public access and CORS\necho \"Step 0: Setting up\
           \ bucket...\"\nkubectl apply -f /yamls/hydrothermal-vents-setup-bucket.yaml\
-          \ -n biodiversity\n\necho \"Waiting for bucket setup to complete...\"\n\
+          \ -n geo-workflows\n\necho \"Waiting for bucket setup to complete...\"\n\
           kubectl wait --for=condition=complete --timeout=600s job/hydrothermal-vents-setup-bucket\
-          \ -n biodiversity\n\n# Step 1: Convert to optimized GeoParquet (needed by\
-          \ both pmtiles and hex jobs)\necho \"Step 1: Converting to optimized GeoParquet...\"\
-          \nkubectl apply -f /yamls/hydrothermal-vents-convert.yaml -n biodiversity\n\
-          \necho \"Waiting for GeoParquet conversion to complete...\"\nkubectl wait\
-          \ --for=condition=complete --timeout=3600s job/hydrothermal-vents-convert\
-          \ -n biodiversity\n\n# Step 2: Run pmtiles and hex tiling in parallel (both\
+          \ -n geo-workflows\n\n# Step 1: Convert to optimized GeoParquet (needed\
+          \ by both pmtiles and hex jobs)\necho \"Step 1: Converting to optimized\
+          \ GeoParquet...\"\nkubectl apply -f /yamls/hydrothermal-vents-convert.yaml\
+          \ -n geo-workflows\n\necho \"Waiting for GeoParquet conversion to complete...\"\
+          \nkubectl wait --for=condition=complete --timeout=3600s job/hydrothermal-vents-convert\
+          \ -n geo-workflows\n\n# Step 2: Run pmtiles and hex tiling in parallel (both\
           \ use the converted geoparquet)\necho \"Step 2: H3 hexagonal tiling and\
           \ PMTiles generation (parallel)...\"\nkubectl apply -f /yamls/hydrothermal-vents-pmtiles.yaml\
-          \ -n biodiversity\nkubectl apply -f /yamls/hydrothermal-vents-hex.yaml -n\
-          \ biodiversity\n\necho \"Waiting for hex tiling to complete (PMTiles continues\
-          \ in background)...\"\necho \"Timeout set to 48 hours (172800s)...\"\nkubectl\
-          \ wait --for=condition=complete --timeout=172800s job/hydrothermal-vents-hex\
-          \ -n biodiversity\n\necho \"Step 3: Repartitioning by h0...\"\nkubectl apply\
-          \ -f /yamls/hydrothermal-vents-repartition.yaml -n biodiversity\n\necho\
-          \ \"Waiting for repartition to complete...\"\nkubectl wait --for=condition=complete\
-          \ --timeout=3600s job/hydrothermal-vents-repartition -n biodiversity\n\n\
+          \ -n geo-workflows\nkubectl apply -f /yamls/hydrothermal-vents-hex.yaml\
+          \ -n geo-workflows\n\necho \"Waiting for hex tiling to complete (PMTiles\
+          \ continues in background)...\"\necho \"Timeout set to 48 hours (172800s)...\"\
+          \nkubectl wait --for=condition=complete --timeout=172800s job/hydrothermal-vents-hex\
+          \ -n geo-workflows\n\necho \"Step 3: Repartitioning by h0...\"\nkubectl\
+          \ apply -f /yamls/hydrothermal-vents-repartition.yaml -n geo-workflows\n\
+          \necho \"Waiting for repartition to complete...\"\nkubectl wait --for=condition=complete\
+          \ --timeout=3600s job/hydrothermal-vents-repartition -n geo-workflows\n\n\
           echo \"\u2713 Workflow complete!\"\necho \"Note: PMTiles job may still be\
           \ running in the background\"\necho \"\"\necho \"Clean up with:\"\necho\
           \ \"  kubectl delete jobs hydrothermal-vents-setup-bucket hydrothermal-vents-convert\
           \ hydrothermal-vents-pmtiles hydrothermal-vents-hex hydrothermal-vents-repartition\
-          \ hydrothermal-vents-workflow -n biodiversity\"\necho \"  kubectl delete\
-          \ configmap hydrothermal-vents-yamls -n biodiversity\"\n"
+          \ hydrothermal-vents-workflow -n geo-workflows\"\necho \"  kubectl delete\
+          \ configmap hydrothermal-vents-yamls -n geo-workflows\"\n"
         command:
         - bash
         - -c
