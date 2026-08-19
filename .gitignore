@@ -21,6 +21,7 @@ Thumbs.db
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
+!.claude/skills/
 # git worktrees (relocated out of .claude/)
 .worktrees/
 # Private-dataset STAC/README must never land on public GitHub (canonical copy
