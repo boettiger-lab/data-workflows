@@ -9,6 +9,9 @@ median plus full range is the conventional summary for an ensemble this small (p
 more members to mean anything). Keeping every member means any other summary is a query rather
 than a rebuild.
 
+Value columns are written as FLOAT (float32): the source is UInt16 quantised to 0.1 units, so
+float32 carries far more precision than the data has, at half the size of DOUBLE.
+
 Values arrive **already in physical units**: cng-datasets hands the raster path to exactextract,
 whose GDAL source applies the band scale/offset. No transform is applied here. See BUILD.md.
 
@@ -56,10 +59,13 @@ def main() -> int:
 
     select_parts, join_parts = [], []
     for var in variables:
-        cols = [f"{var}_{m}t.{var}_{m}" for m in members]
+        # FLOAT (float32) rather than DOUBLE: the source is UInt16 quantised to 0.1 units, so
+        # float32's ~7 significant digits are far more than the data carries, and it halves the
+        # published size. Cast the members first so the derived statistics inherit the type.
+        cols = [f"CAST({var}_{m}t.{var}_{m} AS FLOAT)" for m in members]
         arr = "[" + ", ".join(cols) + "]"
-        for m in members:
-            select_parts.append(f"{var}_{m}t.{var}_{m} AS {var}_{m}")
+        for m, col in zip(members, cols):
+            select_parts.append(f"{col} AS {var}_{m}")
         select_parts += [
             f"list_sort({arr})[{(len(members) + 1) // 2}] AS {var}_median",
             f"list_min({arr}) AS {var}_min",
