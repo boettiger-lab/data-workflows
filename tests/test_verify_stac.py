@@ -413,6 +413,26 @@ class HexHoldsAllFeatures(unittest.TestCase):
                                    "to zero cells, so are absent from the hex.")
         self.assertEqual(vs.check_hex_holds_all_features(doc, _cov_mcp(105, 103)), [])
 
+    def test_singular_documented_shortfall_is_accepted(self):
+        # data-workflows#509: census/acs-2020-2024/blockgroup documents its ONE missing
+        # feature with a singular subject and an antimeridian cause, not "sub-cell". The
+        # old plural-only pattern HARD-failed a correctly documented collection.
+        doc = _cov_doc(description=(
+            "NOTE: block group GEOID 020160001001 (Aleutians West, AK) is absent from the "
+            "hex — its antimeridian-crossing geometry cannot be polyfilled; it is present "
+            "in the GeoParquet/PMTiles assets."))
+        self.assertEqual(vs.check_hex_holds_all_features(doc, _cov_mcp(105, 104)), [])
+
+    def test_explicit_coverage_count_is_accepted(self):
+        doc = _cov_doc(description="Hex covers 242,747 of 242,748 block groups.")
+        self.assertEqual(vs.check_hex_holds_all_features(doc, _cov_mcp(105, 104)), [])
+
+    def test_unrelated_prose_still_flags(self):
+        # The broadened pattern must not accept an asset that merely mentions hex cells.
+        doc = _cov_doc(description="One row per (feature, H3 cell) pair, partitioned by h0.")
+        f = vs.check_hex_holds_all_features(doc, _cov_mcp(105, 104))
+        self.assertEqual([x.code for x in f], ["hex-missing-features"])
+
     def test_extra_features_is_hard(self):
         f = vs.check_hex_holds_all_features(_cov_doc(), _cov_mcp(105, 106))
         self.assertEqual([x.code for x in f], ["hex-extra-features"])

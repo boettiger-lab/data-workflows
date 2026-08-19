@@ -1617,9 +1617,23 @@ def check_declared_schema_matches_data(doc: dict, mcp: MCPClient) -> list[Findin
 # #535 — a vector hex must hold every feature of its flat GeoParquet
 # ---------------------------------------------------------------------------
 
+# A documented shortfall: prose on the hex asset (or the collection) explaining why the
+# hex holds fewer features than the flat. TWO legitimate causes exist and both must match
+# — a sub-cell footprint (a feature smaller than one cell polyfills to zero cells) and a
+# geometry the polyfill cannot handle (the antimeridian-crossing case, data-workflows#520).
+# The subject may be SINGULAR: "block group GEOID 020160001001 … is absent from the hex".
+# Requiring the plural word "features" HARD-failed census/acs-2020-2024/blockgroup, which
+# documents its one missing feature correctly (data-workflows#509).
 _COVERAGE_NOTE = re.compile(
-    r"sub-?cell|smaller than (one|a)[^.]{0,20}cell|no hex cell|polyfill[^.]{0,20}zero|"
-    r"features?[^.]{0,20}no[^.]{0,20}cell|features?[^.]{0,20}absent from the hex", re.I)
+    r"sub-?cell"
+    r"|smaller than (one|a)[^.]{0,20}cell"
+    r"|no hex cell"
+    r"|zero cells?"
+    r"|polyfill\w*[^.]{0,20}zero"
+    r"|(cannot|can ?not|could not|can't)[^.]{0,30}polyfill"
+    r"|absent from the hex"
+    r"|not (present|included) in the hex"
+    r"|hex covers [\d,]+ of [\d,]+", re.I)
 
 
 def _asset_has_geom(asset: dict) -> bool:
