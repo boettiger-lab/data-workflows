@@ -23,14 +23,13 @@ big `COUNT(DISTINCT)` datasets, and caps each collection at `PERCOLL_TIMEOUT` (d
 
 ## Final state — 2026-08-19, after remediation
 
-**252 clean · 14 HARD · 0 unverified.** Every one of the 14 is tracked in its own issue, so
+**253 clean · 13 HARD · 0 unverified.** Every one of the 13 is tracked in its own issue, so
 #509 itself carries no remaining backlog:
 
 | what | colls | issue |
 |---|--:|---|
 | `public-wyoming` vector family — 9 rebuilds (pre-#369, no `_cng_fid`) + 2 duplicates to retire | 11 | **#578** |
 | `wyoming/blm-sma` — broken build, superseded by the national SMA import | 1 | **#561** |
-| `iucn/iucn-ranges-2025` — hex `_cng_fid` from a superseded conversion; 466 range keys absent | 1 | **#577** |
 | `high-seas/mpa-candidates` — licence asserted with no evidence, no recorded provenance | 1 | **#579** |
 
 Fixed in this pass and re-verified clean: `public-fire`, `public-ca-dac`, `public-nci-frontiers`,
@@ -42,6 +41,27 @@ Fixed in this pass and re-verified clean: `public-fire`, `public-ca-dac`, `publi
 and the hex gained the `h9`/`h8` parents it was missing. Build notes, including the reason the
 orchestrator must not be re-run on this dataset, are in
 `catalog/high-seas/k8s/hydrothermal-vents/BUILD.md`.
+
+`iucn/iucn-ranges-2025` (**#577**) was remediated 2026-08-19 and re-verifies clean: its
+4,077,008,576-row hex was re-keyed to the current flat via IUCN's natural key, so all 134,969
+ids now identify the right species where previously **none** did. The 1,017-row coverage
+shortfall was measured (no dropped chunk; sub-cell and degenerate geometry) and documented on
+the asset. Method, evidence, and the one residual limit — arbitrary part-to-part assignment
+within the 9,890 multi-part records — are in `catalog/iucn/k8s/rekey-577/BUILD.md`. A rebuild
+through the eventual #548 multi-resolution standard remains the real fix.
+
+### Both hex-key defects came from ONE job, not from two dataset recipes
+
+`#574` and `#577` were not a coincidence of timing. The **#372 `_cng_fid` backfill**
+(`catalog/backfill/k8s/cngfid-372/catA-cngfid-convert.yaml`) re-ran `cng-convert-to-parquet`
+over **ten published flats** on 2026-07-09 — `hydrothermal-vents` at 13:07, `iucn-ranges-2025`
+at 13:10 — and `_cng_fid` is synthesized at conversion time, so every flat it touched was
+renumbered while its hex was not.
+
+**Any job that re-converts a published flat orphans every hex built from it**, wherever that
+job lives. `check_hex_fid_matches_flat` (#549) covered all 266 collections in this sweep and
+found only these two, so the other eight datasets on that list are clean — but the class is
+worth re-checking after any future backfill, not just after a per-dataset rebuild.
 
 `land-cover/nlcd` verifies clean standalone (~690 s) but exceeds a 1200 s cap when eight
 collections run concurrently — a pacing artefact, not a finding. Give it its own slot.
@@ -56,6 +76,17 @@ collections run concurrently — a pacing artefact, not a finding. Give it its o
    the run exited 0 and the sweep recorded CLEAN anyway. `MCPClient._post` now converts
    transport failures to `MCPError`, `query` retries once, and the five data-backed HARD gates
    report `*-check-failed` as HARD.
+3. **Scale** (closed 2026-08-19, #577) — reporting `*-check-failed` as HARD was right, but it
+   exposed a third gap: the uniqueness gate's single `COUNT(DISTINCT)` over every row simply
+   *cannot execute* on the largest hexes, so `iucn/iucn-ranges-2025` (4.08e9 rows) was
+   permanently UNVERIFIED however clean its data. A correct-but-unrunnable gate is still no
+   verdict. `check_hex_row_uniqueness` now falls back to summing the check per `h0` partition
+   — exact, because a (cell, `_cng_fid`) pair cannot span partitions — and only after the
+   whole-asset query has already failed, so nothing that verifies today changes.
+
+   **Watch for this class on any billion-row asset**, and prefer decomposing a check over
+   relaxing it. The related `land-cover/nlcd` note below is the same family (cost, not
+   correctness) and still wants its own slot.
 
 Both defects were found by re-running rows this file had already recorded as clean — worth
 repeating on the next sweep rather than trusting the summary line.
