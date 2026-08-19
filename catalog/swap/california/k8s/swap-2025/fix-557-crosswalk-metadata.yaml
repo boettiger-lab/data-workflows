@@ -1,0 +1,234 @@
+# data-workflows#557 — correct the SWAP 2025 SGCN crosswalk metadata on NRP S3.
+#
+# The published STAC and README assert that `sgcn-species-units.ParentProvSpeciesKey` joins to
+# `sgcn-species.SpeciesKey`. It does not. The two are independent key spaces (1..2294 over 2294
+# distinct values, vs 1..1437), so the documented join both drops rows and MISPAIRS the rows it
+# keeps -- e.g. Green Sturgeon attributed to Sierra Nevada and Mojave Desert.
+#
+# This job rewrites that claim to describe what the column actually is, publishes the measured
+# ConUnit -> conservation-units crosswalk, corrects three declared column types (int32/string ->
+# int64), documents three categoricals from measured values, records the mapped-range
+# inconsistency (318 species have range polygons; 305 are flagged), and fixes the README base URL
+# (public-cdfw -> public-swap/california) and its H3 area recipe.
+#
+# Restoring species attribution needs the upstream species-by-province table from CDFW, whose
+# service is now token-gated. That half is tracked separately and is NOT attempted here.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: swap-2025-fix-557, namespace: geo-workflows}
+data:
+  patch_swap.py: |
+    #!/usr/bin/env python3
+    """data-workflows#557 — correct the SWAP 2025 SGCN crosswalk metadata.
+
+    The published STAC and README assert `sgcn-species-units.ParentProvSpeciesKey` joins to
+    `sgcn-species.SpeciesKey`. It does not: the two are independent key spaces (1..2294 over 2294
+    distinct values vs 1..1437), so the documented join drops rows AND mispairs the rows it keeps.
+    This rewrites the claim to describe what the column actually is, publishes the measured ConUnit
+    crosswalk, corrects three declared column types, and fixes the README base URL and area recipe.
+
+    Restoring species attribution needs the upstream parent table from CDFW and is tracked separately.
+    """
+    import json, subprocess, sys, re
+
+    BASE = "https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025"
+    NRP  = "nrp:public-swap/california/swap-2025"
+    PQ   = f"{BASE}"
+
+    def fetch(path):
+        return json.loads(subprocess.run(["curl","-sS","--fail","--max-time","60",f"{BASE}/{path}"],
+                                         capture_output=True, text=True, check=True).stdout)
+
+    def put(obj_or_text, path, raw=False):
+        tmp = "/tmp/" + path.replace("/", "_")
+        with open(tmp, "w") as f:
+            f.write(obj_or_text if raw else json.dumps(obj_or_text, indent=2, ensure_ascii=False) + "\n")
+        subprocess.run(["rclone","copyto",tmp,f"{NRP}/{path}","-v"], check=True)
+
+    def col(asset, name):
+        for c in asset.get("table:columns", []):
+            if c["name"] == name:
+                return c
+        raise KeyError(f"{name} not found")
+
+    # ---------------------------------------------------------------- ConUnit vocabulary (measured)
+    CONUNIT_VALUES = [
+     "Central California Coast","Central California Coast Ranges","Colorado Desert",
+     "Conservation unit information not available","Great Valley","HUC 1503 Lower Colorado",
+     "HUC 1605 Central Lahontan","HUC 1606 Central Nevada Desert Basins","HUC 1712 Oregon Closed Basins",
+     "HUC 1801 Klamath-Northern California Coastal","HUC 1802 Sacramento",
+     "HUC 1803 Tulare-Buena Vista Lakes","HUC 1804 San Joaquin","HUC 1805 San Francisco Bay",
+     "HUC 1806 Central California Coastal","HUC 1807 Southern California Coastal",
+     "HUC 1808 North Lahontan","HUC 1809 Northern Mojave-Mono Lake",
+     "HUC 1810 Southern Mojave-Salton Sea","Klamath Mountains","Klamath River",
+     "Marine and Offshore Islands","Modoc Plateau","Mojave Desert","Mono","North Coast",
+     "North/Central Coast","Northern California Coast","Northern California Coast Ranges",
+     "Northern California Interior Coast Ranges","Northwestern Basin and Range",
+     "Sacramento-San Joaquin River","Sierra Nevada","Sierra Nevada Foothills","Sonoran Desert",
+     "South Coast","Southeastern Great Basin","Southern California","Southern California Coast",
+     "Southern California Mountain and Valley","Southern Cascades","Statewide",
+    ]
+
+    CONUNIT_DESC = (
+     "Name of the conservation unit, as written in the source crosswalk (42 distinct values). "
+     "Most values match a Name in the conservation-units collection once a trailing "
+     "\"Ecoregion\", \"Salmonid Ecoregion\", \"Marine Bioregion\" or \"Hydrologic Unit\" is removed "
+     "and the hyphen after a HUC code is dropped:\n\n"
+     "```sql\n"
+     "-- resolve a conservation unit name to its polygon\n"
+     "SELECT u.ConUnit, c.Name, c.ConsUnitType\n"
+     "FROM read_parquet('" + PQ + "/sgcn-species-units.parquet') u\n"
+     "JOIN read_parquet('" + PQ + "/conservation-units.parquet') c\n"
+     "  ON regexp_replace(\n"
+     "       regexp_replace(c.Name, ' (Salmonid Ecoregion|Marine Bioregion|Ecoregion|Hydrologic Unit)$', ''),\n"
+     "       '^(HUC [0-9]+) - ', '\\1 ') = u.ConUnit\n"
+     "```\n\n"
+     "Five values need care. \"Conservation unit information not available\" is a placeholder meaning "
+     "no unit was recorded, and covers 940 of the 4,268 rows. \"North Coast\" and \"South Coast\" each "
+     "correspond to two different units (a Marine Bioregion and a Salmonid Ecoregion) and cannot be "
+     "resolved to one from this table alone. \"Northern California Interior Coast Ranges\" refers to "
+     "\"Northern California Interior and Coast Ranges Ecoregion\", which differs by one word and is "
+     "not matched by the normalization above. \"Marine and Offshore Islands\" has no counterpart in "
+     "the conservation-units layer."
+    )
+
+    PPSK_DESC = (
+     "Identifier of a species-by-province record in an upstream CDFW table that is not published in "
+     "this catalog, so the species behind each row cannot currently be resolved. This is not a "
+     "species identifier: it does not correspond to SpeciesKey in the sgcn-species or sgcn-ranges "
+     "collections, and the two numbering systems are independent — values here run 1 to 2,294 across "
+     "2,294 distinct keys, while SpeciesKey runs 1 to 1,437. Rows sharing a value belong to the same "
+     "species-and-province combination."
+    )
+
+    SPECIESKEY_DESC = (
+     "Species primary key. Joins to ParentSpeciesKey in the sgcn-ranges collection, which resolves "
+     "for every mapped range. It does not join to ParentProvSpeciesKey in the sgcn-species-units "
+     "collection: that column indexes a separate species-by-province table and uses an unrelated "
+     "numbering system."
+    )
+
+    SU_DESC = (
+     "CDFW SWAP 2025 — SGCN conservation-unit crosswalk (4,268 rows). Each row pairs a conservation "
+     "unit with one species-by-province record from the California State Wildlife Action Plan.\n\n"
+     "The species behind each row cannot currently be resolved from this catalog. ParentProvSpeciesKey "
+     "identifies a record in an upstream CDFW species-by-province table that has not been published, "
+     "and it is not the SpeciesKey used by the sgcn-species and sgcn-ranges collections. Pairing the "
+     "two produces incorrect species-to-unit assignments rather than a partial answer, so treat this "
+     "table as a conservation-unit reference until the upstream table is available.\n\n"
+     "ConUnit is usable on its own and resolves to the conservation-units collection after "
+     "normalization; see the column description for the query and the five values that need care.\n\n"
+     "Non-spatial crosswalk table."
+    )
+
+    SP_DESC = (
+     "CDFW SWAP 2025 — Species of Greatest Conservation Need (SGCN) list (1,437 rows). SpeciesKey "
+     "joins to ParentSpeciesKey in the sgcn-ranges collection. It does not join to "
+     "ParentProvSpeciesKey in the sgcn-species-units collection, which indexes a separate, "
+     "unpublished species-by-province table. Non-spatial lookup table."
+    )
+
+    # ---------------------------------------------------------------- sgcn-species-units
+    su = fetch("sgcn-species-units/stac-collection.json")
+    su["description"] = SU_DESC
+    a = su["assets"]["sgcn-species-units-parquet"]
+    c = col(a, "ParentProvSpeciesKey"); c["type"] = "int64"; c["description"] = PPSK_DESC
+    c = col(a, "ConUnit");              c["description"] = CONUNIT_DESC; c["values"] = CONUNIT_VALUES
+    col(a, "OBJECTID")["type"] = "int64"
+    put(su, "sgcn-species-units/stac-collection.json")
+
+    # --- measured categoricals + the mapped-range inconsistency (one query per column, #518 rule)
+    CLIMATE_DESC = ("Whether the species was assessed as climate-vulnerable in the SWAP 2025 review. "
+      "Values: Yes = assessed as vulnerable, No = assessed and not found vulnerable, "
+      "N/A = not assessed.")
+    RANGEPRESENT_DESC = ("Whether the SWAP 2025 review recorded a mapped range for this species. "
+      "Values: Range Present, Range Not Shown. This flag is narrower than the sgcn-ranges collection: "
+      "318 species have range polygons there, 305 are flagged Range Present here, and 13 range "
+      "features belong to species this column does not flag. Select mapped species from the range "
+      "table rather than from this flag:\n\n"
+      "```sql\n"
+      "-- species that actually have a mapped range\n"
+      "SELECT DISTINCT ParentSpeciesKey\n"
+      "FROM read_parquet('" + PQ + "/sgcn-ranges.parquet')\n"
+      "```")
+    RANGEMAP_DESC = ("Whether a range map exists for this species in the source review. "
+      "Values: Have Range Map, Do not have range map. One row is null. This is a source review flag, "
+      "not a link, and it tracks RangePresent rather than the sgcn-ranges collection.")
+
+    # ---------------------------------------------------------------- sgcn-species
+    sp = fetch("sgcn-species/stac-collection.json")
+    sp["description"] = SP_DESC
+    a = sp["assets"]["sgcn-species-parquet"]
+    c = col(a, "SpeciesKey"); c["type"] = "int64"; c["description"] = SPECIESKEY_DESC
+    col(a, "OBJECTID")["type"] = "int64"
+    c = col(a, "Climate");      c["description"] = CLIMATE_DESC
+    c["values"] = ["Yes", "No", "N/A"]
+    c = col(a, "RangePresent"); c["description"] = RANGEPRESENT_DESC
+    c["values"] = ["Range Present", "Range Not Shown"]
+    c = col(a, "RangeMap");     c["description"] = RANGEMAP_DESC
+    c["values"] = ["Have Range Map", "Do not have range map"]
+    put(sp, "sgcn-species/stac-collection.json")
+
+    # ---------------------------------------------------------------- README
+    rd = subprocess.run(["curl","-sS","--fail","--max-time","60",f"{BASE}/README.md"],
+                        capture_output=True, text=True, check=True).stdout
+    before = rd
+    rd = rd.replace("public-cdfw/swap-2025/", "public-swap/california/swap-2025/")
+    rd = rd.replace("s3://public-swap/california/swap-2025/`.", "s3://public-swap/california/swap-2025/`.")
+
+    old_join = ("Species.SpeciesKey ──< SgcnSpeciesUnits.ParentProvSpeciesKey ; "
+                "SgcnSpeciesUnits.ConUnit = ConservationUnits.Name")
+    new_join = ("SgcnSpeciesUnits.ConUnit → ConservationUnits.Name   (after name normalization)\n"
+                "# SgcnSpeciesUnits.ParentProvSpeciesKey does NOT join to Species.SpeciesKey --\n"
+                "# it indexes a separate species-by-province table that CDFW has not published.")
+    if old_join in rd:
+        rd = rd.replace(old_join, new_join)
+    else:
+        print("WARN: README join line not found verbatim", file=sys.stderr)
+
+    old_area = ("use `COUNT(DISTINCT h8) × cell_area_at_resolution_8`")
+    new_area = ("use `SUM(h3_cell_area(h8, 'km^2'))` over the distinct cells (H3 cells are not equal "
+                "area, so a per-resolution constant is not a substitute)")
+    if old_area in rd:
+        rd = rd.replace(old_area, new_area)
+    else:
+        print("WARN: README area recipe not found verbatim", file=sys.stderr)
+
+    if rd != before:
+        put(rd, "README.md", raw=True)
+    else:
+        print("WARN: README unchanged", file=sys.stderr)
+
+    print("swap-2025 metadata corrected")
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: swap-2025-fix-557
+  namespace: geo-workflows
+  labels: {k8s-app: swap-2025-fix-557}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: swap-2025-fix-557}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /opt/scripts, readOnly: true}
+        command: [python3, /opt/scripts/patch_swap.py]
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: swap-2025-fix-557}}
