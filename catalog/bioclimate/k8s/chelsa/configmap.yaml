@@ -1,0 +1,358 @@
+apiVersion: v1
+data:
+  chelsa_ensemble.py: |
+    """CHELSA v2.1 GCM-ensemble reduction -> physical-unit float32 COG (data-workflows #564).
+
+    Reads the N per-GCM rasters for one (variable, ssp, period) triple and writes one COG per
+    requested ensemble quantile, in physical units.
+
+    Design notes (all driven by the measured preflight on #564):
+      * scale/offset and nodata are read FROM EACH FILE (`GetScale`/`GetOffset`/`GetNoDataValue`),
+        never hardcoded -- CHELSA declares different sentinels per variable (bio1/bio4/bio12 use 0,
+        bio15 uses 65535), so a single batch-wide constant would corrupt the output.
+      * a pixel is nodata in the output if it is nodata in ANY member -- the ensemble is only
+        defined where every GCM has a value.
+      * bio12 saturates at the UInt16 ceiling (65535); those pixels are flagged, counted, and
+        reported so the clipping is visible rather than silently averaged.
+      * processed in row blocks so a 43200x20880 x N-member stack never has to fit in RAM.
+    """
+    import argparse
+    import os
+    import sys
+
+    import numpy as np
+    from osgeo import gdal
+
+    gdal.UseExceptions()
+
+    UINT16_CEIL = 65535
+    OUT_NODATA = -9999.0
+
+
+    def main() -> int:
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--input", action="append", required=True, help="per-GCM source raster (repeat)")
+        ap.add_argument("--out-prefix", required=True, help="output path prefix; quantile is appended")
+        ap.add_argument("--quantiles", default="10,50,90")
+        ap.add_argument("--block-rows", type=int, default=512)
+        args = ap.parse_args()
+
+        qs = [float(q) for q in args.quantiles.split(",")]
+        srcs = [gdal.Open(p) for p in args.input]
+        n = len(srcs)
+        if n < 2:
+            print("ERROR: need at least 2 members for an ensemble", file=sys.stderr)
+            return 1
+
+        b0 = srcs[0].GetRasterBand(1)
+        xsize, ysize = srcs[0].RasterXSize, srcs[0].RasterYSize
+        scale = b0.GetScale() if b0.GetScale() is not None else 1.0
+        offset = b0.GetOffset() if b0.GetOffset() is not None else 0.0
+        nodata = b0.GetNoDataValue()
+
+        # Every member must share grid, scale/offset and sentinel, or the ensemble is meaningless.
+        for p, ds in zip(args.input, srcs):
+            b = ds.GetRasterBand(1)
+            if (ds.RasterXSize, ds.RasterYSize) != (xsize, ysize):
+                print(f"ERROR: grid mismatch in {p}", file=sys.stderr)
+                return 1
+            s = b.GetScale() if b.GetScale() is not None else 1.0
+            o = b.GetOffset() if b.GetOffset() is not None else 0.0
+            if (s, o) != (scale, offset) or b.GetNoDataValue() != nodata:
+                print(f"ERROR: scale/offset/nodata mismatch in {p}: "
+                      f"{(s, o, b.GetNoDataValue())} != {(scale, offset, nodata)}", file=sys.stderr)
+                return 1
+
+        print(f"members={n} grid={xsize}x{ysize} scale={scale} offset={offset} nodata={nodata}")
+
+        drv = gdal.GetDriverByName("GTiff")
+        opts = ["COMPRESS=ZSTD", "PREDICTOR=3", "TILED=YES", "BIGTIFF=YES"]
+        tmp_paths, outs = [], []
+        for q in qs:
+            tp = f"{args.out_prefix}_p{int(q)}.tmp.tif"
+            ds = drv.Create(tp, xsize, ysize, 1, gdal.GDT_Float32, options=opts)
+            ds.SetGeoTransform(srcs[0].GetGeoTransform())
+            ds.SetProjection(srcs[0].GetProjection())
+            ds.GetRasterBand(1).SetNoDataValue(OUT_NODATA)
+            tmp_paths.append(tp)
+            outs.append(ds)
+
+        n_valid = n_nodata = n_saturated = 0
+        vmin, vmax = np.inf, -np.inf
+
+        for y in range(0, ysize, args.block_rows):
+            rows = min(args.block_rows, ysize - y)
+            stack = np.empty((n, rows, xsize), dtype=np.float64)
+            bad = np.zeros((rows, xsize), dtype=bool)
+            for i, ds in enumerate(srcs):
+                a = ds.GetRasterBand(1).ReadAsArray(0, y, xsize, rows)
+                if nodata is not None:
+                    bad |= (a == nodata)
+                n_saturated += int((a == UINT16_CEIL).sum())
+                stack[i] = a
+
+            vals = np.percentile(stack, qs, axis=0)          # (len(qs), rows, xsize)
+            vals = vals * scale + offset                      # -> physical units
+
+            n_valid += int((~bad).sum())
+            n_nodata += int(bad.sum())
+            if (~bad).any():
+                vmin = min(vmin, float(vals[:, ~bad].min()))
+                vmax = max(vmax, float(vals[:, ~bad].max()))
+
+            for k, ds in enumerate(outs):
+                band = vals[k]
+                band[bad] = OUT_NODATA
+                ds.GetRasterBand(1).WriteArray(band.astype(np.float32), 0, y)
+            print(f"  rows {y}-{y + rows} done", flush=True)
+
+        for ds in outs:
+            ds.FlushCache()
+        outs = None
+
+        # Rewrite as proper COGs.
+        for tp, q in zip(tmp_paths, qs):
+            final = f"{args.out_prefix}_p{int(q)}.tif"
+            print(f"COG -> {final}")
+            gdal.Translate(final, tp, format="COG",
+                           creationOptions=["COMPRESS=ZSTD", "PREDICTOR=3",
+                                            "OVERVIEWS=IGNORE_EXISTING", "BIGTIFF=YES"])
+            os.remove(tp)
+
+        total = n_valid + n_nodata
+        print(f"MEASURED valid={n_valid} nodata={n_nodata} "
+              f"({100.0 * n_valid / total:.4f}% valid)")
+        print(f"MEASURED physical range: min={vmin:.4f} max={vmax:.4f}")
+        print(f"MEASURED source pixels at UInt16 ceiling ({UINT16_CEIL}) across all members: {n_saturated}")
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
+  chelsa_h0_for_index.py: |
+    """Resolve a cng-datasets h0 *index* (0-121) to its h0 *cell id* (data-workflows #564).
+
+    `cng-datasets raster --h0-index N` looks N up in the h0 grid parquet by its `i` column. Doing
+    the same lookup up front lets a job decide whether an h0 holds any land *before* paying to hex
+    it: only 108 of the 122 h0 cells intersect the WWF ecoregions land mask, so the remaining 14
+    would otherwise hex every ensemble member and then discard the result.
+    """
+    import argparse
+    import sys
+
+    import duckdb
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--grid", required=True, help="local path to the h0 grid parquet")
+    ap.add_argument("--index", type=int, required=True)
+    args = ap.parse_args()
+
+    row = duckdb.connect().execute(
+        "SELECT h0 FROM read_parquet(?) WHERE i = ?", [args.grid, args.index]
+    ).fetchone()
+
+    if row is None:
+        print(f"ERROR: no h0 cell for index {args.index}", file=sys.stderr)
+        sys.exit(1)
+
+    print(row[0])
+  chelsa_join_mask.py: |
+    """Join the per-GCM hex partitions for one h0, apply units + land mask (data-workflows #564).
+
+    Each ensemble member is hexed separately by `cng-datasets raster` into
+    `<hex-root>/<member>/h0=<cell>/data_0.parquet`. They share a grid, resolution and h0, so they
+    share an h8 key -- this joins them into one wide row per cell.
+
+    Three things happen here that cannot happen earlier:
+
+    1. **Units are ALREADY PHYSICAL -- do not transform them here.** `cng-datasets` hands the raster
+       *path* to `exactextract`, whose GDAL source applies the GeoTIFF scale/offset, so hex values
+       arrive in degrees C / mm, not raw integers. Measured on the Amazon h0: min 1.51, max 30.15,
+       mean 27.32 (degrees C). Applying the transform again yielded ~-273, which the plausibility
+       bound below caught.
+
+       Note the contrast with `chelsa_ensemble.py`, which reads via `gdal.Band.ReadAsArray` --
+       that path does NOT apply scale/offset, so the explicit transform there is correct. The two
+       files legitimately differ; do not "fix" one to match the other.
+
+    2. **Ensemble statistics.** All five member values are kept as columns; the upstream product
+       ships per-GCM files and no ensemble product, so the members are the faithful representation.
+       `median`/`min`/`max` are materialised alongside them because a five-member ensemble is
+       summarised by its median and full range (percentiles need a larger ensemble), and because
+       these are the expressions a consumer is most likely to get wrong across five columns.
+
+    3. **Land mask.** WWF Terrestrial Ecoregions h8 hex -- chosen over Overture countries, which is
+       a sovereignty boundary that includes territorial and archipelagic waters and omits Antarctica.
+
+    Exit 3 means "nothing survived the mask" -- the caller treats that as a skip, not a failure.
+    """
+    import argparse
+    import glob
+    import sys
+
+    import duckdb
+
+
+    def part(hex_root: str, member_col: str, h0: str) -> str:
+        hits = glob.glob(f"{hex_root}/{member_col}/h0={h0}/data_0.parquet")
+        if not hits:
+            raise SystemExit(f"ERROR: missing hex partition for member {member_col} h0={h0}")
+        return hits[0]
+
+
+    def main() -> int:
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--h0", required=True)
+        ap.add_argument("--var", required=True, help="variable prefix, e.g. bio1")
+        ap.add_argument("--members", required=True,
+                        help="comma-separated member column suffixes, e.g. gfdl_esm4,ipsl_cm6a_lr,...")
+        ap.add_argument("--hex-root", required=True)
+        ap.add_argument("--mask", required=True)
+        ap.add_argument("--out", required=True)
+        ap.add_argument("--sane-min", type=float, default=None,
+                        help="fail if any physical value falls below this")
+        ap.add_argument("--sane-max", type=float, default=None,
+                        help="fail if any physical value rises above this")
+        args = ap.parse_args()
+
+        members = [m.strip() for m in args.members.split(",") if m.strip()]
+        if len(members) < 2:
+            print("ERROR: need at least 2 ensemble members", file=sys.stderr)
+            return 1
+
+        var = args.var
+        con = duckdb.connect()
+        paths = {m: part(args.hex_root, f"{var}_{m}", args.h0) for m in members}
+
+        counts = {m: con.execute(f"SELECT COUNT(*) FROM read_parquet('{p}')").fetchone()[0]
+                  for m, p in paths.items()}
+        print(f"rows per member: {counts}")
+        if len(set(counts.values())) != 1:
+            print("WARNING: member partitions differ in row count; join keeps the intersection")
+
+        base = members[0]
+        # Values are already in physical units (see module docstring) -- pass them straight through.
+        phys = [f"{m}t.{var}_{m}" for m in members]
+        sel_members = ", ".join(f"{e} AS {var}_{m}" for e, m in zip(phys, members))
+        arr = "[" + ", ".join(phys) + "]"
+
+        joins = " ".join(
+            f"JOIN read_parquet('{paths[m]}') {m}t ON {m}t.h8 = {base}t.h8"
+            for m in members if m != base
+        )
+
+        con.execute(f"""
+            COPY (
+                SELECT {base}t.h8, {base}t.h5, {base}t.h4, {base}t.h0,
+                       {sel_members},
+                       list_sort({arr})[{(len(members) + 1) // 2}] AS {var}_median,
+                       list_min({arr})  AS {var}_min,
+                       list_max({arr})  AS {var}_max
+                FROM read_parquet('{paths[base]}') {base}t
+                {joins}
+                SEMI JOIN (SELECT DISTINCT h8 FROM read_parquet('{args.mask}')) msk
+                  ON {base}t.h8 = msk.h8
+            ) TO '{args.out}'
+            (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+        """)
+
+        after = con.execute(f"SELECT COUNT(*) FROM read_parquet('{args.out}')").fetchone()[0]
+        before = counts[base]
+        print(f"MASK h0={args.h0} rows_before={before} rows_after={after} "
+              f"kept={100.0 * after / before if before else 0:.2f}%")
+        if after == 0:
+            print("EMPTY after land mask")
+            return 3
+
+        lo, hi, nulls = con.execute(f"""
+            SELECT MIN({var}_min), MAX({var}_max),
+                   COUNT(*) FILTER (WHERE {var}_median IS NULL)
+            FROM read_parquet('{args.out}')
+        """).fetchone()
+        print(f"MEASURED {var} physical range: min={lo} max={hi} median_nulls={nulls}")
+
+        # median must lie within [min, max] for every cell -- catches a broken ensemble reduce.
+        bad = con.execute(f"""
+            SELECT COUNT(*) FROM read_parquet('{args.out}')
+            WHERE {var}_median < {var}_min OR {var}_median > {var}_max
+        """).fetchone()[0]
+        print(f"CHECK median-outside-range violations: {bad}")
+        if bad:
+            print("ERROR: ensemble median falls outside the member range", file=sys.stderr)
+            return 4
+
+        # Plausibility bound -- catches a wrong scale/offset, which is otherwise invisible.
+        if args.sane_min is not None and lo is not None and lo < args.sane_min:
+            print(f"ERROR: min {lo} below sane bound {args.sane_min}", file=sys.stderr)
+            return 5
+        if args.sane_max is not None and hi is not None and hi > args.sane_max:
+            print(f"ERROR: max {hi} above sane bound {args.sane_max}", file=sys.stderr)
+            return 5
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
+  chelsa_read_meta.py: |
+    """Print scale, offset and nodata for a CHELSA raster (data-workflows #564).
+
+    CHELSA declares these per file and they differ per variable -- bio1/bio4/bio12 use nodata 0
+    while bio15 uses 65535, and bio1 carries offset -273.15 where the others carry 0. The build
+    reads them from the file rather than carrying a table, so a new variable cannot silently
+    inherit the wrong sentinel.
+
+    Emits one shell-eval-able line: SCALE=<f> OFFSET=<f> NODATA=<v>
+    (NODATA is empty when the source declares none.)
+    """
+    import argparse
+    import sys
+
+    from osgeo import gdal
+
+    gdal.UseExceptions()
+
+
+    def fmt_nodata(v):
+        if v is None:
+            return ""
+        # GDAL returns a float; emit an integer when the sentinel is integral so the value
+        # round-trips into `cng-datasets --nodata` as e.g. "0", never "0.0".
+        return str(int(v)) if float(v).is_integer() else repr(v)
+
+
+    def main() -> int:
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--input", required=True)
+        args = ap.parse_args()
+
+        # Hold the Dataset for the lifetime of the band: chaining
+        # `gdal.Open(p).GetRasterBand(1)` lets the Dataset be garbage-collected and leaves the
+        # band dangling, which surfaces as a TypeError inside the SWIG shim rather than as a
+        # clean failure.
+        ds = gdal.Open(args.input)
+        if ds is None:
+            print(f"ERROR: could not open {args.input}", file=sys.stderr)
+            return 1
+        band = ds.GetRasterBand(1)
+        if band is None:
+            print(f"ERROR: no band 1 in {args.input}", file=sys.stderr)
+            return 1
+
+        scale = band.GetScale()
+        offset = band.GetOffset()
+        nodata = band.GetNoDataValue()
+
+        print(f"SCALE={1.0 if scale is None else scale} "
+              f"OFFSET={0.0 if offset is None else offset} "
+              f"NODATA={fmt_nodata(nodata)}")
+        del band
+        del ds
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
+kind: ConfigMap
+metadata:
+  name: chelsa-scripts
+  namespace: geo-workflows
