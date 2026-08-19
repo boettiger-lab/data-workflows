@@ -23,20 +23,25 @@ big `COUNT(DISTINCT)` datasets, and caps each collection at `PERCOLL_TIMEOUT` (d
 
 ## Final state — 2026-08-19, after remediation
 
-**251 clean · 15 HARD · 0 unverified.** Every one of the 15 is tracked in its own issue, so
+**252 clean · 14 HARD · 0 unverified.** Every one of the 14 is tracked in its own issue, so
 #509 itself carries no remaining backlog:
 
 | what | colls | issue |
 |---|--:|---|
 | `public-wyoming` vector family — 9 rebuilds (pre-#369, no `_cng_fid`) + 2 duplicates to retire | 11 | **#578** |
 | `wyoming/blm-sma` — broken build, superseded by the national SMA import | 1 | **#561** |
-| `high-seas/hydrothermal-vents` — hex `_cng_fid` off by one against the flat | 1 | **#574** |
 | `iucn/iucn-ranges-2025` — hex `_cng_fid` from a superseded conversion; 466 range keys absent | 1 | **#577** |
 | `high-seas/mpa-candidates` — licence asserted with no evidence, no recorded provenance | 1 | **#579** |
 
 Fixed in this pass and re-verified clean: `public-fire`, `public-ca-dac`, `public-nci-frontiers`,
 `blm/acquisitions`, `blm/oil-gas-leases`, plus `census/acs-2020-2024/blockgroup` and
 `facts/common-attributes-2026-06` (both were checker false positives, not data defects).
+
+`high-seas/hydrothermal-vents` (**#574**) was remediated 2026-08-19 and re-verifies clean: the
+721 points were re-hexed from the current flat so both assets share one `_cng_fid` numbering,
+and the hex gained the `h9`/`h8` parents it was missing. Build notes, including the reason the
+orchestrator must not be re-run on this dataset, are in
+`catalog/high-seas/k8s/hydrothermal-vents/BUILD.md`.
 
 `land-cover/nlcd` verifies clean standalone (~690 s) but exceeds a 1200 s cap when eight
 collections run concurrently — a pacing artefact, not a finding. Give it its own slot.
@@ -72,7 +77,7 @@ The 16 remaining HARD collections:
 | **Wyoming vector family** (`wgfd-*`, `wyoming-places`, `wy-counties`, `sage-grouse-priority`, `pad-us`, `ungulate-migration`) | 11 | **Not a metadata fix.** Pre-#369 builds with no `_cng_fid`, so writing `table:columns` would trip the #369 gate — they need reprocessing, their recipes are no longer in this repo, and the work overlaps #225. Needs a scoping decision first. |
 | `wyoming/blm-sma` | 1 | Genuinely broken build (277 of 865,059); spun out to **#561**. |
 | `blm/acquisitions` | 1 | `hex-missing-features` (96,777 of 97,529) — surfaced only once the harness stopped scoring a failed verify as CLEAN. Needs the polyfill ground-truth triage. |
-| `high-seas/hydrothermal-vents` | 1 | `hex-fid-mismatch` — the #549 class: the hex carries its own `_cng_fid` numbering. Needs a re-hex, or a hex rebuilt from the flat's ids. |
+| `high-seas/hydrothermal-vents` | 1 | `hex-fid-mismatch` — the #549 class: the hex carries its own `_cng_fid` numbering. **Fixed** by a re-hex from the current flat (**#574**); re-verifies clean. |
 | `ca-dac` | 1 | **Stale row** — the sweep read this collection before the STAC fix landed mid-run; it verifies PASS now. |
 | `high-seas/mpa-candidates` | 1 | `license-link-missing`, deferred in #560 pending canonical terms from the data owner. |
 
