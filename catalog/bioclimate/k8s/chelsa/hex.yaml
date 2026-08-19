@@ -14,16 +14,21 @@ metadata:
   labels: {k8s-app: chelsa-hex}
 spec:
   completions: 122
-  parallelism: 40
+  parallelism: 20
   completionMode: Indexed
-  backoffLimitPerIndex: 3
+  backoffLimitPerIndex: 4
   maxFailedIndexes: 10
   ttlSecondsAfterFinished: 86400
   template:
     metadata: {labels: {k8s-app: chelsa-hex}}
     spec:
       restartPolicy: Never
-      priorityClassName: opportunistic
+      # NOT opportunistic. That class carries priority -2000000000 — the lowest possible — and
+      # these pods run ~3.5 h each (35 rasters), which makes them a large preemption target. The
+      # first run showed it: 47 pod deaths against 120 successful indices, i.e. ~45 pods
+      # preempted and retried, with the two indices that exhausted their retry budget left
+      # holding stale partitions. Default priority (0) removes that exposure; parallelism is
+      # halved to 20 in exchange, so the claim on shared nodes does not grow.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
