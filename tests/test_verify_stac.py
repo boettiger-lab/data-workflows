@@ -108,11 +108,17 @@ class HexRowUniquenessBehaviour(unittest.TestCase):
         self.assertEqual(vs.check_hex_row_uniqueness(doc, mcp), [])
         self.assertEqual(mcp.sql, [], "must not query an asset it cannot judge")
 
-    def test_mcp_failure_is_advisory_not_hard(self):
-        f = self._findings(["_cng_fid", "h10", "h0"], None)
+    def test_mcp_failure_is_hard_not_advisory(self):
+        # POLICY CHANGE (data-workflows#509): this used to be ADVISORY. A HARD gate that
+        # could not execute leaves the collection UNVERIFIED, and reporting that softly is
+        # exactly how an unchecked collection reads as a pass — iucn/iucn-ranges-2025 died
+        # on a truncated MCP read, exited 1 with no [HARD] line, and the sweep harness
+        # recorded it CLEAN. MCPClient.query retries once, so a transient blip does not
+        # reach here.
         doc = {"assets": {"d-hex": hex_asset(["_cng_fid", "h10", "h0"])}}
         f = vs.check_hex_row_uniqueness(doc, StubMCP(raise_exc=vs.MCPError("boom")))
-        self.assertEqual([x.severity for x in f], [vs.ADVISORY])
+        self.assertEqual([x.severity for x in f], [vs.HARD])
+        self.assertEqual([x.code for x in f], ["hex-row-uniqueness-check-failed"])
 
     def test_documented_multirow_case_is_accepted(self):
         f = self._findings(
@@ -413,6 +419,26 @@ class HexHoldsAllFeatures(unittest.TestCase):
                                    "to zero cells, so are absent from the hex.")
         self.assertEqual(vs.check_hex_holds_all_features(doc, _cov_mcp(105, 103)), [])
 
+    def test_singular_documented_shortfall_is_accepted(self):
+        # data-workflows#509: census/acs-2020-2024/blockgroup documents its ONE missing
+        # feature with a singular subject and an antimeridian cause, not "sub-cell". The
+        # old plural-only pattern HARD-failed a correctly documented collection.
+        doc = _cov_doc(description=(
+            "NOTE: block group GEOID 020160001001 (Aleutians West, AK) is absent from the "
+            "hex — its antimeridian-crossing geometry cannot be polyfilled; it is present "
+            "in the GeoParquet/PMTiles assets."))
+        self.assertEqual(vs.check_hex_holds_all_features(doc, _cov_mcp(105, 104)), [])
+
+    def test_explicit_coverage_count_is_accepted(self):
+        doc = _cov_doc(description="Hex covers 242,747 of 242,748 block groups.")
+        self.assertEqual(vs.check_hex_holds_all_features(doc, _cov_mcp(105, 104)), [])
+
+    def test_unrelated_prose_still_flags(self):
+        # The broadened pattern must not accept an asset that merely mentions hex cells.
+        doc = _cov_doc(description="One row per (feature, H3 cell) pair, partitioned by h0.")
+        f = vs.check_hex_holds_all_features(doc, _cov_mcp(105, 104))
+        self.assertEqual([x.code for x in f], ["hex-missing-features"])
+
     def test_extra_features_is_hard(self):
         f = vs.check_hex_holds_all_features(_cov_doc(), _cov_mcp(105, 106))
         self.assertEqual([x.code for x in f], ["hex-extra-features"])
@@ -547,3 +573,66 @@ class CatalogNotCollection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- #509: an MCP transport failure must not be scored as a pass -------------
+
+class DataCheckFailureIsHard(unittest.TestCase):
+    """A data-backed check that cannot run is UNVERIFIED, not clean. An escaping
+    transport error (http.client.IncompleteRead on the long iucn-ranges queries)
+    exited 1 with no [HARD] line, which the sweep harness recorded as CLEAN."""
+
+    class ExplodingMCP:
+        def query(self, sql):
+            raise vs.MCPError("MCP transport failure: IncompleteRead: 0 bytes read")
+
+    def _doc(self):
+        return {"id": "x", "license": "CC-BY-4.0",
+                "extent": {"temporal": {"interval": [["2020-01-01T00:00:00Z", None]]}},
+                "links": [
+                    {"rel": "self", "href": "https://s3-west.nrp-nautilus.io/public-x/stac-collection.json"},
+                    {"rel": "root", "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"},
+                    {"rel": "parent", "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"},
+                ],
+                "assets": {"x-hex": dict(hex_asset(["_cng_fid", "h10", "h0"]),
+                                         **{"h3:native_resolution": 10,
+                                            "h3:parent_resolutions": [0],
+                                            "table:columns": [
+                                                {"name": "_cng_fid", "type": "int64"},
+                                                {"name": "h10", "type": "uint64"},
+                                                {"name": "h0", "type": "int64"},
+                                                {"name": "status", "type": "string",
+                                                 "description": "Status code. Values: A=Active, I=Inactive",
+                                                 "values": ["A", "I"]}]})}}
+
+    def test_transport_failure_is_hard_not_silent(self):
+        # End-to-end: every data-backed check refuses to score an asset it could not read,
+        # so the run reports HARD rather than exiting 0 with advisories (which the sweep
+        # would record as CLEAN).
+        import json as _json, tempfile, os
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as fh:
+            _json.dump(self._doc(), fh)
+        try:
+            _, findings = vs.verify(path, do_data=True, do_recall=False,
+                                    mcp=self.ExplodingMCP())
+        finally:
+            os.unlink(path)
+        failed = [f for f in findings if f.code.endswith("check-failed")]
+        self.assertTrue(failed, "a check that could not run must be reported")
+        self.assertTrue(all(f.severity == vs.HARD for f in failed),
+                        f"unverified must be HARD, got {[(f.code, f.severity) for f in failed]}")
+
+    def test_post_wraps_transport_error_as_mcperror(self):
+        import http.client
+        c = vs.MCPClient()
+        def boom(*a, **k):
+            raise http.client.IncompleteRead(b"")
+        orig = vs.urllib.request.urlopen
+        vs.urllib.request.urlopen = boom
+        try:
+            with self.assertRaises(vs.MCPError):
+                c._post({"jsonrpc": "2.0", "id": 1, "method": "ping"})
+        finally:
+            vs.urllib.request.urlopen = orig
+

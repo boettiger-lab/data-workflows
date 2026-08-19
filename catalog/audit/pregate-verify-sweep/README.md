@@ -21,6 +21,66 @@ big `COUNT(DISTINCT)` datasets, and caps each collection at `PERCOLL_TIMEOUT` (d
 300 s). It posts SQL to the public duckdb-geo MCP, so it is not bound by laptop resources
 — but keep `SLICES` modest (≤8) to stay friendly on the shared MCP.
 
+## Final state — 2026-08-19, after remediation
+
+**251 clean · 15 HARD · 0 unverified.** Every one of the 15 is tracked in its own issue, so
+#509 itself carries no remaining backlog:
+
+| what | colls | issue |
+|---|--:|---|
+| `public-wyoming` vector family — 9 rebuilds (pre-#369, no `_cng_fid`) + 2 duplicates to retire | 11 | **#578** |
+| `wyoming/blm-sma` — broken build, superseded by the national SMA import | 1 | **#561** |
+| `high-seas/hydrothermal-vents` — hex `_cng_fid` off by one against the flat | 1 | **#574** |
+| `iucn/iucn-ranges-2025` — hex `_cng_fid` from a superseded conversion; 466 range keys absent | 1 | **#577** |
+| `high-seas/mpa-candidates` — licence asserted with no evidence, no recorded provenance | 1 | **#579** |
+
+Fixed in this pass and re-verified clean: `public-fire`, `public-ca-dac`, `public-nci-frontiers`,
+`blm/acquisitions`, `blm/oil-gas-leases`, plus `census/acs-2020-2024/blockgroup` and
+`facts/common-attributes-2026-06` (both were checker false positives, not data defects).
+
+`land-cover/nlcd` verifies clean standalone (~690 s) but exceeds a 1200 s cap when eight
+collections run concurrently — a pacing artefact, not a finding. Give it its own slot.
+
+### Two ways an unverified collection used to read as clean — both closed
+
+1. **Harness** — `run-sweep.sh` scored a verdict purely on `[HARD]` lines, so a nonzero exit
+   printing none was recorded CLEAN. Two rows sat that way in the 08-17 results and **both**
+   were genuinely HARD. Now recorded as `ERROR`.
+2. **Checker** — a transport failure either killed the run outright (`iucn/iucn-ranges-2025`
+   died on a truncated MCP read) or, once caught, degraded a **HARD** gate to an ADVISORY, so
+   the run exited 0 and the sweep recorded CLEAN anyway. `MCPClient._post` now converts
+   transport failures to `MCPError`, `query` retries once, and the five data-backed HARD gates
+   report `*-check-failed` as HARD.
+
+Both defects were found by re-running rows this file had already recorded as clean — worth
+repeating on the next sweep rather than trusting the summary line.
+
+## Snapshot — 2026-08-19 (266 collections, current checker)
+
+`250 CLEAN · 16 HARD · 0 TIMEOUT · 0 ERROR`. Full run in `RESULTS-2026-08-19.txt`.
+
+This is the first pass in which **every** collection has been evaluated by the current
+rule set: the 8 collections that timed out on 08-17 all completed here (900 s per-collection
+cap), and `check_hex_fid_matches_flat` (#549) landed *after* the 08-17 run, so the 161
+collections clean then had never seen it. It immediately found one real
+`hex-fid-mismatch` (`high-seas/hydrothermal-vents`, 720 of 720 ids disagree).
+
+The 16 remaining HARD collections:
+
+| what | colls | disposition |
+|---|--:|---|
+| **Wyoming vector family** (`wgfd-*`, `wyoming-places`, `wy-counties`, `sage-grouse-priority`, `pad-us`, `ungulate-migration`) | 11 | **Not a metadata fix.** Pre-#369 builds with no `_cng_fid`, so writing `table:columns` would trip the #369 gate — they need reprocessing, their recipes are no longer in this repo, and the work overlaps #225. Needs a scoping decision first. |
+| `wyoming/blm-sma` | 1 | Genuinely broken build (277 of 865,059); spun out to **#561**. |
+| `blm/acquisitions` | 1 | `hex-missing-features` (96,777 of 97,529) — surfaced only once the harness stopped scoring a failed verify as CLEAN. Needs the polyfill ground-truth triage. |
+| `high-seas/hydrothermal-vents` | 1 | `hex-fid-mismatch` — the #549 class: the hex carries its own `_cng_fid` numbering. Needs a re-hex, or a hex rebuilt from the flat's ids. |
+| `ca-dac` | 1 | **Stale row** — the sweep read this collection before the STAC fix landed mid-run; it verifies PASS now. |
+| `high-seas/mpa-candidates` | 1 | `license-link-missing`, deferred in #560 pending canonical terms from the data owner. |
+
+`blm/oil-gas-leases` is not in the list above only because it was fixed-in-name-only by the
+old harness bug: it is genuinely HARD too (`declared-column-absent` on the hex `bbox`, plus
+`hex-missing-features` 457,933 of 466,415), confirmed by an individual re-run. Both former
+`CLEAN … exit=1` rows were real defects.
+
 ## Snapshot — 2026-08-17 (266 collections, checker at commit that fixed the truncation bug)
 
 `161 CLEAN · 97 HARD · 8 TIMEOUT`. Full run in `RESULTS-2026-08-17.txt`.

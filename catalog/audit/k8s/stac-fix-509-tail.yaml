@@ -1,0 +1,196 @@
+# data-workflows#509 — the tail of the pre-gate audit, after PRs #554/#555/#556/#558/#559/#560.
+# A live re-verification of all 105 previously-HARD/TIMEOUT collections (2026-08-18) left three
+# STAC-only defects. All are metadata; the data is correct in every case.
+#
+# 1. public-fire (parent `fire-perimeters`) — the #558 sub-cell coverage notes landed on the LEAF
+#    collections (fire/calfire-2024/firep, .../rxburn, fire/usgs-fires-2021/combined, all now
+#    verify clean) but the parent republishes the SAME hex assets and never got them. Same text,
+#    same measured numbers as the leaves.
+#
+# 2. public-ca-dac — the note went to the WRONG asset. `dac-tract-hex` carries "1 of 25,607
+#    source features ... absent from the hex", but 25,607 is the BLOCK GROUP count and the tract
+#    hex is complete (measured: flat 9,129 / hex 9,129 for both dac and eda tract). The real
+#    shortfall is on dac-blockgroup and eda-blockgroup (25,606 of 25,607). Measured cause, not
+#    assumed: the missing feature is _cng_fid 9268, GEOID20 060750124032 (San Francisco),
+#    ALAND20 15,320 m², and `h3_polygon_wkt_to_cells_string(geom, 10)` returns ZERO cells for it —
+#    a genuine sub-cell footprint, so a re-hex would be a no-op. Same feature in both datasets.
+#    (ST_Area_Spheroid returns NaN on it, the #558 trap; the polyfill test is the arbiter.)
+#
+# 3. public-nci-frontiers — `lulc_code` on `carbon-by-zone-lulc-parquet` and
+#    `predicts-crosswalk-parquet` is a coded categorical with no `values` array and no
+#    definitions. This collection TIMED OUT in the 2026-08-17 sweep, so it had never been
+#    checked. The code->definition map is normalized into the `predicts-crosswalk` lookup asset
+#    (its own `description` column), which is exactly the companion-lookup case
+#    lint-stac-categorical.py supports — so the description points at the lookup rather than
+#    inlining 80 definitions twice. `values` is still required and is generated HERE from the
+#    parquet itself (never transcribed): each asset gets its own ingested DISTINCT, which is why
+#    carbon-by-zone has 80 codes and the crosswalk 79 (code 151, "Sparse tree", is used by the
+#    carbon table but absent from the crosswalk; it is documented in this same collection's
+#    `esa_lc` ESA CCI legend).
+#
+# The per-column `lulc_code` description is IDENTICAL on both assets (the mcp-data-server#303
+# fold is first-seen-wins, so divergent text silently drops one version).
+# In-cluster because STAC is canonical on NRP S3. Idempotent: re-running changes nothing.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: stac-fix-509-tail, namespace: geo-workflows}
+data:
+  fix.py: |
+    import json, subprocess, sys
+
+    FAIL = []
+
+    def read(key):
+        return json.loads(subprocess.check_output(['rclone', 'cat', key]))
+
+    def write(key, doc):
+        open('/tmp/o.json', 'w').write(json.dumps(doc, indent=2))
+        json.load(open('/tmp/o.json'))          # re-parse before publishing
+        subprocess.check_call(['rclone', 'copyto', '/tmp/o.json', key])
+
+    def asset(doc, key, akey):
+        a = doc.get('assets', {}).get(akey)
+        if a is None:
+            FAIL.append('%s: no asset %s' % (key, akey))
+        return a
+
+    # ---------------------------------------------------------------- 1. public-fire
+    NOTE = ('%s of %s source features are smaller than one native H3 cell and polyfill to '
+            'zero cells, so they are absent from the hex; query the flat GeoParquet for '
+            'complete feature coverage.')
+    FIRE_KEY = 'nrp:public-fire/stac-collection.json'
+    fire_notes = {
+        'firep-hex':    NOTE % ('933', '22,810'),
+        'rxburn-hex':   NOTE % ('583', '10,675'),
+        'combined-hex': NOTE % ('63,551', '135,061'),
+    }
+    doc = read(FIRE_KEY)
+    changed = []
+    for akey, note in fire_notes.items():
+        a = asset(doc, FIRE_KEY, akey)
+        if a is None:
+            continue
+        desc = (a.get('description') or '').rstrip()
+        if note in desc:
+            print('fire\t%s\tALREADY' % akey); continue
+        a['description'] = (desc + ' ' + note).strip()
+        changed.append(akey)
+    if changed:
+        write(FIRE_KEY, doc)
+    print('fire\tNOTED\t%s' % (','.join(changed) or 'none'))
+
+    # ---------------------------------------------------------------- 2. public-ca-dac
+    DAC_KEY = 'nrp:public-ca-dac/stac-collection.json'
+    STALE = ('1 of 25,607 source features are smaller than one native H3 cell and polyfill '
+             'to zero cells, so they are absent from the hex; query the flat GeoParquet for '
+             'complete feature coverage.')
+    BG_NOTE = ('1 of 25,607 source features (block group GEOID 060750124032, 15,320 square '
+               'metres of land) is smaller than one native H3 cell and polyfills to zero '
+               'cells, so it is absent from the hex; query the flat GeoParquet for complete '
+               'feature coverage.')
+    doc = read(DAC_KEY)
+    changed = []
+    a = asset(doc, DAC_KEY, 'dac-tract-hex')
+    if a is not None and STALE in (a.get('description') or ''):
+        a['description'] = (a['description'].replace(STALE, '')
+                            .replace('  ', ' ').strip())
+        changed.append('dac-tract-hex:removed-misplaced-note')
+    for akey in ('dac-blockgroup-hex', 'eda-blockgroup-hex'):
+        a = asset(doc, DAC_KEY, akey)
+        if a is None:
+            continue
+        desc = (a.get('description') or '').rstrip()
+        if BG_NOTE in desc:
+            print('ca-dac\t%s\tALREADY' % akey); continue
+        a['description'] = (desc + ' ' + BG_NOTE).strip()
+        changed.append(akey)
+    if changed:
+        write(DAC_KEY, doc)
+    print('ca-dac\tFIXED\t%s' % (','.join(changed) or 'none'))
+
+    # ------------------------------------------------------------ 3. public-nci-frontiers
+    # `values` is generated from the parquet, never transcribed. Localize each lookup with
+    # rclone (small files) and read it locally — the httpfs path is not needed here.
+    import duckdb
+    con = duckdb.connect()
+
+    def distinct_codes(bucket_path, local):
+        subprocess.check_call(['rclone', 'copyto', 'nrp:' + bucket_path, local])
+        rows = con.execute(
+            "SELECT DISTINCT lulc_code FROM read_parquet(?) "
+            "WHERE lulc_code IS NOT NULL ORDER BY 1", [local]).fetchall()
+        return [int(r[0]) for r in rows]
+
+    LULC_DESC = (
+        'Land-use / land-cover class code: the ESA CCI land-cover classes plus this study’s '
+        'custom codes for intensified agriculture, oil palm, plantation, grazing and forestry. '
+        'Definitions are in the `predicts-crosswalk` lookup asset — join on lulc_code and '
+        'read its description column, which also gives the PREDICTS land-use class and '
+        'intensity. Polasky et al. 2026, Science 392:1069.')
+
+    NCI_KEY = 'nrp:public-nci-frontiers/stac-collection.json'
+    targets = {
+        'carbon-by-zone-lulc-parquet':
+            'public-nci-frontiers/lookups/carbon-by-zone-lulc.parquet',
+        'predicts-crosswalk-parquet':
+            'public-nci-frontiers/lookups/predicts-crosswalk.parquet',
+    }
+    doc = read(NCI_KEY)
+    changed = []
+    for akey, path in targets.items():
+        a = asset(doc, NCI_KEY, akey)
+        if a is None:
+            continue
+        codes = distinct_codes(path, '/tmp/%s.parquet' % akey)
+        if not codes:
+            FAIL.append('%s: no lulc_code values read' % akey); continue
+        hit = False
+        for c in a.get('table:columns', []):
+            if c.get('name') == 'lulc_code':
+                c['description'] = LULC_DESC
+                c['values'] = codes
+                hit = True
+        if not hit:
+            FAIL.append('%s: no lulc_code column in table:columns' % akey); continue
+        changed.append('%s(%d codes)' % (akey, len(codes)))
+    if changed:
+        write(NCI_KEY, doc)
+    print('nci-frontiers\tDOCUMENTED\t%s' % (','.join(changed) or 'none'))
+
+    if FAIL:
+        print('FAILURES:')
+        for f in FAIL:
+            print('  ' + f)
+        sys.exit(1)
+    print('done')
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-fix-509-tail
+  namespace: geo-workflows
+  labels: {k8s-app: stac-fix-509-tail}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-fix-509-tail}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: fix, mountPath: /config, readOnly: true}
+        command: [bash, -c, "set -uo pipefail; python3 /config/fix.py"]
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: fix, configMap: {name: stac-fix-509-tail}}
