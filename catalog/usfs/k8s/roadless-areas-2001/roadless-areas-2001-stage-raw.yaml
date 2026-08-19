@@ -1,0 +1,88 @@
+# Step 1b: stage the USFS Inventoried Roadless Areas (2001 Roadless Rule) shapefile
+# at s3://public-usfs/raw/ so the convert step restarts from S3 rather than re-hitting
+# data.fs.usda.gov.
+#
+# Source (verified 2026-08-19): S_USA.RoadlessArea_2001.zip, 41,740,635 bytes,
+# Last-Modified Sun, 11 May 2025 17:11:45 GMT, EPSG:4269, 11,391 Polygon features.
+# The zip carries the FGDC .shp.xml (40,825 bytes) — extracted alongside the zip so
+# STAC provenance can cite it without unpacking the archive.
+#
+# ⚠️ public-usfs is a BRAND-NEW bucket: run roadless-areas-2001-setup-bucket.yaml
+# BEFORE this job, or the upload fails with NoSuchBucket after the download
+# (AGENTS.md Step 1b).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: roadless-areas-2001-stage-raw
+  labels:
+    k8s-app: roadless-areas-2001-stage-raw
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: roadless-areas-2001-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cd /tmp
+          echo "Downloading S_USA.RoadlessArea_2001.zip ..."
+          curl -L --retry 5 --fail -o S_USA.RoadlessArea_2001.zip \
+            "https://data.fs.usda.gov/geodata/edw/edw_resources/shp/S_USA.RoadlessArea_2001.zip"
+
+          # Fail loudly on an HTML error page served with HTTP 200.
+          SIZE=$(stat -c %s S_USA.RoadlessArea_2001.zip)
+          echo "Downloaded ${SIZE} bytes"
+          if [ "$SIZE" -ne 41740635 ]; then
+            echo "ERROR: expected 41740635 bytes, got ${SIZE}" >&2
+            exit 1
+          fi
+          head -c 2 S_USA.RoadlessArea_2001.zip | grep -q 'PK' || { echo "ERROR: not a zip" >&2; exit 1; }
+
+          echo "Extracting FGDC metadata sidecar ..."
+          unzip -o -j S_USA.RoadlessArea_2001.zip 'S_USA.RoadlessArea_2001.shp.xml'
+
+          echo "Staging to s3://public-usfs/raw/ ..."
+          rclone mkdir nrp:public-usfs/raw
+          rclone copy S_USA.RoadlessArea_2001.zip nrp:public-usfs/raw/ -P
+          rclone copy S_USA.RoadlessArea_2001.shp.xml nrp:public-usfs/raw/ -P
+          rclone lsl nrp:public-usfs/raw/
+          echo "✓ Complete"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
