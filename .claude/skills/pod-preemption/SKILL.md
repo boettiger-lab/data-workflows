@@ -77,12 +77,27 @@ succeeds unchanged, it was environmental.
 3. **Raise `backoffLimitPerIndex`.** Cheap insurance, but each retry re-runs the whole pod, so a
    preempted 3-hour pod costs 3 hours again. Treat this as a supplement, never the fix.
 
-**Armada offers non-preemptible classes** — `cng_datasets/k8s/armada.py` lists
-`armada-default` (non-preemptible, priority 100), `armada-preemptible` (preemptible, 50) and
-`armada-high-priority` (non-preemptible, 1000). The catch is that the helper **defaults to
-`armada-preemptible`** and maps k8s `opportunistic` onto it, so a job converted without an
-explicit `priority_class` stays preemptible. Pass `armada-default` deliberately. Armada also
-requeues automatically, which changes the cost of a death as well as its likelihood.
+**Armada offers non-preemptible classes**, per the
+[NRP scheduling docs](https://nrp.ai/documentation/userdocs/running/scheduling/):
+
+| Armada priority class | preemptible | value |
+|---|---|---|
+| `armada-default` | no | 100 |
+| `armada-preemptible` | **yes** | 50 |
+| `armada-high-priority` | no | 1000 |
+
+Two things the docs make explicit, both easy to get backwards:
+
+- **A preempted Armada job is NOT automatically rescheduled.** Armada does not soften the cost
+  of a death — losing a multi-hour job still loses the work. Do not reach for Armada expecting
+  requeue-on-preemption.
+- **Armada preemption acts only within Armada.** Once its pods are in the k8s cluster they are
+  neither preempted by normal pods nor preempt them. So an `armada-default` job is well
+  insulated — but that is a property of the class, not of Armada itself.
+
+The catch: `cng_datasets/k8s/armada.py` **defaults to `armada-preemptible`** and maps k8s
+`opportunistic` onto it, so a converted job stays preemptible unless you pass `armada-default`
+deliberately.
 
 ## ⛔ Keep failed pods inspectable
 
