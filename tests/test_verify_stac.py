@@ -577,6 +577,64 @@ if __name__ == "__main__":
 
 # --- #509: an MCP transport failure must not be scored as a pass -------------
 
+class HexRowUniquenessPartitionFallback(unittest.TestCase):
+    """data-workflows#577: the whole-asset COUNT(DISTINCT) cannot execute on the largest
+    hexes (iucn/iucn-ranges-2025, 4,077,008,576 rows, reproducible IncompleteRead), which
+    left them permanently UNVERIFIED. Falling back to a per-h0 sum is exact, because a
+    (cell, _cng_fid) pair cannot span two h0 partitions."""
+
+    class PartitionedMCP:
+        """Fails the whole-asset query; answers per-partition ones."""
+
+        def __init__(self, per_partition, h0s=("1", "2")):
+            self.per_partition, self.h0s, self.sql = per_partition, h0s, []
+
+        def query(self, sql):
+            self.sql.append(sql)
+            if "string_agg(DISTINCT h0" in sql:
+                return [{"h0s": ",".join(self.h0s)}]
+            if "h0=*" in sql:
+                raise vs.MCPError("IncompleteRead")
+            for v in self.h0s:
+                if f"h0={v}" in sql:
+                    return [self.per_partition[v]]
+            raise AssertionError(f"unexpected SQL: {sql}")
+
+    def _findings(self, per_partition, **asset_kw):
+        doc = {"assets": {"d-hex": hex_asset(["_cng_fid", "h10", "h0"], **asset_kw)}}
+        mcp = self.PartitionedMCP(per_partition)
+        return vs.check_hex_row_uniqueness(doc, mcp), mcp
+
+    def test_clean_asset_passes_via_fallback(self):
+        f, mcp = self._findings({"1": {"total": 60, "pairs": 60},
+                                 "2": {"total": 40, "pairs": 40}})
+        self.assertEqual(f, [], "per-partition sum shows no duplicates")
+        self.assertTrue(any("h0=1" in s for s in mcp.sql), "fallback must run per partition")
+
+    def test_duplicates_still_hard_through_fallback(self):
+        # The fallback must not become a way for a real defect to pass.
+        f, _ = self._findings({"1": {"total": 60, "pairs": 55},
+                               "2": {"total": 40, "pairs": 40}})
+        self.assertEqual([x.code for x in f], ["hex-duplicate-feature-cell-rows"])
+        self.assertEqual(f[0].severity, vs.HARD)
+        self.assertIn("5", f[0].message)
+
+    def test_non_glob_href_cannot_decompose_and_stays_hard(self):
+        # Nothing to decompose: the finding must remain UNVERIFIED, not silently pass.
+        doc = {"assets": {"d-hex": hex_asset(
+            ["_cng_fid", "h10", "h0"],
+            href="https://s3-west.nrp-nautilus.io/public-x/d/hex.parquet")}}
+        f = vs.check_hex_row_uniqueness(doc, StubMCP(raise_exc=vs.MCPError("boom")))
+        self.assertEqual([x.code for x in f], ["hex-row-uniqueness-check-failed"])
+        self.assertEqual(f[0].severity, vs.HARD)
+
+    def test_fallback_failure_reports_both_errors(self):
+        doc = {"assets": {"d-hex": hex_asset(["_cng_fid", "h10", "h0"])}}
+        f = vs.check_hex_row_uniqueness(doc, StubMCP(raise_exc=vs.MCPError("boom")))
+        self.assertEqual([x.code for x in f], ["hex-row-uniqueness-check-failed"])
+        self.assertIn("per-partition fallback", f[0].message)
+
+
 class DataCheckFailureIsHard(unittest.TestCase):
     """A data-backed check that cannot run is UNVERIFIED, not clean. An escaping
     transport error (http.client.IncompleteRead on the long iucn-ranges queries)

@@ -1316,6 +1316,43 @@ _MULTIROW_NOTE = re.compile(
     r"duplicate \(feature, cell\) rows are expected|per \(feature, cell, part\)", re.I)
 
 
+_H0_GLOB = re.compile(r"h0=\*")
+
+
+def _uniqueness_by_partition(mcp: MCPClient, s3: str, sql: str) -> tuple[int, int]:
+    """Evaluate the (feature, cell) uniqueness counts one h0 partition at a time.
+
+    Used only as a fallback when the whole-asset query cannot execute (see the caller).
+    Exact rather than sampled, because a (cell, _cng_fid) pair cannot span two h0
+    partitions — the cell is always a descendant of the row's own h0.
+
+    Raises MCPError if the asset is not an `h0=*` hive glob (nothing to decompose) or if
+    any partition query fails, so the caller still reports the check as unverified rather
+    than quietly passing a partial answer.
+    """
+    if not _H0_GLOB.search(s3):
+        raise MCPError("asset href is not an h0=* hive glob; cannot decompose")
+    # Aggregate the partition list into ONE row. Returning it as ~122 rows would be
+    # refused by the truncated-preview guard, which caps results at a 50-row preview —
+    # correctly, since row-parsing a truncated preview is the #509 false-positive bug.
+    rows = mcp.query("SELECT string_agg(DISTINCT h0::VARCHAR, ',') AS h0s "
+                     f"FROM read_parquet('{s3}')")
+    raw = (rows[0].get("h0s") or "").strip() if rows else ""
+    vals = [v.strip() for v in raw.split(",") if v.strip()]
+    if not vals:
+        raise MCPError("no h0 partition values returned")
+    # Guard against a silently mangled list: these are H3 cell ids, so digits only.
+    if not all(v.isdigit() for v in vals):
+        raise MCPError(f"unexpected h0 partition values: {vals[:3]}")
+    total = pairs = 0
+    for v in vals:
+        src = _H0_GLOB.sub(f"h0={v}", s3)
+        row = mcp.query(sql.format(src=src))[0]
+        total += int(row["total"])
+        pairs += int(row["pairs"])
+    return total, pairs
+
+
 def check_hex_row_uniqueness(doc: dict, mcp: MCPClient) -> list[Finding]:
     """One hex row must be one (feature, cell) pair — data-workflows#509.
 
@@ -1358,21 +1395,40 @@ def check_hex_row_uniqueness(doc: dict, mcp: MCPClient) -> list[Finding]:
         if not hcols:
             continue
         cell = "COALESCE(" + ", ".join(f'"{h}"::VARCHAR' for h in hcols) + ", 'none')"
+        sql = (f"SELECT COUNT(*) AS total, COUNT(DISTINCT ({cell} || '-' || "
+               f"_cng_fid::VARCHAR)) AS pairs FROM read_parquet('{{src}}')")
         try:
-            rows = mcp.query(
-                f"SELECT COUNT(*) AS total, COUNT(DISTINCT ({cell} || '-' || "
-                f"_cng_fid::VARCHAR)) AS pairs FROM read_parquet('{s3}')")
+            rows = mcp.query(sql.format(src=s3))
             total, pairs = int(rows[0]["total"]), int(rows[0]["pairs"])
         except (MCPError, ValueError, KeyError, IndexError) as e:
-            # HARD, not advisory: this is a HARD gate, so a run in which it could not
-            # execute is UNVERIFIED, not clean. Reporting it softly is how an unchecked
-            # collection reads as a pass — the failure mode this issue exists to kill
-            # (data-workflows#509). MCPClient.query already retries once, so a transient
-            # blip does not reach here.
-            out.append(Finding(HARD, "hex-row-uniqueness-check-failed",
-                               f"asset '{key}': could not check (feature, cell) "
-                               f"uniqueness ({e})."))
-            continue
+            # The single-statement form is a COUNT(DISTINCT) over a synthesized string
+            # across every row, which the MCP transport cannot survive on the catalog's
+            # largest hexes — iucn/iucn-ranges-2025 (4,077,008,576 rows) fails it
+            # reproducibly with IncompleteRead. That left the biggest collections
+            # permanently UNVERIFIED, which is the #509 failure mode in a different guise.
+            #
+            # So fall back to evaluating the same quantity one h0 partition at a time and
+            # summing. This is EXACT, not an approximation: a row's finest non-NULL cell is
+            # always a descendant of that row's own h0, and the asset is hive-partitioned by
+            # h0, so every row sharing a (cell, _cng_fid) pair sits in the same partition.
+            # Duplicates therefore cannot span partitions, and the per-partition distinct
+            # counts sum to the global distinct count. Verified against iucn-ranges-2025:
+            # 4,077,008,576 rows / 4,077,008,576 pairs, matching a full cluster-side run.
+            #
+            # The fallback only ever runs after the single query has already failed, so
+            # behaviour on every collection that verifies today is unchanged.
+            try:
+                total, pairs = _uniqueness_by_partition(mcp, s3, sql)
+            except (MCPError, ValueError, KeyError, IndexError) as e2:
+                # HARD, not advisory: this is a HARD gate, so a run in which it could not
+                # execute is UNVERIFIED, not clean. Reporting it softly is how an unchecked
+                # collection reads as a pass — the failure mode this issue exists to kill
+                # (data-workflows#509). MCPClient.query already retries once, so a transient
+                # blip does not reach here.
+                out.append(Finding(HARD, "hex-row-uniqueness-check-failed",
+                                   f"asset '{key}': could not check (feature, cell) "
+                                   f"uniqueness ({e}; per-partition fallback: {e2})."))
+                continue
         if total and pairs < total:
             desc = (asset.get("description", "") or "") + " " + coll_desc
             if _MULTIROW_NOTE.search(desc):
