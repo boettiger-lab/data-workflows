@@ -30,6 +30,14 @@ scripts/verify-stac.py --bucket <bucket> --dataset <dataset>
 #    Must exit 0 (no HARD findings). ADVISORY lines are informational.
 ```
 
+**A `*-check-failed` finding is HARD, and it means UNVERIFIED — not broken data.** If a
+data-backed check cannot reach the MCP (a transport failure, a query that will not
+complete), the run reports HARD rather than passing quietly: a gate that did not execute
+is not a green light. `MCPClient.query` already retries once, so re-running usually clears
+a transient blip. Read it as "check again", not as a defect in the collection — and never
+"fix" it by making the check advisory, which is exactly how an unverified collection came
+to read as clean (#509).
+
 CI runs the same verifier on the PR (`.github/workflows/verify-stac.yml`), deriving the
 collection(s) from the `s3://` paths in the changed `catalog/**` YAMLs. **The gate
 evaluates the produced artifact, not the proposal:** the cluster run lands after the PR
