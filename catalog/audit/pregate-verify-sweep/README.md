@@ -21,6 +21,40 @@ big `COUNT(DISTINCT)` datasets, and caps each collection at `PERCOLL_TIMEOUT` (d
 300 s). It posts SQL to the public duckdb-geo MCP, so it is not bound by laptop resources
 — but keep `SLICES` modest (≤8) to stay friendly on the shared MCP.
 
+## Final state — 2026-08-19, after remediation
+
+**251 clean · 15 HARD · 0 unverified.** Every one of the 15 is tracked in its own issue, so
+#509 itself carries no remaining backlog:
+
+| what | colls | issue |
+|---|--:|---|
+| `public-wyoming` vector family — 9 rebuilds (pre-#369, no `_cng_fid`) + 2 duplicates to retire | 11 | **#578** |
+| `wyoming/blm-sma` — broken build, superseded by the national SMA import | 1 | **#561** |
+| `high-seas/hydrothermal-vents` — hex `_cng_fid` off by one against the flat | 1 | **#574** |
+| `iucn/iucn-ranges-2025` — hex `_cng_fid` from a superseded conversion; 466 range keys absent | 1 | **#577** |
+| `high-seas/mpa-candidates` — licence asserted with no evidence, no recorded provenance | 1 | **#579** |
+
+Fixed in this pass and re-verified clean: `public-fire`, `public-ca-dac`, `public-nci-frontiers`,
+`blm/acquisitions`, `blm/oil-gas-leases`, plus `census/acs-2020-2024/blockgroup` and
+`facts/common-attributes-2026-06` (both were checker false positives, not data defects).
+
+`land-cover/nlcd` verifies clean standalone (~690 s) but exceeds a 1200 s cap when eight
+collections run concurrently — a pacing artefact, not a finding. Give it its own slot.
+
+### Two ways an unverified collection used to read as clean — both closed
+
+1. **Harness** — `run-sweep.sh` scored a verdict purely on `[HARD]` lines, so a nonzero exit
+   printing none was recorded CLEAN. Two rows sat that way in the 08-17 results and **both**
+   were genuinely HARD. Now recorded as `ERROR`.
+2. **Checker** — a transport failure either killed the run outright (`iucn/iucn-ranges-2025`
+   died on a truncated MCP read) or, once caught, degraded a **HARD** gate to an ADVISORY, so
+   the run exited 0 and the sweep recorded CLEAN anyway. `MCPClient._post` now converts
+   transport failures to `MCPError`, `query` retries once, and the five data-backed HARD gates
+   report `*-check-failed` as HARD.
+
+Both defects were found by re-running rows this file had already recorded as clean — worth
+repeating on the next sweep rather than trusting the summary line.
+
 ## Snapshot — 2026-08-19 (266 collections, current checker)
 
 `250 CLEAN · 16 HARD · 0 TIMEOUT · 0 ERROR`. Full run in `RESULTS-2026-08-19.txt`.
