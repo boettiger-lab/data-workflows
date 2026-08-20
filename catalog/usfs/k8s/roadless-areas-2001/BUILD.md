@@ -158,3 +158,65 @@ scripts/verify-stac.py --bucket public-usfs --dataset roadless-areas-2001
   features cannot be expected to align, and the National Forest Planning Record Documents
   (Appendix C) / RARE II documents remain the official version of the inventory. Relevant to
   any road-proximity buffering in #588.
+
+## Build results (2026-08-19)
+
+Whole pipeline completed in **3m20s** in `geo-workflows`. Every job `Complete`; the hex job
+reported `Complete=True` with `failedIndexes: []` and 12/12 succeeded.
+
+| Job | Duration |
+|---|---|
+| setup-bucket | 25s |
+| stage-raw | 18s |
+| convert | 16s |
+| hex (12 indexed pods) | 105s |
+| pmtiles | 64s |
+| repartition | 47s |
+
+Artifacts: `roadless-areas-2001.parquet` (48.5 MB), `roadless-areas-2001.pmtiles` (93.0 MB),
+9 populated `hex/h0=*` partitions, 16,309,549 hex rows.
+
+### Acceptance criteria — verified against the INGESTED parquet
+
+| Check | Result |
+|---|---|
+| `SUM(ACRES)` all features | 58,419,694 ✅ |
+| `SUM(ACRES) WHERE STATE NOT IN ('ID','CO')` | 44,701,002 ✅ |
+| West-10 ÷ rule-affected | 95.61% ✅ |
+| Montana | 6,395,401 ✅ |
+| Feature count | 11,391 ✅ |
+| `COUNT(DISTINCT _cng_fid)` on flat | 11,391 (= row count, so no upstream row duplication) ✅ |
+| `COUNT(DISTINCT _cng_fid)` on hex | 11,391 — no silent `--max-completions` cap ✅ |
+| Hex/flat agreement, deduped `SUM(ACRES)` | 58,419,694 — exact ✅ |
+| H3 resolution 10 footprint vs published acreage | 58,274,632 ac, −0.25% ✅ |
+| Invalid geometries | 0 ✅ |
+| Bounding box | `(-150.008, 18.246, -65.707, 61.519)` — matches source ✅ |
+| NULL finest-parent (`h10`) cells | 0, so no #311 note required ✅ |
+| h0 partition gate | PASS, 9 == 9 populated, no empty partitions ✅ |
+| `verify-stac.py` (dataset + bucket, full data checks) | PASS ✅ |
+| PMTiles-fields + categorical linters | PASS ✅ |
+
+**No seam inflation.** `h0=576707042908045311` is the cell `AGENTS.md` flags for dateline
+problems, and it is populated here — but legitimately: it holds 705 Alaska features spanning
+longitudes −150.01 to −138.94, entirely in the western hemisphere with no wrap to +180. The
+layer's Alaska coverage is the Southeast panhandle and Chugach, so the antimeridian is never
+crossed.
+
+### Per-feature duplication verdict (`scripts/audit-feature-dup.py`)
+
+Dedup key `_cng_fid`, 0 blank. All eight attribute columns classify **REPEATED** — 10,728 of
+11,391 features occupy more than one hex row, and `_cng_fid` repeats 1,431.79× on average. Raw
+`SUM(ACRES)` over hex rows inflates 32,891.77× (1.92 × 10¹² acres against a true 58,419,694).
+`COUNT(*)` returns 16,309,549 cells rather than 11,391 polygons. Both traps are documented in the
+hex asset description with correct-vs-wrong SQL.
+
+Axis 2 (upstream row duplication) does **not** apply: the flat parquet's
+`COUNT(DISTINCT _cng_fid)` equals its row count, so each input row is one logical polygon.
+
+### Published
+
+- `s3://public-usfs/roadless-areas-2001.parquet` · `.pmtiles` · `roadless-areas-2001/hex/h0=*/data_0.parquet`
+- `s3://public-usfs/roadless-areas-2001/stac-collection.json` (dataset collection)
+- `s3://public-usfs/stac-collection.json` (bucket collection, id `usfs-datasets`)
+- `s3://public-usfs/README.md`
+- `public-usfs` registered as a child of `public-data/stac/catalog.json` (61 → 62 children)
