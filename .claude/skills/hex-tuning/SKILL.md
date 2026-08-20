@@ -12,20 +12,39 @@ How to size a vector hex job, and how to choose resolutions that stay joinable t
 
 **RAM is driven by the H3 cell count of the single largest feature in a chunk — not dataset size or bounding box.**
 
-### ⛔ MEASURE the request — never inherit it from a neighbouring job
+### ⛔ MEASURE EVERY dimension you request — never inherit one from a neighbouring job
+
+`kubectl top pod` columns are `NAME CPU MEMORY` — **cpu is `$2`, memory is `$3`**. Reading `$1`
+gives you the pod name and every number comes out zero.
 
 ```bash
+# memory: handle both Mi and Gi — kubectl top mixes them, and a naive gsub(/Mi/,"") reports
+# a peak BELOW the mean
 kubectl -n geo-workflows top pod --no-headers | grep '^<prefix>' | awk '{
   v=$3; if(v~/Gi$/){gsub(/Gi/,"",v); v=v*1024} else gsub(/Mi/,"",v);
   if(v+0>m)m=v+0; s+=v; n++} END {printf "n=%d peak=%.2fGi mean=%.2fGi\n", n, m/1024, s/n/1024}'
+
+# cpu
+kubectl -n geo-workflows top pod --no-headers | grep '^<prefix>' | awk '{
+  c=$2; gsub(/m/,"",c); if(c+0>m)m=c+0; s+=c; n++} END {
+  printf "n=%d peak=%.2f mean=%.2f cores\n", n, m/1000, s/n/1000}'
 ```
 
-(Handle both `Mi` and `Gi` — `kubectl top` mixes them, and a naive `gsub(/Mi/,"")` silently
-reports a peak *below* the mean.)
+Measured on the CHELSA hex (one raster per job), against what was requested:
 
-Measured on the CHELSA hex (one raster per job): **peak 5.2 Gi, mean 3.5 Gi** against an initial
-**32 Gi** request — inherited by halving a 64 Gi figure that had itself been sized for a
-35-raster chain rather than the one raster a job actually runs.
+| dimension | requested | measured | over-ask |
+|---|---|---|---|
+| memory | 32 Gi | peak **5.2 Gi**, mean 3.5 Gi | ~6x |
+| cpu | 8 cores | peak 8.6, mean **3.3 cores** | ~2.4x |
+
+Both were inherited rather than measured — memory by halving a 64 Gi figure sized for a
+35-raster chain rather than the one raster a job runs, cpu by copying the same job's `8`. Only 19
+of 100 pods used more than 7 cores; 64 used fewer than 4.
+
+CPU over-asks are easy to miss because a job **is** genuinely parallel in its hot loop. The
+`exact_extract` phase does use its workers, but everything around it — the rclone localize, the
+metadata read, the DuckDB mask, the upload — is single-threaded, so the *average* over the pod's
+lifetime is far below the peak. Size on the mean plus headroom, not on what the hot loop can use.
 
 **An over-request throttles your own throughput**, because the request decides how many pods a
 shared cluster can hold. At 32 Gi the Armada scheduler reported *"4,231 jobs do not fit on any

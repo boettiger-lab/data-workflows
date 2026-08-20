@@ -146,7 +146,12 @@ def main():
     # NRP also caps controller-less pods (which every Armada pod is) at 16 cores / 32 GB.
     # Exceeding that is rejected at admission, not at submit -- armadactl --dry-run passes.
     ap.add_argument("--memory", default="8Gi")
-    ap.add_argument("--cpu", type=int, default=8)
+    # MEASURED: mean 3.3 cores used against an 8-core request (peak 8.6, but only 19 of 100
+    # pods exceeded 7 and 64 used under 4). exact_extract does use its workers, but the localize,
+    # metadata read, mask and upload around it are single-threaded, so the lifetime average is far
+    # below the hot-loop peak. cpu binds placement on this cluster, so the over-ask throttled our
+    # own queue harder than the memory one did.
+    ap.add_argument("--cpu", type=int, default=4)
     # armada-default is non-preemptible (priority 100). Preemptible is a fine default once
     # units are minutes rather than hours; see the armada-pipeline skill.
     ap.add_argument("--priority-class", default="armada-preemptible")
