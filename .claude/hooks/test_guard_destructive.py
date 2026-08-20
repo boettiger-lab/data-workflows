@@ -36,6 +36,14 @@ BLOCK = [
     "kubectl delete pvc rustfs-data -n boettiger-lab",
     "kubectl delete pod rustfs -n boettiger-lab",
     "kubectl delete jobs --all -n biodiversity",
+    # force-deletion / finalizer-stripping (skill k8s-never-force-delete)
+    "kubectl delete pod chelsa-hex-fix43-0 --force --grace-period=0 -n geo-workflows",
+    "kubectl -n geo-workflows delete pod stuck-pod --force",
+    "kubectl delete pod x -n geo-workflows --grace-period=0",
+    "kubectl delete pod x -n geo-workflows --grace-period 0",
+    "kubectl patch pvc rechunk-scratch -n geo-workflows -p '{\"metadata\":{\"finalizers\":[]}}'",
+    "kubectl edit ns/geo-workflows   # strip finalizers",
+    "kubectl replace --raw /api/v1/namespaces/stuck/finalize -f /tmp/ns.json",
     # filesystem
     "rm -rf /",
     "rm -rf $HOME",
@@ -46,6 +54,15 @@ ALLOW = [
     "kubectl -n biodiversity delete job sync-public-land-cover",
     "kubectl delete -f catalog/census/k8s/tract/census-2024-tract-hex.yaml",
     "kubectl apply -f workflow.yaml",
+    # graceful deletion with a NONZERO grace period is normal
+    "kubectl delete pod x -n geo-workflows --grace-period=30",
+    "kubectl delete job stac-fix-579-mpa-terms -n geo-workflows --grace-period=600",
+    # reading finalizers is diagnosis, which is what the skill asks for
+    "kubectl get ns geo-workflows -o jsonpath='{.metadata.finalizers}'",
+    "kubectl describe pvc rechunk-scratch -n geo-workflows",
+    # --force on other tools/verbs is out of scope here (covered elsewhere or benign)
+    "kubectl apply --force -f catalog/audit/k8s/stac-fix-579-mpa-terms.yaml",
+    "git push --force-with-lease origin fix/579-mpa-candidates-terms",
     "rclone purge nrp:public-rap/rap-pfg-cover/staging",   # staging subpath ok
     "rclone copy nrp:public-padus/x.parquet /tmp/",
     "rclone ls minio:public-padus",

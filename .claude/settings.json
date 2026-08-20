@@ -1,4 +1,14 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(kubectl -n geo-workflows *)",
+      "Bash(kubectl apply -n geo-workflows *)",
+      "Bash(kubectl get -n geo-workflows *)",
+      "Bash(kubectl describe -n geo-workflows *)",
+      "Bash(kubectl logs -n geo-workflows *)",
+      "Bash(kubectl wait -n geo-workflows *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
