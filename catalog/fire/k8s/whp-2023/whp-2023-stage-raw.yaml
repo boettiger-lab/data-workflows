@@ -16,11 +16,11 @@ spec:
         k8s-app: whp-2023-stage-raw
     spec:
       restartPolicy: Never
+      dnsPolicy: ClusterFirst
       dnsConfig:
         nameservers:
         - 8.8.8.8
         - 1.1.1.1
-      dnsPolicy: None
       containers:
       - name: stage-raw
         image: ghcr.io/boettiger-lab/datasets:latest

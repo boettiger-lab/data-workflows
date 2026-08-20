@@ -1,0 +1,185 @@
+# Reproject the four WHP 2023 source rasters to EPSG:4326 COGs on NRP S3.
+#
+# ⛔ THIS STEP IS NOT OPTIONAL, and `cng-datasets raster-workflow` does not generate it for a
+# single --source-url. Hexing the raw source directly SILENTLY PRODUCES ZERO ROWS: the H3 cell
+# polygons are handed to exactextract in degrees against a raster in Albers metres, so they land
+# within ~100 m of the projection origin -- EPSG:5070 (0,0) is lon -96, lat 23, in the Gulf of
+# Mexico -- and every cell reads nodata. Measured: h0 index 50 built 40,353,607 res-9 cells and
+# reported "no cells produced values (all nodata)" while the Job exited 0.
+#
+# The tool prints "Input raster is in a projected CRS ... It will be reprojected to EPSG:4326
+# during processing. For best results, reproject first" -- the advice is correct; the promised
+# internal reprojection does not reach the exactextract call.
+#
+# Resampling is NEAREST for both products. Classified WHP is categorical (codes 1-7) so anything
+# else invents classes that do not exist; the continuous index is kept nearest too, so the COG
+# stays a faithful resample of the source rather than a smoothed derivative.
+#
+# Alaska crosses the antimeridian: its true span is 87 deg but a naive warp to EPSG:4326 yields a
+# 359.9-deg-wide raster (~148,000 x 30,000 px, almost all nodata) sitting on the dateline seam. It
+# is therefore clipped to -180..-129 with -te. That drops the far-western Aleutians (roughly
+# 157E..180) which contain NO National Forest System land -- the Alaska USFS units are the Tongass
+# and Chugach, far to the east -- so nothing relevant to this issue is lost. Recorded in STAC.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: whp-2023-make-cogs
+  namespace: geo-workflows
+  labels:
+    k8s-app: whp-2023-make-cogs
+spec:
+  completions: 4
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: whp-2023-make-cogs
+    spec:
+      restartPolicy: Never
+      # ClusterFirst is required: rclone's nrp: remote resolves the INTERNAL endpoint
+      # rook-ceph-rgw-nautiluss3.rook, which only cluster DNS can resolve.
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: make-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          SRC=(whp2023_cls_conus whp2023_cls_ak whp2023_cnt_conus whp2023_cnt_ak)
+          OUT=(whp-2023-classified-conus whp-2023-classified-ak whp-2023-continuous-conus whp-2023-continuous-ak)
+          NODATA=(255 255 2147483647 2147483647)
+          # Alaska is clipped to the eastern side of the antimeridian; CONUS needs no clip.
+          TE=("" "-te -180 48.8 -129.0 71.6" "" "-te -180 48.8 -129.0 71.6")
+
+          i=${JOB_COMPLETION_INDEX}
+          s=${SRC[$i]}; o=${OUT[$i]}; nd=${NODATA[$i]}; te=${TE[$i]}
+          echo "=== [$i] $s -> $o-cog.tif  (nodata $nd) ${te:+clip: $te} ==="
+
+          rclone copyto "nrp:public-fire/raw/whp-2023/unpacked/Data/whp2023_GeoTIF/${s}.tif" "/tmp/${s}.tif" -P
+          ls -la "/tmp/${s}.tif"
+
+          echo "--- source CRS / size ---"
+          gdalinfo "/tmp/${s}.tif" | grep -E '^Size is|ID\["EPSG|Pixel Size|NoData'
+
+          # Warp to EPSG:4326. Let gdalwarp pick the output pixel size (it preserves the source
+          # ground resolution near the centre of the extent) rather than hardcoding a degree value,
+          # which would silently rescale.
+          gdalwarp \
+            -t_srs EPSG:4326 \
+            -r near \
+            -srcnodata "$nd" -dstnodata "$nd" \
+            $te \
+            -multi -wo NUM_THREADS=ALL_CPUS \
+            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BIGTIFF=YES \
+            -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 \
+            "/tmp/${s}.tif" "/tmp/${o}-warp.tif"
+
+          echo "--- warped ---"
+          gdalinfo "/tmp/${o}-warp.tif" | grep -E '^Size is|Pixel Size|NoData|Corner|Upper Left|Lower Right'
+
+          # COG-ify (overviews + proper layout)
+          gdal_translate "/tmp/${o}-warp.tif" "/tmp/${o}-cog.tif" \
+            -of COG \
+            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BIGTIFF=YES \
+            -co OVERVIEW_RESAMPLING=NEAREST -co BLOCKSIZE=512
+          rm -f "/tmp/${o}-warp.tif"
+
+          echo "--- final COG ---"
+          gdalinfo "/tmp/${o}-cog.tif" | grep -E '^Size is|Pixel Size|NoData|Overviews|Block'
+          ls -la "/tmp/${o}-cog.tif"
+
+          # Sanity gate: the COG must not be empty. A published all-nodata "total" COG is a real
+          # failure mode, and it is exactly what the raw-source hex produced.
+          python3 - "$o" <<'PY'
+          import sys
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          o = sys.argv[1]
+          ds = gdal.Open(f'/tmp/{o}-cog.tif')
+          b = ds.GetRasterBand(1)
+          nd = b.GetNoDataValue()
+          valid = 0
+          rows = 4096
+          counts = {}
+          for y in range(0, ds.RasterYSize, rows):
+              h = min(rows, ds.RasterYSize - y)
+              a = b.ReadAsArray(0, y, ds.RasterXSize, h)
+              m = a[a != nd]
+              valid += m.size
+              if 'cls' in o or 'classified' in o:
+                  v, c = np.unique(m, return_counts=True)
+                  for vi, ci in zip(v.tolist(), c.tolist()):
+                      counts[vi] = counts.get(vi, 0) + ci
+          print(f'  valid (non-nodata) pixels: {valid:,}')
+          if counts:
+              tot = sum(counts.values())
+              for vi in sorted(counts):
+                  print(f'    code {vi}: {counts[vi]:,} ({100*counts[vi]/tot:.3f}%)')
+          if valid == 0:
+              print('FATAL: COG is entirely nodata')
+              sys.exit(1)
+          PY
+
+          echo "--- uploading ---"
+          rclone copyto "/tmp/${o}-cog.tif" "nrp:public-fire/${o}-cog.tif" -P --transfers 4
+          rclone size "nrp:public-fire/${o}-cog.tif"
+          echo "DONE $o"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 45Gi
+          limits:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 45Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
