@@ -52,6 +52,18 @@ over a published flat renumbers `_cng_fid` and orphans every hex built from it, 
 job lives in this directory or in a catalog-wide backfill. A flat that is re-converted needs
 its hex (and anything else keyed to it) rebuilt in the same pass.
 
+**Why this one was cheap to fix.** The damage here was a uniform **+1 shift** — the tool's id
+base moved from 0 to 1 and the row order did not change — so the hex could have been re-keyed
+losslessly, and a full re-hex of 721 points was minutes anyway. Compare `iucn/iucn-ranges-2025`
+(#577), hit by the *same* backfill on the same afternoon but costing a 4-billion-row rewrite:
+its flat had been **reordered** by a `sci_name` sort in between, so the re-convert assigned ids
+in a new order and produced an unrelated permutation rather than an offset.
+
+The transferable rule: **re-convert alone is recoverable in place; reorder-then-re-convert is
+not.** A sort/cluster job is harmless by itself (it preserves ids) and unsafe in combination —
+it removes the cheap escape from a renumbering that has not happened yet. If a published flat
+is ever reordered, treat every hex built from it as stale from that moment.
+
 **So:**
 
 - **Do not run `workflow.yaml` (the orchestrator) on this dataset.** Its DAG starts with

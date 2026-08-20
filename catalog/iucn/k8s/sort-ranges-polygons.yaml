@@ -9,6 +9,23 @@
 # enables tight per-row-group min/max pruning. Writes to a staging sibling first
 # (validated before the canonical file is swapped). DuckDB-native GeoParquet
 # (the source is already WKB/native, NOT geopandas — verified), so ST_ ops stay safe.
+#
+# ⛔ BEFORE RE-RUNNING THIS: it changes the flat's ROW ORDER, and that is what made
+# data-workflows#577 a 4-billion-row repair instead of a one-line one.
+#
+# This job itself is safe — `SELECT * ORDER BY` carries `_cng_fid` along with its row, so
+# nothing is renumbered here and no hex is invalidated by running it. The damage is
+# deferred: `cng_datasets` assigns `_cng_fid` at CONVERSION time, so the next job that
+# re-converts this flat (the #372 backfill did, on 2026-07-09) numbers rows in whatever
+# order it now finds them. After a reorder that is an unrelated permutation instead of a
+# uniform offset — and because a hex carries no geometry, parts can no longer be matched
+# back to flat rows, so the hex cannot be re-keyed losslessly. `high-seas/hydrothermal-vents`
+# was hit by the SAME backfill the same afternoon, had not been reordered, came out as a
+# tidy +1 shift, and was fixed in minutes (#574).
+#
+# So if you re-run this: rebuild or re-key every hex built from this flat in the SAME
+# change, or record in catalog/iucn/k8s/rekey-577/BUILD.md that the hex predates the
+# reorder. Do not leave a reordered flat sitting under a hex built before it.
 apiVersion: batch/v1
 kind: Job
 metadata:
