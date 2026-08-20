@@ -83,6 +83,26 @@ if has(r"\bkubectl\b.*\bdelete\b"):
         block("kubectl delete in a protected namespace (rook / kube-system / boettiger-lab)")
     if has(r"\bdelete\b.*--all\b"):
         block("kubectl delete --all (mass delete)")
+    # Graceful deletion only (skill k8s-never-force-delete). `--force` /
+    # `--grace-period=0` drop the API object WITHOUT confirming the workload
+    # actually stopped, so a container can keep running and writing while a
+    # replacement starts — two writers on the same S3 prefix. A NONZERO
+    # --grace-period is normal and stays allowed.
+    if has(r"--force\b"):
+        block("kubectl delete --force (force-delete; diagnose the stuck object instead)")
+    if has(r"--grace-period[=\s]+0(\b|$)"):
+        block("kubectl delete --grace-period=0 (force-delete; diagnose instead)")
+
+# Stripping a finalizer abandons whatever the finalizer existed to clean up — a
+# PVC's backing volume, a namespace's cloud LBs and external records: silent
+# leaks, not a tidy-up. Read-only inspection of finalizers stays allowed, so this
+# requires a mutating verb rather than just the word.
+# (`apply`/`replace --force` is deliberately NOT matched: it is delete-and-recreate
+# with legitimate uses for immutable fields, and is not what the skill forbids.)
+if has(r"\bkubectl\b.*\b(patch|edit)\b.*finaliz"):
+    block("kubectl patch/edit of finalizers (force-finalizing a stuck object)")
+if has(r"\bkubectl\b.*\breplace\b.*--raw\b.*finalize"):
+    block("kubectl replace --raw .../finalize (force-finalizing a namespace)")
 
 # --- Filesystem catastrophe (belt-and-suspenders; Claude has a built-in guard too) ---
 if has(r"""\brm\s+-[A-Za-z]*(rf|fr)[A-Za-z]*\s+["']?(/|~|\$HOME)["']?(\s|;|&|\||$)"""):
