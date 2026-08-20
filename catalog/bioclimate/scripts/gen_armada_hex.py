@@ -154,6 +154,21 @@ def main():
     ap.add_argument("--cpu", type=int, default=4)
     # armada-default is non-preemptible (priority 100). Preemptible is a fine default once
     # units are minutes rather than hours; see the armada-pipeline skill.
+    # Two-tier memory. The common tier is measured (peak 5.2 Gi -> 8Gi); a small dense tier gets
+    # headroom. Evidence: of 4,270 slices at a flat 8Gi, exactly ONE failed -- bio4 on the densest
+    # h0 (5,764,801 land cells, the res-8 maximum, and a 494 MB source). Sizing the whole fleet for
+    # that unit would cost ~2/3 of the concurrency to benefit ~10% of jobs; sizing none of it for
+    # that unit costs one nine-minute retry. Tiering costs neither.
+    #
+    # Dense = a large-source variable on an h0 with a lot of land. The default h0 list is those
+    # with >= 2M land cells (40 of 108), measured from the WWF ecoregions mask.
+    ap.add_argument("--dense-vars", default="bio4,bio12,bio17",
+                    help="variables whose source rasters are large (bio4 494MB, bio12 694MB)")
+    ap.add_argument("--dense-h0", default="1,3,5,8,12,20,21,31,37,45,50,52,53,54,55,62,63,65,69,"
+                                         "70,71,72,74,78,79,81,83,87,88,92,93,96,99,100,105,112,"
+                                         "115,117,118,121",
+                    help="h0 indexes with >= 2M land cells")
+    ap.add_argument("--dense-memory", default="24Gi")
     ap.add_argument("--priority-class", default="armada-preemptible")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
@@ -165,22 +180,30 @@ def main():
         idxs = [int(i) for i in args.h0_indexes.split(",")]
     variables = [v.strip() for v in args.vars.split(",") if v.strip()]
 
-    jobs = []
+    dense_vars = {v.strip() for v in args.dense_vars.split(",") if v.strip()}
+    dense_h0 = {int(i) for i in args.dense_h0.split(",") if i.strip()}
+
+    jobs, n_dense = [], 0
     for h0idx in idxs:
         for var in variables:
+            is_dense = var in dense_vars and h0idx in dense_h0
+            mem = args.dense_memory if is_dense else args.memory
             for gcm, col in GCMS:
+                if is_dense:
+                    n_dense += 1
                 jobs.append({
                     "namespace": args.namespace,
                     "priorityClassName": args.priority_class,
                     "podSpec": make_pod(h0idx, var, gcm, col, args.ssp, args.period,
-                                        args.staging, args.memory, args.cpu),
+                                        args.staging, mem, args.cpu),
                 })
 
     spec = {"queue": args.queue, "jobSetId": args.job_set_id, "jobs": jobs}
     with open(args.out, "w") as f:
         yaml.safe_dump(spec, f, sort_keys=False)
     print(f"{len(jobs)} jobs -> {args.out} "
-          f"({len(idxs)} h0 x {len(variables)} vars x {len(GCMS)} members)")
+          f"({len(idxs)} h0 x {len(variables)} vars x {len(GCMS)} members); "
+          f"{n_dense} dense @ {args.dense_memory}, {len(jobs)-n_dense} @ {args.memory}")
 
 
 if __name__ == "__main__":
