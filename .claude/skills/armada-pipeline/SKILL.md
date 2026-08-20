@@ -74,10 +74,49 @@ Complete your login in the browser:
     https://authentik.nrp-nautilus.io/device?code=960348666
 ```
 
-**The device code expires quickly.** If approval is slow the run ends with
-`failed to connect to api because device flow expired; please start again` and **no token is
-cached**. Start the flow and approve it immediately; do not fire the code and go do something
-else. Run it with `nohup ... &` so it keeps polling while you hand the URL over.
+### ⛔ The code expires in 60 SECONDS, and the token cannot be cached here
+
+Two hard constraints, both measured rather than documented.
+
+**1. A 60-second window.** Authentik grants `expires_in: 60` (poll `interval: 5`) — not the 5-10
+minutes most providers give. Verify any time with:
+
+```bash
+curl -s -X POST "https://authentik.nrp-nautilus.io/application/o/device/" \
+  -d "client_id=8AeUAhsM1rA8WRJoX586BhJk8t5Icfrm169ESz8Y&scope=openid profile_prefixed offline_access" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['expires_in'], d['interval'])"
+```
+
+**Operational rule: fire the code and hand the URL over in a message containing nothing else.**
+Writing a paragraph of explanation first burns the entire window. Explain afterwards. Firing a
+second code does not extend the first — it only makes it ambiguous which link is live, so the
+person approves a stale one.
+
+Run it with `nohup ... &` so it keeps polling while the URL is handed over.
+
+**2. `cacheRefreshToken: true` silently does nothing in a container.** armadactl caches through
+`go-keyring`, which on Linux needs a D-Bus Secret Service:
+
+```
+Failed to save token to cache
+error="failed to save refresh token to keyring: exec: \"dbus-launch\": executable file not found in $PATH"
+```
+
+So **every invocation re-authenticates**. Tolerable for a submit — one `armadactl submit` can
+carry thousands of jobs, so one approval covers a whole job set — but it rules out unattended
+use, since nothing can approve a device code on a cron.
+
+Three ways out, in increasing order of robustness:
+
+- install **`dbus-launch`** plus a session keyring in the image, so caching works as intended;
+- **`execAuth`** — run the device flow once with `curl`, store the refresh token in a file, and
+  point `execAuth.cmd` at a script that exchanges refresh for access on demand. No keyring
+  needed, fully headless;
+- **`OpenIdClientCredentialsAuth`** — a service-account client, if NRP will issue one. The right
+  answer for a cron or an always-on agent.
+
+Monitoring needs auth per command too, so prefer <https://armada-lookout.nrp-nautilus.io> or
+check the output on S3 directly rather than re-authenticating for every status query.
 
 Device auth is supported by the provider but **undocumented on the NRP page** — authentik
 advertises `device_authorization_endpoint` and `urn:ietf:params:oauth:grant-type:device_code` in
