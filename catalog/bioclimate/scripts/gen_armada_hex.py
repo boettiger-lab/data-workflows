@@ -67,16 +67,15 @@ cng-datasets raster \
 SRC=$(ls /tmp/hex/out/h0=*/data_0.parquet | head -1)
 # Mask to land before staging: the intermediate becomes the land subset rather than all
 # 5,764,801 cells of the h0, which is most of the staging volume for a mostly-ocean cell.
-python3 -c "
-import duckdb, sys
-con = duckdb.connect()
-con.execute('''COPY (SELECT r.* FROM read_parquet('\''${SRC}'\'') r
-  SEMI JOIN (SELECT DISTINCT h8 FROM read_parquet('\''/tmp/mask/eco.parquet'\'')) m ON r.h8 = m.h8)
-  TO '\''/tmp/masked.parquet'\'' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)''')
-n = con.execute(\"SELECT COUNT(*) FROM read_parquet('/tmp/masked.parquet')\").fetchone()[0]
-print(f'masked rows: {n}')
-sys.exit(3 if n == 0 else 0)
-" || { rc=$?; [ "$rc" -eq 3 ] && { echo 'empty after mask'; exit 0; }; exit "$rc"; }
+# A script, not inline SQL -- the statement would otherwise have to survive shell, YAML and
+# Python quoting, and that escaping collapses at runtime rather than at generation time.
+set +e
+python3 /opt/scripts/chelsa_mask_one.py \
+  --src "${SRC}" --mask /tmp/mask/eco.parquet --out /tmp/masked.parquet
+rc=$?
+set -e
+if [ "$rc" -eq 3 ]; then echo "empty after mask"; exit 0; fi
+if [ "$rc" -ne 0 ]; then echo "mask failed rc=${rc}"; exit "$rc"; fi
 
 rclone copyto /tmp/masked.parquet \
   "nrp:public-bioclimate/__STAGING__/${SSP}-${PERIOD}/${V}_${C}/h0=${H0}/data_0.parquet" \
@@ -138,7 +137,7 @@ def main():
                     help="'0-121', or a comma list, to scope a proof run")
     ap.add_argument("--vars", default=",".join(VARS))
     ap.add_argument("--memory", default="32Gi")
-    ap.add_argument("--cpu", type=int, default=4)
+    ap.add_argument("--cpu", type=int, default=8)
     # armada-default is non-preemptible (priority 100). Preemptible is a fine default once
     # units are minutes rather than hours; see the armada-pipeline skill.
     ap.add_argument("--priority-class", default="armada-preemptible")
