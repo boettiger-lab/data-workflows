@@ -1323,8 +1323,20 @@ def _uniqueness_by_partition(mcp: MCPClient, s3: str, sql: str) -> tuple[int, in
     """Evaluate the (feature, cell) uniqueness counts one h0 partition at a time.
 
     Used only as a fallback when the whole-asset query cannot execute (see the caller).
-    Exact rather than sampled, because a (cell, _cng_fid) pair cannot span two h0
-    partitions — the cell is always a descendant of the row's own h0.
+    Not sampled: every row is still examined, and for a consistently partitioned asset the
+    per-partition distinct counts sum to the global distinct count, because a
+    (cell, _cng_fid) pair cannot span two h0 partitions — the cell is a descendant of the
+    row's own h0.
+
+    ⚠️ ONE BLIND SPOT, and it is a real weakening versus the whole-asset query: that
+    reasoning assumes `h0` really is the res-0 parent of the row's finer cells. If a build
+    wrote an inconsistent `h0`, two copies of the same (cell, _cng_fid) pair could land in
+    different partitions; each partition would then see them as distinct and the sum would
+    miss the duplicate. The known duplication class (the pre-2026-07-12 polyfill,
+    boettiger-lab/datasets#150) duplicates rows *within* a partition and is still caught.
+    This path is reached only when the alternative is no check at all, so a check with one
+    blind spot beats an UNVERIFIED verdict — but it is not a reason to prefer it, and the
+    whole-asset query stays the default.
 
     Raises MCPError if the asset is not an `h0=*` hive glob (nothing to decompose) or if
     any partition query fails, so the caller still reports the check as unverified rather

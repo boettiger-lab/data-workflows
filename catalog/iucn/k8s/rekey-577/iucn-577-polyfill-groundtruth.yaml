@@ -54,7 +54,7 @@ spec:
           con.execute("INSTALL httpfs; LOAD httpfs;")
           con.execute("INSTALL h3 FROM community; LOAD h3;")
           con.execute("INSTALL spatial; LOAD spatial;")
-          con.execute("SET memory_limit='26GB';")
+          con.execute("SET memory_limit='40GB';")
           con.execute("SET temp_directory='/tmp/duckdb-spill';")
           con.execute(f"""
             CREATE SECRET nrp (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
@@ -139,8 +139,8 @@ spec:
           print("DONE")
           PYEOF
         resources:
-          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
-          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+          requests: {cpu: '8', memory: 48Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 48Gi, ephemeral-storage: 50Gi}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

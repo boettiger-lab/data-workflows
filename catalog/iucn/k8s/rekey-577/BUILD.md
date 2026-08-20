@@ -107,8 +107,10 @@ in this directory and are re-runnable in order:
 4. `iucn-577-verify-staging.yaml` — the acceptance gate, run **before** the swap.
 5. `iucn-577-swap-hex.yaml` — refuses to swap unless the partition sets match exactly.
 
-`iucn-577-polyfill-groundtruth.yaml` measures the coverage cause. It needs >32Gi: the first
-attempt was OOMKilled and succeeded on retry.
+`iucn-577-polyfill-groundtruth.yaml` measures the coverage cause. It is memory-hungry: the
+run that produced the numbers above was **marginal at 32Gi** — the first pod was OOMKilled
+and the retry, on the same spec, succeeded. The manifest now asks for 48Gi so a re-run does
+not depend on that coin flip.
 
 ## Do not re-run the flat conversion
 
