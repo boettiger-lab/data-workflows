@@ -299,7 +299,27 @@ def check_license(doc: dict) -> list[Finding]:
         return out  # a STAC Catalog is structural — it carries no license (only Collections do)
     lic = doc.get("license")
     links = doc.get("links", [])
-    has_license_link = any(l.get("rel") == "license" for l in links)
+    license_links = [l for l in links if l.get("rel") == "license"]
+    has_license_link = bool(license_links)
+
+    # A license link pointing at our OWN bucket means the terms document is one we
+    # authored, not an upstream grant. Legitimate but rare: it is the only honest option
+    # when a dataset was contributed directly and no terms were ever published (#579,
+    # high-seas/mpa-candidates — a colleague's direct contribution: no citation, no
+    # attribution, no URL). The rule below otherwise assumes a canonical upstream terms
+    # page always exists somewhere, which for such data is unsatisfiable — `proprietary`
+    # fails for the missing link, and inventing a terms URL is the guess AGENTS.md
+    # forbids. Reported as ADVISORY so the special case stays visible in every audit
+    # rather than being re-litigated, and so a self-authored note can never be mistaken
+    # for verified upstream terms.
+    for l in license_links:
+        if NRP in (l.get("href") or ""):
+            out.append(Finding(ADVISORY, "license-terms-self-hosted",
+                                f"the {{'rel':'license'}} link points at our own bucket "
+                                f"({l.get('href')}), so these are terms WE stated, not an "
+                                f"upstream grant — correct only when the data was contributed "
+                                f"directly with no published terms, and only if that document "
+                                f"says so plainly."))
 
     if not lic:
         out.append(Finding(HARD, "license-missing",
