@@ -50,6 +50,18 @@ lifetime is far below the peak. Size on the mean plus headroom, not on what the 
 shared cluster can hold. At 32 Gi the Armada scheduler reported *"4,231 jobs do not fit on any
 node"*. Aim for measured peak + ~50%, then re-measure.
 
+### These numbers are per-dataset — re-measure, do not reuse
+
+Every figure in this section is a measurement of one workload, not a constant. Peak RAM tracks the
+H3 cell count of the largest unit and the geometry or pixel density inside it, so a different
+source, resolution, or reducer moves it. The CHELSA slice peaked at 5.2 Gi; a res-10 CONUS h0 in
+the same tool peaked at ~140 GiB (datasets#173). Both are "one hex job".
+
+So treat published sizings as a **starting point that must be re-measured per dataset**, and
+expect to adjust mid-campaign: probe a representative unit (ideally one dense and one sparse,
+since the profile is bimodal), read the actuals, then size the fleet. Reusing a neighbour's number
+is exactly how a 6x memory over-ask and a 2.4x core over-ask both got shipped here.
+
 ### Memory is the dimension to be most conservative about
 
 Cores are comparatively elastic: a node with spare CPU can usually take another pod, and a slice
