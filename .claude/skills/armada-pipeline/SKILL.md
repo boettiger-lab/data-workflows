@@ -210,10 +210,27 @@ Unschedulable jobs:
 ```
 
 Actual usage was **peak 5.2 Gi** and a **mean of 3.3 cores**. Right-size both dimensions — see
-the `hex-tuning` skill for the measurement recipe and the bimodal-profile caveat. **Size cpu as
-carefully as memory:** cpu is usually what binds placement, so the core over-ask throttles harder
-than the memory one, and it is easier to miss because the hot loop really is parallel while the
-localize / metadata / write phases around it are not.
+the `hex-tuning` skill for the measurement recipe and the bimodal-profile caveat.
+
+**Treat memory as the resource to be most conservative about.** Cores are comparatively elastic:
+a node with spare CPU can usually take another pod, and a slice that wants fewer cores simply runs
+a little longer. Memory is not elastic — a node either has the gigabytes free or it cannot host
+the pod at all, so the memory request is what decides how many placement slots exist for your work
+at all. Size cpu honestly too, but if you have to be wrong in one direction, be tight on memory.
+
+Two forward-looking reasons this matters beyond today's cluster:
+
+- **Federation.** Armada can schedule across clusters, and another cluster may have no large-RAM
+  nodes even if its Armada limits are configured differently. A slice that needs 8 Gi is portable
+  to anywhere; one that needs 64 Gi is placeable only where big nodes exist, which forfeits the
+  main thing Armada offers.
+- **The controller-less cap.** NRP already refuses anything over 32 GB (above), so memory is the
+  dimension with a hard wall, not merely a soft contention cost.
+
+⚠️ Do **not** conclude "cpu binds, not memory" from a small change in concurrency after
+right-sizing memory. We briefly drew that inference from concurrency moving 28 → 31 pods, then
+found both figures had been sampled during Armada's lease ramp, which later reached 128. Ramp
+noise is not a ceiling — see the next section.
 
 ## ⛔ You cannot measure Armada concurrency with `kubectl`
 

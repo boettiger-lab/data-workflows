@@ -50,19 +50,33 @@ lifetime is far below the peak. Size on the mean plus headroom, not on what the 
 shared cluster can hold. At 32 Gi the Armada scheduler reported *"4,231 jobs do not fit on any
 node"*. Aim for measured peak + ~50%, then re-measure.
 
-### But check WHICH resource is binding before celebrating
+### Memory is the dimension to be most conservative about
 
-Right-sizing 32 Gi → 8 Gi on that workload moved concurrency only from ~28 to ~31 pods, because
-**CPU was the binding constraint, not memory**: 8 cores x 30 pods ≈ 240 cores, and the scheduler's
-`Total allocated resources after scheduling` line had already shown `cpu=224`. Read that line —
-it tells you which dimension you are actually up against:
+Cores are comparatively elastic: a node with spare CPU can usually take another pod, and a slice
+given fewer cores just runs a little longer. **Memory is not elastic** — a node either has the
+gigabytes free or it cannot host the pod at all. So the memory request is what decides how many
+placement slots exist for your work, and being tight on it directly buys concurrency.
+
+It also decides *where* the work can run at all: a job needing 8 Gi is portable to any node or
+cluster, while one needing 64 Gi is placeable only where large-RAM nodes exist. That matters for
+Armada federation across clusters, and NRP already imposes a hard 32 GB ceiling on
+controller-less pods.
+
+Size cpu honestly as well — a 2.4x core over-ask is real waste — but if you must be wrong in one
+direction, be tight on memory.
+
+⚠️ **Do not infer which resource is binding from a small concurrency change**, and read the
+scheduler's own view rather than a pod count:
 
 ```bash
-armadactl get queue-report <queue>   # or: kubectl describe node | grep -A5 'Allocated resources'
+armadactl get queue-report <queue>   # Total allocated resources after scheduling: (cpu=..., memory=...)
+kubectl describe node | grep -A5 'Allocated resources'
 ```
 
-Halving cores to fit twice the pods is usually a wash, since the per-job runtime roughly doubles.
-When CPU is the cap, more throughput means more cluster share, not a different slicing.
+We briefly concluded "CPU binds, not memory" because right-sizing 32 Gi → 8 Gi moved concurrency
+only 28 → 31 pods. Both numbers turned out to have been sampled during Armada's lease ramp, which
+later reached 128 pods — so the comparison never supported the claim. A snapshot taken while a
+scheduler is still leasing tells you nothing about a ceiling.
 
 ### The profile is bimodal — size for the common case, handle the few
 
