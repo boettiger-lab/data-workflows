@@ -134,6 +134,22 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
 
 - **License — REQUIRED on every collection.** Set the top-level STAC `license` field to the **SPDX identifier** of the upstream data license (e.g. `CC-BY-4.0`, `CC-BY-NC-4.0`, `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`). Use `"other"` **only** when no SPDX id applies, and `"various"` **only** for a meta-collection whose children genuinely differ — never as a lazy default. For `other`/`various` (and recommended for all), add a license link: `{"rel": "license", "href": "<canonical terms URL>", "type": "text/html"}`. **Exception — a meta-collection (one with `child` links) may use `various`/`other` WITHOUT a license link:** its real licenses live on the child collections (each carrying + verified for its own license), and redistribution gating (source.coop excludes, etc.) keys on those per-child licenses, not the parent. A single parent-level link would misrepresent genuinely mixed children. `verify-stac.py` enforces the link only on **leaf** collections (and always for `proprietary`). **Verify the real upstream terms — do not guess `proprietary`.** The license drives redistribution decisions (e.g. whether a dataset may be mirrored to source.coop); a wrong value is a compliance risk. NonCommercial / ShareAlike licenses are fine but MUST be recorded as such (`CC-BY-NC-*`, `CC-BY-SA-*`) so downstream users aren't misled. US federal works = `public-domain`.
 
+- **Directly contributed data with no published terms — you are the one who states them.** A
+  dataset handed over by a colleague with **no citation, no attribution, and no URL** has a
+  *complete* provenance: there is nothing upstream to find. Do not treat it as missing metadata
+  to backfill, and do not invent a terms URL to clear the gate. But `proprietary` without a
+  `{"rel": "license"}` link is a HARD finding, and no upstream page exists to link — the rule
+  assumes one always does, so the gate is otherwise unsatisfiable. The resolution: **publish the
+  terms statement beside the data** (`s3://<bucket>/<dataset>/LICENSE.md`) and link that, exactly
+  as #417 treats a stored raw + checksum as the provenance when no stable public link exists.
+  The document must **grant nothing** — it records what was and was not given: contributed
+  directly, no public source, no citation, no named attribution, no redistribution right, reuse
+  elsewhere needs the owner's permission. Keep `license: "proprietary"`, which is the correct
+  advisory signal to the mirror-scope auditor (no grant → not mirrored). `verify-stac.py` reports
+  `license-terms-self-hosted` (ADVISORY) whenever a license link resolves to our own bucket, so
+  the special case stays visible and is never mistaken for a verified upstream grant. Worked
+  example: `high-seas/mpa-candidates` (#579).
+
 - **Temporal extent — RFC 3339, or the dataset vanishes from the served catalog.** Every
   `extent.temporal.interval` endpoint must be a full RFC 3339 date-time with a timezone
   (`"1920-05-15T00:00:00Z"`), or `null` for a genuinely open start/end. This is not

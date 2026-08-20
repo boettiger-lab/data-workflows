@@ -1,0 +1,135 @@
+# data-workflows#579 — high-seas/mpa-candidates: the licence gate was unsatisfiable, not unanswered.
+#
+# The issue asked a person to supply the upstream terms. The answer, from the person who holds it:
+# **there are none.** These boundaries were a direct contribution from a colleague — no citation,
+# no attribution, no URL. That is the whole provenance, and it is a fact, not a gap to be filled.
+#
+# `verify-stac.py` HARD-fails a leaf declaring `proprietary` without a {"rel":"license"} link,
+# because the rule assumes a canonical terms page always exists somewhere upstream. For directly
+# contributed data it does not, so no value could ever clear the gate: `proprietary` fails for the
+# missing link, and inventing a terms URL would be the guess AGENTS.md forbids.
+#
+# When no upstream terms document exists, WE are the only party who can state the terms — the same
+# logic #417 applies to provenance ("no stable public link -> our stored raw IS the provenance").
+# So this job publishes the terms statement beside the data and links it. The statement asserts no
+# grant; it records that none was given. `license` stays `proprietary`, which is the correct
+# advisory signal to the mirror-scope auditor (no redistribution right).
+#
+# Idempotent: re-running changes nothing. In-cluster because STAC is canonical on NRP S3.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: stac-fix-579-mpa-terms, namespace: geo-workflows}
+data:
+  LICENSE.md: |
+    # Terms of use — Global High Seas MPA Candidates
+
+    **No licence has been granted for this dataset, and no upstream terms document exists.**
+    This file is that statement of terms, published by the catalog maintainer because there is
+    no upstream page to point to. It grants nothing; it records what was and was not given.
+
+    ## Provenance
+
+    These candidate marine protected area boundaries were **contributed directly to the catalog
+    maintainer by a colleague**. There is:
+
+    - no public source or download URL,
+    - no citation or DOI,
+    - no named attribution (the contributor is not identified, by their own preference),
+    - no published licence, terms page, or written grant of redistribution rights.
+
+    That is the complete provenance. It is not an unresolved question or missing metadata to be
+    backfilled later: the dataset has no public origin to record, and any citation, provider name,
+    or terms URL appearing on this collection in future would be an invention.
+
+    ## What this means for use
+
+    - **Analysis within this catalog is the intended use.** The boundaries are the primary
+      analytical target of the high-seas application — fishing displacement, geomorphology
+      composition, and area calculations are computed against them.
+    - **Reuse or republication elsewhere requires the data owner's permission.** Because no
+      redistribution right was granted, this dataset is excluded from the source.coop mirror and
+      must not be redistributed as a standalone product.
+    - **Do not cite this dataset as a published source.** There is nothing to cite. Derived
+      results should state that the candidate boundaries were provided by a third party and are
+      not publicly available.
+
+    The STAC `license` field is set to `proprietary`. Read that as *no redistribution right has
+    been granted*, not as a reference to specific known restrictive terms.
+  fix.py: |
+    import json, shutil, subprocess, sys
+
+    NRP = 'https://s3-west.nrp-nautilus.io'
+    KEY = 'nrp:public-high-seas/mpa-candidates/stac-collection.json'
+    TERMS_OBJ = 'nrp:public-high-seas/mpa-candidates/LICENSE.md'
+    TERMS_URL = NRP + '/public-high-seas/mpa-candidates/LICENSE.md'
+
+    # 1. Publish the terms statement beside the data. Stage through /tmp first:
+    # a ConfigMap mount is a symlink into ../data, and `rclone copyto` does not
+    # follow symlinks without --copy-links (it reports the source as "not a
+    # directory"). Every other stac-fix job uploads from /tmp for this reason.
+    shutil.copyfile('/config/LICENSE.md', '/tmp/LICENSE.md')
+    subprocess.check_call(['rclone', 'copyto', '/tmp/LICENSE.md', TERMS_OBJ])
+    print('terms\tPUBLISHED\t%s' % TERMS_URL)
+
+    # 2. Link it from the collection, so the gate resolves to a real document.
+    doc = json.loads(subprocess.check_output(['rclone', 'cat', KEY]))
+
+    if doc.get('license') != 'proprietary':
+        print('FAIL: license is %r, expected proprietary' % doc.get('license'))
+        sys.exit(1)
+
+    links = doc.setdefault('links', [])
+    existing = [l for l in links if l.get('rel') == 'license']
+    if any(l.get('href') == TERMS_URL for l in existing):
+        print('link\tALREADY')
+    elif existing:
+        print('FAIL: a different rel:license link is already present: %r'
+              % [l.get('href') for l in existing])
+        sys.exit(1)
+    else:
+        links.append({'rel': 'license', 'href': TERMS_URL, 'type': 'text/markdown',
+                      'title': 'Terms of use (no licence granted; direct contribution)'})
+        open('/tmp/o.json', 'w').write(json.dumps(doc, indent=2))
+        json.load(open('/tmp/o.json'))          # re-parse before publishing
+        subprocess.check_call(['rclone', 'copyto', '/tmp/o.json', KEY])
+        print('link\tADDED')
+
+    # 3. Confirm the published document round-trips.
+    back = json.loads(subprocess.check_output(['rclone', 'cat', KEY]))
+    got = [l.get('href') for l in back.get('links', []) if l.get('rel') == 'license']
+    if got != [TERMS_URL]:
+        print('FAIL: rel:license after write is %r' % got)
+        sys.exit(1)
+    print('verified\tlicense=%s\trel:license=%s' % (back['license'], got[0]))
+    print('done')
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-fix-579-mpa-terms
+  namespace: geo-workflows
+  labels: {k8s-app: stac-fix-579-mpa-terms}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-fix-579-mpa-terms}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: fix, mountPath: /config, readOnly: true}
+        command: [bash, -c, "set -uo pipefail; python3 /config/fix.py"]
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: fix, configMap: {name: stac-fix-579-mpa-terms}}
