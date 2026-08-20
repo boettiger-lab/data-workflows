@@ -193,6 +193,34 @@ save_armada_yaml(armada_spec, 'armada-<name>-hex.yaml')
 
 Submit with `armadactl submit <file>`; monitor at <https://armada-lookout.nrp-nautilus.io>.
 
+## Armada keeps failed pods, which k8s does not
+
+A failed Armada pod stays in the namespace as `armada-<jobid>-0` in `Error`, so its logs are
+readable straight away:
+
+```bash
+kubectl -n <namespace> get pods | grep '^armada-.*Error'
+kubectl -n <namespace> logs <pod>
+```
+
+On the k8s path, setting `backoffLimitPerIndex` implies `podReplacementPolicy: Failed`, which
+**deletes a failed pod before creating its replacement** — the gate signal survives, the
+forensics do not. Diagnosing there means re-running the failing index as a non-indexed job at
+`backoffLimit: 0` just to keep a pod around (see the `pod-preemption` skill).
+
+Combined with small units, this makes Armada markedly easier to debug: a failure is minutes of
+lost work and its evidence is still sitting there.
+
+## ⛔ Do not inline SQL in a job spec
+
+A pod spec's command passes through shell, YAML and (if it embeds Python) a third quoting layer.
+Inline SQL escaping collapses in ways that only appear at runtime — a path can reach DuckDB as
+`'''/tmp/...` and fail with `No files found that match the pattern`, *after* the expensive step
+has already run.
+
+Put the step in a script in a ConfigMap, mount it, and pass paths as arguments — ideally as
+query parameters so there is nothing to escape at all.
+
 ## Choosing a pathway
 
 - **k8s** — the standard route here. Right when the work is naturally a few hundred units and each
