@@ -1,0 +1,339 @@
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/nri-2024/stac-collection.json	exit=0
+CLEAN	4s	https://s3-west.nrp-nautilus.io/public-ca-wolves/stac-collection.json	exit=0
+CLEAN	20s	https://s3-west.nrp-nautilus.io/public-fire/calfire-2025/rxburn/stac-collection.json	exit=0
+CLEAN	96s	https://s3-west.nrp-nautilus.io/public-census/census-2025/sldl/stac-collection.json	exit=0
+CLEAN	32s	https://s3-west.nrp-nautilus.io/public-dem/copernicus-glo90/stac-collection.json	exit=0
+CLEAN	219s	https://s3-west.nrp-nautilus.io/public-facts/common-attributes-2026-06/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-ca30x30/groundwater-dependent-ecosystems/wetlands/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-2015-wbvert/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp5rcp85-2050-plants/stac-collection.json	exit=0
+CLEAN	18s	https://s3-west.nrp-nautilus.io/public-icca/icca-registry/icca-polygon/stac-collection.json	exit=0
+CLEAN	43s	https://s3-west.nrp-nautilus.io/public-kba/kba-2026-03/sites/stac-collection.json	exit=0
+CLEAN	37s	https://s3-west.nrp-nautilus.io/public-blm/lua-leases-permits-easements/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-hazard/mid-century-habitat-climate-exposure/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/stream-reach-coa/stac-collection.json	exit=0
+CLEAN	369s	https://s3-west.nrp-nautilus.io/public-land-cover/nlcd/stac-collection.json	exit=1
+CLEAN	53s	https://s3-west.nrp-nautilus.io/public-overturemaps/2026-02-18.0/regions/stac-collection.json	exit=0
+CLEAN	17s	https://s3-west.nrp-nautilus.io/public-parks/park-access-2020/tract-acres-per-thousand/stac-collection.json	exit=0
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-ca30x30/plant-richness/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-connectivity/regional-connectivity-linkages/stac-collection.json	exit=0
+CLEAN	28s	https://s3-west.nrp-nautilus.io/public-social-vulnerability/2020/stac-collection.json	exit=0
+CLEAN	2s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/sgcn-species/stac-collection.json	exit=0
+CLEAN	17s	https://s3-west.nrp-nautilus.io/public-fire/usgs-fires-2021/combined/stac-collection.json	exit=0
+CLEAN	21s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu12/stac-collection.json	exit=0
+CLEAN	75s	https://s3-west.nrp-nautilus.io/public-wetlands/glwd/stac-collection.json	exit=0
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2025/stac-collection.json	exit=0
+CLEAN	4s	https://s3-west.nrp-nautilus.io/public-wyoming/rap-iag/stac-collection.json	exit=0
+HARD(6)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-mule-deer-seasonal/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-mule-deer-seasonal] asset 'wgfd-mule-deer-seasonal-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-mule-deer-seasonal/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-mule-deer-seasonal] asset 'wgfd-mule-deer-seasonal-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-mule-deer-seasonal] asset 'wgfd-mule-deer-seasonal-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-mule-deer-seasonal] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-mule-deer-seasonal] parquet asset 'wgfd-mule-deer-seasonal-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-mule-deer-seasonal] parquet asset 'wgfd-mule-deer-seasonal-hex' has no 'table:columns'.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-swap/california/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-globio/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-indigenous/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-blm/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-social-vulnerability/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-wetlands/stac-collection.json	exit=0
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/beadd493-6aa7-43c7-9a79-ff6a7f1fc4e9/scratchpad/full-sweep/slice-0.txt
+CLEAN	28s	https://s3-west.nrp-nautilus.io/public-cdfw/ace/terrestrial-biodiversity-summary/stac-collection.json	exit=0
+CLEAN	180s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/roo-cjest/stac-collection.json	exit=0
+CLEAN	38s	https://s3-west.nrp-nautilus.io/public-ca30x30/2024/conserved-areas-terrestrial/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-cpad/cced-stac-collection.json	exit=0
+CLEAN	129s	https://s3-west.nrp-nautilus.io/public-census/census-2025/sldu/stac-collection.json	exit=0
+CLEAN	26s	https://s3-west.nrp-nautilus.io/public-cpad/cpad-holdings-stac-collection.json	exit=0
+CLEAN	31s	https://s3-west.nrp-nautilus.io/public-trails/federal-trails-2026/stac-collection.json	exit=0
+CLEAN	21s	https://s3-west.nrp-nautilus.io/public-high-seas/gebco-2025/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp1rcp26-2050-overall/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp5rcp85-2050-wbvert/stac-collection.json	exit=0
+CLEAN	56s	https://s3-west.nrp-nautilus.io/public-high-seas/iho/stac-collection.json	exit=0
+CLEAN	26s	https://s3-west.nrp-nautilus.io/public-indigenous/landmark/indicative-poly-stac.json	exit=0
+CLEAN	55s	https://s3-west.nrp-nautilus.io/public-blm/lua-row/stac-collection.json	exit=0
+CLEAN	29s	https://s3-west.nrp-nautilus.io/public-blm/mineral-materials/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/wetland-coa/stac-collection.json	exit=0
+CLEAN	61s	https://s3-west.nrp-nautilus.io/public-blm/non-energy-leasables/stac-collection.json	exit=0
+CLEAN	60s	https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined/stac-collection.json	exit=0
+CLEAN	46s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/parks/stac-collection.json	exit=0
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-connectivity/present-day-connectivity/categories/stac-collection.json	exit=0
+CLEAN	254s	https://s3-west.nrp-nautilus.io/public-high-seas/rfmo/stac-collection.json	exit=0
+CLEAN	68s	https://s3-west.nrp-nautilus.io/public-social-vulnerability/2022/stac-collection.json	exit=0
+CLEAN	2s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/sgcn-species-units/stac-collection.json	exit=0
+CLEAN	25s	https://s3-west.nrp-nautilus.io/public-usgs/mrds/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu2/stac-collection.json	exit=0
+CLEAN	34s	https://s3-west.nrp-nautilus.io/public-wetlands/nwi/stac-collection.json	exit=0
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/all-years/stac-collection.json	exit=0
+CLEAN	7s	https://s3-west.nrp-nautilus.io/public-wyoming/rap-pfg-biomass/stac-collection.json	exit=0
+HARD(6)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-pronghorn-crucial/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-pronghorn-crucial] asset 'wgfd-pronghorn-crucial-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-pronghorn-crucial/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-pronghorn-crucial] asset 'wgfd-pronghorn-crucial-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-pronghorn-crucial] asset 'wgfd-pronghorn-crucial-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-pronghorn-crucial] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-pronghorn-crucial] parquet asset 'wgfd-pronghorn-crucial-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-pronghorn-crucial] parquet asset 'wgfd-pronghorn-crucial-hex' has no 'table:columns'.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-cdfw/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-ca30x30/groundwater-dependent-ecosystems/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-high-seas/megamove/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-facts/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-swap/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/stac-collection.json	exit=0
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/beadd493-6aa7-43c7-9a79-ff6a7f1fc4e9/scratchpad/full-sweep/slice-1.txt
+HARD(1)	206s	https://s3-west.nrp-nautilus.io/public-blm/acquisitions/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [acquisitions] asset 'acquisitions-hex' holds 96777 of 97529 features from 'acquisitions-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 752 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/wild-scenic-designated/stac-collection.json	exit=0
+CLEAN	55s	https://s3-west.nrp-nautilus.io/public-ca30x30/conserved-areas-terrestrial-2025/stac-collection.json	exit=0
+CLEAN	19s	https://s3-west.nrp-nautilus.io/public-cdfw/fish-passage-pad/stac-collection.json	exit=0
+CLEAN	402s	https://s3-west.nrp-nautilus.io/public-land-cover/cgls-lc100-2019/stac-collection.json	exit=0
+CLEAN	24s	https://s3-west.nrp-nautilus.io/public-cpad/cpad-units-stac-collection.json	exit=0
+CLEAN	113s	https://s3-west.nrp-nautilus.io/public-fire/stac-collection.json	exit=0
+CLEAN	44s	https://s3-west.nrp-nautilus.io/public-blm/geothermal-leases/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp1rcp26-2050-plants/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-utah/grand-staircase-escalante/stac-collection.json	exit=0
+CLEAN	22s	https://s3-west.nrp-nautilus.io/public-high-seas/imma/stac-collection.json	exit=0
+CLEAN	4s	https://s3-west.nrp-nautilus.io/public-indigenous/landmark/indicative-pt-stac.json	exit=0
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-mappinginequality/stac-collection.json	exit=0
+CLEAN	40s	https://s3-west.nrp-nautilus.io/public-blm/mining-claims/stac-collection.json	exit=0
+CLEAN	5s	https://s3-west.nrp-nautilus.io/public-mobi/mobi-species-richness-all/stac-collection.json	exit=0
+CLEAN	83s	https://s3-west.nrp-nautilus.io/public-blm/oil-gas-agreements/stac-collection.json	exit=0
+CLEAN	40s	https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/easement/stac-collection.json	exit=0
+CLEAN	2s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/parkscore/stac-collection.json	exit=0
+CLEAN	4s	https://s3-west.nrp-nautilus.io/public-connectivity/present-day-connectivity/flow/stac-collection.json	exit=0
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-hazard/sea-level-rise/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/bay-delta-conservation-unit/stac-collection.json	exit=0
+CLEAN	2s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/strategies/stac-collection.json	exit=0
+CLEAN	44s	https://s3-west.nrp-nautilus.io/public-usgs-nhd/perennial-streams/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu4/stac-collection.json	exit=0
+CLEAN	21s	https://s3-west.nrp-nautilus.io/public-wetlands/ramsar/stac-collection.json	exit=0
+CLEAN	59s	https://s3-west.nrp-nautilus.io/public-ecoregion/stac-collection.json	exit=0
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/sage-grouse-priority/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-sage-grouse-priority] asset 'sage-grouse-priority-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/sage-grouse-priority/hex/'.
+    [HARD][hex-no-native-res] [wyoming-sage-grouse-priority] asset 'sage-grouse-priority-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-sage-grouse-priority] asset 'sage-grouse-priority-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-sage-grouse-priority] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-sage-grouse-priority] parquet asset 'sage-grouse-priority-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-sage-grouse-priority] parquet asset 'sage-grouse-priority-hex' has no 'table:columns'.
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-pronghorn-seasonal/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-pronghorn-seasonal] asset 'wgfd-pronghorn-seasonal-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-pronghorn-seasonal/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-pronghorn-seasonal] asset 'wgfd-pronghorn-seasonal-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-pronghorn-seasonal] asset 'wgfd-pronghorn-seasonal-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-pronghorn-seasonal] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-pronghorn-seasonal] parquet asset 'wgfd-pronghorn-seasonal-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-pronghorn-seasonal] parquet asset 'wgfd-pronghorn-seasonal-hex' has no 'table:columns'.
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-cgs/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-hazard/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-swap/missouri/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-parks/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-census/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-wyoming/stac-collection.json	exit=0
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/beadd493-6aa7-43c7-9a79-ff6a7f1fc4e9/scratchpad/full-sweep/slice-2.txt
+CLEAN	105s	https://s3-west.nrp-nautilus.io/public-census/acs-2020-2024/blockgroup/stac-collection.json	exit=0
+CLEAN	14s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/wild-scenic-eligible/stac-collection.json	exit=0
+CLEAN	24s	https://s3-west.nrp-nautilus.io/public-ca30x30/ecoregion/stac-collection.json	exit=0
+CLEAN	102s	https://s3-west.nrp-nautilus.io/public-census/census-2024/cd/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-connectivity/climate-migration-routes/stac-collection.json	exit=0
+CLEAN	14s	https://s3-west.nrp-nautilus.io/public-ca30x30/cwhr/stac-collection.json	exit=0
+CLEAN	147s	https://s3-west.nrp-nautilus.io/public-hazard/flood-hazard/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-gfw/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp1rcp26-2050-wbvert/stac-collection.json	exit=0
+CLEAN	64s	https://s3-west.nrp-nautilus.io/public-hydrobasins/stac-collection.json	exit=0
+CLEAN	66s	https://s3-west.nrp-nautilus.io/public-inat/stac-collection.json	exit=0
+CLEAN	148s	https://s3-west.nrp-nautilus.io/public-indigenous/landmark/iplc-poly-stac.json	exit=0
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-high-seas/megamove/corridors/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/cave-karst-coa/stac-collection.json	exit=0
+HARD(1)	13s	https://s3-west.nrp-nautilus.io/public-high-seas/mpa-candidates/stac-collection.json	exit=1
+    [HARD][license-link-missing] [mpa-candidates] license is 'proprietary' but there is no {'rel':'license'} link to the canonical terms URL (exempt only for a meta-collection with child links, whose per-child licenses govern; this is a leaf).
+CLEAN	147s	https://s3-west.nrp-nautilus.io/public-blm/oil-gas-leases/stac-collection.json	exit=1
+CLEAN	153s	https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee/stac-collection.json	exit=0
+CLEAN	14s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/places/stac-collection.json	exit=0
+CLEAN	5s	https://s3-west.nrp-nautilus.io/public-rap/rap-arte/stac-collection.json	exit=0
+CLEAN	19s	https://s3-west.nrp-nautilus.io/public-high-seas/seafloor-geomorphology/stac-collection.json	exit=0
+CLEAN	14s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/conservation-units/stac-collection.json	exit=0
+CLEAN	4s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/targets/stac-collection.json	exit=0
+CLEAN	58s	https://s3-west.nrp-nautilus.io/public-usgs-nhd/streams-by-order/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu6/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-connectivity/wildlife-movement-barriers/stac-collection.json	exit=0
+HARD(1)	32s	https://s3-west.nrp-nautilus.io/public-wyoming/blm-sma/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [wyoming-blm-sma] asset 'blm-sma-hex' holds 277 of 865059 features from 'blm-sma-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 864782 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	5s	https://s3-west.nrp-nautilus.io/public-wyoming/sagebrush-design/stac-collection.json	exit=0
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wy-counties/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wy-counties] asset 'wy-counties-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wy-counties/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wy-counties] asset 'wy-counties-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wy-counties] asset 'wy-counties-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wy-counties] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wy-counties] parquet asset 'wy-counties-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wy-counties] parquet asset 'wy-counties-hex' has no 'table:columns'.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-connectivity/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-high-seas/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-swap/nevada/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-rap/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-usfws/critical-habitat/stac-collection.json	exit=0
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/beadd493-6aa7-43c7-9a79-ff6a7f1fc4e9/scratchpad/full-sweep/slice-3.txt
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/campaigns/stac-collection.json	exit=0
+CLEAN	17s	https://s3-west.nrp-nautilus.io/public-barred-owl/stac-collection.json	exit=0
+CLEAN	19s	https://s3-west.nrp-nautilus.io/public-calenviroscreen/stac-collection.json	exit=0
+CLEAN	27s	https://s3-west.nrp-nautilus.io/public-census/census-2024/county/stac-collection.json	exit=0
+CLEAN	29s	https://s3-west.nrp-nautilus.io/public-blm/coal-cases/stac-collection.json	exit=0
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-ca30x30/cwhr13/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-ca30x30/fmmp-2022/stac-collection.json	exit=0
+CLEAN	126s	https://s3-west.nrp-nautilus.io/public-population/ghs-pop-2020/stac-collection.json	exit=0
+CLEAN	40s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp3rcp60-2050-overall/stac-collection.json	exit=0
+HARD(1)	14s	https://s3-west.nrp-nautilus.io/public-high-seas/hydrothermal-vents/stac-collection.json	exit=1
+    [HARD][hex-fid-mismatch] [hydrothermal-vents] asset 'hydrothermal-vents-hex': _cng_fid identifies a different feature than the flat 'hydrothermal-vents-parquet' on 720 of 720 ids (join on _cng_fid; 'name' disagrees) — the hex was built with its own feature numbering instead of carrying the flat's _cng_fid (data-workflows#549). Rebuild the hex so it preserves the flat's _cng_fid: the standard cng-datasets vector path does this automatically; a custom derive step must SELECT the flat's _cng_fid.
+CLEAN	440s	https://s3-west.nrp-nautilus.io/public-carbon/stac-collection.json	exit=0
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-indigenous/landmark/iplc-pt-stac.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-high-seas/megamove/immegas/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/forest-woodland-coa/stac-collection.json	exit=0
+CLEAN	411s	https://s3-west.nrp-nautilus.io/public-nci-frontiers/stac-collection.json	exit=0
+CLEAN	27s	https://s3-west.nrp-nautilus.io/public-blm/oil-gas-participating-areas/stac-collection.json	exit=0
+CLEAN	165s	https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/marine/stac-collection.json	exit=0
+CLEAN	18s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/priority-areas-place/stac-collection.json	exit=0
+CLEAN	4s	https://s3-west.nrp-nautilus.io/public-rap/rap-iag/stac-collection.json	exit=0
+CLEAN	18s	https://s3-west.nrp-nautilus.io/public-cgs/sierra-nevada-atlas/map-unit-polys/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/marine-bioregions/stac-collection.json	exit=0
+CLEAN	47s	https://s3-west.nrp-nautilus.io/public-utah/udogm/stac-collection.json	exit=0
+CLEAN	228s	https://s3-west.nrp-nautilus.io/public-usgs-nhd/nhdplus-hr/flowline/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu8/stac-collection.json	exit=0
+CLEAN	14s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2021/stac-collection.json	exit=0
+CLEAN	5s	https://s3-west.nrp-nautilus.io/public-wyoming/nlcd-2024/stac-collection.json	exit=0
+HARD(2)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/ungulate-migration/stac-collection.json	exit=1
+    [HARD][table-columns-collection-level] [wyoming-ungulate-migration] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-ungulate-migration] parquet asset 'ungulate-migration-parquet' has no 'table:columns'.
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wyoming-places/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wyoming-places] asset 'wyoming-places-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wyoming-places/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wyoming-places] asset 'wyoming-places-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wyoming-places] asset 'wyoming-places-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wyoming-places] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wyoming-places] parquet asset 'wyoming-places-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wyoming-places] parquet asset 'wyoming-places-hex' has no 'table:columns'.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-cpad/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-storms/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-overturemaps/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-tpl/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-usfws/stac-collection.json	exit=0
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/beadd493-6aa7-43c7-9a79-ff6a7f1fc4e9/scratchpad/full-sweep/slice-4.txt
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/dam-removal/stac-collection.json	exit=0
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-utah/bears-ears/stac-collection.json	exit=0
+CLEAN	20s	https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/firep/stac-collection.json	exit=0
+CLEAN	33s	https://s3-west.nrp-nautilus.io/public-census/census-2024/place/stac-collection.json	exit=0
+CLEAN	26s	https://s3-west.nrp-nautilus.io/public-utah/coal-deposits/stac-collection.json	exit=0
+CLEAN	50s	https://s3-west.nrp-nautilus.io/public-high-seas/ebsa/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-ca30x30/freshwater-species-richness/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-human-modification/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp3rcp60-2050-plants/stac-collection.json	exit=0
+CLEAN	70s	https://s3-west.nrp-nautilus.io/public-storms/ibtracs-v04r01/lines/stac-collection.json	exit=0
+CLEAN	648s	https://s3-west.nrp-nautilus.io/public-iucn/iucn-ranges-2025/stac-collection.json	exit=1
+CLEAN	39s	https://s3-west.nrp-nautilus.io/public-tpl/landvote/stac-collection.json	exit=0
+CLEAN	14s	https://s3-west.nrp-nautilus.io/public-high-seas/megamove/residencies/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/glade-coa/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-ncp/stac-collection.json	exit=0
+CLEAN	20s	https://s3-west.nrp-nautilus.io/public-blm/oil-shale-leases/stac-collection.json	exit=0
+CLEAN	134s	https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/proclamation/stac-collection.json	exit=0
+CLEAN	31s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/priority-areas-urban-area/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-rap/rap-pfg-cover/stac-collection.json	exit=0
+CLEAN	300s	https://s3-west.nrp-nautilus.io/public-wui/stac-collection.json	exit=0
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/noaa-esu-dps/stac-collection.json	exit=0
+CLEAN	21s	https://s3-west.nrp-nautilus.io/public-utah/ugs-mineral-occurrences/stac-collection.json	exit=0
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-usgs-ungulate-migration/ungulate-ranges/stac-collection.json	exit=0
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-tpl/wcb-approved-projects/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2022/stac-collection.json	exit=0
+HARD(3)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/pad-us/stac-collection.json	exit=1
+    [HARD][table-columns-collection-level] [wyoming-pad-us] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-pad-us] parquet asset 'fee-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-pad-us] parquet asset 'easement-parquet' has no 'table:columns'.
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-elk-crucial/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-elk-crucial] asset 'wgfd-elk-crucial-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-elk-crucial/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-elk-crucial] asset 'wgfd-elk-crucial-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-elk-crucial] asset 'wgfd-elk-crucial-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-elk-crucial] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-elk-crucial] parquet asset 'wgfd-elk-crucial-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-elk-crucial] parquet asset 'wgfd-elk-crucial-hex' has no 'table:columns'.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-dem/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-icca/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-padus/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-usgs/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-usgs-nhd/stac-collection.json	exit=0
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/beadd493-6aa7-43c7-9a79-ff6a7f1fc4e9/scratchpad/full-sweep/slice-5.txt
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/ira-watersheds/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-ca30x30/ca-climate-zones/stac-collection.json	exit=0
+CLEAN	18s	https://s3-west.nrp-nautilus.io/public-fire/calfire-2024/rxburn/stac-collection.json	exit=0
+CLEAN	33s	https://s3-west.nrp-nautilus.io/public-census/census-2024/state/stac-collection.json	exit=0
+CLEAN	3s	https://s3-west.nrp-nautilus.io/public-tpl/conservation-almanac-2024-funding/stac-collection.json	exit=0
+CLEAN	20s	https://s3-west.nrp-nautilus.io/public-high-seas/ecs/stac-collection.json	exit=0
+CLEAN	312s	https://s3-west.nrp-nautilus.io/public-gbif/stac-collection.json	exit=0
+CLEAN	9s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-2015-overall/stac-collection.json	exit=0
+CLEAN	12s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp3rcp60-2050-wbvert/stac-collection.json	exit=0
+CLEAN	38s	https://s3-west.nrp-nautilus.io/public-storms/ibtracs-v04r01/points/stac-collection.json	exit=0
+CLEAN	81s	https://s3-west.nrp-nautilus.io/public-iucn/stac-collection.json	exit=0
+CLEAN	32s	https://s3-west.nrp-nautilus.io/public-blm/locatable-operations/stac-collection.json	exit=0
+CLEAN	24s	https://s3-west.nrp-nautilus.io/public-high-seas/megamove/tracked-individuals/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/grassland-prairie-savanna-coa/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-swap/nevada/swap-2022/key-habitats/stac-collection.json	exit=0
+CLEAN	57s	https://s3-west.nrp-nautilus.io/public-overturemaps/2026-02-18.0/counties/stac-collection.json	exit=0
+CLEAN	11s	https://s3-west.nrp-nautilus.io/public-parks/park-access-2020/half-mile-access/stac-collection.json	exit=0
+CLEAN	31s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/service-areas/stac-collection.json	exit=0
+CLEAN	18s	https://s3-west.nrp-nautilus.io/public-ca30x30/rarity-weighted-endemic-plant-richness/stac-collection.json	exit=0
+CLEAN	28s	https://s3-west.nrp-nautilus.io/public-social-vulnerability/2000/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/provinces/stac-collection.json	exit=0
+CLEAN	22s	https://s3-west.nrp-nautilus.io/public-usfws/critical-habitat/final/stac-collection.json	exit=0
+CLEAN	14s	https://s3-west.nrp-nautilus.io/public-usgs-ungulate-migration/ungulate-routes/stac-collection.json	exit=0
+CLEAN	32s	https://s3-west.nrp-nautilus.io/public-wdpa/wdoecm-may-2026/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2023/stac-collection.json	exit=0
+CLEAN	13s	https://s3-west.nrp-nautilus.io/public-wyoming/priority-areas-gye/stac-collection.json	exit=0
+HARD(6)	0s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-elk-seasonal/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-elk-seasonal] asset 'wgfd-elk-seasonal-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-elk-seasonal/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-elk-seasonal] asset 'wgfd-elk-seasonal-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-elk-seasonal] asset 'wgfd-elk-seasonal-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-elk-seasonal] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-elk-seasonal] parquet asset 'wgfd-elk-seasonal-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-elk-seasonal] parquet asset 'wgfd-elk-seasonal-hex' has no 'table:columns'.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-epa-water/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-kba/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-population/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-utah/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-usgs-ungulate-migration/stac-collection.json	exit=0
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/beadd493-6aa7-43c7-9a79-ff6a7f1fc4e9/scratchpad/full-sweep/slice-6.txt
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/nri-2016/stac-collection.json	exit=0
+HARD(2)	124s	https://s3-west.nrp-nautilus.io/public-ca-dac/stac-collection.json	exit=1
+    [HARD][hex-missing-features] [ca-dac-eda-2023] asset 'dac-blockgroup-hex' holds 25606 of 25607 features from 'dac-blockgroup-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+    [HARD][hex-missing-features] [ca-dac-eda-2023] asset 'eda-blockgroup-hex' holds 25606 of 25607 features from 'eda-blockgroup-parquet' (hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*)) — 1 feature(s) silently dropped from the hex (data-workflows#535/#520). Re-hex; if a shortfall is legitimate (a feature smaller than one cell polyfills to zero cells), document it in the asset description.
+CLEAN	22s	https://s3-west.nrp-nautilus.io/public-fire/calfire-2025/firep/stac-collection.json	exit=0
+CLEAN	99s	https://s3-west.nrp-nautilus.io/public-census/census-2024/tract/stac-collection.json	exit=0
+CLEAN	24s	https://s3-west.nrp-nautilus.io/public-tpl/conservation-almanac-2024-sites/stac-collection.json	exit=0
+CLEAN	34s	https://s3-west.nrp-nautilus.io/public-epa-water/epa-sab-v3/cws/stac-collection.json	exit=0
+CLEAN	14s	https://s3-west.nrp-nautilus.io/public-ca30x30/groundwater-dependent-ecosystems/vegetation/stac-collection.json	exit=0
+CLEAN	8s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-2015-plants/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-globio/globio-msa-ssp5rcp85-2050-overall/stac-collection.json	exit=0
+CLEAN	15s	https://s3-west.nrp-nautilus.io/public-icca/icca-registry/icca-point/stac-collection.json	exit=0
+CLEAN	6s	https://s3-west.nrp-nautilus.io/public-iucn/taxonomy/stac-collection.json	exit=0
+CLEAN	54s	https://s3-west.nrp-nautilus.io/public-high-seas/longhurst/stac-collection.json	exit=0
+CLEAN	50s	https://s3-west.nrp-nautilus.io/public-high-seas/meow/stac-collection.json	exit=0
+CLEAN	10s	https://s3-west.nrp-nautilus.io/public-swap/missouri/ccs-2022/priority-geographies/stac-collection.json	exit=0
+CLEAN	19s	https://s3-west.nrp-nautilus.io/public-swap/nevada/swap-2022/species-distributions/stac-collection.json	exit=0
+CLEAN	81s	https://s3-west.nrp-nautilus.io/public-overturemaps/2026-02-18.0/countries/stac-collection.json	exit=0
+CLEAN	18s	https://s3-west.nrp-nautilus.io/public-parks/park-access-2020/no-park-access/stac-collection.json	exit=0
+CLEAN	16s	https://s3-west.nrp-nautilus.io/public-tpl/parkserve-2025/urban-areas/stac-collection.json	exit=0
+CLEAN	33s	https://s3-west.nrp-nautilus.io/public-ca-wolves/rca-boundary/stac-collection.json	exit=0
+CLEAN	34s	https://s3-west.nrp-nautilus.io/public-social-vulnerability/2010/stac-collection.json	exit=0
+CLEAN	23s	https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/sgcn-ranges/stac-collection.json	exit=0
+CLEAN	21s	https://s3-west.nrp-nautilus.io/public-usfws/critical-habitat/proposed/stac-collection.json	exit=0
+CLEAN	4s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/wbd/hu10/stac-collection.json	exit=0
+CLEAN	77s	https://s3-west.nrp-nautilus.io/public-wdpa/wdpa/stac-collection.json	exit=0
+CLEAN	19s	https://s3-west.nrp-nautilus.io/public-ca30x30/williamson-act/2024/stac-collection.json	exit=0
+CLEAN	7s	https://s3-west.nrp-nautilus.io/public-wyoming/rap-arte/stac-collection.json	exit=0
+HARD(6)	1s	https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-mule-deer-crucial/stac-collection.json	exit=1
+    [HARD][hex-href-not-glob] [wyoming-wgfd-mule-deer-crucial] asset 'wgfd-mule-deer-crucial-hex' hex href must be the hive glob …/h0=*/data_0.parquet (not a bare directory), got 'https://s3-west.nrp-nautilus.io/public-wyoming/wgfd-mule-deer-crucial/hex/'.
+    [HARD][hex-no-native-res] [wyoming-wgfd-mule-deer-crucial] asset 'wgfd-mule-deer-crucial-hex' missing 'h3:native_resolution'.
+    [HARD][hex-no-parent-res] [wyoming-wgfd-mule-deer-crucial] asset 'wgfd-mule-deer-crucial-hex' missing 'h3:parent_resolutions'.
+    [HARD][table-columns-collection-level] [wyoming-wgfd-mule-deer-crucial] `table:columns` is at the collection level — it must live on each parquet asset, not the collection.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-mule-deer-crucial] parquet asset 'wgfd-mule-deer-crucial-parquet' has no 'table:columns'.
+    [HARD][parquet-no-table-columns] [wyoming-wgfd-mule-deer-crucial] parquet asset 'wgfd-mule-deer-crucial-hex' has no 'table:columns'.
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-ca30x30/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-trails/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-land-cover/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-wdpa/stac-collection.json	exit=0
+CLEAN	0s	https://s3-west.nrp-nautilus.io/public-cgs/sierra-nevada-atlas/stac-collection.json	exit=0
+CLEAN	1s	https://s3-west.nrp-nautilus.io/public-usgs-wbd/stac-collection.json	exit=0
+### slice done: /tmp/claude-1000/-home-jovyan-data-workflows/beadd493-6aa7-43c7-9a79-ff6a7f1fc4e9/scratchpad/full-sweep/slice-7.txt

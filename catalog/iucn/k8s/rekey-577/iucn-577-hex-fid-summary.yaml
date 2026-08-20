@@ -1,0 +1,111 @@
+# data-workflows#577, step 1 of 3 — AUDIT ONLY, writes no published object.
+#
+# Collapses the 4.08-billion-row hex down to one row per (natural key, hex _cng_fid)
+# so every remaining verification is a cheap query on a ~135k-row table instead of a
+# repeated full scan (the full-scan queries time out the MCP at 300 s).
+#
+# The natural key is IUCN's (id_no, presence, origin, seasonal). It is the only bridge
+# between the two assets, because the hex's `_cng_fid` is from a superseded conversion
+# and the hex carries no geometry.
+#
+# Output: s3://public-iucn/iucn-ranges-2025/staging-577/hex-fid-summary.parquet
+# (a staging sibling; removed once #577 is closed).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-577-hex-fid-summary
+  labels:
+    k8s-app: iucn-577-hex-fid-summary
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-577-hex-fid-summary
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: summary-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          python3 << 'PYEOF'
+          import duckdb, os
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET preserve_insertion_order=false;")
+          con.execute("SET memory_limit='26GB';")
+          con.execute("SET temp_directory='/tmp/duckdb-spill';")
+          con.execute(f"""
+            CREATE SECRET nrp (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}',
+              ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}', URL_STYLE 'path', USE_SSL false);
+          """)
+
+          HEX = 's3://public-iucn/iucn-ranges-2025/hex/h0=*/data_0.parquet'
+          OUT = 's3://public-iucn/iucn-ranges-2025/staging-577/hex-fid-summary.parquet'
+
+          # One row per (natural key, hex _cng_fid). Also carries the hex's own copy of
+          # sci_name, so we can test whether the hex's attributes agree with the flat's
+          # for the same natural key — i.e. whether the bridge itself is trustworthy.
+          print("Scanning hex (4.08e9 rows) -> per-fid summary ...", flush=True)
+          con.execute(f"""
+            COPY (
+              SELECT
+                id_no, presence, origin, seasonal,
+                _cng_fid                AS hex_fid,
+                any_value(sci_name)     AS hex_sci_name,
+                COUNT(DISTINCT sci_name) AS d_sci_name,
+                any_value(native_res)   AS native_res,
+                COUNT(DISTINCT native_res) AS d_native_res,
+                COUNT(*)                AS n_hex_rows,
+                COUNT(DISTINCT h0)      AS n_h0
+              FROM read_parquet('{HEX}')
+              GROUP BY id_no, presence, origin, seasonal, _cng_fid
+            ) TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000);
+          """)
+          n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{OUT}')").fetchone()[0]
+          print(f"summary rows: {n}", flush=True)
+
+          # Sanity: a hex _cng_fid must map to exactly one natural key, or the bijective
+          # re-key is ill-defined. Reported here rather than assumed.
+          span = con.execute(f"""
+            SELECT COUNT(*) FROM (
+              SELECT hex_fid FROM read_parquet('{OUT}')
+              GROUP BY hex_fid HAVING COUNT(*) > 1)
+          """).fetchone()[0]
+          print(f"hex _cng_fid values spanning >1 natural key: {span}", flush=True)
+
+          nulls = con.execute(
+            f"SELECT COUNT(*) FROM read_parquet('{OUT}') WHERE hex_fid IS NULL").fetchone()[0]
+          print(f"NULL hex _cng_fid groups: {nulls}", flush=True)
+          print("DONE", flush=True)
+          PYEOF
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']

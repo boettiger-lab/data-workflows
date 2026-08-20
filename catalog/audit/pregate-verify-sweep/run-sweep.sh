@@ -39,7 +39,15 @@ run_slice() {  # $1 slice file, $2 result file
       echo "TIMEOUT	${el}s	$url" >> "$2"
     else
       n=$(echo "$raw" | grep -cE '^\[HARD\]')
-      if [ "$n" -eq 0 ]; then echo "CLEAN	${el}s	$url	exit=$rc" >> "$2"
+      # A nonzero exit with no [HARD] line means the verifier itself failed (an MCP error,
+      # an unreadable collection) — it is NOT a clean verdict, and recording it as one hides
+      # an unverified collection behind a pass. Two blm collections sat in the 2026-08-17
+      # results as "CLEAN ... exit=1" this way, and re-running BOTH against the current
+      # checker reports real HARD findings. See data-workflows#509.
+      if [ "$n" -eq 0 ] && [ $rc -ne 0 ]; then
+        echo "ERROR	${el}s	$url	exit=$rc" >> "$2"
+        echo "$raw" | tail -5 | sed 's/^/    /' >> "$2"
+      elif [ "$n" -eq 0 ]; then echo "CLEAN	${el}s	$url	exit=$rc" >> "$2"
       else echo "HARD($n)	${el}s	$url	exit=$rc" >> "$2"
            echo "$raw" | grep -E '^\[HARD\]' | sed 's/^/    /' >> "$2"; fi
     fi

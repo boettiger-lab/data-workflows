@@ -82,10 +82,13 @@ MCP_AUTH_TOKEN for a bearer token if the endpoint is ever locked down.
 
 import argparse
 import importlib.util
+import http.client
 import json
 import os
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -1011,14 +1014,25 @@ class MCPClient:
         raise MCPError("empty MCP response")
 
     def _post(self, payload: dict, capture_session: bool = False) -> dict:
+        """POST one JSON-RPC call. Any TRANSPORT-level failure (connection reset, timeout,
+        or a truncated chunked body — `http.client.IncompleteRead`, seen on the long
+        iucn-ranges queries) is re-raised as MCPError so callers degrade deliberately.
+        Letting it escape killed the whole run with a traceback and a bare exit 1, which
+        the sweep harness then scored as CLEAN — an unverified collection hiding behind a
+        pass (data-workflows#509)."""
         data = json.dumps(payload).encode()
         req = urllib.request.Request(self.endpoint, data=data, headers=self._headers(), method="POST")
-        with urllib.request.urlopen(req, timeout=self.timeout) as r:
-            if capture_session:
-                sid = r.headers.get("Mcp-Session-Id") or r.headers.get("mcp-session-id")
-                if sid:
-                    self.session_id = sid
-            return self._parse_sse(r.read())
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                if capture_session:
+                    sid = r.headers.get("Mcp-Session-Id") or r.headers.get("mcp-session-id")
+                    if sid:
+                        self.session_id = sid
+                return self._parse_sse(r.read())
+        except MCPError:
+            raise
+        except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as e:
+            raise MCPError(f"MCP transport failure: {type(e).__name__}: {e}") from e
 
     def initialize(self):
         resp = self._post({
@@ -1040,11 +1054,17 @@ class MCPClient:
             pass  # some servers don't require / don't reply to this
 
     def query(self, sql: str) -> list[dict]:
-        """Run SQL via the `query` tool; return rows as a list of dicts (best-effort)."""
-        resp = self._post({
+        """Run SQL via the `query` tool; return rows as a list of dicts (best-effort).
+        Retried once on a transport failure, which is typically transient."""
+        payload = {
             "jsonrpc": "2.0", "id": 2, "method": "tools/call",
             "params": {"name": "query", "arguments": {"sql_query": sql}},
-        })
+        }
+        try:
+            resp = self._post(payload)
+        except MCPError:
+            time.sleep(2)
+            resp = self._post(payload)
         if "error" in resp:
             raise MCPError(f"query error: {resp['error']}")
         result = resp.get("result", {})
@@ -1296,6 +1316,55 @@ _MULTIROW_NOTE = re.compile(
     r"duplicate \(feature, cell\) rows are expected|per \(feature, cell, part\)", re.I)
 
 
+_H0_GLOB = re.compile(r"h0=\*")
+
+
+def _uniqueness_by_partition(mcp: MCPClient, s3: str, sql: str) -> tuple[int, int]:
+    """Evaluate the (feature, cell) uniqueness counts one h0 partition at a time.
+
+    Used only as a fallback when the whole-asset query cannot execute (see the caller).
+    Not sampled: every row is still examined, and for a consistently partitioned asset the
+    per-partition distinct counts sum to the global distinct count, because a
+    (cell, _cng_fid) pair cannot span two h0 partitions — the cell is a descendant of the
+    row's own h0.
+
+    ⚠️ ONE BLIND SPOT, and it is a real weakening versus the whole-asset query: that
+    reasoning assumes `h0` really is the res-0 parent of the row's finer cells. If a build
+    wrote an inconsistent `h0`, two copies of the same (cell, _cng_fid) pair could land in
+    different partitions; each partition would then see them as distinct and the sum would
+    miss the duplicate. The known duplication class (the pre-2026-07-12 polyfill,
+    boettiger-lab/datasets#150) duplicates rows *within* a partition and is still caught.
+    This path is reached only when the alternative is no check at all, so a check with one
+    blind spot beats an UNVERIFIED verdict — but it is not a reason to prefer it, and the
+    whole-asset query stays the default.
+
+    Raises MCPError if the asset is not an `h0=*` hive glob (nothing to decompose) or if
+    any partition query fails, so the caller still reports the check as unverified rather
+    than quietly passing a partial answer.
+    """
+    if not _H0_GLOB.search(s3):
+        raise MCPError("asset href is not an h0=* hive glob; cannot decompose")
+    # Aggregate the partition list into ONE row. Returning it as ~122 rows would be
+    # refused by the truncated-preview guard, which caps results at a 50-row preview —
+    # correctly, since row-parsing a truncated preview is the #509 false-positive bug.
+    rows = mcp.query("SELECT string_agg(DISTINCT h0::VARCHAR, ',') AS h0s "
+                     f"FROM read_parquet('{s3}')")
+    raw = (rows[0].get("h0s") or "").strip() if rows else ""
+    vals = [v.strip() for v in raw.split(",") if v.strip()]
+    if not vals:
+        raise MCPError("no h0 partition values returned")
+    # Guard against a silently mangled list: these are H3 cell ids, so digits only.
+    if not all(v.isdigit() for v in vals):
+        raise MCPError(f"unexpected h0 partition values: {vals[:3]}")
+    total = pairs = 0
+    for v in vals:
+        src = _H0_GLOB.sub(f"h0={v}", s3)
+        row = mcp.query(sql.format(src=src))[0]
+        total += int(row["total"])
+        pairs += int(row["pairs"])
+    return total, pairs
+
+
 def check_hex_row_uniqueness(doc: dict, mcp: MCPClient) -> list[Finding]:
     """One hex row must be one (feature, cell) pair — data-workflows#509.
 
@@ -1338,16 +1407,40 @@ def check_hex_row_uniqueness(doc: dict, mcp: MCPClient) -> list[Finding]:
         if not hcols:
             continue
         cell = "COALESCE(" + ", ".join(f'"{h}"::VARCHAR' for h in hcols) + ", 'none')"
+        sql = (f"SELECT COUNT(*) AS total, COUNT(DISTINCT ({cell} || '-' || "
+               f"_cng_fid::VARCHAR)) AS pairs FROM read_parquet('{{src}}')")
         try:
-            rows = mcp.query(
-                f"SELECT COUNT(*) AS total, COUNT(DISTINCT ({cell} || '-' || "
-                f"_cng_fid::VARCHAR)) AS pairs FROM read_parquet('{s3}')")
+            rows = mcp.query(sql.format(src=s3))
             total, pairs = int(rows[0]["total"]), int(rows[0]["pairs"])
         except (MCPError, ValueError, KeyError, IndexError) as e:
-            out.append(Finding(ADVISORY, "hex-row-uniqueness-check-failed",
-                               f"asset '{key}': could not check (feature, cell) "
-                               f"uniqueness ({e})."))
-            continue
+            # The single-statement form is a COUNT(DISTINCT) over a synthesized string
+            # across every row, which the MCP transport cannot survive on the catalog's
+            # largest hexes — iucn/iucn-ranges-2025 (4,077,008,576 rows) fails it
+            # reproducibly with IncompleteRead. That left the biggest collections
+            # permanently UNVERIFIED, which is the #509 failure mode in a different guise.
+            #
+            # So fall back to evaluating the same quantity one h0 partition at a time and
+            # summing. This is EXACT, not an approximation: a row's finest non-NULL cell is
+            # always a descendant of that row's own h0, and the asset is hive-partitioned by
+            # h0, so every row sharing a (cell, _cng_fid) pair sits in the same partition.
+            # Duplicates therefore cannot span partitions, and the per-partition distinct
+            # counts sum to the global distinct count. Verified against iucn-ranges-2025:
+            # 4,077,008,576 rows / 4,077,008,576 pairs, matching a full cluster-side run.
+            #
+            # The fallback only ever runs after the single query has already failed, so
+            # behaviour on every collection that verifies today is unchanged.
+            try:
+                total, pairs = _uniqueness_by_partition(mcp, s3, sql)
+            except (MCPError, ValueError, KeyError, IndexError) as e2:
+                # HARD, not advisory: this is a HARD gate, so a run in which it could not
+                # execute is UNVERIFIED, not clean. Reporting it softly is how an unchecked
+                # collection reads as a pass — the failure mode this issue exists to kill
+                # (data-workflows#509). MCPClient.query already retries once, so a transient
+                # blip does not reach here.
+                out.append(Finding(HARD, "hex-row-uniqueness-check-failed",
+                                   f"asset '{key}': could not check (feature, cell) "
+                                   f"uniqueness ({e}; per-partition fallback: {e2})."))
+                continue
         if total and pairs < total:
             desc = (asset.get("description", "") or "") + " " + coll_desc
             if _MULTIROW_NOTE.search(desc):
@@ -1388,7 +1481,7 @@ def check_null_hex_index(doc: dict, mcp: MCPClient) -> list[Finding]:
             total = int(r["total"])
             nn = {h: int(r[h]) for h in hcols}
         except (MCPError, ValueError, KeyError, IndexError) as e:
-            out.append(Finding(ADVISORY, "null-hex-check-failed",
+            out.append(Finding(HARD, "null-hex-check-failed",
                                f"asset '{key}': could not check hex-index NULLs ({e})."))
             continue
         if not total:
@@ -1569,7 +1662,7 @@ def check_declared_schema_matches_data(doc: dict, mcp: MCPClient) -> list[Findin
                              f"WHERE {bexpr} < (SELECT total FROM files)")
             hard_rows = mcp.query(base + " UNION ALL ".join(parts)) if parts else []
         except (MCPError, ValueError, KeyError, IndexError) as e:
-            out.append(Finding(ADVISORY, "schema-match-check-failed",
+            out.append(Finding(HARD, "schema-match-check-failed",
                                f"asset '{key}': could not read parquet footers ({e})."))
             continue
         if not total:
@@ -1617,9 +1710,23 @@ def check_declared_schema_matches_data(doc: dict, mcp: MCPClient) -> list[Findin
 # #535 — a vector hex must hold every feature of its flat GeoParquet
 # ---------------------------------------------------------------------------
 
+# A documented shortfall: prose on the hex asset (or the collection) explaining why the
+# hex holds fewer features than the flat. TWO legitimate causes exist and both must match
+# — a sub-cell footprint (a feature smaller than one cell polyfills to zero cells) and a
+# geometry the polyfill cannot handle (the antimeridian-crossing case, data-workflows#520).
+# The subject may be SINGULAR: "block group GEOID 020160001001 … is absent from the hex".
+# Requiring the plural word "features" HARD-failed census/acs-2020-2024/blockgroup, which
+# documents its one missing feature correctly (data-workflows#509).
 _COVERAGE_NOTE = re.compile(
-    r"sub-?cell|smaller than (one|a)[^.]{0,20}cell|no hex cell|polyfill[^.]{0,20}zero|"
-    r"features?[^.]{0,20}no[^.]{0,20}cell|features?[^.]{0,20}absent from the hex", re.I)
+    r"sub-?cell"
+    r"|smaller than (one|a)[^.]{0,20}cell"
+    r"|no hex cell"
+    r"|zero cells?"
+    r"|polyfill\w*[^.]{0,20}zero"
+    r"|(cannot|can ?not|could not|can't)[^.]{0,30}polyfill"
+    r"|absent from the hex"
+    r"|not (present|included) in the hex"
+    r"|hex covers [\d,]+ of [\d,]+", re.I)
 
 
 def _asset_has_geom(asset: dict) -> bool:
@@ -1676,7 +1783,7 @@ def check_hex_holds_all_features(doc: dict, mcp: MCPClient) -> list[Finding]:
                 f"FROM read_parquet('{h_s3}')")[0]
             hex_n, hex_nulls = int(hrow["d"]), int(hrow["nulls"])
         except (MCPError, ValueError, KeyError, IndexError) as e:
-            out.append(Finding(ADVISORY, "hex-coverage-check-failed",
+            out.append(Finding(HARD, "hex-coverage-check-failed",
                                f"asset '{hkey}': could not compare feature coverage vs "
                                f"'{fkey}' ({e})."))
             continue
@@ -1790,7 +1897,7 @@ def check_hex_fid_matches_flat(doc: dict, mcp: MCPClient) -> list[Finding]:
                 "FROM h JOIN f USING (_cng_fid)")[0]
             matched, mism, fdist = int(row["n_join"]), int(row["mism"]), int(row["fdist"])
         except (MCPError, ValueError, KeyError, IndexError) as e:
-            out.append(Finding(ADVISORY, "hex-fid-identity-check-failed",
+            out.append(Finding(HARD, "hex-fid-identity-check-failed",
                 f"asset '{hkey}': could not compare _cng_fid numbering vs '{fkey}' ({e})."))
             continue
         if fdist <= 1:
@@ -1841,13 +1948,26 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
                 client = None
         if client is not None:
             if do_data:
-                findings.extend(check_values_match_distinct(doc, client))
-                findings.extend(check_declared_schema_matches_data(doc, client))  # #534 (hard)
-                findings.extend(check_hex_holds_all_features(doc, client))        # #535 (hard)
-                findings.extend(check_hex_fid_matches_flat(doc, client))          # #549 (hard)
-                findings.extend(check_null_hex_index(doc, client))      # #309 §2 (hard)
-                findings.extend(check_hex_row_uniqueness(doc, client))  # #509 (hard)
-                findings.extend(check_polygon_row_dup(doc, client))     # #309 §1 (advisory)
+                # A data-backed check that CANNOT RUN is not a pass. Each is dispatched so a
+                # transport failure becomes a HARD `data-check-failed` naming the check,
+                # rather than an uncaught traceback: an escaping exception exited 1 with no
+                # [HARD] line, which the sweep harness scored as CLEAN — the collection read
+                # as verified when nothing had been checked (data-workflows#509).
+                for label, fn in (
+                        ("values-vs-distinct", check_values_match_distinct),
+                        ("declared-schema-vs-data", check_declared_schema_matches_data),  # #534
+                        ("hex-holds-all-features", check_hex_holds_all_features),         # #535
+                        ("hex-fid-matches-flat", check_hex_fid_matches_flat),             # #549
+                        ("null-hex-index", check_null_hex_index),            # #309 §2
+                        ("hex-row-uniqueness", check_hex_row_uniqueness),    # #509
+                        ("polygon-row-dup", check_polygon_row_dup),          # #309 §1
+                ):
+                    try:
+                        findings.extend(fn(doc, client))
+                    except MCPError as e:
+                        findings.append(Finding(HARD, "data-check-failed",
+                            f"the '{label}' data check could not run ({e}) — this collection "
+                            f"is UNVERIFIED for that check, not clean. Re-run it."))
             if do_recall:
                 findings.extend(recall_pass(doc, client))
 

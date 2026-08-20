@@ -4,8 +4,7 @@ case-record layers (data-workflows #486).
 
 The seven layers are the same scrape modulo (service name, layer id, feature count,
 schema variant), so they are emitted from one template + the LAYERS table below rather
-than hand-copied seven times. Same gen-script-plus-committed-output pattern the sync
-manifests use (`catalog/sync/minio/gen-minio-sync.sh`).
+than hand-copied seven times (a gen-script-plus-committed-output pattern).
 
     python3 catalog/blm/k8s/gen-mlrs-minerals.py
 

@@ -21,6 +21,7 @@ Thumbs.db
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
+# skills are shared instructions - they MUST ship with the repo (#569)
 !.claude/skills/
 # git worktrees (relocated out of .claude/)
 .worktrees/

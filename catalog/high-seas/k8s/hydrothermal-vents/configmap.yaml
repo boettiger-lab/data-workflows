@@ -1,6 +1,6 @@
 # Auto-generated ConfigMap containing job definitions
 # Generated from: hydrothermal-vents-setup-bucket.yaml, hydrothermal-vents-convert.yaml, hydrothermal-vents-pmtiles.yaml, hydrothermal-vents-hex.yaml, hydrothermal-vents-repartition.yaml
-# Generation command: cng-datasets workflow --dataset hydrothermal-vents --source-url https://s3-west.nrp-nautilus.io/public-high-seas/hydrothermal-vents.parquet --bucket public-high-seas --h3-resolution 10 --parent-resolutions "0"
+# Generation command: cng-datasets workflow --dataset hydrothermal-vents --source-url https://s3-west.nrp-nautilus.io/public-high-seas/hydrothermal-vents.parquet --bucket public-high-seas --h3-resolution 10 --parent-resolutions "9,8,0"
 #
 # This ConfigMap is equivalent to running:
 #   kubectl create configmap hydrothermal-vents-yamls \
@@ -98,8 +98,8 @@ data:
       labels:
         k8s-app: hydrothermal-vents-hex
     spec:
-      completions: 200
-      parallelism: 50
+      completions: 1
+      parallelism: 1
       completionMode: Indexed
       backoffLimit: 0
       podFailurePolicy:
@@ -148,14 +148,16 @@ data:
             - -c
             - |-
               set -e
-              cng-datasets vector --input s3://public-high-seas/hydrothermal-vents.parquet --output s3://public-high-seas/hydrothermal-vents/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 0
+              cng-datasets vector --input s3://public-high-seas/hydrothermal-vents.parquet --output s3://public-high-seas/hydrothermal-vents/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
             resources:
               requests:
                 cpu: '4'
                 memory: 8Gi
+                ephemeral-storage: 10Gi
               limits:
                 cpu: '4'
                 memory: 8Gi
+                ephemeral-storage: 10Gi
           priorityClassName: opportunistic
           affinity:
             nodeAffinity:
@@ -231,7 +233,8 @@ data:
               # non-power-of-2 logical CPU counts which triggers an internal assertion
               # failure "N shards not a power of 2" (felt/tippecanoe#216).
               # Round detected CPU count down to nearest power of 2 to preserve I/O parallelism.
-              TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+              export TIPPECANOE_MAX_THREADS=8
+              echo "Using TIPPECANOE_MAX_THREADS=$TIPPECANOE_MAX_THREADS ($(nproc) CPUs detected)"
               tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$DATASET.geojsonl
 
               # Upload to S3 using rclone
@@ -317,11 +320,11 @@ data:
               requests:
                 cpu: '4'
                 memory: 32Gi
-                ephemeral-storage: 200Gi
+                ephemeral-storage: 50Gi
               limits:
                 cpu: '4'
                 memory: 32Gi
-                ephemeral-storage: 200Gi
+                ephemeral-storage: 50Gi
           volumes:
           - name: rclone-config
             secret:
@@ -419,4 +422,4 @@ data:
 kind: ConfigMap
 metadata:
   name: hydrothermal-vents-yamls
-  namespace: biodiversity
+  namespace: geo-workflows

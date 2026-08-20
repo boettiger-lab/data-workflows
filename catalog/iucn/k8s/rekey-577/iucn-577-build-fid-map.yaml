@@ -1,0 +1,150 @@
+# data-workflows#577, step 2 of 3 — build + verify the _cng_fid remap. Writes no
+# published object; output is a staging sibling.
+#
+# The hex's `_cng_fid` came from a conversion superseded by the #372 backfill
+# (catalog/backfill/k8s/cngfid-372/catA-cngfid-convert.yaml, 2026-07-09), so joining
+# hex->flat on it returns an unrelated species on essentially every row. The hex carries
+# no geometry, so parts cannot be matched back to individual flat rows by shape; the only
+# bridge is IUCN's natural key (id_no, presence, origin, seasonal).
+#
+# Measured facts this mapping relies on (all verified before writing it):
+#   * attributes are constant within a natural key in the flat  -> 0 of 114,087 keys vary
+#     (sci_name, latest_category_code, family, common_name_en, in_holdings), so pairing a
+#     hex part to ANY flat row of its key yields correct attributes;
+#   * the hex's own sci_name already agrees with the flat's on all 113,621 shared keys,
+#     so only the id is wrong, not the data;
+#   * every hex _cng_fid belongs to exactly one natural key (0 span more than one);
+#   * no key has more hex parts than flat rows (keys_M_gt_N = 0), so a within-key
+#     injective pairing always exists -> the rewrite cannot produce `hex-extra-features`.
+#
+# Pairing rule: within a natural key, rank hex parts by hex _cng_fid and flat rows by
+# flat _cng_fid, then pair by rank. Deterministic and globally injective (a flat id
+# belongs to one key, so no cross-key collision).
+#
+# LIMIT, stated plainly: for the 9,890 multi-part records (31,238 parts) the part-to-part
+# assignment is arbitrary — the re-keyed id identifies the correct RANGE RECORD and hence
+# the correct species and attributes, but not necessarily the same polygon part. For the
+# 103,731 single-part records it is exact. This is why re-key is a remediation, not a
+# substitute for the eventual rebuild.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-577-build-fid-map
+  labels:
+    k8s-app: iucn-577-build-fid-map
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-577-build-fid-map
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: map-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          python3 << 'PYEOF'
+          import duckdb, os, sys
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET memory_limit='26GB';")
+          con.execute("SET temp_directory='/tmp/duckdb-spill';")
+          con.execute(f"""
+            CREATE SECRET nrp (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}',
+              ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}', URL_STYLE 'path', USE_SSL false);
+          """)
+
+          SUMMARY = 's3://public-iucn/iucn-ranges-2025/staging-577/hex-fid-summary.parquet'
+          FLAT    = 's3://public-iucn/iucn-ranges-2025.parquet'
+          OUT     = 's3://public-iucn/iucn-ranges-2025/staging-577/fid-map.parquet'
+
+          con.execute(f"""
+            CREATE TEMP TABLE hex_ranked AS
+            SELECT id_no, presence, origin, seasonal, hex_fid,
+                   ROW_NUMBER() OVER (PARTITION BY id_no, presence, origin, seasonal
+                                      ORDER BY hex_fid) AS rk
+            FROM read_parquet('{SUMMARY}');
+          """)
+          con.execute(f"""
+            CREATE TEMP TABLE flat_ranked AS
+            SELECT id_no, presence, origin, seasonal, _cng_fid AS new_fid,
+                   ROW_NUMBER() OVER (PARTITION BY id_no, presence, origin, seasonal
+                                      ORDER BY _cng_fid) AS rk
+            FROM read_parquet('{FLAT}');
+          """)
+          con.execute("""
+            CREATE TEMP TABLE fid_map AS
+            SELECT h.hex_fid, f.new_fid
+            FROM hex_ranked h
+            JOIN flat_ranked f USING (id_no, presence, origin, seasonal, rk);
+          """)
+
+          n_hex  = con.execute("SELECT COUNT(*) FROM hex_ranked").fetchone()[0]
+          n_map  = con.execute("SELECT COUNT(*) FROM fid_map").fetchone()[0]
+          d_from = con.execute("SELECT COUNT(DISTINCT hex_fid) FROM fid_map").fetchone()[0]
+          d_to   = con.execute("SELECT COUNT(DISTINCT new_fid) FROM fid_map").fetchone()[0]
+          nulls  = con.execute(
+            "SELECT COUNT(*) FROM fid_map WHERE hex_fid IS NULL OR new_fid IS NULL").fetchone()[0]
+          identity = con.execute(
+            "SELECT COUNT(*) FROM fid_map WHERE hex_fid = new_fid").fetchone()[0]
+
+          print(f"hex parts to remap      : {n_hex}")
+          print(f"mapping rows            : {n_map}")
+          print(f"distinct hex_fid (from) : {d_from}")
+          print(f"distinct new_fid (to)   : {d_to}")
+          print(f"NULLs                   : {nulls}")
+          print(f"rows where id unchanged : {identity}")
+
+          # Every hex part must get exactly one new id, and the map must be a bijection
+          # onto its image — otherwise two hex parts would collapse onto one flat row.
+          assert n_map == n_hex,  f"mapping lost rows: {n_map} != {n_hex}"
+          assert d_from == n_hex, f"hex_fid not unique in map: {d_from} != {n_hex}"
+          assert d_to == n_hex,   f"new_fid not injective: {d_to} != {n_hex}"
+          assert nulls == 0,      "NULL in mapping"
+
+          # Attribute correctness: the remapped id must land on a flat row carrying the
+          # same species as the hex part already claims.
+          bad = con.execute(f"""
+            SELECT COUNT(*) FROM fid_map m
+            JOIN read_parquet('{SUMMARY}') s ON s.hex_fid = m.hex_fid
+            JOIN read_parquet('{FLAT}')    f ON f._cng_fid = m.new_fid
+            WHERE s.hex_sci_name IS DISTINCT FROM f.sci_name
+          """).fetchone()[0]
+          print(f"remapped ids whose species disagrees: {bad}")
+          assert bad == 0, "remap would attach a hex part to the wrong species"
+
+          con.execute(f"COPY fid_map TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD);")
+          print(f"wrote {OUT}")
+          print("DONE")
+          PYEOF
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 32Gi, ephemeral-storage: 50Gi}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']

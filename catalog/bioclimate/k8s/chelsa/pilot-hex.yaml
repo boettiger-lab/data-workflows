@@ -8,9 +8,14 @@
 # ensemble product) plus median/min/max. A five-member ensemble is summarised by its median and
 # full range; percentiles need a larger ensemble to mean anything.
 #
-# Units: cng-datasets does not apply the GeoTIFF scale/offset, so it is applied in the join.
-# exact_extract's area-weighted mean and the scale/offset are both linear, so
-# mean(scale*x + offset) == scale*mean(x) + offset -- equivalent, and avoids building float COGs.
+# Units: values arrive ALREADY IN PHYSICAL UNITS and must NOT be transformed again. cng-datasets
+# hands the raster path to exactextract, whose GDAL source applies the GeoTIFF scale/offset, so
+# the hex holds degrees C / mm, not raw integers. Measured on the Amazon h0 at res 5:
+# min 1.51, max 30.15, mean 27.32 -- plainly degrees C. Re-applying the transform yielded
+# -273.5 .. -269.9. A double-scaled column passes every structural check (row counts, coverage,
+# NULL counts, median-within-range), so only the physical plausibility bound below catches it.
+# See skill `raster-hexing`. NOTE: gdal.Band.ReadAsArray does NOT apply scale/offset -- the
+# ensemble script uses that path and applies the transform explicitly. The two differ on purpose.
 #
 # Land mask: CHELSA is a full-globe surface (VALID_PERCENT 99.999, real values over ocean), so
 # the joined partition is semi-joined against the WWF Terrestrial Ecoregions h8 hex. An h0 with

@@ -55,14 +55,16 @@ spec:
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-high-seas/hydrothermal-vents.parquet --output s3://public-high-seas/hydrothermal-vents/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 0
+          cng-datasets vector --input s3://public-high-seas/hydrothermal-vents.parquet --output s3://public-high-seas/hydrothermal-vents/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
         resources:
           requests:
             cpu: '4'
             memory: 8Gi
+            ephemeral-storage: 10Gi
           limits:
             cpu: '4'
             memory: 8Gi
+            ephemeral-storage: 10Gi
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:
