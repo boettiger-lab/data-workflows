@@ -86,30 +86,19 @@ Key commands:
 
 ## Backups & the public mirror — not in this repo
 
-NRP S3 is canonical. It is backed up to office MinIO and, where the licence allows, mirrored to
-Source Cooperative — but **both tiers are owned end to end by
-[geo-agent-ops](https://github.com/boettiger-lab/geo-agent-ops)**, running in a namespace this
-repo has no membership in, with credentials it does not hold. That tier derives its own scope
-and vendors its own code: nothing here is read by it, and nothing here can execute it.
+NRP S3 is canonical. It is backed up, and licence-permitting mirrored, by
+[geo-agent-ops](https://github.com/boettiger-lab/geo-agent-ops), which owns those tiers end to
+end. Nothing here is read by them and nothing here can execute them.
 
-| Destination | Purpose | Owner |
-|---|---|---|
-| **MinIO** (`minio.carlboettiger.info`) | private off-domain backup of every public bucket; the sole home for class-3 private data | geo-agent-ops |
-| **Source Cooperative** (`data.source.coop/cboettig/<repo>`) | public mirror, licence-gated | geo-agent-ops |
-
-**What this repo owes them is one field: an accurate STAC `license` on every collection**, which
-is the advisory input the mirror-scope auditor reads. See [AGENTS.md](AGENTS.md) Step 7.
-Redistribution verdicts — holds, blocklist, per-collection excludes — live in geo-agent-ops
-`scripts/check-source-scope.py`. If a mirror looks wrong, file an issue there; there is nothing
-in this repo to change.
+What this repo owes: **an accurate STAC `license` on every collection** (AGENTS.md Step 7). If a
+mirror looks wrong, file an issue on geo-agent-ops.
 
 ## Infrastructure
 
 - **Cluster:** NRP Nautilus, namespace `geo-workflows` (see AGENTS.md Hard Boundary 3)
 - **S3:** Ceph object storage (S3-compatible, not AWS)
 - **Public endpoint:** `https://s3-west.nrp-nautilus.io/<bucket>/<path>`
-- **MinIO backup:** `minio.carlboettiger.info` (private backup; owned + run by geo-agent-ops)
-- **Source Cooperative:** `data.source.coop/cboettig/<repo>` (public mirror, licence-gated; owned + run by geo-agent-ops)
-- **Secrets:** `aws` and `rclone-config` are pre-configured in the namespace. `rclone-config` holds the `nrp` remote **only** — the MinIO and source.coop remotes live in a separate secret in the backup namespace, by design.
+- **Secrets:** `aws` and `rclone-config` are pre-configured in the namespace. `rclone-config`
+  holds the `nrp` remote **only**, which is correct — no other remote belongs here.
 
 See [.github/copilot-instructions.md](.github/copilot-instructions.md) for detailed infrastructure context.

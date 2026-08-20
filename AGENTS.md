@@ -127,42 +127,21 @@ kubectl -n geo-workflows get jobs | grep <name>
   **≤200 simultaneous pods** and **≤50Gi ephemeral per job** (`limits.ephemeral-storage`),
   especially on large-completion fan-out jobs. Oversubscribing is antisocial on shared nodes.
 
-**Credential rule — three data classes (the redistribution axis is NOT the credential axis):**
-- **Classes 1 & 2 — public-bucket data.** Includes the *non-redistributable* sets
-  (WDPA / WD-OECM, IUCN, ICCA, HydroBASINS): those are ordinary `public-*` buckets on
-  NRP + MinIO backup, merely **excluded from the source.coop mirror** (a mirror-scope
-  policy, not a credential boundary). Their build jobs **read/write NRP only.** Stage raw
-  under `s3://<bucket>/raw/` (Step 1b); **never** write intermediates to MinIO with a
-  personal key; reading public data needs **no** credential. No MinIO cred in `geo-workflows`.
-- **Class 3 — strictly private data** (`private-wyoming`, `private-tpl`): single-homed on
-  MinIO, **not on any NRP bucket**. Mount a **scoped, single-bucket, on-demand EXPIRING
-  MinIO mint** for that one bucket (`mc admin user svcacct add <parent> --policy <one-bucket>
-  --expiry …`; the `wyoming-publish` model) — **never** a standing broad MinIO key.
+**Credentials you have, and the only two you ever need:**
+- **Public buckets (almost everything).** Build jobs read and write **NRP only**, with the
+  `aws` + `rclone-config` secrets already in `geo-workflows`. Reading public data needs no
+  credential at all. Stage raw under `s3://<bucket>/raw/` (Step 1b).
+  A workflow-namespace `rclone-config` holding only `[nrp]` is **correct, not a
+  missing-remote bug** (internal endpoint `http://rook-ceph-rgw-nautiluss3.rook`,
+  `upload_concurrency=16`, `chunk_size=64Mi`).
+- **Private buckets** (`private-wyoming`, `private-tpl`) live only on MinIO. Mount a
+  **scoped, single-bucket, on-demand EXPIRING mint** for that one bucket
+  (`mc admin user svcacct add <parent> --policy <one-bucket> --expiry …`; the
+  `wyoming-publish` model) — never a standing broad key. This is the only MinIO access a
+  build job ever has.
 
-### Why the workflow `rclone-config` is nrp-only
-
-Build jobs run in `geo-workflows` with NRP-canonical credentials only. The MinIO and source.coop
-remotes live in a different secret, in a namespace this repo has no membership in, owned by
-geo-agent-ops. The separation is deliberate and two-sided: a confused or compromised build job
-cannot reach the backup credentials, so it cannot propagate a delete or a corruption into the
-backups. Recovery, not just prevention.
-
-What that means for a build, concretely:
-
-- **A workflow-namespace `rclone-config` holding only `[nrp]` is CORRECT** — not a
-  missing-remote bug. (Verified 2026-07-12 during #392 in both `geo-workflows` and
-  `biodiversity`: internal endpoint `http://rook-ceph-rgw-nautiluss3.rook`,
-  `upload_concurrency=16`, `chunk_size=64Mi`.)
-- **Never add a MinIO or source.coop remote — or the `rclone-backup` secret — to a workflow
-  namespace.** That re-opens the boundary the split exists to close.
-- **Treat NRP canonical as corruptible.** It is not the last copy, and restoring it is not your
-  job and not within your reach.
-
-**MinIO matters to a build for exactly one reason:** it is the canonical, **sole** home for
-class-3 private data (`private-wyoming`, `private-tpl`, …), which lives on no NRP bucket and no
-mirror — losing MinIO loses it. Reading such an input through a scoped, expiring, single-bucket
-mint (above) is normal, and is the only MinIO access a build job ever has. MinIO's other roles
-(backup vault; the fine-grained-IAM tier NRP lacks) belong to geo-agent-ops.
+⛔ **Never add any other remote or secret to a workflow namespace.** If a job appears to need
+one, it is out of scope — stop and ask.
 
 ## What You Produce
 
@@ -379,42 +358,21 @@ editing any `stac-collection.json` or README.
 **The STAC catalog is a TREE** — datasets belong in their domain/bucket sub-catalog, not the root.
 Only touch the root when adding a **new** top-level sub-catalog. Procedure: **skill
 `stac-authoring`**.
-### Step 7: License the collection — you register NOTHING for backup or mirror
+### Step 7: Get the licence right
 
-Backups and the source.coop mirror are **owned end to end by geo-agent-ops**, in a namespace
-this repo has no membership in. That tier derives its own scope, holds its own credentials, and
-vendors its own code. In its own words (geo-agent-ops `k8s/minio-sync-cron.yaml`):
+**This is a metadata step and nothing else.** Every collection carries an accurate SPDX
+`license` plus a `{"rel": "license"}` link in its STAC (Step 5). Getting it wrong is how data
+ends up over- or under-published.
 
-> data-workflows supplies NOTHING to the backup tier — no code, no scope, no manifest.
-> It produces datasets on NRP and nothing else.
-
-So there is **no registration step here** — not for a new bucket, not for an existing one, not
-for a new collection in an existing bucket. Nothing in this repo is read by the backup tier.
-
-**Your one obligation is metadata.** Every collection must carry an accurate SPDX `license` and
-a license link in its STAC (Step 5). That field is the *advisory input* the mirror-scope auditor
-reads, so it is how a licence fact actually reaches the backup tier — and a wrong one is how
-data gets over- or under-published.
-
-- Record the **licence fact**: what upstream granted, with evidence. That is a STAC field and it
-  belongs here.
-- Do **not** record a **redistribution verdict** ("may we mirror this?"). That decision, and its
-  holds and blocklist, live in geo-agent-ops `scripts/check-source-scope.py`. A verdict written
-  down in this repo reaches nothing.
-- If a licence is genuinely unconfirmed, say so — `license: "other"` **and** a description that
-  states it. Never assert an SPDX id upstream did not grant, and never list a provider as
-  `licensor` when no licence was granted; the auditor acts on a clean-looking `license` string.
-  This has gone wrong in both directions: `rivers/american-rivers/*` asserted `CC-BY-4.0` with
-  no `licensor` behind it, and `hazard/mid-century-habitat-climate-exposure` asserts
-  `CC-BY-4.0` while its own description says the terms "require confirmation".
-- Notice a scope problem — something mirrored that should not be, or held that should not be —
-  **file an issue on geo-agent-ops.** Do not try to fix it here; there is nothing here to fix.
-
-⛔ **Never execute any part of the backup or mirror tier from this repo or namespace.** No
-`kubectl` against `sync-*` / `source-sync-*` / `minio-sync` Jobs or CronJobs, no source.coop
-repo creation, no MinIO bucket policy, and never add a MinIO or source.coop remote (or the
-`rclone-backup` secret) to a workflow namespace. You hold none of those credentials, and that is
-the design, not an oversight.
+- Record what upstream actually granted, with evidence.
+- If the terms are genuinely unconfirmed or no licence was granted, say so: a non-committal
+  `license` **and** a description sentence stating it. Never assert an SPDX id upstream did not
+  grant, and never name a provider as `licensor` when no licence was granted. This has gone
+  wrong in both directions — `rivers/american-rivers/*` asserted `CC-BY-4.0` with no `licensor`
+  behind it, and `hazard/mid-century-habitat-climate-exposure` asserts `CC-BY-4.0` while its own
+  description says the terms "require confirmation".
+- Do not invent a terms URL to clear the gate. If no public terms page exists, the finding
+  stands; record the facts in the description and say so in the issue.
 
 ## Hex sizing and resolution
 
