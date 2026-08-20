@@ -193,6 +193,50 @@ save_armada_yaml(armada_spec, 'armada-<name>-hex.yaml')
 
 Submit with `armadactl submit <file>`; monitor at <https://armada-lookout.nrp-nautilus.io>.
 
+## ⛔ Concurrency is set by your RESOURCE REQUEST, not by a quota
+
+Armada queues carry no concurrency limit — `armadactl get queue <q>` shows only
+`priorityFactor: 1` and no resource caps, identical across queues. What limits how many jobs run
+is **how many pods of your shape the cluster can hold**, against every other tenant. So an
+over-sized request throttles your own queue.
+
+Measured on one workload, requesting 32Gi / 8 cores per job:
+
+```
+Number of jobs scheduled:                   2
+Number of jobs that could not be scheduled: 4231
+Unschedulable jobs:
+ 4231: job does not fit on any node
+```
+
+Actual usage was **peak 5.2 Gi** and a **mean of 3.3 cores**. Right-size both dimensions — see
+the `hex-tuning` skill for the measurement recipe and the bimodal-profile caveat. **Size cpu as
+carefully as memory:** cpu is usually what binds placement, so the core over-ask throttles harder
+than the memory one, and it is easier to miss because the hot loop really is parallel while the
+localize / metadata / write phases around it are not.
+
+## ⛔ You cannot measure Armada concurrency with `kubectl`
+
+Two ways a point-in-time pod count misleads:
+
+- **Armada reaps completed pods quickly**, so a snapshot catches only a fraction of what is
+  cycling through.
+- **Armada leases gradually.** An hour of sampling read "steady at 22-27 running" while the
+  scheduler was still ramping; it later reached **128 running** with `cpu=1312` allocated. What
+  looked like a ceiling was the climb, and a throughput estimate taken during it was ~2x
+  pessimistic.
+
+Use the scheduler's own view, and divide by the per-job request to get real concurrency:
+
+```bash
+armadactl get queue-report <queue>
+#   Total allocated resources after scheduling: (memory=..., cpu=1312, ...)
+```
+
+Or count completed outputs over a fixed interval — the only measure that is independent of both
+effects. When counting S3 objects, `grep -c '<Key>'` counts *lines* and the listing is one line:
+use `grep -o '<Key>' | wc -l`, and follow `NextContinuationToken` past 1,000 keys.
+
 ## Armada keeps failed pods, which k8s does not
 
 A failed Armada pod stays in the namespace as `armada-<jobid>-0` in `Error`, so its logs are
