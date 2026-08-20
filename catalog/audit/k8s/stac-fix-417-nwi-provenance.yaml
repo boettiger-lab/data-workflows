@@ -1,0 +1,197 @@
+# data-workflows#417 — record the ingest provenance of `wetlands/nwi` in its STAC.
+#
+# The gap: the provenance CHAIN was already recorded (rel:about -> FWS, rel:source -> the
+# source.coop giswqs mirror, providers FWS -> giswqs -> us). Only the DATE was missing — and the
+# date is the one field that makes the chain resolvable to an edition. FWS republishes the NWI in
+# place twice a year (May and October) with no dated public archive, so once ingested the edition is
+# unrecoverable by anyone downstream, and nothing looks broken.
+#
+# Every anchor this job writes was measured from the bucket, not transcribed from the issue
+# (re-verified 2026-08-20 by anonymous S3 listing):
+#
+#   raw/nwi/*            51 objects, 81,364,206,213 bytes, ETag on 51/51 (46 multipart)
+#                        read window 2026-05-12T04:35:43.960Z -> 04:47:56.057Z
+#   nwi-v2.parquet       2026-05-12T17:14:00Z   (the CONVERSION, ~12.5 h after the read)
+#   nwi-v2.pmtiles       2026-05-13T05:24:22Z
+#   nwi-v2/hex/          2026-08-18T19:04:46.708Z -> 19:07:22.521Z  (the #509/#563 re-hex)
+#
+# ⛔ Deliberately NOT added: a `raw` asset pointing under raw/. #417's proposal item 3 floats that
+# convention, but #545 shows it collides with the mirror-scope auditor, which keys the raw/ backup
+# exclusion on STAC asset hrefs — that is exactly why `population` and `tpl` are exempt and still
+# mirroring their re-downloadable sources. A raw asset here would flip `public-wetlands` into that
+# exempt list and start mirroring 81 GB of source. So the anchors go in the description and
+# sci:citation, where they are just as citable and carry no href. Raised on #417/#545 for a ruling.
+#
+# ⛔ Deliberately NOT added: a `version`. A 2026-05-12 read most plausibly corresponds to the
+# October 2025 edition, but that is an inference about what the mirror held that day, not a
+# determination. Asserting it as `version` is precisely the error #417 exists to stop, and the error
+# that produced three retracted claims in geo-agent-benchmark#64.
+#
+# Idempotent: re-running changes nothing. In-cluster because STAC is canonical on NRP S3.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: stac-fix-417-nwi-provenance, namespace: geo-workflows}
+data:
+  fix.py: |
+    import json, subprocess, sys
+
+    KEY = 'nrp:public-wetlands/nwi/stac-collection.json'
+    SCI_EXT = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
+
+    # --- measured anchors (see the manifest header) -------------------------------
+    READ_START = '2026-05-12T04:35:43Z'
+    READ_END = '2026-05-12T04:47:56Z'
+    RAW_N = 51
+    RAW_BYTES = 81364206213
+    FLAT_CREATED = '2026-05-12T17:14:00Z'
+    PMTILES_CREATED = '2026-05-13T05:24:22Z'
+    HEX_CREATED = '2026-08-18T19:04:46Z'
+    HEX_END = '2026-08-18T19:07:22Z'
+
+    PROVENANCE = (
+        'Provenance and edition. The upstream data was read from the Source Cooperative mirror '
+        '(data.source.coop/giswqs/nwi/wetlands/) on 2026-05-12 between 04:35:43Z and 04:47:56Z. '
+        'The %d per-state GeoParquet files it returned (%s bytes in total) are retained on this '
+        'bucket under raw/nwi/, each carrying an S3 ETag, so the exact bytes that were ingested '
+        'remain verifiable; 46 of the %d are multipart uploads, whose ETag is therefore not a '
+        'plain MD5. That staged copy is the anchor, because the U.S. Fish & Wildlife Service does '
+        'not publish a dated archive of the NWI — it republishes in place twice a year (May and '
+        'October). The exact upstream edition behind this collection is therefore NOT recoverable. '
+        'A 2026-05-12 read most plausibly corresponds to the October 2025 edition, but that is an '
+        'inference about what the mirror held on that date, not a determination, and it should not '
+        'be cited as an edition.'
+    ) % (RAW_N, format(RAW_BYTES, ','), RAW_N)
+
+    NOT_AN_EDITION = (
+        'Three things here look like an edition stamp and are not. (1) The temporal interval '
+        '(1900-01-01 to 2024-12-31) is the coverage of the source mapping, not a release date. '
+        '(2) "nwi-v2" in the asset paths is the FWS product line — Version 2 means post-2012 '
+        'mapping that includes all surface-water features — not a dated version of this dataset. '
+        '(3) The nwi-v2.parquet object’s own modification time (%s) is when our conversion ran, '
+        'roughly 12.5 hours after the upstream read; the access date is the read window above. '
+        'All three have been mistaken for an edition by downstream consumers, so prefer the read '
+        'window and treat the edition as unknown.'
+    ) % FLAT_CREATED
+
+    CITATION = (
+        'U.S. Fish & Wildlife Service, National Wetlands Inventory (product line "NWI Version 2"). '
+        'Accessed %s via the Source Cooperative mirror data.source.coop/giswqs/nwi/wetlands/. '
+        'Upstream edition not determinable: FWS republishes in place biannually with no dated '
+        'archive. Processed to EPSG:4326 GeoParquet, PMTiles and H3 by the Boettiger Lab, '
+        'UC Berkeley.' % READ_START[:10]
+    )
+
+    ASSET_CREATED = {
+        'nwi-parquet': FLAT_CREATED,
+        'nwi-pmtiles': PMTILES_CREATED,
+        'nwi-hex': HEX_CREATED,
+    }
+    HEX_NOTE = (
+        'Rebuilt %s (through %s) under the #509 hex audit; the flat GeoParquet it was built from '
+        'has not been re-converted since %s, so the two remain the same conversion.'
+    ) % (HEX_CREATED[:10], HEX_END, FLAT_CREATED[:10])
+
+    FAIL = []
+    doc = json.loads(subprocess.check_output(['rclone', 'cat', KEY]))
+    changed = []
+
+    # 1. scientific extension, for a citable sci:citation carrying the access date.
+    exts = doc.setdefault('stac_extensions', [])
+    if SCI_EXT not in exts:
+        exts.append(SCI_EXT)
+        changed.append('stac_extensions+scientific')
+
+    # 2. The access date, machine-readable. A downstream consumer should cite this,
+    #    not a bucket listing (geo-agent-benchmark#65).
+    if doc.get('sci:citation') != CITATION:
+        doc['sci:citation'] = CITATION
+        changed.append('sci:citation')
+
+    # 3. Collection-level build span: first served build -> latest data change.
+    if doc.get('created') != FLAT_CREATED:
+        doc['created'] = FLAT_CREATED
+        changed.append('created')
+    if doc.get('updated') != HEX_END:
+        doc['updated'] = HEX_END
+        changed.append('updated')
+
+    # 4. Per-asset build dates, each measured from the object itself. This is what
+    #    makes "which asset came from which conversion" answerable later (#549).
+    for akey, created in ASSET_CREATED.items():
+        a = doc.get('assets', {}).get(akey)
+        if a is None:
+            FAIL.append('no asset %s' % akey); continue
+        if a.get('created') != created:
+            a['created'] = created
+            changed.append('%s.created' % akey)
+        if akey == 'nwi-hex':
+            desc = (a.get('description') or '').rstrip()
+            if HEX_NOTE not in desc:
+                a['description'] = (desc + ' ' + HEX_NOTE).strip()
+                changed.append('nwi-hex.description')
+
+    # 5. The provenance paragraphs, appended to the collection description.
+    desc = (doc.get('description') or '').rstrip()
+    for para in (PROVENANCE, NOT_AN_EDITION):
+        if para not in desc:
+            desc = desc + '\n\n' + para
+            changed.append('description+%s' % para.split('.')[0][:24])
+    doc['description'] = desc
+
+    if FAIL:
+        print('FAILURES:')
+        for f in FAIL:
+            print('  ' + f)
+        sys.exit(1)
+
+    if not changed:
+        print('ALREADY\tnothing to do')
+        sys.exit(0)
+
+    open('/tmp/o.json', 'w').write(json.dumps(doc, indent=2))
+    json.load(open('/tmp/o.json'))          # re-parse before publishing
+    subprocess.check_call(['rclone', 'copyto', '/tmp/o.json', KEY])
+    print('CHANGED\t%s' % ','.join(changed))
+
+    # 6. Confirm the published document round-trips, and that no asset href points
+    #    under raw/ (the #545 collision this job deliberately avoids).
+    back = json.loads(subprocess.check_output(['rclone', 'cat', KEY]))
+    if READ_START[:10] not in back.get('sci:citation', ''):
+        print('FAIL: access date missing from sci:citation after write'); sys.exit(1)
+    raw_assets = [k for k, v in back.get('assets', {}).items() if '/raw/' in v.get('href', '')]
+    if raw_assets:
+        print('FAIL: asset(s) now publish from under raw/: %r' % raw_assets); sys.exit(1)
+    print('verified\taccess=%s\tcreated=%s\tupdated=%s'
+          % (READ_START, back.get('created'), back.get('updated')))
+    print('done')
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-fix-417-nwi-provenance
+  namespace: geo-workflows
+  labels: {k8s-app: stac-fix-417-nwi-provenance}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-fix-417-nwi-provenance}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: fix, mountPath: /config, readOnly: true}
+        command: [bash, -c, "set -uo pipefail; python3 /config/fix.py"]
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: fix, configMap: {name: stac-fix-417-nwi-provenance}}
