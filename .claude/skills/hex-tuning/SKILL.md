@@ -12,6 +12,52 @@ How to size a vector hex job, and how to choose resolutions that stay joinable t
 
 **RAM is driven by the H3 cell count of the single largest feature in a chunk — not dataset size or bounding box.**
 
+### ⛔ MEASURE the request — never inherit it from a neighbouring job
+
+```bash
+kubectl -n geo-workflows top pod --no-headers | grep '^<prefix>' | awk '{
+  v=$3; if(v~/Gi$/){gsub(/Gi/,"",v); v=v*1024} else gsub(/Mi/,"",v);
+  if(v+0>m)m=v+0; s+=v; n++} END {printf "n=%d peak=%.2fGi mean=%.2fGi\n", n, m/1024, s/n/1024}'
+```
+
+(Handle both `Mi` and `Gi` — `kubectl top` mixes them, and a naive `gsub(/Mi/,"")` silently
+reports a peak *below* the mean.)
+
+Measured on the CHELSA hex (one raster per job): **peak 5.2 Gi, mean 3.5 Gi** against an initial
+**32 Gi** request — inherited by halving a 64 Gi figure that had itself been sized for a
+35-raster chain rather than the one raster a job actually runs.
+
+**An over-request throttles your own throughput**, because the request decides how many pods a
+shared cluster can hold. At 32 Gi the Armada scheduler reported *"4,231 jobs do not fit on any
+node"*. Aim for measured peak + ~50%, then re-measure.
+
+### But check WHICH resource is binding before celebrating
+
+Right-sizing 32 Gi → 8 Gi on that workload moved concurrency only from ~28 to ~31 pods, because
+**CPU was the binding constraint, not memory**: 8 cores x 30 pods ≈ 240 cores, and the scheduler's
+`Total allocated resources after scheduling` line had already shown `cpu=224`. Read that line —
+it tells you which dimension you are actually up against:
+
+```bash
+armadactl get queue-report <queue>   # or: kubectl describe node | grep -A5 'Allocated resources'
+```
+
+Halving cores to fit twice the pods is usually a wash, since the per-job runtime roughly doubles.
+When CPU is the cap, more throughput means more cluster share, not a different slicing.
+
+### The profile is bimodal — size for the common case, handle the few
+
+Most chunks are cheap and a handful cost everything: for a global raster ~116 of 122 h0 cells are
+ocean and finish in seconds while a few land cells dominate. A flat request sized for the worst
+chunk oversizes every other one, and at fine resolutions the worst chunk can be so large the
+request barely places (boettiger-lab/datasets#173: a res-10 CONUS h0 peaked at ~140 GiB, and
+256 Gi requests chronically hit `FailedScheduling`).
+
+Prefer, in order:
+1. **finer chunks**, so the worst case shrinks (sub-h0 chunking, datasets#173);
+2. **two tiers** — the common size for most, a larger request for the known-dense few;
+3. a flat worst-case request only when neither is available, knowing it costs concurrency.
+
 Hex generation is two passes:
 1. For each feature polygon, compute covering H3 cells (large array per feature)
 2. Unnest arrays row-by-row; **peak RAM = size of the largest single feature's cell array**
