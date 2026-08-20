@@ -103,6 +103,33 @@ Prefer, in order:
 2. **two tiers** — the common size for most, a larger request for the known-dense few;
 3. a flat worst-case request only when neither is available, knowing it costs concurrency.
 
+#### Worked example: 1 failure in 3,780, and it was the densest unit
+
+A CHELSA fan-out ran 4,270 microsliced hex jobs at **8 Gi** (measured peak 5.2 Gi across a
+sample). Armada's tally: **4,269 succeeded, 1 failed**. The single failure was
+`bio4` on h0 `578923658349641727` — the largest source file (494 MB) on the densest h0 (5,764,801
+cells, the res-8 maximum). Every other slice fit comfortably.
+
+That is the whole two-tier argument in one data point:
+
+- **flat to the worst case** → 24 Gi x 3,780 pods, roughly a third the concurrency, for one unit's
+  benefit;
+- **flat to the common case** → lose exactly one slice, re-run it at 24 Gi in nine minutes;
+- **two tiers** → nothing lost, no concurrency given away.
+
+It also shows the failure is *benign at fine granularity*. A memory miss cost nine minutes and one
+targeted retry. The same miss inside a 3.5-hour pod covering 35 rasters would have taken all 35
+down with it — which is the second reason to microslice, distinct from preemption.
+
+**Find the gap by enumerating, never by counting.** 3,779 of 3,780 staged files looks like
+completion at a glance, and a count alone cannot tell you which unit is absent. Diff the expected
+`(unit, chunk)` set against what landed:
+
+```python
+missing = [(f"{v}_{m}", h) for h in land_h0 for v in VARS for m in MEMBERS
+           if (f"{v}_{m}", h) not in staged]
+```
+
 Hex generation is two passes:
 1. For each feature polygon, compute covering H3 cells (large array per feature)
 2. Unnest arrays row-by-row; **peak RAM = size of the largest single feature's cell array**
