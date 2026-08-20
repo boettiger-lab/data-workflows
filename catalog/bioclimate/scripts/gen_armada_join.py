@@ -132,8 +132,12 @@ def main():
     ap.add_argument("--h0-indexes", default="0-121")
     ap.add_argument("--vars", default=",".join(VARS))
     ap.add_argument("--members", default=",".join(MEMBERS))
-    ap.add_argument("--memory", default="48Gi")
-    ap.add_argument("--cpu", type=int, default=4)
+    # NRP caps controller-less pods at 16 cores / 32 GB, and every Armada pod is
+    # controller-less. 48Gi was rejected at admission:
+    #   admission webhook "pod.nrp-nautilus.io" denied the request:
+    #   PODs without controllers are limited to 16 cores and 32 GB of RAM
+    ap.add_argument("--memory", default="32Gi")
+    ap.add_argument("--cpu", type=int, default=8)
     ap.add_argument("--priority-class", default="armada-preemptible")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()

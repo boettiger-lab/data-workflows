@@ -136,6 +136,8 @@ def main():
     ap.add_argument("--h0-indexes", default="0-121",
                     help="'0-121', or a comma list, to scope a proof run")
     ap.add_argument("--vars", default=",".join(VARS))
+    # NRP caps controller-less pods (which every Armada pod is) at 16 cores / 32 GB.
+    # Requesting more is rejected at admission, not at submit — armadactl --dry-run passes.
     ap.add_argument("--memory", default="32Gi")
     ap.add_argument("--cpu", type=int, default=8)
     # armada-default is non-preemptible (priority 100). Preemptible is a fine default once
