@@ -26,10 +26,12 @@ Do not run data processing commands (vector, raster, repartition) locally — th
 
 ## Available Skills
 
-Detailed reference guides are in `skills/`. **Do not read these proactively** — load a skill only when the task requires it:
+Detailed reference guides are in `.claude/skills/`. **Do not read these proactively** — load a skill only when the task requires it:
 
 | Skill file | When to load |
 |---|---|
-| `skills/nrp-k8s/SKILL.md` | Creating or debugging Kubernetes jobs on NRP Nautilus (priority classes, resource limits, GPU avoidance, namespace quotas) |
-| `skills/nrp-s3/SKILL.md` | S3 bucket operations: endpoints, rclone, bucket policies, CORS, DuckDB S3 access, syncing to source.coop |
-| `skills/gdal-remote/SKILL.md` | Reading remote geospatial files with GDAL/OGR virtual filesystems, DuckDB spatial, format conversions, Parquet driver availability |
+| `.claude/skills/stac-authoring/SKILL.md` | Writing or editing any `stac-collection.json` or dataset README |
+| `.claude/skills/raster-hexing/SKILL.md` | Ingesting or re-hexing a GeoTIFF/COG — resolution, reducer, mosaicking |
+| `.claude/skills/hex-tuning/SKILL.md` | A hex job OOMs, or choosing native/parent H3 resolutions and chunk sizes |
+| `.claude/skills/job-troubleshooting/SKILL.md` | A job fails, hangs, or a published parquet will not read |
+| `.claude/skills/dataset-recipes/SKILL.md` | Starting an ingest that resembles a worked example |
