@@ -56,15 +56,19 @@ data:
     The STAC `license` field is set to `proprietary`. Read that as *no redistribution right has
     been granted*, not as a reference to specific known restrictive terms.
   fix.py: |
-    import json, subprocess, sys
+    import json, shutil, subprocess, sys
 
     NRP = 'https://s3-west.nrp-nautilus.io'
     KEY = 'nrp:public-high-seas/mpa-candidates/stac-collection.json'
     TERMS_OBJ = 'nrp:public-high-seas/mpa-candidates/LICENSE.md'
     TERMS_URL = NRP + '/public-high-seas/mpa-candidates/LICENSE.md'
 
-    # 1. Publish the terms statement beside the data.
-    subprocess.check_call(['rclone', 'copyto', '/config/LICENSE.md', TERMS_OBJ])
+    # 1. Publish the terms statement beside the data. Stage through /tmp first:
+    # a ConfigMap mount is a symlink into ../data, and `rclone copyto` does not
+    # follow symlinks without --copy-links (it reports the source as "not a
+    # directory"). Every other stac-fix job uploads from /tmp for this reason.
+    shutil.copyfile('/config/LICENSE.md', '/tmp/LICENSE.md')
+    subprocess.check_call(['rclone', 'copyto', '/tmp/LICENSE.md', TERMS_OBJ])
     print('terms\tPUBLISHED\t%s' % TERMS_URL)
 
     # 2. Link it from the collection, so the gate resolves to a real document.
