@@ -63,6 +63,36 @@ job lives. `check_hex_fid_matches_flat` (#549) covered all 266 collections in th
 found only these two, so the other eight datasets on that list are clean — but the class is
 worth re-checking after any future backfill, not just after a per-dataset rebuild.
 
+#### A REORDER before a re-convert is what removes the cheap fix
+
+The two collections cost wildly different amounts to repair, and the difference is instructive.
+
+`hydrothermal-vents` was a uniform **+1 shift** (hex 0…720 against flat 1…721): the tool's id
+base changed from 0 to 1, the row order did not, so a re-key would have been provably lossless
+and the actual fix was minutes of cluster time.
+
+`iucn-ranges-2025` was an **unrelated permutation** — 0 of 134,969 ids unchanged. Not because
+its build was worse: its June hex carried the then-current flat's ids faithfully (old ids ran
+0…135,985 with exactly 1,017 gaps, matching the flat's row count and its missing-feature
+count; a build that had invented its own `ROW_NUMBER` would be gapless 0…134,968). What
+differed is that **`catalog/iucn/k8s/sort-ranges-polygons.yaml` (#255) reordered the flat by
+`sci_name` in between**. That job is harmless on its own — a plain `SELECT *`, so ids travel
+with their rows — but the later re-convert then assigned ids in the *new* order. Confirmed by
+inspection: new ids 1,2,3 are `Aa calceata` / `Aa mandonii` / `Aa matthewsii` (alphabetical),
+while old ids 0,1,2 are three parts of `Rhamnus intermedia`.
+
+So the rule to carry:
+
+> **Re-convert alone is recoverable in place. Reorder-then-re-convert is not.**
+> A sort/cluster job (`sort-ranges-polygons.yaml`, and any future one) is safe by itself and
+> unsafe in combination — it silently converts a later renumbering from a uniform offset into
+> a scramble, and once a hex carries no geometry there is nothing left to match parts back by.
+
+Practical consequence: **if you reorder a published flat, treat every hex built from it as
+stale from that moment**, even though nothing is wrong yet — the damage lands on whoever
+re-converts next. Rebuild or re-key the hex in the same change as the sort, or record in the
+dataset's `BUILD.md` that its hex predates the reorder.
+
 `land-cover/nlcd` verifies clean standalone (~690 s) but exceeds a 1200 s cap when eight
 collections run concurrently — a pacing artefact, not a finding. Give it its own slot.
 

@@ -1,3 +1,28 @@
+# ⛔ THIS JOB ORPHANS EVERY HEX BUILT FROM THE FLATS IT TOUCHES. Read before re-running it,
+# or before copying it as a template for another backfill.
+#
+# `cng-convert-to-parquet` synthesizes `_cng_fid` at CONVERSION time, so re-converting a
+# published flat renumbers every feature while the hex keeps the old numbering. This job's
+# 2026-07-09 run did exactly that to ten flats, and two of them had hexes:
+#
+#   * high-seas/hydrothermal-vents (13:07) -> data-workflows#574
+#   * iucn/iucn-ranges-2025        (13:10) -> data-workflows#577
+#
+# Neither had any row-count, schema, or coverage symptom. A consumer joining hex->flat on
+# `_cng_fid` — the documented universal key — simply got the wrong feature, for 78 days on
+# one collection and across a 4-billion-row asset on the other. Only
+# `check_hex_fid_matches_flat` (#549) found them, and it did not exist yet at the time.
+#
+# The repair cost differs enormously depending on whether the flat had been REORDERED first:
+#   * not reordered -> a uniform +1 shift, losslessly re-keyable (hydrothermal-vents: minutes)
+#   * reordered     -> an unrelated permutation, and since a hex carries no geometry its parts
+#                      cannot be matched back to flat rows (iucn: a 22 GiB rewrite plus a
+#                      permanent part-level ambiguity — see catalog/iucn/k8s/rekey-577/BUILD.md)
+#
+# SO, IF YOU RE-RUN OR COPY THIS: for every flat in the PAIRS list, rebuild or re-key its hex
+# (and anything else keyed to `_cng_fid`) in the SAME change, and re-run
+# `scripts/verify-stac.py` on those collections afterwards. Do not treat a successful convert
+# as a finished backfill.
 apiVersion: batch/v1
 kind: Job
 metadata:

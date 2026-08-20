@@ -22,6 +22,29 @@ That is the same mechanism and the same afternoon as #574.
 **Only the id was wrong.** The hex's own attributes were never corrupt: its `sci_name` already
 agreed with the flat's on all 113,621 shared range records.
 
+### The hex build was NOT at fault — and a reorder is why this cost 4 billion rows
+
+Worth stating plainly, because "the hex carries its own numbering" (the checker's generic
+message) invites the wrong conclusion. The June build carried the then-current flat's ids
+faithfully: the pre-swap ids run **0…135,985 with exactly 1,017 gaps**, which matches the
+flat's row count and its missing-feature count. A build that had synthesized its own
+`ROW_NUMBER` over what it kept would be gapless 0…134,968.
+
+So why a permutation rather than the tidy +1 shift that `hydrothermal-vents` got from the same
+job? Because **`catalog/iucn/k8s/sort-ranges-polygons.yaml` (#255) reordered this flat by
+`sci_name` in between**. That job is harmless alone — a plain `SELECT *`, so ids travel with
+their rows — but the later re-convert then numbered rows in the *new* order. Visible directly
+in the surviving map: new ids 1,2,3 are `Aa calceata` / `Aa mandonii` / `Aa matthewsii`
+(alphabetical, i.e. assigned after the sort), while old ids 0,1,2 are three parts of
+`Rhamnus intermedia`.
+
+> **Re-convert alone is recoverable in place. Reorder-then-re-convert is not.**
+
+That ordering is the whole reason this needed a natural-key bridge and a 22 GiB rewrite instead
+of the `SELECT * REPLACE (_cng_fid + 1)` that fixed #574 — and the reason the part-level
+residual below is unavoidable. If this flat is ever reordered again, rebuild or re-key the hex
+in the same change.
+
 ## Why a re-key rather than a rebuild
 
 A rebuild is the correct fix and remains the eventual one, but it is blocked and expensive:
