@@ -1,0 +1,93 @@
+# data-workflows#577 — promote the verified staging hex over the published one.
+#
+# Run ONLY after iucn-577-verify-staging passes. That job asserted, against the staged
+# data: 4,077,008,576 rows (identical to the published hex), 134,969 distinct _cng_fid,
+# no NULLs, and — the point of the exercise — 0 sci_name and 0 natural-key disagreements
+# when joined to the flat, where the published hex disagrees on essentially every id.
+#
+# The swap is a move, not a merge. It is safe here only because the partition sets are
+# identical (122 = 122, asserted below before anything is written), so every published
+# object is replaced and no stale partition can survive alongside the new ones.
+#
+# Rollback: the pre-swap hex holds nothing unique except its superseded _cng_fid
+# numbering, and staging-577/fid-map.parquet inverts the remap, so it is reconstructible.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-577-swap-hex
+  labels:
+    k8s-app: iucn-577-swap-hex
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-577-swap-hex
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: swap-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          SRC=nrp:public-iucn/iucn-ranges-2025/staging-577/hex
+          DST=nrp:public-iucn/iucn-ranges-2025/hex
+
+          rclone lsf "$SRC" --dirs-only | sed 's:/$::' | sort > /tmp/src.txt
+          rclone lsf "$DST" --dirs-only | sed 's:/$::' | sort > /tmp/dst.txt
+          echo "staging partitions:  $(wc -l < /tmp/src.txt)"
+          echo "published partitions: $(wc -l < /tmp/dst.txt)"
+
+          # A move only fully replaces the published hex if the partition sets match.
+          if ! diff -q /tmp/src.txt /tmp/dst.txt > /dev/null; then
+            echo "ERROR: partition sets differ; refusing to swap." >&2
+            diff /tmp/src.txt /tmp/dst.txt | head -20 >&2
+            exit 1
+          fi
+          if [ "$(wc -l < /tmp/src.txt)" != "122" ]; then
+            echo "ERROR: expected 122 partitions." >&2
+            exit 1
+          fi
+          echo "partition sets identical (122) — swapping"
+
+          rclone move "$SRC" "$DST" --transfers 8 --checkers 16
+
+          echo "after swap:"
+          echo "  published objects: $(rclone lsf "$DST" --recursive | wc -l)"
+          LEFT=$(rclone lsf "$SRC" --recursive 2>/dev/null | wc -l)
+          echo "  staging leftovers: $LEFT"
+          if [ "$LEFT" != "0" ]; then
+            echo "ERROR: staging not fully moved" >&2
+            exit 1
+          fi
+          echo "SWAP COMPLETE"
+        resources:
+          requests: {cpu: '4', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '4', memory: 8Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']

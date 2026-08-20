@@ -1,0 +1,128 @@
+# data-workflows#577, verification gate — run against STAGING before any swap.
+#
+# Reproduces, on the cluster, the two data-backed checks that decide this issue:
+#   * #549 check_hex_fid_matches_flat — join hex->flat on _cng_fid and assert the witness
+#     attribute agrees. This is the check that previously died on a truncated MCP read for
+#     this collection; run here as a job so it completes regardless of MCP limits.
+#   * #535 check_hex_missing_features — hex COUNT(DISTINCT _cng_fid) vs flat COUNT(*),
+#     plus the decomposition of the shortfall so it can be documented honestly.
+#
+# Read-only. Writes nothing.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-577-verify-staging
+  labels:
+    k8s-app: iucn-577-verify-staging
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-577-verify-staging
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: verify-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          python3 << 'PYEOF'
+          import duckdb, os
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET memory_limit='26GB';")
+          con.execute("SET temp_directory='/tmp/duckdb-spill';")
+          con.execute("SET preserve_insertion_order=false;")
+          con.execute(f"""
+            CREATE SECRET nrp (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}',
+              ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}', URL_STYLE 'path', USE_SSL false);
+          """)
+
+          HEX  = 's3://public-iucn/iucn-ranges-2025/staging-577/hex/h0=*/data_0.parquet'
+          FLAT = 's3://public-iucn/iucn-ranges-2025.parquet'
+
+          # One scan of the staged hex, reused for every assertion below.
+          print("scanning staged hex -> distinct (_cng_fid, attrs) ...", flush=True)
+          con.execute(f"""
+            CREATE TEMP TABLE h AS
+            SELECT DISTINCT _cng_fid, sci_name, id_no, presence, origin, seasonal
+            FROM read_parquet('{HEX}');
+          """)
+          con.execute(f"""
+            CREATE TEMP TABLE f AS
+            SELECT _cng_fid, sci_name, id_no, presence, origin, seasonal
+            FROM read_parquet('{FLAT}');
+          """)
+
+          h_n = con.execute("SELECT COUNT(*) FROM h").fetchone()[0]
+          h_d = con.execute("SELECT COUNT(DISTINCT _cng_fid) FROM h").fetchone()[0]
+          f_n = con.execute("SELECT COUNT(*) FROM f").fetchone()[0]
+          print(f"hex distinct _cng_fid rows : {h_n} (distinct ids {h_d})")
+          print(f"flat rows                  : {f_n}")
+          assert h_n == h_d, "a hex _cng_fid carries more than one attribute tuple"
+
+          # ---- #549: does the id identify the same feature on both assets? ----
+          row = con.execute("""
+            SELECT COUNT(*) AS n_join,
+                   COUNT(*) FILTER (WHERE h.sci_name IS DISTINCT FROM f.sci_name) AS mism_sci,
+                   COUNT(*) FILTER (WHERE (h.id_no, h.presence, h.origin, h.seasonal)
+                                       IS DISTINCT FROM
+                                          (f.id_no, f.presence, f.origin, f.seasonal)) AS mism_key
+            FROM h JOIN f USING (_cng_fid)
+          """).fetchone()
+          print(f"joined on _cng_fid         : {row[0]}")
+          print(f"  sci_name disagreements   : {row[1]}")
+          print(f"  natural-key disagreements: {row[2]}")
+          assert row[0] == h_n, "some hex ids do not exist in the flat (hex-extra-features)"
+          assert row[1] == 0, "sci_name still disagrees after re-key"
+          assert row[2] == 0, "natural key disagrees after re-key"
+
+          # ---- #535: feature coverage, and the shortfall decomposition ----
+          short = f_n - h_d
+          print(f"coverage shortfall         : {short} ({f_n} flat - {h_d} hex)")
+
+          absent_keys = con.execute("""
+            SELECT COUNT(*) FROM (
+              SELECT DISTINCT id_no, presence, origin, seasonal FROM f
+              EXCEPT SELECT DISTINCT id_no, presence, origin, seasonal FROM h)
+          """).fetchone()[0]
+          rows_in_absent = con.execute("""
+            SELECT COUNT(*) FROM f WHERE (id_no, presence, origin, seasonal) IN (
+              SELECT id_no, presence, origin, seasonal FROM (
+                SELECT DISTINCT id_no, presence, origin, seasonal FROM f
+                EXCEPT SELECT DISTINCT id_no, presence, origin, seasonal FROM h))
+          """).fetchone()[0]
+          print(f"  range records absent entirely : {absent_keys} ({rows_in_absent} flat rows)")
+          print(f"  parts dropped from present records: {short - rows_in_absent}")
+          print("ALL ASSERTIONS PASSED")
+          PYEOF
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']

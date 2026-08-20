@@ -1,0 +1,108 @@
+# data-workflows#577 — measure (feature, cell) row uniqueness on the hex.
+#
+# verify-stac's #509 uniqueness gate issues a single
+#   COUNT(DISTINCT COALESCE(h8,h7,h6,h5,h4,h0)::VARCHAR || '-' || _cng_fid::VARCHAR)
+# over all 4,077,008,576 rows. At this scale that repeatedly dies on the MCP transport
+# (`hex-row-uniqueness-check-failed`), which is HARD-but-UNVERIFIED, not a data verdict —
+# and is why this collection was one of the sweep's unverified rows long before #577.
+#
+# The same quantity is computed here per h0 partition and summed. That decomposition is
+# exact, not an approximation: a row's finest non-NULL cell (h8/h7/h6/h5/h4) is always a
+# descendant of that row's own h0, and rows are partitioned by h0, so every row sharing a
+# (cell, _cng_fid) pair sits in the same partition. Cross-partition duplicates cannot
+# exist, so summing per-partition distinct counts equals the global distinct count.
+#
+# Read-only. Writes nothing.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-577-row-uniqueness
+  labels:
+    k8s-app: iucn-577-row-uniqueness
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-577-row-uniqueness
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: uniq-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          rclone lsf nrp:public-iucn/iucn-ranges-2025/hex/ --dirs-only \
+            | sed 's:/$::' | sort > /tmp/parts.txt
+          echo "partitions: $(wc -l < /tmp/parts.txt)"
+
+          python3 << 'PYEOF'
+          import duckdb, os
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET memory_limit='26GB';")
+          con.execute("SET temp_directory='/tmp/duckdb-spill';")
+          con.execute("SET preserve_insertion_order=false;")
+          con.execute(f"""
+            CREATE SECRET nrp (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}',
+              ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}', URL_STYLE 'path', USE_SSL false);
+          """)
+
+          parts = [l.strip() for l in open('/tmp/parts.txt') if l.strip()]
+          # Same cell expression the gate uses: finest non-NULL h-column, else h0.
+          cell = "COALESCE(h8, h7, h6, h5, h4, h0)"
+          tot_rows = tot_pairs = 0
+          for i, p in enumerate(parts, 1):
+              src = f"s3://public-iucn/iucn-ranges-2025/hex/{p}/data_0.parquet"
+              r = con.execute(f"""
+                SELECT COUNT(*) AS total,
+                       (SELECT COUNT(*) FROM (
+                          SELECT DISTINCT {cell} AS c, _cng_fid
+                          FROM read_parquet('{src}', hive_partitioning=false))) AS pairs
+                FROM read_parquet('{src}', hive_partitioning=false)
+              """).fetchone()
+              tot_rows += r[0]; tot_pairs += r[1]
+              if r[1] != r[0]:
+                  print(f"  [{i}/{len(parts)}] {p}: DUPLICATES {r[0]-r[1]:,} "
+                        f"({r[0]:,} rows, {r[1]:,} pairs)", flush=True)
+              elif i % 20 == 0:
+                  print(f"  [{i}/{len(parts)}] clean so far ({tot_rows:,} rows)", flush=True)
+
+          print(f"total rows           : {tot_rows:,}")
+          print(f"distinct (cell, fid) : {tot_pairs:,}")
+          print(f"duplicate rows       : {tot_rows - tot_pairs:,}")
+          print("VERDICT:", "CLEAN" if tot_rows == tot_pairs else "DUPLICATES PRESENT")
+          PYEOF
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']

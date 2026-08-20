@@ -1,0 +1,127 @@
+# data-workflows#577, step 3 of 3 — rewrite the hex with the corrected `_cng_fid`.
+#
+# Writes to a STAGING sibling, never in place. One indexed pod per h0 partition (122),
+# so each pod handles ~186 MiB (largest ~1.2 GiB) and the whole 4.08e9-row / 22 GiB
+# rewrite stays bounded. The published hex is untouched until a separate verify+swap.
+#
+# Correctness guards inside each pod (a pod fails rather than writing a bad partition):
+#   * the source is read with hive_partitioning=false — `h0` is a PHYSICAL column in the
+#     file as well as the path key, and hive inference would collide with it;
+#   * every source row must find a mapping (no NULL new id) — a LEFT JOIN plus an
+#     explicit assertion, so a mapping gap surfaces as a failure, not as silent NULLs;
+#   * output row count must equal input row count exactly;
+#   * `SELECT * REPLACE` keeps the physical column order and types unchanged — only the
+#     values of `_cng_fid` differ.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-577-rekey-hex
+  labels:
+    k8s-app: iucn-577-rekey-hex
+spec:
+  completions: 122
+  parallelism: 20
+  completionMode: Indexed
+  backoffLimit: 6
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: iucn-577-rekey-hex
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: rekey-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # Deterministic partition assignment: the sorted h0 directory listing, indexed
+          # by JOB_COMPLETION_INDEX. Sorted so a retry of index N always gets partition N.
+          DIR=$(rclone lsf nrp:public-iucn/iucn-ranges-2025/hex/ --dirs-only \
+                | sed 's:/$::' | sort | sed -n "$((JOB_COMPLETION_INDEX + 1))p")
+          if [ -z "$DIR" ]; then
+            echo "ERROR: no partition for index ${JOB_COMPLETION_INDEX}" >&2
+            exit 1
+          fi
+          echo "index ${JOB_COMPLETION_INDEX} -> ${DIR}"
+          export PART_DIR="$DIR"
+
+          python3 << 'PYEOF'
+          import duckdb, os, sys
+
+          part = os.environ["PART_DIR"]
+          SRC = f's3://public-iucn/iucn-ranges-2025/hex/{part}/data_0.parquet'
+          DST = f's3://public-iucn/iucn-ranges-2025/staging-577/hex/{part}/data_0.parquet'
+          MAP = 's3://public-iucn/iucn-ranges-2025/staging-577/fid-map.parquet'
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET memory_limit='20GB';")
+          con.execute("SET temp_directory='/tmp/duckdb-spill';")
+          con.execute("SET preserve_insertion_order=false;")
+          con.execute(f"""
+            CREATE SECRET nrp (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}',
+              ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}', URL_STYLE 'path', USE_SSL false);
+          """)
+
+          # hive_partitioning=false: h0 is a real column in the file; letting DuckDB also
+          # infer it from the h0=... path would duplicate/override it.
+          src_rel = f"read_parquet('{SRC}', hive_partitioning=false)"
+
+          n_src = con.execute(f"SELECT COUNT(*) FROM {src_rel}").fetchone()[0]
+          unmapped = con.execute(f"""
+            SELECT COUNT(*) FROM {src_rel} h
+            LEFT JOIN read_parquet('{MAP}') m ON h._cng_fid = m.hex_fid
+            WHERE m.new_fid IS NULL
+          """).fetchone()[0]
+          print(f"{part}: src rows={n_src} unmapped={unmapped}", flush=True)
+          assert unmapped == 0, f"{part}: {unmapped} rows have no _cng_fid mapping"
+
+          con.execute(f"""
+            COPY (
+              SELECT h.* REPLACE (m.new_fid AS _cng_fid)
+              FROM {src_rel} h
+              JOIN read_parquet('{MAP}') m ON h._cng_fid = m.hex_fid
+            ) TO '{DST}' (FORMAT PARQUET, COMPRESSION ZSTD);
+          """)
+
+          n_dst = con.execute(
+            f"SELECT COUNT(*) FROM read_parquet('{DST}', hive_partitioning=false)").fetchone()[0]
+          print(f"{part}: dst rows={n_dst}", flush=True)
+          assert n_dst == n_src, f"{part}: row count changed {n_src} -> {n_dst}"
+          print(f"{part}: OK", flush=True)
+          PYEOF
+        resources:
+          requests: {cpu: '4', memory: 24Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 24Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
