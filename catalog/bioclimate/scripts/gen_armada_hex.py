@@ -114,8 +114,8 @@ def make_pod(h0idx, var, gcm, col, ssp, period, staging, memory, cpu):
                 {"name": "scripts", "mountPath": "/opt/scripts", "readOnly": True},
             ],
             "resources": {
-                "requests": {"cpu": str(cpu), "memory": memory, "ephemeral-storage": "16Gi"},
-                "limits": {"cpu": str(cpu), "memory": memory, "ephemeral-storage": "16Gi"},
+                "requests": {"cpu": str(cpu), "memory": memory, "ephemeral-storage": "8Gi"},
+                "limits": {"cpu": str(cpu), "memory": memory, "ephemeral-storage": "8Gi"},
             },
         }],
         "volumes": [
@@ -136,9 +136,16 @@ def main():
     ap.add_argument("--h0-indexes", default="0-121",
                     help="'0-121', or a comma list, to scope a proof run")
     ap.add_argument("--vars", default=",".join(VARS))
-    # NRP caps controller-less pods (which every Armada pod is) at 16 cores / 32 GB.
-    # Requesting more is rejected at admission, not at submit — armadactl --dry-run passes.
-    ap.add_argument("--memory", default="32Gi")
+    # MEASURED, not inherited. `kubectl top pod` across 25 running slices showed peak 5.4 Gi
+    # and mean 3.9 Gi, so 8Gi carries ~48% headroom. The first version asked for 32Gi -- half of
+    # the k8s job's 64Gi, which was itself sized for a 35-raster chain rather than one raster --
+    # and the scheduler reported "4,231 jobs do not fit on any node" while only ~28 ran. RAM is
+    # what limits how many pods the cluster can hold, so an over-request directly throttles
+    # concurrency: a node with 10Gi free and cores to spare can take an 8Gi pod but not a 32Gi one.
+    #
+    # NRP also caps controller-less pods (which every Armada pod is) at 16 cores / 32 GB.
+    # Exceeding that is rejected at admission, not at submit -- armadactl --dry-run passes.
+    ap.add_argument("--memory", default="8Gi")
     ap.add_argument("--cpu", type=int, default=8)
     # armada-default is non-preemptible (priority 100). Preemptible is a fine default once
     # units are minutes rather than hours; see the armada-pipeline skill.
