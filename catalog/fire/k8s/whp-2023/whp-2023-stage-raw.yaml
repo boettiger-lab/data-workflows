@@ -1,0 +1,205 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: whp-2023-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: whp-2023-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: whp-2023-stage-raw
+    spec:
+      restartPolicy: Never
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      dnsPolicy: None
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          URL='https://www.fs.usda.gov/rds/archive/products/RDS-2015-0047-4/RDS-2015-0047-4_Data.zip'
+          echo "=== Downloading WHP 2023 v4 data archive (expect 368,424,961 bytes) ==="
+          curl -L --retry 8 --retry-all-errors --no-progress-meter -o /tmp/whp2023.zip "$URL"
+          ls -la /tmp/whp2023.zip
+
+          # The RDS archive soft-200s on invalid publication ids: it returns HTTP 200 with an
+          # "Invalid publication id" HTML body. Never trust the status code -- check the bytes.
+          # (`file` is not installed in this image; test the zip magic bytes directly instead.)
+          echo "=== Verifying this is a real zip, not a soft-200 error page ==="
+          MAGIC=$(head -c 2 /tmp/whp2023.zip)
+          if [ "$MAGIC" != "PK" ]; then
+            echo "FATAL: download is not a zip archive (magic '$MAGIC'). First 400 bytes:"
+            head -c 400 /tmp/whp2023.zip
+            exit 1
+          fi
+          unzip -t /tmp/whp2023.zip > /dev/null && echo "zip integrity OK"
+
+          echo "=== Archive listing ==="
+          unzip -l /tmp/whp2023.zip
+
+          echo "=== Unzipping ==="
+          mkdir -p /tmp/whp && cd /tmp/whp
+          unzip -q -o /tmp/whp2023.zip
+          find /tmp/whp -maxdepth 3 \( -name '*.tif' -o -name '*.gdb' -type d \) | sort
+
+          echo
+          echo "=== Uploading raw archive + rasters to s3://public-fire/raw/whp-2023/ ==="
+          rclone copy /tmp/whp2023.zip nrp:public-fire/raw/whp-2023/ -P --transfers 4
+          rclone copy /tmp/whp nrp:public-fire/raw/whp-2023/unpacked/ -P --transfers 8 --checkers 8
+          echo "=== verify upload ==="
+          rclone size nrp:public-fire/raw/whp-2023/
+          rclone lsf nrp:public-fire/raw/whp-2023/unpacked/ --recursive | head -40
+          echo "RAW STAGED -- pre-flight analysis follows; a failure below does not lose the staging"
+
+          echo
+          set +e   # diagnostics from here down; raw is already staged
+          echo "############ PRE-FLIGHT ############"
+          # Everything below is the pre-flight the raster-hexing skill requires BEFORE choosing
+          # resolution / reducer / nodata: real pixel size, real CRS, real nodata, and -- for the
+          # classified product -- the exact code set, which is what the non-burnable-denominator
+          # question turns on.
+          for f in $(find /tmp/whp -name 'whp2023_*.tif' | sort); do
+            echo
+            echo "=================================================================="
+            echo "### $f"
+            echo "=================================================================="
+            gdalinfo "$f" | sed -n '1,60p'
+          done
+
+          echo
+          echo "############ CLASSIFIED CODE HISTOGRAM (exact counts) ############"
+          # gdalinfo -hist buckets; we want exact per-value pixel counts so the non-burnable
+          # codes can be identified and documented rather than guessed.
+          python3 - <<'PY'
+          import glob
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+
+          for path in sorted(glob.glob('/tmp/whp/**/whp2023_cls_*.tif', recursive=True)):
+              ds = gdal.Open(path)
+              b = ds.GetRasterBand(1)
+              print()
+              print('=' * 70)
+              print(path)
+              print('  size      :', ds.RasterXSize, 'x', ds.RasterYSize)
+              print('  dtype     :', gdal.GetDataTypeName(b.DataType))
+              print('  nodata    :', b.GetNoDataValue())
+              gt = ds.GetGeoTransform()
+              print('  pixel size:', gt[1], gt[5])
+              print('  origin    :', gt[0], gt[3])
+              # exact value counts, block-wise so memory stays bounded
+              counts = {}
+              rows = 2048
+              for y in range(0, ds.RasterYSize, rows):
+                  h = min(rows, ds.RasterYSize - y)
+                  a = b.ReadAsArray(0, y, ds.RasterXSize, h)
+                  v, c = np.unique(a, return_counts=True)
+                  for vi, ci in zip(v.tolist(), c.tolist()):
+                      counts[vi] = counts.get(vi, 0) + ci
+              total = sum(counts.values())
+              print('  distinct values:', len(counts))
+              print('  %-8s %14s %9s' % ('value', 'pixels', 'share'))
+              for vi in sorted(counts):
+                  print('  %-8s %14d %8.4f%%' % (vi, counts[vi], 100.0 * counts[vi] / total))
+              # category names, if the source ships a RAT or category list
+              cats = b.GetCategoryNames()
+              if cats:
+                  print('  GDAL category names:')
+                  for i, name in enumerate(cats):
+                      if name:
+                          print('    %s = %s' % (i, name))
+              rat = b.GetDefaultRAT()
+              if rat is not None:
+                  print('  RAT: %d rows x %d cols' % (rat.GetRowCount(), rat.GetColumnCount()))
+                  hdr = [rat.GetNameOfCol(c) for c in range(rat.GetColumnCount())]
+                  print('   ', hdr)
+                  for r in range(min(rat.GetRowCount(), 30)):
+                      row = []
+                      for c in range(rat.GetColumnCount()):
+                          if rat.GetTypeOfCol(c) == gdal.GFT_String:
+                              row.append(rat.GetValueAsString(r, c))
+                          elif rat.GetTypeOfCol(c) == gdal.GFT_Real:
+                              row.append(rat.GetValueAsDouble(r, c))
+                          else:
+                              row.append(rat.GetValueAsInt(r, c))
+                      print('   ', row)
+              ds = None
+          PY
+
+          echo
+          echo "############ CONTINUOUS STATS ############"
+          for f in $(find /tmp/whp -name 'whp2023_cnt_*.tif' | sort); do
+            echo "### $f"
+            gdalinfo -stats "$f" | grep -E 'Minimum|Maximum|Mean|StdDev|NoData|Pixel Size|Size is|Type='
+          done
+
+          echo
+          echo "############ Metadata / supplement docs shipped in the archive ############"
+          find /tmp/whp -maxdepth 4 -type f \( -name '*.pdf' -o -name '*.txt' -o -name '*.xml' -o -name '*.html' -o -name '*.csv' \) | sort | head -40
+
+          echo "ALL DONE"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 45Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 45Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              # Known-bad egress/S3 hosts: pods schedule but hang on download/localize.
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
