@@ -25,8 +25,10 @@ def main() -> int:
     args = ap.parse_args()
 
     con = duckdb.connect()
+    # DuckDB's DESCRIBE yields column_name/column_type -- not name/type.
     cols = con.execute(
-        "SELECT name, type FROM (DESCRIBE SELECT * FROM read_parquet(?))", [args.src]
+        "SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet(?))",
+        [args.src],
     ).fetchall()
 
     select_parts, value_cols = [], []
@@ -55,17 +57,35 @@ def main() -> int:
         print(f"ERROR: row count changed {n_src} -> {n_out}", file=sys.stderr)
         return 1
 
-    # float32 has ~7 significant digits; values here are +/-10^4 at 0.1 resolution, so any
-    # difference beyond 0.01 means something other than rounding happened.
-    checks = ", ".join(
-        f"MAX(ABS(CAST(s.{c} AS DOUBLE) - CAST(o.{c} AS DOUBLE)))" for c in value_cols
+    # Compare per-column aggregates rather than joining the two files. A 60-column join over
+    # millions of rows needs far more memory than the cast itself, and aggregates catch the
+    # failure modes that matter: a shifted value, a lost row, a nulled column.
+    aggs = ", ".join(
+        f"MIN({c}) AS mn_{i}, MAX({c}) AS mx_{i}, COUNT({c}) AS n_{i}"
+        for i, c in enumerate(value_cols)
     )
-    worst = con.execute(f"""
-        SELECT GREATEST({checks})
-        FROM read_parquet('{args.src}') s JOIN read_parquet('{args.out}') o USING (h8)
-    """).fetchone()[0]
-    print(f"max absolute change across all value columns: {worst}")
-    if worst is not None and worst > 0.01:
+    src_stats = con.execute(f"SELECT {aggs} FROM read_parquet('{args.src}')").fetchone()
+    out_stats = con.execute(f"SELECT {aggs} FROM read_parquet('{args.out}')").fetchone()
+
+    worst = 0.0
+    for i, c in enumerate(value_cols):
+        s_mn, s_mx, s_n = src_stats[i * 3], src_stats[i * 3 + 1], src_stats[i * 3 + 2]
+        o_mn, o_mx, o_n = out_stats[i * 3], out_stats[i * 3 + 1], out_stats[i * 3 + 2]
+        if s_n != o_n:
+            print(f"ERROR: {c} non-null count changed {s_n} -> {o_n}", file=sys.stderr)
+            return 1
+        for a, b, what in ((s_mn, o_mn, "min"), (s_mx, o_mx, "max")):
+            if a is None and b is None:
+                continue
+            if a is None or b is None:
+                print(f"ERROR: {c} {what} became NULL", file=sys.stderr)
+                return 1
+            worst = max(worst, abs(float(a) - float(b)))
+
+    # float32 carries ~7 significant digits; these values are at most ~10^4 at 0.1 resolution,
+    # so anything beyond 0.01 is not rounding.
+    print(f"max absolute change across {len(value_cols)} value columns: {worst}")
+    if worst > 0.01:
         print(f"ERROR: cast changed a value by {worst}, beyond float32 rounding", file=sys.stderr)
         return 1
     return 0

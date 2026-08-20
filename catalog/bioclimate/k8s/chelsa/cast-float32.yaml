@@ -19,7 +19,7 @@ spec:
     metadata: {labels: {k8s-app: chelsa-cast-float32}}
     spec:
       restartPolicy: Never
-      priorityClassName: opportunistic
+      # Default priority, not opportunistic (-2000000000) — see the pod-preemption skill.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
