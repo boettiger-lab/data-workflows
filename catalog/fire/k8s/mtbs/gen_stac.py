@@ -152,6 +152,17 @@ MODE_VS_FRACTIONS = (
     "a share computed from `mode` alone loses that 40 percent."
 )
 
+CLAMP_NOTE = (
+    "**One source raster carried 23 undefined pixel values, and they were removed.** "
+    "`mtbs_CONUS_2005.tif` holds 23 pixels — out of 12.7 billion — with values outside the "
+    "published class list, in the range 32 to 124. Nearest-neighbour resampling cannot invent "
+    "values, so these are an upstream defect rather than something this processing introduced. "
+    "They are set to no-data here, because a code the class list does not define is not a severity "
+    "observation. Every other year is clean, and the effect on any 2005 statistic is far below "
+    "rounding: 23 pixels is two thousandths of a hectare in a year that burned 21.7 million pixels "
+    "at a severity level."
+)
+
 AREA_TRUTH = (
     "**Area truth comes from the source grid, not from pixel counts on the published COG.** The "
     "source is an equal-area Albers grid, so counting its pixels measures area. The COG published "
@@ -512,6 +523,10 @@ def severity_collection(dom):
         REBURN,
         missing_note(dom),
         AREA_TRUTH,
+    ]
+    if dom == "conus":
+        parts.append(CLAMP_NOTE)
+    parts += [
         "**Native resolution 10 is the closest H3 resolution to a 30 metre pixel, and it is still "
         "coarser than the source.** A resolution 10 cell holds roughly 17 source pixels, so the "
         "`mode` product's dominant class discards a real mix within each cell; that is what the "
