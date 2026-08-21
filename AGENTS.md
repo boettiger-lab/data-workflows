@@ -374,6 +374,15 @@ ends up over- or under-published.
   description says the terms "require confirmation".
 - Do not invent a terms URL to clear the gate. If no public terms page exists, the finding
   stands; record the facts in the description and say so in the issue.
+- **One sanctioned exception, and only this one: data contributed directly to us, where no terms
+  were ever published.** Here "no public terms page" is not a gap to be researched — it is the
+  complete answer, so a permanently-red finding would be recording a fact as a defect. Publish the
+  statement of terms beside the data (`s3://<bucket>/<dataset>/LICENSE.md`) and link it. The
+  document must **grant nothing**: it records what was and was not given. `verify-stac.py` reports
+  `license-terms-self-hosted` (ADVISORY) whenever a licence link resolves to our own bucket, so this
+  can never be mistaken for a verified upstream grant. Worked example: `high-seas/mpa-candidates`
+  (#579). This does **not** licence guessing anywhere else — for data with a real publisher, an
+  absent terms page still leaves the finding standing.
 
 ## Hex sizing and resolution
 

@@ -545,6 +545,52 @@ class HexFidMatchesFlat(unittest.TestCase):
         self.assertEqual(mcp.sql, [], "no witness → must not query")
 
 
+class SelfHostedLicenseTerms(unittest.TestCase):
+    """A licence link pointing at our OWN bucket means WE authored the terms, not upstream.
+    Legitimate only for directly-contributed data with no published terms — a colleague's
+    contribution with no citation, no attribution, no URL (data-workflows#579). Reported
+    ADVISORY so the case stays visible in every audit instead of being re-litigated, and so
+    it can never be mistaken for a verified upstream grant."""
+
+    NRP = "https://s3-west.nrp-nautilus.io"
+
+    def _doc(self, license_href=None, license_="proprietary", children=False):
+        links = [
+            {"rel": "self", "href": f"{self.NRP}/public-x/d/stac-collection.json"},
+            {"rel": "root", "href": f"{self.NRP}/public-data/stac/catalog.json"},
+            {"rel": "parent", "href": f"{self.NRP}/public-x/stac-collection.json"},
+        ]
+        if license_href:
+            links.append({"rel": "license", "href": license_href, "type": "text/markdown"})
+        if children:
+            links.append({"rel": "child", "href": f"{self.NRP}/public-x/d/c/stac-collection.json"})
+        return {"type": "Collection", "id": "d", "license": license_, "links": links}
+
+    def test_self_hosted_terms_clears_hard_but_is_advisory(self):
+        f = vs.check_license(self._doc(f"{self.NRP}/public-x/d/LICENSE.md"))
+        self.assertEqual([x.code for x in f], ["license-terms-self-hosted"])
+        self.assertEqual(f[0].severity, vs.ADVISORY)
+
+    def test_upstream_terms_link_is_silent(self):
+        # The ordinary case: terms hosted by the publisher. No finding at all.
+        self.assertEqual(vs.check_license(self._doc("https://example.gov/terms")), [])
+
+    def test_missing_link_is_still_hard(self):
+        # The advisory must not have weakened the rule it sits beside.
+        f = vs.check_license(self._doc(None))
+        self.assertEqual([x.code for x in f], ["license-link-missing"])
+        self.assertEqual(f[0].severity, vs.HARD)
+
+    def test_meta_collection_exemption_survives(self):
+        # 'other' + child links = the real licences live on the children.
+        self.assertEqual(vs.check_license(self._doc(None, "other", children=True)), [])
+
+    def test_advisory_fires_regardless_of_spdx_value(self):
+        # Self-hosting terms under a real SPDX id is odd enough to surface too.
+        f = vs.check_license(self._doc(f"{self.NRP}/public-x/d/LICENSE.md", "CC-BY-4.0"))
+        self.assertIn("license-terms-self-hosted", [x.code for x in f])
+
+
 class CatalogNotCollection(unittest.TestCase):
     """A STAC Catalog (the root) is structural — it has no license or extent, and the root
     has no parent. The Collection checks must skip it (data-workflows#509)."""
