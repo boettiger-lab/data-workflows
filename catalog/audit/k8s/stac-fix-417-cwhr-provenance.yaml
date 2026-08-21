@@ -1,0 +1,205 @@
+# data-workflows#417 — backfill the ingest provenance of `cwhr` and `cwhr13` (the motivating case).
+#
+# Why these two are the hard case, and why the stored raw IS the provenance: the fveg22_1 raster
+# file-geodatabase has NO stable public direct-download URL. The FRAP endpoints 301-redirect to a
+# generic program page, the historical /media/<id>/fveg<ver>.zip pattern is dead for the current
+# release, and data.ca.gov distributes only CSV / Shapefile / GeoJSON / KML for these layers — not
+# the raster GDB. So nobody downstream can re-fetch what we ingested; the only verifiable anchor is
+# the copy on our own bucket plus its fingerprint. That is exactly the case #417 was filed for.
+#
+# Both collections come from the SAME raw zip — verified in catalog/cwhr/k8s/reclassify-fveg.yaml,
+# which pulls raw/fveg221gdb.zip once and reclassifies /tmp/fveg22_1.gdb through two LUTs
+# (Value -> WHRNUM for cwhr, Value -> WHR13NUM for cwhr13). So they share one provenance record.
+#
+# Anchors, measured from the bucket 2026-08-20 (the issue's table matched exactly):
+#
+#   raw/fveg221gdb.zip   147,269,039 bytes, staged 2026-06-17T19:47:29Z
+#                        ETag cffcb952d8ac1918046087ee6e8de55a  (single-part, so a real MD5)
+#                        sha256 is RECOMPUTED FROM S3 BY THIS JOB and asserted, never transcribed
+#   cwhr-cog.tif         2026-06-17T19:56:15Z     cwhr13-cog.tif  2026-06-17T19:56:03Z
+#   cwhr/hex             2026-06-18T01:49:20Z     cwhr13/hex      2026-06-17T23:56:48Z
+#   cwhr/hex-fractions   2026-07-11T18:30:48Z     cwhr13/hex-fr.  2026-07-08T15:28:28Z
+#
+# Unlike wetlands/nwi, the upstream EDITION here is determinable — `fveg22_1`, FGDC record ds1327 —
+# so `version` is set. That is a fact upstream published, not an inference.
+#
+# ⛔ No `raw` asset href, for the #545 reason documented in the NWI job: the mirror-scope auditor
+# keys the raw/ backup exclusion on asset hrefs. The job asserts none appears after writing.
+#
+# Idempotent: re-running changes nothing. In-cluster because STAC is canonical on NRP S3.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: stac-fix-417-cwhr-provenance, namespace: geo-workflows}
+data:
+  fix.py: |
+    import hashlib, json, subprocess, sys
+
+    NRP = 'https://s3-west.nrp-nautilus.io'
+    RAW = 'nrp:public-ca30x30/raw/fveg221gdb.zip'
+    SCI_EXT = 'https://stac-extensions.github.io/scientific/v1.0.0/schema.json'
+    VER_EXT = 'https://stac-extensions.github.io/version/v1.2.0/schema.json'
+
+    EDITION = 'fveg22_1'
+    RAW_BYTES = 147269039
+    RAW_MD5 = 'cffcb952d8ac1918046087ee6e8de55a'
+    RAW_SHA256 = '6b6bc73c8b97eb3637ab283dfdeefebc0e284a40ce5280de0393900544e94cff'
+    STAGED = '2026-06-17T19:47:29Z'
+    UPSTREAM_UPDATED = '2024-12-27'
+
+    LANDING = {
+        'cwhr': 'https://data.ca.gov/dataset/california-vegetation-whrtype',
+        'cwhr13': 'https://data.ca.gov/dataset/california-vegetation-whr13-types',
+    }
+    FGDC = 'https://map.dfg.ca.gov/metadata/ds1327.html'
+    BUILDS = {
+        'cwhr':   {'cwhr-cog': '2026-06-17T19:56:15Z', 'cwhr-hex': '2026-06-18T01:49:20Z',
+                   'cwhr-hex-fractions': '2026-07-11T18:30:48Z'},
+        'cwhr13': {'cwhr13-cog': '2026-06-17T19:56:03Z', 'cwhr13-hex': '2026-06-17T23:56:48Z',
+                   'cwhr13-hex-fractions': '2026-07-08T15:28:28Z'},
+    }
+    LAYER = {'cwhr': 'WHRTYPE (California Vegetation - WHRTYPE)',
+             'cwhr13': 'WHR13 Types (California Vegetation - WHR13 Types)'}
+
+    # --- 1. Recompute the raw fingerprint from S3. Never transcribe a checksum. ------
+    print('hashing %s ...' % RAW)
+    proc = subprocess.Popen(['rclone', 'cat', RAW], stdout=subprocess.PIPE)
+    sha, md5, size = hashlib.sha256(), hashlib.md5(), 0
+    while True:
+        buf = proc.stdout.read(8 << 20)
+        if not buf:
+            break
+        sha.update(buf); md5.update(buf); size += len(buf)
+    if proc.wait() != 0:
+        print('FAIL: rclone cat exited %d' % proc.returncode); sys.exit(1)
+    got_sha, got_md5 = sha.hexdigest(), md5.hexdigest()
+    print('measured\tsize=%d\tmd5=%s\tsha256=%s' % (size, got_md5, got_sha))
+    for label, got, want in (('size', size, RAW_BYTES), ('md5', got_md5, RAW_MD5),
+                             ('sha256', got_sha, RAW_SHA256)):
+        if got != want:
+            print('FAIL: raw %s mismatch — measured %r, issue #417 recorded %r. The staged raw '
+                  'is not the object #417 fingerprinted; STOP and reconcile before publishing.'
+                  % (label, got, want))
+            sys.exit(1)
+    print('raw\tVERIFIED\tmatches the #417 fingerprint exactly')
+
+    PROVENANCE = (
+        'Provenance. Derived from the CAL FIRE FRAP raster file-geodatabase %s (FGDC record '
+        'ds1327, layer %s), whose upstream distribution was last updated %s. There is no stable '
+        'public direct-download URL for this raster: the FRAP download endpoints redirect to a '
+        'generic program page, the historical direct pattern is dead for the current release, and '
+        'data.ca.gov distributes only CSV / Shapefile / GeoJSON / KML for this layer, not the '
+        'raster GDB. The verifiable anchor is therefore the copy staged on this bucket at '
+        's3://public-ca30x30/raw/fveg221gdb.zip on %s — %s bytes, '
+        'MD5 %s, SHA-256 %s. Anyone reproducing this dataset should check that fingerprint rather '
+        'than attempt to re-download from the publisher.'
+    ) % (EDITION, '%s', UPSTREAM_UPDATED, STAGED, format(RAW_BYTES, ','), RAW_MD5, RAW_SHA256)
+
+    FAIL = []
+    for cid in ('cwhr', 'cwhr13'):
+        key = 'nrp:public-ca30x30/%s/stac-collection.json' % cid
+        doc = json.loads(subprocess.check_output(['rclone', 'cat', key]))
+        changed = []
+
+        exts = doc.setdefault('stac_extensions', [])
+        for e in (SCI_EXT, VER_EXT):
+            if e not in exts:
+                exts.append(e); changed.append('ext+' + e.rsplit('/', 3)[1])
+
+        # The edition IS determinable here, unlike nwi — upstream published it.
+        if doc.get('version') != EDITION:
+            doc['version'] = EDITION
+            changed.append('version')
+
+        citation = (
+            'CAL FIRE Fire and Resource Assessment Program (FRAP), %s, edition %s '
+            '(FGDC record ds1327). Upstream last updated %s; raw staged to '
+            's3://public-ca30x30/raw/fveg221gdb.zip on %s (SHA-256 %s). No stable public '
+            'direct-download URL exists for the raster geodatabase. Reclassified and processed '
+            'to COG and H3 by the Boettiger Lab, UC Berkeley.'
+        ) % (LAYER[cid], EDITION, UPSTREAM_UPDATED, STAGED[:10], RAW_SHA256)
+        if doc.get('sci:citation') != citation:
+            doc['sci:citation'] = citation
+            changed.append('sci:citation')
+
+        links = doc.setdefault('links', [])
+        want_links = [
+            {'rel': 'about', 'href': LANDING[cid], 'type': 'text/html',
+             'title': 'Upstream dataset landing page (data.ca.gov)'},
+            {'rel': 'describedby', 'href': FGDC, 'type': 'text/html',
+             'title': 'FGDC metadata record ds1327'},
+        ]
+        for wl in want_links:
+            if not any(l.get('rel') == wl['rel'] and l.get('href') == wl['href'] for l in links):
+                links.append(wl); changed.append('link+' + wl['rel'])
+
+        builds = BUILDS[cid]
+        created_vals = sorted(builds.values())
+        if doc.get('created') != created_vals[0]:
+            doc['created'] = created_vals[0]; changed.append('created')
+        if doc.get('updated') != created_vals[-1]:
+            doc['updated'] = created_vals[-1]; changed.append('updated')
+        for akey, created in builds.items():
+            a = doc.get('assets', {}).get(akey)
+            if a is None:
+                FAIL.append('%s: no asset %s' % (cid, akey)); continue
+            if a.get('created') != created:
+                a['created'] = created; changed.append('%s.created' % akey)
+
+        para = PROVENANCE % LAYER[cid]
+        desc = (doc.get('description') or '').rstrip()
+        if para not in desc:
+            doc['description'] = desc + '\n\n' + para
+            changed.append('description+provenance')
+
+        if not changed:
+            print('%s\tALREADY' % cid); continue
+
+        open('/tmp/o.json', 'w').write(json.dumps(doc, indent=2))
+        json.load(open('/tmp/o.json'))          # re-parse before publishing
+        subprocess.check_call(['rclone', 'copyto', '/tmp/o.json', key])
+
+        back = json.loads(subprocess.check_output(['rclone', 'cat', key]))
+        if back.get('version') != EDITION or RAW_SHA256 not in back.get('sci:citation', ''):
+            FAIL.append('%s: version/citation missing after write' % cid); continue
+        raw_assets = [k for k, v in back.get('assets', {}).items() if '/raw/' in v.get('href', '')]
+        if raw_assets:
+            FAIL.append('%s: asset(s) now publish from under raw/: %r' % (cid, raw_assets)); continue
+        print('%s\tCHANGED\t%s' % (cid, ','.join(changed)))
+
+    if FAIL:
+        print('FAILURES:')
+        for f in FAIL:
+            print('  ' + f)
+        sys.exit(1)
+    print('done')
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-fix-417-cwhr-provenance
+  namespace: geo-workflows
+  labels: {k8s-app: stac-fix-417-cwhr-provenance}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-fix-417-cwhr-provenance}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: fix, mountPath: /config, readOnly: true}
+        command: [bash, -c, "set -uo pipefail; python3 /config/fix.py"]
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: fix, configMap: {name: stac-fix-417-cwhr-provenance}}

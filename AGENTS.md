@@ -211,6 +211,23 @@ Common patterns: Census TIGER = per-state (`tl_2024_{STATEFP}_tract.zip`); prote
 
 External downloads are slow/rate-limited; restart from S3 if conversion fails. Subsequent jobs read `s3://<bucket>/raw/<file>` (or `/vsicurl/https://s3-west.nrp-nautilus.io/<bucket>/raw/<file>` for GDAL).
 
+⛔ **Staging the raw is only half of it — record WHEN you pulled it, in the STAC (Step 5).** The
+access date is the field that makes a provenance chain resolvable to an actual edition, and it is
+unrecoverable after the fact: publishers overwrite in place (FWS republishes the NWI every May and
+October at the same URL, with no dated archive) and links rot (the CAL FIRE FRAP raster has *no*
+stable public download URL at all). When either happens, **your staged copy plus its checksum ARE
+the provenance** — there is nothing else left to point at. Capture, on the collection: the upstream
+**landing page** (stable, not a fragile direct-download link), the **edition label** if upstream
+publishes one, the **access date**, and the staged raw's **path + size + checksum**. Recompute the
+checksum from the object, never transcribe it. Worked examples: `wetlands/nwi` and `cwhr`/`cwhr13`
+(#417).
+
+**A caveat that has bitten twice: never let a *number that isn't an edition* stand in for one.** A
+temporal extent is content coverage, a product-line name (`nwi-v2` = FWS post-2012 mapping) is not a
+release, and a derived file's mtime is the conversion, not the pull. Consumers read all three as
+edition stamps and published three claims that had to be retracted. If the edition is genuinely not
+determinable, **say so** — do not synthesise one.
+
 > ⚠️ **Brand-new bucket? Run the `*-setup-bucket` job BEFORE any stage-raw/download job.** The
 > bucket does not exist until `cng-datasets storage setup-bucket` creates it, and
 > `rclone ... --s3-no-check-bucket` will happily scrape/build for many minutes and then fail the

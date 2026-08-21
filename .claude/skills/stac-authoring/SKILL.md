@@ -150,6 +150,30 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   the special case stays visible and is never mistaken for a verified upstream grant. Worked
   example: `high-seas/mpa-candidates` (#579).
 
+- **Provenance — record the access date and the staged raw's fingerprint (#417).** A provenance
+  *chain* (`rel: about` to the landing page, `rel: source` to where you actually read it,
+  `providers` producer → host → processor) is not enough on its own: without a **date** it cannot be
+  resolved to an edition, and the date is unrecoverable later. Publishers overwrite in place and
+  links rot, at which point your staged copy plus its checksum *is* the provenance. On the
+  collection, record:
+  - `sci:citation` (add the scientific extension) carrying the **access date** — machine-readable,
+    so a downstream consumer cites the STAC rather than a bucket listing;
+  - `version` (version extension) **only if upstream publishes an edition label** — `fveg22_1` yes,
+    a guessed "October 2025" no;
+  - `created` / `updated` on the collection, and **`created` per asset**, each measured from the
+    object itself — this is what keeps "which asset came from which conversion" answerable (#549,
+    where a flat and hex built 33 days apart carried different `_cng_fid` numbering);
+  - the staged raw's **path, size and checksum in the description** — recomputed from the object,
+    never transcribed.
+  ⛔ **Do NOT add a `raw` asset** whose href points under `raw/`, tempting as it is: the
+  mirror-scope auditor keys the `raw/` backup exclusion on STAC asset hrefs, so a raw asset flips the
+  whole bucket into the mirrored-exempt list (#545 — how `population` ended up mirroring 10 GiB of
+  re-downloadable source). Description text is just as citable and carries no href.
+  ⛔ **Never let a number that isn't an edition stand in for one.** A temporal extent is content
+  coverage; a product-line name (`nwi-v2`) is not a release; a derived file's mtime is the
+  conversion, not the pull. All three were read as edition stamps downstream and produced retracted
+  claims. If the edition is not determinable, state that plainly in the description.
+
 - **Temporal extent — RFC 3339, or the dataset vanishes from the served catalog.** Every
   `extent.temporal.interval` endpoint must be a full RFC 3339 date-time with a timezone
   (`"1920-05-15T00:00:00Z"`), or `null` for a genuinely open start/end. This is not
