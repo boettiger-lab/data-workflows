@@ -9,7 +9,7 @@
 # `year` and `h0` are both partition columns, so `WHERE year=YYYY` filters one year and reburn is a
 # self-join on the H3 cell across years. No per-year collections.
 #
-# Index maps to (year, h0): YI = IDX / 3, HI = IDX % 3.  36 years x 3 h0 = 108 completions.
+# Index maps to (year, h0): YI = IDX / 1, HI = IDX % 1.  36 years x 1 h0 = 36 completions.
 #
 # Reducer is `mode`: a majority vote over the source pixels in each cell. Correct for coded
 # class values -- a mean would fabricate classes the source does not contain. `mode` is SPARSE:
@@ -17,25 +17,30 @@
 # dominant class and discards the mix, which is why the companion `hex-fractions` layer exists --
 # use that one, not this, for any "share burned at high severity" statistic.
 #
-# /!\ THE h0 FAN-OUT IS RESTRICTED TO 3 OF THE 122 BASE CELLS -- and that is a deliberate
-# deviation from the 122 the generator emits, because at res 10 an h0 index that holds no data is
-# NOT free: `cng-datasets raster` prunes only h0 cells whose envelope misses the raster, and every
-# surviving cell enumerates all ~280 M of its res-10 children before discovering they are all
-# nodata. Running 122 per year would be 4392 pod slots at 192Gi to do 108 cells' worth of work.
+# /!\ THE h0 FAN-OUT IS RESTRICTED TO 1 OF THE 122 BASE CELLS -- a deliberate deviation from the
+# 122 the generator emits, because at res 10 an h0 index that holds no data is NOT free: the tool
+# prunes only h0 cells whose envelope misses the raster, and every surviving cell enumerates all
+# ~280 M of its res-10 children before discovering they are all nodata. Running 122 per year would
+# be 4392 pod slots at 192Gi to do 36 cells' worth of work.
 #
-# The 3 indexes below are DATA-DERIVED, not guessed, and are cross-checked two ways:
-#   1. They are the populated h0 set measured on `whp-2023-classified-ak` (#586), a full-domain
-#      product in this same bucket. WHP covers every land pixel of the domain (it carries explicit
-#      non-burnable and water classes), so its populated set is a strict SUPERSET of any MTBS burn
-#      footprint in the same domain.
-#   2. They are reconciled against the measured h0 set of `mtbs-perimeters-1984-2024`, which is
-#      built first and marks exactly where MTBS fires are. See BUILD.md for the reconciliation.
-# The post-build `check-hex-coverage.sh` gate then verifies per year that every expected partition
-# is populated, so a wrong list fails loudly rather than shipping a hole.
+# The 1 index below is MEASURED, not guessed: it is the h0 partition that
+# `mtbs-perimeters-1984-2024` actually populates inside this domain, read from the cell CENTROIDS
+# (h3_cell_to_lat / h3_cell_to_lng) of its completed res-10 hex rather than from the res-0 partition
+# footprint. Severity pixels exist only inside MTBS perimeters, so the perimeter h0 set is a strict
+# SUPERSET of the severity h0 set for this domain -- and the perimeters cover all 41 years, including
+# the years whose severity mosaic is missing, so it is a superset in time as well.
+#
+# Two wider sets were rejected, both for concrete reasons:
+#   - the populated set of `whp-2023-classified-ak`. WHP maps every land pixel of its domain (it
+#     carries explicit non-burnable and water classes) while MTBS maps only ground that burned. For
+#     Alaska that is three h0 cells against one: MTBS Alaska fires span 56.7-70.2 N, -166.2 to
+#     -140.2, entirely inside a single base cell.
+#   - the domain bounding box, which is wider still. The Alaska clip box reaches about 2.4 degrees
+#     south of any Alaska data, so it pulls in a h0 cell holding nothing but open Pacific.
+# The post-build check-hex-coverage.sh gate verifies per year that every expected partition is
+# populated, so a wrong list fails loudly rather than shipping a hole.
 #
 #   h0 index -> cell
-#      12  ->  576812596024311807
-#      59  ->  576988517884755967
 #     105  ->  576707042908045311
 apiVersion: batch/v1
 kind: Job
@@ -45,7 +50,7 @@ metadata:
   labels:
     k8s-app: mtbs-severity-ak-hex
 spec:
-  completions: 108
+  completions: 36
   parallelism: 12
   completionMode: Indexed
   # Never backoffLimit: 0 -- a partial indexed run must surface as Failed, not publish as complete
@@ -101,7 +106,7 @@ spec:
         - |-
           set -e
           YEARS=(1984 1985 1986 1988 1989 1990 1991 1992 1993 1994 1996 1997 1998 1999 2000 2002 2003 2004 2005 2006 2007 2008 2009 2010 2011 2012 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023)
-          H0S=(12 59 105)
+          H0S=(105)
           IDX=${JOB_COMPLETION_INDEX}
           Y=${YEARS[$(( IDX / ${#H0S[@]} ))]}
           H0=${H0S[$(( IDX % ${#H0S[@]} ))]}

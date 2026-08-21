@@ -17,21 +17,28 @@
 # dominant class and discards the mix, which is why the companion `hex-fractions` layer exists --
 # use that one, not this, for any "share burned at high severity" statistic.
 #
-# /!\ THE h0 FAN-OUT IS RESTRICTED TO 6 OF THE 122 BASE CELLS -- and that is a deliberate
-# deviation from the 122 the generator emits, because at res 10 an h0 index that holds no data is
-# NOT free: `cng-datasets raster` prunes only h0 cells whose envelope misses the raster, and every
-# surviving cell enumerates all ~280 M of its res-10 children before discovering they are all
-# nodata. Running 122 per year would be 4758 pod slots at 192Gi to do 234 cells' worth of work.
+# /!\ THE h0 FAN-OUT IS RESTRICTED TO 6 OF THE 122 BASE CELLS -- a deliberate deviation from the
+# 122 the generator emits, because at res 10 an h0 index that holds no data is NOT free: the tool
+# prunes only h0 cells whose envelope misses the raster, and every surviving cell enumerates all
+# ~280 M of its res-10 children before discovering they are all nodata. Running 122 per year would
+# be 4758 pod slots at 192Gi to do 234 cells' worth of work.
 #
-# The 6 indexes below are DATA-DERIVED, not guessed, and are cross-checked two ways:
-#   1. They are the populated h0 set measured on `whp-2023-classified-conus` (#586), a full-domain
-#      product in this same bucket. WHP covers every land pixel of the domain (it carries explicit
-#      non-burnable and water classes), so its populated set is a strict SUPERSET of any MTBS burn
-#      footprint in the same domain.
-#   2. They are reconciled against the measured h0 set of `mtbs-perimeters-1984-2024`, which is
-#      built first and marks exactly where MTBS fires are. See BUILD.md for the reconciliation.
-# The post-build `check-hex-coverage.sh` gate then verifies per year that every expected partition
-# is populated, so a wrong list fails loudly rather than shipping a hole.
+# The 6 indexes below are MEASURED, not guessed: they are the h0 partitions that
+# `mtbs-perimeters-1984-2024` actually populates inside this domain, read from the cell CENTROIDS
+# (h3_cell_to_lat / h3_cell_to_lng) of its completed res-10 hex rather than from the res-0 partition
+# footprint. Severity pixels exist only inside MTBS perimeters, so the perimeter h0 set is a strict
+# SUPERSET of the severity h0 set for this domain -- and the perimeters cover all 41 years, including
+# the years whose severity mosaic is missing, so it is a superset in time as well.
+#
+# Two wider sets were rejected, both for concrete reasons:
+#   - the populated set of `whp-2023-classified-conus`. WHP maps every land pixel of its domain (it
+#     carries explicit non-burnable and water classes) while MTBS maps only ground that burned. For
+#     Alaska that is three h0 cells against one: MTBS Alaska fires span 56.7-70.2 N, -166.2 to
+#     -140.2, entirely inside a single base cell.
+#   - the domain bounding box, which is wider still. The Alaska clip box reaches about 2.4 degrees
+#     south of any Alaska data, so it pulls in a h0 cell holding nothing but open Pacific.
+# The post-build check-hex-coverage.sh gate verifies per year that every expected partition is
+# populated, so a wrong list fails loudly rather than shipping a hole.
 #
 #   h0 index -> cell
 #      12  ->  576812596024311807

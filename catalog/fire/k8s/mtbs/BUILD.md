@@ -171,31 +171,49 @@ which hold no National Forest System land — the Alaska units are the Tongass a
 
 ### The h0 fan-out is restricted, and why that is safe
 
-At resolution 10 an h0 index that holds no data is **not** free: the tool prunes only h0 cells whose
-envelope misses the raster, and every surviving cell enumerates all ~280 M of its resolution 10
-children before finding them all nodata. Running the generated 122 per year would be 4,758 pod slots
-at 192Gi per layer to do 234 cells' worth of work.
+At resolution 10 an h0 index that holds no data is **not** free: `cng-datasets raster` prunes only
+h0 cells whose envelope misses the raster, and every surviving cell enumerates all ~280 M of its
+resolution 10 children before finding them all nodata. Running the generated 122 per year would be
+4,758 pod slots at 192Gi (CONUS) to do 234 cells' worth of work.
 
-The restricted sets are data-derived, from `s3://public-grids/hex/h0-valid.parquet` (the same grid
-`cng-datasets` indexes with):
+The sets are **measured off the completed perimeters hex**, by taking each populated h0 partition's
+actual cell **centroids** (`h3_cell_to_lat` / `h3_cell_to_lng`) rather than the partition's res-0
+footprint. Severity pixels exist only inside MTBS perimeters, so the perimeter h0 set is a strict
+superset of the severity h0 set per domain — and the perimeters cover all 41 years, including the
+years whose severity mosaic is missing, so it is a superset in time as well.
 
-| Domain | h0 indexes | Cells |
-|---|---|---|
-| CONUS | 12, 14, 20, 50, 71, 78 | 576812596024311807, 577692205326532607, 577164439745200127, 577199624117288959, 577762574070710271, 577234808489377791 |
-| Alaska | 12, 59, 105 | 576812596024311807, 576988517884755967, 576707042908045311 |
+Where MTBS actually burns, by h0 partition:
 
-Two independent cross-checks:
+| h0 index | h0 cell | res-10 cells | longitude | latitude | domain |
+|---:|---|---:|---|---|---|
+| 50 | 577199624117288959 | 23,606,176 | −124.41 … −109.70 | 32.54 … 49.12 | CONUS |
+| 105 | 576707042908045311 | 11,962,966 | −166.19 … −140.16 | 56.73 … 70.16 | **Alaska** |
+| 20 | 577164439745200127 | 9,106,451 | −113.05 … −83.36 | 31.49 … 49.07 | CONUS |
+| 14 | 577692205326532607 | 6,666,408 | −96.18 … −79.21 | 25.19 … 37.01 | CONUS |
+| 71 | 577762574070710271 | 4,350,826 | −116.67 … −95.22 | 26.29 … 37.12 | CONUS |
+| 78 | 577234808489377791 | 996,605 | −84.41 … −67.18 | 33.55 … 44.88 | CONUS |
+| 12 | 576812596024311807 | 817,385 | −120.43 … −112.52 | 47.31 … 49.14 | CONUS |
+| 0 | 578114417791598591 | 37,515 | −156.69 … −155.09 | 19.01 … 20.91 | Hawaii (not built) |
+| 89 | 577832942814887935 | 4,821 | −67.05 … −65.34 | 17.95 … 18.15 | Puerto Rico (not built) |
+| 120 | 577727389698621439 | 3,161 | −159.72 … −156.94 | 21.07 … 22.02 | Hawaii (not built) |
 
-1. These are the **populated** sets measured on `whp-2023-classified-{conus,ak}` in this same
-   bucket. WHP covers every land pixel of its domain (it carries explicit non-burnable and water
-   classes), so its populated set is a strict superset of any MTBS burn footprint in that domain.
-2. Reconciled against the measured h0 set of `mtbs-perimeters-1984-2024`, which marks exactly where
-   MTBS fires are — see *Reconciliation* below.
+So **CONUS = {12, 14, 20, 50, 71, 78}** and **Alaska = {105}**, a single base cell.
 
-A bbox intersection alone is **not** the right test and would have over-selected: 12 h0 cells clip
-the CONUS bounding rectangle and 7 clip the Alaska one, but the extra ones meet the rectangle only
-over ocean, Canada or Mexico. `check-hex-coverage.sh` then verifies per year that every expected
-partition is populated, so a wrong list fails loudly instead of shipping a hole.
+**Two wider candidate sets were rejected, and the Alaska one is the point.** Both would have been
+defensible-looking and both are wrong:
+
+- **The populated set of `whp-2023-classified-{conus,ak}`** — the first thing to reach for, since
+  it is the same bucket and the same domains. It gives CONUS `{12, 14, 20, 50, 71, 78}` (correct)
+  but Alaska `{12, 59, 105}` — **three cells where MTBS burns in one.** WHP maps every land pixel
+  of its domain, carrying explicit non-burnable and water classes; MTBS maps only ground that
+  burned. MTBS's Alaska fires sit entirely between 56.7°N and 70.2°N and −166.2° to −140.2°, inside
+  one base cell. Cells 12 and 59 would have been 72 guaranteed-empty resolution 10 indexes.
+- **The domain bounding box** — wider still, and wrong in a second way. Intersecting the Alaska
+  clip box with the h0 grid returns `{12, 50, 105}`, pulling in cell 50 because the clip box reaches
+  about 2.4° south of any Alaska data, into open Pacific off Vancouver Island.
+
+`check-hex-coverage.sh` then verifies per year that every expected partition is populated, so a
+wrong list fails loudly rather than shipping a hole.
 
 ## Pipeline
 
@@ -250,19 +268,80 @@ the whole cell enumeration).
 
 ## Build results
 
-_Filled from the completed builds; every number here is read back off the published artifacts._
+Every number here is read back off the published artifacts through the duckdb-geo MCP.
 
-### Reconciliation of the severity h0 sets against the perimeters build
+### `mtbs-perimeters-1984-2024` (2026-08-21)
 
-_Pending the perimeters hex._
+| | |
+|---|---:|
+| Features (flat parquet) | 30,730 |
+| `COUNT(DISTINCT Event_ID)` | 30,730 (0 blank) |
+| `SUM(BurnBndAc)` | 215,921,856 |
+| Ignition dates | 1984-01-26 … 2024-12-17 |
+| Hex rows | 57,552,314 |
+| `COUNT(DISTINCT h10)` | 45,128,351 |
+| `COUNT(DISTINCT _cng_fid)` on hex | **30,730 — equals the flat count** |
+| Populated h0 partitions | 10 |
+| NULL `h10` / `h9` / `h8` | 0 / 0 / 0 |
+| Measured footprint | −166.188, 17.947, −65.338, 70.159 |
+| Artifacts | parquet 455,449,347 B · pmtiles 523,033,666 B · hex 407,850,803 B |
 
-### `mtbs-perimeters-1984-2024`
+**Coverage confirmed, which is the check `--max-completions` demands.** The k8s hex uses a fixed
+`--chunk-size 1000`, so total features hexed = `max-completions × 1000`; at 31 that is 31,000 ≥
+30,730, and `COUNT(DISTINCT _cng_fid)` on the hex equals the flat parquet's 30,730 exactly. The
+default 200 would have scheduled 169 no-op pods.
 
-_Pending._
+**Deduplicated acreage round-trips exactly.** `SUM(BurnBndAc)` over `SELECT DISTINCT _cng_fid,
+BurnBndAc` on the hex is 215,921,856 — identical to the flat parquet, over 30,730 deduplicated
+rows. A raw `SUM` over the 57.5 M hex rows does not.
+
+**No NULL finest-parent cells**, so the collection needs no coarsest-shared-resolution caveat.
+
+**The one GEOMETRYCOLLECTION survived.** The source is 27,378 POLYGON, 3,351 MULTIPOLYGON and one
+GEOMETRYCOLLECTION (`_cng_fid` 7416, `NV4099711695019840830`, IZEN 1, 1984, 38,483 acres, two
+parts, `ST_IsValid` true). It carries 9,962 hex cells, so it was not silently dropped. Worth
+checking because a mixed-type geometry is exactly the thing a polyfill step can skip without
+complaint. Note tippecanoe reports 30,731 features rather than 30,730 — it splits that collection
+into its two parts.
+
+**Reburn, measured:**
+
+| | |
+|---|---:|
+| Cells that burned at least once (unique ground) | 45,128,351 |
+| (fire, cell) pairs — fire-years | 57,552,314 |
+| Cells that burned exactly once | 36,763,278 |
+| Cells that burned more than once | 8,365,073 |
+| Most times one cell burned | 19 |
+
+Fire-years exceed unique ground by **27.5%**. That is the gap any "total acres burned" figure has
+to declare, and it is large enough that quoting the wrong one is a materially different claim.
+
+`Event_ID` is one row per fire on this release, so the two duplication axes coincide and
+`_cng_fid` is a sufficient dedup key: `scripts/audit-feature-dup.py … --key Event_ID` reports
+30,730 rows / 30,730 distinct / 0 blank / 0 extra.
+
+`verify-stac.py --bucket public-fire --dataset mtbs-perimeters-1984-2024` (with data checks) passes
+with zero findings, which is what confirms the corrected `Incid_Type` and `Asmnt_Type` domains
+against the ingest.
+
+### 🔴 Two source-documentation errors the ingest caught
+
+The FGDC entity/attribute section shipped with the perimeters is wrong about its own data, in a way
+that would have produced a `values` array no consumer query could match:
+
+| Column | FGDC says | The data holds |
+|---|---|---|
+| `Incid_Type` | `WF`, `Rx`, `UNK` | `Wildfire` (16,960), `Prescribed Fire` (8,870), `Unknown` (4,689), **`Wildland Fire Use`** (211) |
+| `Asmnt_Type` | 6 values incl. `Emergency`, `Emergency (SS)` | 4: `Initial` (16,591), `Initial (SS)` (8,144), `Extended` (5,861), `Extended (SS)` (134) |
+
+`Wildland Fire Use` appears nowhere in the source documentation. `BurnBndLat` / `BurnBndLon` are
+also **text**, not numeric, and stay text through conversion — documented with the cast a consumer
+needs. This is the "coded domains come from the ingest, not the docs" rule earning its place.
 
 ### `mtbs-severity-1984-2024-conus` / `-ak`
 
-_Pending._
+_Pending the hex campaign._
 
 ## Post-build verification
 

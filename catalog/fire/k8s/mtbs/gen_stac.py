@@ -48,9 +48,9 @@ MEASURED = {
     "perimeters": {
         "features": 30730,      # COUNT(*) on the flat parquet
         "event_ids": 30730,     # COUNT(DISTINCT Event_ID)
-        "hex_rows": None,       # COUNT(*) on the hex
-        "hex_cells": None,      # COUNT(DISTINCT h10)
-        "h0_count": None,
+        "hex_rows": 57552314,   # COUNT(*) on the hex
+        "hex_cells": 45128351,  # COUNT(DISTINCT h10)
+        "h0_count": 10,
         "acres": 215921856,     # SUM over DISTINCT (_cng_fid, BurnBndAc)
         "bbox": [-166.188, 17.947, -65.338, 70.159],
         "ig_first": "1984-01-26",
@@ -123,8 +123,11 @@ REBURN = (
     "SELECT h10, COUNT(DISTINCT year) AS times_burned\n"
     "FROM read_parquet('...') GROUP BY h10 HAVING times_burned > 1;\n"
     "```\n\n"
-    "Deduplicating across years to make a total \"clean\" destroys the reburn record, which for "
-    "many questions is the interesting part."
+    "Measured on this release: 45,128,351 resolution 10 cells burned at least once, against "
+    "57,552,314 (fire, cell) pairs — 27.5 percent more fire-years than unique ground. "
+    "8,365,073 cells burned more than once and the most-burned cell burned 19 times. "
+    "Deduplicating across years to make a total \"clean\" destroys that record, which for many "
+    "questions is the interesting part."
 )
 
 SEV_DENOM = (
@@ -230,8 +233,9 @@ PERIM_COLUMNS = [
      ["Wildfire", "Prescribed Fire", "Wildland Fire Use", "Unknown"]),
     ("Map_ID", "int64", "Internal MTBS mapping identifier for the assessment.", None),
     ("Map_Prog", "string",
-     "Mapping program or protocol under which the fire was mapped. Every fire in this release is "
-     "MTBS.", ["MTBS"]),
+     "Mapping program or protocol under which the fire was mapped. Values: "
+     "MTBS=Monitoring Trends in Burn Severity. Every fire in this release carries the same "
+     "value, so the column does not discriminate between fires.", ["MTBS"]),
     ("Asmnt_Type", "string",
      "Assessment type, which controls what the severity classes mean for this fire. Initial "
      "assessments use imagery from immediately after the fire and suit grassland and low-biomass "
