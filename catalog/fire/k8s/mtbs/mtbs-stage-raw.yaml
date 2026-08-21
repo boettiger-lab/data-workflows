@@ -1,0 +1,325 @@
+# Stage the MTBS 1984-2024 source packages to s3://public-fire/raw/mtbs/ and run the pre-flight
+# that the `raster-hexing` skill requires BEFORE choosing resolution / reducer / nodata.
+#
+# Two products, two very different sources:
+#
+#   perimeters  ScienceBase item 5e7229b8e4b01d509268afba -- ONE 374 MB shapefile zip in decimal
+#               degrees (EPSG:4326), "Burned Areas Boundaries ver. 12.0, April 2025", 30,730
+#               polygons covering 1984-2024 incl. AK, HI and PR.
+#   mosaics     ScienceBase parent 5e91dee782ce172707f02cdd -- 41 child items, one per year, each
+#               holding mtbs_{CONUS,AK,HI,PR}_<YEAR>.zip. 101 zips, 263 MB total.
+#
+# The mosaic file URLs carry content hashes (`?f=__disk__<sha-ish path>`) and the `?name=` form does
+# NOT work, so the URLs cannot be hardcoded -- they are enumerated from the ScienceBase items API at
+# run time. That same response carries a per-file `size` and MD5 `checksum`, which is what this job
+# verifies against; it is a stronger check than any hardcoded byte count and it survives an upstream
+# re-upload.
+#
+# /!\ SIX OF THE 101 MOSAIC OBJECTS ARE BROKEN UPSTREAM (probed 2026-08-21, 3 retries each):
+# mtbs_CONUS_2004, mtbs_CONUS_2017, mtbs_AK_1987, mtbs_AK_1995, mtbs_AK_2001, mtbs_AK_2013 all 404
+# although ScienceBase lists them with a size and an MD5. The whole-item bundle download returns
+# mtbs_CONUS_2017.zip as a 0-byte member, edcintl publishes no mosaic path, and the Burn Severity
+# Portal builds mosaic archives through an email queue rather than a URL. This job therefore treats a
+# 404 as a RECORDED GAP, not a failure -- it keeps going and writes the outcome for every file to
+# raw/mtbs/mosaic-manifest.tsv, which is the provenance record the STAC cites. It still fails hard if
+# a file downloads but does not match its published MD5, and if MORE than the six known-bad files are
+# missing (upstream regression).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mtbs-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: mtbs-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: mtbs-stage-raw
+    spec:
+      restartPolicy: Never
+      # ClusterFirst so rclone's nrp: remote resolves the INTERNAL endpoint
+      # rook-ceph-rgw-nautiluss3.rook; the public nameservers are for the USGS egress.
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/mtbs && cd /tmp/mtbs
+
+          ############################################################
+          echo "############ 1. PERIMETERS ############"
+          ############################################################
+          python3 - <<'PY'
+          import json, urllib.request
+          ITEM = '5e7229b8e4b01d509268afba'
+          u = f'https://www.sciencebase.gov/catalog/item/{ITEM}?format=json'
+          d = json.load(urllib.request.urlopen(u, timeout=120))
+          print('item :', d['title'])
+          print('dates:', [(x.get('type'), x.get('dateString')) for x in d.get('dates', [])])
+          f = next(f for f in d['files'] if f['name'] == 'mtbs_perims_DD.zip')
+          # Expected at scope time (2026-08-21). A change here means upstream republished -- the
+          # build is still valid, but the edition label in the STAC must be re-read, so shout.
+          if f['size'] != 374092911:
+              print(f"!! WARNING: mtbs_perims_DD.zip is now {f['size']} bytes, was 374092911 at "
+                    f"scope time. Re-read the edition label before publishing STAC.")
+          with open('/tmp/mtbs/perims.meta', 'w') as out:
+              out.write('%s\t%s\t%s\n' % (f['pathOnDisk'], f['size'],
+                                          (f.get('checksum') or {}).get('value', '')))
+          print('pathOnDisk:', f['pathOnDisk'], 'size:', f['size'])
+          PY
+          read -r P_PATH P_SIZE P_MD5 < /tmp/mtbs/perims.meta
+
+          echo "--- downloading mtbs_perims_DD.zip (expect ${P_SIZE} bytes) ---"
+          STAGED_SIZE=$(rclone size --json nrp:public-fire/raw/mtbs/perims/mtbs_perims_DD.zip \
+                        2>/dev/null | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
+          if [ "${STAGED_SIZE:-0}" = "$P_SIZE" ]; then
+            echo "already staged at the right size; pulling the staged copy back for pre-flight"
+            rclone copyto nrp:public-fire/raw/mtbs/perims/mtbs_perims_DD.zip mtbs_perims_DD.zip -P
+          else
+          curl -L --retry 8 --retry-all-errors --no-progress-meter \
+            -o mtbs_perims_DD.zip \
+            --get --data-urlencode "f=${P_PATH}" \
+            "https://www.sciencebase.gov/catalog/file/get/5e7229b8e4b01d509268afba"
+
+          # Never trust the status code. USGS endpoints soft-200 an HTML error page, and ScienceBase
+          # can serve a 0-byte member for a broken object (see the header note).
+          GOT=$(stat -c %s mtbs_perims_DD.zip)
+          [ "$GOT" = "$P_SIZE" ] || { echo "FATAL: perimeters are ${GOT} bytes, expected ${P_SIZE}"; exit 1; }
+          [ "$(head -c 2 mtbs_perims_DD.zip)" = "PK" ] || { echo "FATAL: perimeters are not a zip"; exit 1; }
+          unzip -t mtbs_perims_DD.zip > /dev/null && echo "zip integrity OK"
+          echo "md5 (recomputed): $(md5sum mtbs_perims_DD.zip | cut -d' ' -f1)   published: ${P_MD5}"
+          echo "sha256(recomputed): $(sha256sum mtbs_perims_DD.zip | cut -d' ' -f1)"
+          unzip -l mtbs_perims_DD.zip
+
+          rclone copy mtbs_perims_DD.zip nrp:public-fire/raw/mtbs/perims/ -P --transfers 4 \
+            --retries 10 --low-level-retries 20 --retries-sleep 20s
+          fi
+
+          ############################################################
+          echo "############ 2. ANNUAL SEVERITY MOSAICS ############"
+          ############################################################
+          # Enumerate, then download/verify/stage one at a time so peak ephemeral stays ~1 GB
+          # instead of accumulating 101 archives.
+          python3 - <<'PY'
+          import json, urllib.request, re
+          PARENT = '5e91dee782ce172707f02cdd'
+          u = (f'https://www.sciencebase.gov/catalog/items?parentId={PARENT}'
+               '&format=json&max=100&fields=title,files')
+          d = json.load(urllib.request.urlopen(u, timeout=180))
+          assert d['total'] == len(d['items']), f"paged response: {d['total']} vs {len(d['items'])}"
+          rows = []
+          for it in d['items']:
+              year = int(re.search(r'for (\d{4})', it['title']).group(1))
+              edition = (re.search(r'\(ver\. ([^)]*)\)', it['title']) or [None, ''])[1]
+              for f in it.get('files', []):
+                  if not f['name'].endswith('.zip'):
+                      continue
+                  rows.append((f['name'], f['name'].split('_')[1], year, it['id'],
+                               f['pathOnDisk'], f['size'],
+                               (f.get('checksum') or {}).get('value', ''), edition))
+          rows.sort(key=lambda r: (r[1], r[2]))
+          with open('/tmp/mtbs/mosaics.tsv', 'w') as out:
+              for r in rows:
+                  out.write('\t'.join(str(x) for x in r) + '\n')
+          print(f'{len(rows)} mosaic zips across {len(d["items"])} year items')
+          PY
+          wc -l /tmp/mtbs/mosaics.tsv
+
+          # The six objects known broken upstream on 2026-08-21. Listed so a 404 outside this set is
+          # an upstream regression that must fail the job rather than quietly shrink the build.
+          KNOWN_BAD="mtbs_CONUS_2004.zip mtbs_CONUS_2017.zip mtbs_AK_1987.zip mtbs_AK_1995.zip mtbs_AK_2001.zip mtbs_AK_2013.zip"
+
+          printf 'name\tregion\tyear\tstatus\tsize\tmd5_published\tmd5_recomputed\tedition\n' \
+            > /tmp/mtbs/mosaic-manifest.tsv
+          UNEXPECTED=""
+          set +e
+          while IFS=$'\t' read -r NAME REGION YEAR ITEM FPATH SIZE MD5 EDITION; do
+            echo "--- ${NAME} (${SIZE} bytes, ver. ${EDITION}) ---"
+            # Already staged at the right size? Record it and move on. Keeps a retry of this job
+            # from re-pulling the whole 263 MB from USGS after a late failure.
+            STAGED_SIZE=$(rclone size --json "nrp:public-fire/raw/mtbs/mosaics/${NAME}" 2>/dev/null \
+                          | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
+            if [ "${STAGED_SIZE:-0}" = "$SIZE" ]; then
+              echo "  already staged, skipping download"
+              printf '%s\t%s\t%s\tSTAGED\t%s\t%s\t%s\t%s\n' \
+                "$NAME" "$REGION" "$YEAR" "$SIZE" "$MD5" "(preexisting)" "$EDITION" \
+                >> /tmp/mtbs/mosaic-manifest.tsv
+              continue
+            fi
+            curl -L --retry 5 --retry-all-errors --no-progress-meter -f \
+              -o "$NAME" --get --data-urlencode "f=${FPATH}" \
+              "https://www.sciencebase.gov/catalog/file/get/${ITEM}"
+            RC=$?
+            GOT=$([ -f "$NAME" ] && stat -c %s "$NAME" || echo 0)
+            if [ "$RC" != "0" ] || [ "$GOT" != "$SIZE" ] || [ "$(head -c 2 "$NAME")" != "PK" ]; then
+              echo "  MISSING upstream (curl rc=${RC}, got ${GOT} bytes)"
+              printf '%s\t%s\t%s\tMISSING_UPSTREAM\t%s\t%s\t\t%s\n' \
+                "$NAME" "$REGION" "$YEAR" "$SIZE" "$MD5" "$EDITION" >> /tmp/mtbs/mosaic-manifest.tsv
+              case " $KNOWN_BAD " in *" $NAME "*) ;; *) UNEXPECTED="$UNEXPECTED $NAME" ;; esac
+              rm -f "$NAME"
+              continue
+            fi
+            GOTMD5=$(md5sum "$NAME" | cut -d' ' -f1)
+            if [ -n "$MD5" ] && [ "$GOTMD5" != "$MD5" ]; then
+              echo "  FATAL: md5 mismatch (got ${GOTMD5}, published ${MD5})"
+              exit 1
+            fi
+            echo "  ok, md5 ${GOTMD5}"
+            rclone copy "$NAME" nrp:public-fire/raw/mtbs/mosaics/ -P --transfers 4 \
+              --retries 10 --low-level-retries 20 --retries-sleep 20s
+            printf '%s\t%s\t%s\tSTAGED\t%s\t%s\t%s\t%s\n' \
+              "$NAME" "$REGION" "$YEAR" "$SIZE" "$MD5" "$GOTMD5" "$EDITION" >> /tmp/mtbs/mosaic-manifest.tsv
+            rm -f "$NAME"
+          done < /tmp/mtbs/mosaics.tsv
+          set -e
+
+          if [ -n "$UNEXPECTED" ]; then
+            echo "FATAL: objects missing upstream that were NOT in the known-bad set:${UNEXPECTED}"
+            echo "Upstream changed. Re-probe, update the known-bad list and the issue, then re-run."
+            exit 1
+          fi
+
+          rclone copyto /tmp/mtbs/mosaic-manifest.tsv nrp:public-fire/raw/mtbs/mosaic-manifest.tsv \
+            --retries 10 --low-level-retries 20 --retries-sleep 20s
+          echo "=== staged manifest ==="
+          cat /tmp/mtbs/mosaic-manifest.tsv
+          echo "=== counts by status ==="
+          awk -F'\t' 'NR>1 {c[$4"\t"$2]++} END {for (k in c) print c[k], k}' /tmp/mtbs/mosaic-manifest.tsv | sort -k3
+
+          echo "=== raw/ footprint ==="
+          rclone size nrp:public-fire/raw/mtbs/
+          echo "RAW STAGED -- pre-flight follows; a failure below does not lose the staging"
+
+          ############################################################
+          set +e   # diagnostics only from here down
+          echo "############ 3. PRE-FLIGHT: perimeters ############"
+          ############################################################
+          unzip -q -o mtbs_perims_DD.zip -d /tmp/mtbs/perims
+          find /tmp/mtbs/perims -type f | sort
+          SHP=$(find /tmp/mtbs/perims -name '*.shp' | head -1)
+          ogrinfo -so -al "$SHP"
+          echo "--- Ig_Date range, Incid_Type / Asmnt_Type / Map_Prog domains, per-year counts ---"
+          ogrinfo -q -dialect SQLITE -sql \
+            "SELECT MIN(Ig_Date), MAX(Ig_Date), COUNT(*), COUNT(DISTINCT Event_ID), SUM(BurnBndAc) FROM \"$(basename "${SHP%.shp}")\"" "$SHP"
+          for f in Incid_Type Asmnt_Type Map_Prog; do
+            echo "### $f"
+            ogrinfo -q -dialect SQLITE -sql \
+              "SELECT $f, COUNT(*) FROM \"$(basename "${SHP%.shp}")\" GROUP BY 1 ORDER BY 2 DESC" "$SHP"
+          done
+          echo "--- geometry types (must be polygon for the hex step) ---"
+          ogrinfo -q -dialect SQLITE -sql \
+            "SELECT GeometryType(geometry), COUNT(*) FROM \"$(basename "${SHP%.shp}")\" GROUP BY 1" "$SHP"
+          echo "--- is Event_ID one row per feature? (the dedup-key question, decided from data) ---"
+          ogrinfo -q -dialect SQLITE -sql \
+            "SELECT COUNT(*) AS rows_, COUNT(DISTINCT Event_ID) AS ids, SUM(CASE WHEN Event_ID IS NULL OR Event_ID='' THEN 1 ELSE 0 END) AS blank FROM \"$(basename "${SHP%.shp}")\"" "$SHP"
+
+          ############################################################
+          echo "############ 4. PRE-FLIGHT: severity rasters ############"
+          ############################################################
+          # One representative per domain: real CRS, real pixel size, real nodata, and the COLOR
+          # TABLE. MTBS ships its palette in the GeoTIFF, so `color_hint` in the STAC is transcribed
+          # from the source rather than remembered (#294). Full per-year class histograms are NOT
+          # computed here -- the COG job already localizes every raster and prints its own histogram
+          # on the source Albers (equal-area) grid, which is the area truth the hex is validated
+          # against, and doing it there is parallel instead of 75 rasters in one pod.
+          for R in CONUS AK; do
+            Z=$(awk -F'\t' -v r="$R" '$4=="STAGED" && $2==r {print $1; exit}' /tmp/mtbs/mosaic-manifest.tsv)
+            [ -z "$Z" ] && continue
+            echo "=================================================================="
+            echo "### $Z"
+            rclone copyto "nrp:public-fire/raw/mtbs/mosaics/$Z" "/tmp/mtbs/$Z"
+            unzip -q -o "/tmp/mtbs/$Z" -d /tmp/mtbs/pf
+            T=$(find /tmp/mtbs/pf -name "*${R}*.tif" | head -1)
+            gdalinfo "$T" | sed -n '1,80p'
+            python3 - "$T" <<'PY'
+          import sys
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open(sys.argv[1]); b = ds.GetRasterBand(1)
+          print('  size    :', ds.RasterXSize, 'x', ds.RasterYSize,
+                f'({ds.RasterXSize*ds.RasterYSize/1e9:.2f} Gpx)')
+          print('  dtype   :', gdal.GetDataTypeName(b.DataType))
+          print('  nodata  :', b.GetNoDataValue())
+          print('  gt      :', ds.GetGeoTransform())
+          ct = b.GetColorTable()
+          if ct:
+              print('  COLOR TABLE (transcribe these into classification:classes color_hint):')
+              for v in range(0, 8):
+                  r, g, bl, a = ct.GetColorEntry(v)
+                  print(f'    {v}: #{r:02X}{g:02X}{bl:02X}  (alpha {a})')
+          else:
+              print('  no color table -- assert NO palette in STAC')
+          cats = b.GetCategoryNames()
+          if cats:
+              print('  category names:', [(i, n) for i, n in enumerate(cats) if n])
+          rat = b.GetDefaultRAT()
+          print('  RAT     :', 'none' if rat is None else f'{rat.GetRowCount()} rows')
+          PY
+            rm -rf /tmp/mtbs/pf "/tmp/mtbs/$Z"
+          done
+          echo "ALL DONE"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 30Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 30Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              # Known-bad egress/S3 hosts: pods schedule but hang on download/localize.
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

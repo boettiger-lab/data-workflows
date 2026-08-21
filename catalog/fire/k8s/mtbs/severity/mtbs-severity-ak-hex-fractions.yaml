@@ -1,0 +1,145 @@
+# MTBS annual thematic burn severity -> H3 res-10 hex, Alaska domain, per-class fractions.
+#
+# UNIFIED MULTI-YEAR LAYOUT, copied from the `nlcd` Annual build (#453), which is this catalog's
+# precedent for exactly this problem -- many annual years of one categorical raster in ONE
+# hive-partitioned dataset:
+#
+#     mtbs-severity-1984-2024-ak/hex-fractions/year=<YEAR>/h0=<CELL>/data_0.parquet
+#
+# `year` and `h0` are both partition columns, so `WHERE year=YYYY` filters one year and reburn is a
+# self-join on the H3 cell across years. No per-year collections.
+#
+# Index maps to (year, h0): YI = IDX / 3, HI = IDX % 3.  36 years x 3 h0 = 108 completions.
+#
+# Reducer is `fractions`: per-class fractional coverage, long format, one row per (cell, class)
+# with `frac` in 0..1. This is the layer that answers the question #593 exists to ask -- what
+# SHARE of an area burned at high severity -- because `mode` collapses a cell that is 40% high
+# and 60% moderate to "moderate" and loses the 40% entirely. It also makes codes 5 (increased
+# greenness) and 6 (non-processing mask) cleanly excludable from a severity denominator.
+# `--resampling near` keeps the class codes intact while the fractions are computed.
+#
+# /!\ THE h0 FAN-OUT IS RESTRICTED TO 3 OF THE 122 BASE CELLS -- and that is a deliberate
+# deviation from the 122 the generator emits, because at res 10 an h0 index that holds no data is
+# NOT free: `cng-datasets raster` prunes only h0 cells whose envelope misses the raster, and every
+# surviving cell enumerates all ~280 M of its res-10 children before discovering they are all
+# nodata. Running 122 per year would be 4392 pod slots at 192Gi to do 108 cells' worth of work.
+#
+# The 3 indexes below are DATA-DERIVED, not guessed, and are cross-checked two ways:
+#   1. They are the populated h0 set measured on `whp-2023-classified-ak` (#586), a full-domain
+#      product in this same bucket. WHP covers every land pixel of the domain (it carries explicit
+#      non-burnable and water classes), so its populated set is a strict SUPERSET of any MTBS burn
+#      footprint in the same domain.
+#   2. They are reconciled against the measured h0 set of `mtbs-perimeters-1984-2024`, which is
+#      built first and marks exactly where MTBS fires are. See BUILD.md for the reconciliation.
+# The post-build `check-hex-coverage.sh` gate then verifies per year that every expected partition
+# is populated, so a wrong list fails loudly rather than shipping a hole.
+#
+#   h0 index -> cell
+#      12  ->  576812596024311807
+#      59  ->  576988517884755967
+#     105  ->  576707042908045311
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mtbs-severity-ak-hex-fractions
+  namespace: geo-workflows
+  labels:
+    k8s-app: mtbs-severity-ak-hex-fractions
+spec:
+  completions: 108
+  parallelism: 12
+  completionMode: Indexed
+  # Never backoffLimit: 0 -- a partial indexed run must surface as Failed, not publish as complete
+  # (#409). maxFailedIndexes absorbs a transient Ceph RGW blip without aborting the siblings.
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 30
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: mtbs-severity-ak-hex-fractions
+    spec:
+      restartPolicy: Never
+      # priorityClassName is deliberately OMITTED: `opportunistic` was preempted within ~20 s on
+      # these nodes during the WHP build (#586), which wastes the whole cell enumeration.
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: CNG_HEX_WORKERS
+          value: '8'
+        volumeMounts:
+        # The tool localizes the COG with rclone before hexing; without this mount the job fails.
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          YEARS=(1984 1985 1986 1988 1989 1990 1991 1992 1993 1994 1996 1997 1998 1999 2000 2002 2003 2004 2005 2006 2007 2008 2009 2010 2011 2012 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023)
+          H0S=(12 59 105)
+          IDX=${JOB_COMPLETION_INDEX}
+          Y=${YEARS[$(( IDX / ${#H0S[@]} ))]}
+          H0=${H0S[$(( IDX % ${#H0S[@]} ))]}
+          echo "=== MTBS severity ak $Y res-10 per-class fractions, h0-index $H0 (global idx $IDX) ==="
+          cng-datasets raster \
+            --input "s3://public-fire/mtbs-severity-1984-2024-ak/mtbs-severity-ak-${Y}-cog.tif" \
+            --output-parquet "s3://public-fire/mtbs-severity-1984-2024-ak/hex-fractions/year=${Y}/" \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column severity --hex-resampling fractions --resampling near --nodata "0"
+        resources:
+          # NLCD's res-10 CONUS hex measured a 105-141Gi peak; 192Gi covers it with margin and still
+          # fits every 256Gi node (a 256Gi request barely fits allocatable -> chronic
+          # FailedScheduling). Cell enumeration, not data volume, sets this -- MTBS being sparse
+          # does not make it cheaper.
+          requests:
+            cpu: '8'
+            memory: 192Gi
+            ephemeral-storage: 40Gi
+          limits:
+            cpu: '8'
+            memory: 192Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
