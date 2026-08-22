@@ -52,7 +52,12 @@ metadata:
     k8s-app: mtbs-severity-ak-hex-fractions
 spec:
   completions: 36
-  parallelism: 12
+  parallelism: 61
+  # 61, not the 12 the `nlcd` annual build uses. NLCD runs the full 122 h0 per year, so most of its
+  # indexes are pruned in seconds and 12 slots are ample; restricting this fan-out to the h0 cells
+  # that actually hold data means every index here is real work. Measured on the Alaska pilot: a
+  # res-10 index takes a median 2.2 h (max over 3.7 h), so concurrency is what sets wall-clock. 61
+  # is the tool's default for a raster hex workflow and stays inside the <=200 pod target.
   completionMode: Indexed
   # Never backoffLimit: 0 -- a partial indexed run must surface as Failed, not publish as complete
   # (#409). maxFailedIndexes absorbs a transient Ceph RGW blip without aborting the siblings.
