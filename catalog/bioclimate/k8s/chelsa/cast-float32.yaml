@@ -1,0 +1,74 @@
+# One-off: rewrite the ssp370-2041-2070 hex with float32 value columns (data-workflows #564).
+# That combination was built before the type was settled; the rest of the fan-out emits float32.
+# Rewriting is far cheaper than re-hexing — one read+cast per partition, not 35 exact_extract passes.
+# 122 completions so the index mapping matches the hex job; h0 cells with no partition exit clean.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chelsa-cast-float32
+  namespace: geo-workflows
+  labels: {k8s-app: chelsa-cast-float32}
+spec:
+  completions: 122
+  parallelism: 20
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 5
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: chelsa-cast-float32}}
+    spec:
+      restartPolicy: Never
+      # Default priority, not opportunistic (-2000000000) — see the pod-preemption skill.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: cast
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: PREFIX,              value: chelsa-2-1/ssp370-2041-2070}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /opt/scripts, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          H0IDX=${JOB_COMPLETION_INDEX}
+          rm -rf /tmp/cast && mkdir -p /tmp/cast
+          rclone copyto nrp:public-grids/hex/h0-valid.parquet /tmp/h0grid.parquet \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+          H0=$(python3 /opt/scripts/chelsa_h0_for_index.py --grid /tmp/h0grid.parquet --index ${H0IDX})
+          SRC="nrp:public-bioclimate/${PREFIX}/hex/h0=${H0}/data_0.parquet"
+          # rclone copyto exits 0 on a missing source, so test for the file, not the exit code.
+          rclone copyto "$SRC" /tmp/cast/in.parquet \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null || true
+          if [ ! -s /tmp/cast/in.parquet ]; then
+            echo "no partition for h0=${H0} (index ${H0IDX}) — nothing to cast"
+            exit 0
+          fi
+          echo "h0=${H0}: $(stat -c %s /tmp/cast/in.parquet) bytes in"
+          python3 /opt/scripts/chelsa_cast_float32.py --src /tmp/cast/in.parquet --out /tmp/cast/out.parquet
+          echo "h0=${H0}: $(stat -c %s /tmp/cast/out.parquet) bytes out"
+          rclone copyto /tmp/cast/out.parquet "$SRC" \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+          echo "h0=${H0} cast complete"
+        resources:
+          requests: {cpu: '4', memory: 48Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '4', memory: 48Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: chelsa-scripts}}

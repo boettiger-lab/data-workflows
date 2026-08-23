@@ -1,0 +1,146 @@
+# CHELSA v2.1 future bioclimate hex (data-workflows #564).
+#
+# One pod per h0; each pod hexes all 7 variables x 5 GCM members (35 rasters) and joins them
+# locally into one wide row per cell — so the wide hex is produced directly, with no cross-pod
+# merge and no 195M-row distributed join.
+#
+# Parameterised by SSP + PERIOD; run one (ssp, period) combination at a time.
+# See BUILD.md in this directory for the measured source metadata behind every constant here.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chelsa-hex
+  namespace: geo-workflows
+  labels: {k8s-app: chelsa-hex}
+spec:
+  completions: 122
+  parallelism: 20
+  completionMode: Indexed
+  backoffLimitPerIndex: 4
+  maxFailedIndexes: 10
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: chelsa-hex}}
+    spec:
+      restartPolicy: Never
+      # NOT opportunistic. That class carries priority -2000000000 — the lowest possible — and
+      # these pods run ~3.5 h each (35 rasters), which makes them a large preemption target. The
+      # first run showed it: 47 pod deaths against 120 successful indices, i.e. ~45 pods
+      # preempted and retried, with the two indices that exhausted their retry budget left
+      # holding stale partitions. Default priority (0) removes that exposure; parallelism is
+      # halved to 20 in exchange, so the claim on shared nodes does not grow.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        - {name: SSP,                 value: ssp370}
+        - {name: PERIOD,              value: 2041-2070}
+        # Physical plausibility bounds per variable, from the measured source ranges in
+        # BUILD.md with headroom for other scenarios and periods. These are the only check
+        # that catches a wrong scale/offset or a leaked nodata sentinel: both survive every
+        # structural check, because a linear transform preserves ordering and cardinality.
+        - name: BOUNDS
+          value: '{"bio1":[-100,60],"bio4":[0,5000],"bio5":[-70,65],"bio6":[-100,45],"bio12":[0,12000],"bio15":[0,400],"bio17":[0,6000]}'
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /opt/scripts, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          VARS=(bio1 bio4 bio5 bio6 bio12 bio15 bio17)
+          GCMS=(GFDL-ESM4 IPSL-CM6A-LR MPI-ESM1-2-HR MRI-ESM2-0 UKESM1-0-LL)
+          COLS=(gfdl_esm4 ipsl_cm6a_lr mpi_esm1_2_hr mri_esm2_0 ukesm1_0_ll)
+          H0IDX=${JOB_COMPLETION_INDEX}
+          RAW="public-bioclimate/raw/chelsa-2-1/${PERIOD}"
+          rm -rf /tmp/hex /tmp/mask /tmp/cache && mkdir -p /tmp/hex /tmp/mask /tmp/cache
+          echo "=== h0-index ${H0IDX}, ${SSP} ${PERIOD}, ${#VARS[@]} vars x ${#GCMS[@]} members ==="
+
+          # Skip an all-ocean h0 BEFORE hexing 35 rasters. rclone copyto exits 0 when the source
+          # does not exist, so test for the file itself, never the exit code.
+          rclone copyto nrp:public-grids/hex/h0-valid.parquet /tmp/h0grid.parquet \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+          H0=$(python3 /opt/scripts/chelsa_h0_for_index.py --grid /tmp/h0grid.parquet --index ${H0IDX})
+          echo "h0-index ${H0IDX} -> h0 cell ${H0}"
+          rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" \
+            /tmp/mask/eco.parquet --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null || true
+          if [ ! -s /tmp/mask/eco.parquet ]; then
+            echo "no ecoregion (land) partition for h0=${H0} — all-ocean, skipping before hexing"
+            exit 0
+          fi
+          echo "land mask for h0=${H0}: $(stat -c %s /tmp/mask/eco.parquet) bytes"
+
+          for V in "${VARS[@]}"; do
+            # NoData differs per variable upstream (bio1/4/5/6/12 use 0; bio15/bio17 use 65535,
+            # where bio12's 65535 is REAL clipped data) — read it from each file, never a table.
+            FIRST_GL=$(echo "${GCMS[0]}" | tr 'A-Z' 'a-z')
+            META=$(python3 /opt/scripts/chelsa_read_meta.py \
+              --input "/vsicurl/https://${AWS_PUBLIC_ENDPOINT}/${RAW}/${GCMS[0]}/${SSP}/CHELSA_${V}_${PERIOD}_${FIRST_GL}_${SSP}_V.2.1.tif")
+            echo "${V} source metadata: ${META}"
+            eval "$META"
+            NODATA_ARG=""
+            if [ -n "${NODATA:-}" ]; then NODATA_ARG="--nodata ${NODATA}"; fi
+            for i in 0 1 2 3 4; do
+              G=${GCMS[$i]}; C=${COLS[$i]}
+              GL=$(echo "$G" | tr 'A-Z' 'a-z')
+              echo "--- hexing ${V} / ${G}"
+              cng-datasets raster \
+                --input "s3://${RAW}/${G}/${SSP}/CHELSA_${V}_${PERIOD}_${GL}_${SSP}_V.2.1.tif" \
+                --output-parquet "/tmp/hex/${V}_${C}" \
+                --h0-index ${H0IDX} \
+                --resolution 8 --parent-resolutions 5,4,0 \
+                --value-column "${V}_${C}" \
+                --hex-resampling mean \
+                ${NODATA_ARG} \
+                --local-cache-dir /tmp/cache
+            done
+            # free the localized source before the next variable — 35 rasters will not fit
+            rm -f /tmp/cache/*.tif
+          done
+
+          H0_OUT=$(basename "$(ls -d /tmp/hex/${VARS[0]}_${COLS[0]}/h0=* | head -1)" | sed 's/^h0=//')
+          if [ "$H0_OUT" != "$H0" ]; then
+            echo "ERROR: hex wrote h0=${H0_OUT} but the grid says index ${H0IDX} is h0=${H0}" >&2
+            exit 1
+          fi
+
+          VAR_LIST=$(IFS=,; echo "${VARS[*]}")
+          MEMBER_LIST=$(IFS=,; echo "${COLS[*]}")
+          set +e
+          python3 /opt/scripts/chelsa_join_vars.py \
+            --h0 "${H0}" --vars "${VAR_LIST}" --members "${MEMBER_LIST}" \
+            --bounds "${BOUNDS}" \
+            --hex-root /tmp/hex --mask /tmp/mask/eco.parquet --out /tmp/final.parquet
+          rc=$?
+          set -e
+          if [ "$rc" -eq 3 ]; then echo "empty after land mask — skipping h0=${H0}"; exit 0; fi
+          if [ "$rc" -ne 0 ]; then echo "join/mask failed rc=${rc}"; exit "$rc"; fi
+
+          rclone copyto /tmp/final.parquet \
+            "nrp:public-bioclimate/chelsa-2-1/${SSP}-${PERIOD}/hex/h0=${H0}/data_0.parquet" \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+          echo "h0=${H0} complete"
+        resources:
+          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 64Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: chelsa-scripts}}

@@ -12,6 +12,124 @@ How to size a vector hex job, and how to choose resolutions that stay joinable t
 
 **RAM is driven by the H3 cell count of the single largest feature in a chunk — not dataset size or bounding box.**
 
+### ⛔ MEASURE EVERY dimension you request — never inherit one from a neighbouring job
+
+`kubectl top pod` columns are `NAME CPU MEMORY` — **cpu is `$2`, memory is `$3`**. Reading `$1`
+gives you the pod name and every number comes out zero.
+
+```bash
+# memory: handle both Mi and Gi — kubectl top mixes them, and a naive gsub(/Mi/,"") reports
+# a peak BELOW the mean
+kubectl -n geo-workflows top pod --no-headers | grep '^<prefix>' | awk '{
+  v=$3; if(v~/Gi$/){gsub(/Gi/,"",v); v=v*1024} else gsub(/Mi/,"",v);
+  if(v+0>m)m=v+0; s+=v; n++} END {printf "n=%d peak=%.2fGi mean=%.2fGi\n", n, m/1024, s/n/1024}'
+
+# cpu
+kubectl -n geo-workflows top pod --no-headers | grep '^<prefix>' | awk '{
+  c=$2; gsub(/m/,"",c); if(c+0>m)m=c+0; s+=c; n++} END {
+  printf "n=%d peak=%.2f mean=%.2f cores\n", n, m/1000, s/n/1000}'
+```
+
+Measured on the CHELSA hex (one raster per job), against what was requested:
+
+| dimension | requested | measured | over-ask |
+|---|---|---|---|
+| memory | 32 Gi | peak **5.2 Gi**, mean 3.5 Gi | ~6x |
+| cpu | 8 cores | peak 8.6, mean **3.3 cores** | ~2.4x |
+
+Both were inherited rather than measured — memory by halving a 64 Gi figure sized for a
+35-raster chain rather than the one raster a job runs, cpu by copying the same job's `8`. Only 19
+of 100 pods used more than 7 cores; 64 used fewer than 4.
+
+CPU over-asks are easy to miss because a job **is** genuinely parallel in its hot loop. The
+`exact_extract` phase does use its workers, but everything around it — the rclone localize, the
+metadata read, the DuckDB mask, the upload — is single-threaded, so the *average* over the pod's
+lifetime is far below the peak. Size on the mean plus headroom, not on what the hot loop can use.
+
+**An over-request throttles your own throughput**, because the request decides how many pods a
+shared cluster can hold. At 32 Gi the Armada scheduler reported *"4,231 jobs do not fit on any
+node"*. Aim for measured peak + ~50%, then re-measure.
+
+### These numbers are per-dataset — re-measure, do not reuse
+
+Every figure in this section is a measurement of one workload, not a constant. Peak RAM tracks the
+H3 cell count of the largest unit and the geometry or pixel density inside it, so a different
+source, resolution, or reducer moves it. The CHELSA slice peaked at 5.2 Gi; a res-10 CONUS h0 in
+the same tool peaked at ~140 GiB (datasets#173). Both are "one hex job".
+
+So treat published sizings as a **starting point that must be re-measured per dataset**, and
+expect to adjust mid-campaign: probe a representative unit (ideally one dense and one sparse,
+since the profile is bimodal), read the actuals, then size the fleet. Reusing a neighbour's number
+is exactly how a 6x memory over-ask and a 2.4x core over-ask both got shipped here.
+
+### Memory is the dimension to be most conservative about
+
+Cores are comparatively elastic: a node with spare CPU can usually take another pod, and a slice
+given fewer cores just runs a little longer. **Memory is not elastic** — a node either has the
+gigabytes free or it cannot host the pod at all. So the memory request is what decides how many
+placement slots exist for your work, and being tight on it directly buys concurrency.
+
+It also decides *where* the work can run at all: a job needing 8 Gi is portable to any node or
+cluster, while one needing 64 Gi is placeable only where large-RAM nodes exist. That matters for
+Armada federation across clusters, and NRP already imposes a hard 32 GB ceiling on
+controller-less pods.
+
+Size cpu honestly as well — a 2.4x core over-ask is real waste — but if you must be wrong in one
+direction, be tight on memory.
+
+⚠️ **Do not infer which resource is binding from a small concurrency change**, and read the
+scheduler's own view rather than a pod count:
+
+```bash
+armadactl get queue-report <queue>   # Total allocated resources after scheduling: (cpu=..., memory=...)
+kubectl describe node | grep -A5 'Allocated resources'
+```
+
+We briefly concluded "CPU binds, not memory" because right-sizing 32 Gi → 8 Gi moved concurrency
+only 28 → 31 pods. Both numbers turned out to have been sampled during Armada's lease ramp, which
+later reached 128 pods — so the comparison never supported the claim. A snapshot taken while a
+scheduler is still leasing tells you nothing about a ceiling.
+
+### The profile is bimodal — size for the common case, handle the few
+
+Most chunks are cheap and a handful cost everything: for a global raster ~116 of 122 h0 cells are
+ocean and finish in seconds while a few land cells dominate. A flat request sized for the worst
+chunk oversizes every other one, and at fine resolutions the worst chunk can be so large the
+request barely places (boettiger-lab/datasets#173: a res-10 CONUS h0 peaked at ~140 GiB, and
+256 Gi requests chronically hit `FailedScheduling`).
+
+Prefer, in order:
+1. **finer chunks**, so the worst case shrinks (sub-h0 chunking, datasets#173);
+2. **two tiers** — the common size for most, a larger request for the known-dense few;
+3. a flat worst-case request only when neither is available, knowing it costs concurrency.
+
+#### Worked example: 1 failure in 3,780, and it was the densest unit
+
+A CHELSA fan-out ran 4,270 microsliced hex jobs at **8 Gi** (measured peak 5.2 Gi across a
+sample). Armada's tally: **4,269 succeeded, 1 failed**. The single failure was
+`bio4` on h0 `578923658349641727` — the largest source file (494 MB) on the densest h0 (5,764,801
+cells, the res-8 maximum). Every other slice fit comfortably.
+
+That is the whole two-tier argument in one data point:
+
+- **flat to the worst case** → 24 Gi x 3,780 pods, roughly a third the concurrency, for one unit's
+  benefit;
+- **flat to the common case** → lose exactly one slice, re-run it at 24 Gi in nine minutes;
+- **two tiers** → nothing lost, no concurrency given away.
+
+It also shows the failure is *benign at fine granularity*. A memory miss cost nine minutes and one
+targeted retry. The same miss inside a 3.5-hour pod covering 35 rasters would have taken all 35
+down with it — which is the second reason to microslice, distinct from preemption.
+
+**Find the gap by enumerating, never by counting.** 3,779 of 3,780 staged files looks like
+completion at a glance, and a count alone cannot tell you which unit is absent. Diff the expected
+`(unit, chunk)` set against what landed:
+
+```python
+missing = [(f"{v}_{m}", h) for h in land_h0 for v in VARS for m in MEMBERS
+           if (f"{v}_{m}", h) not in staged]
+```
+
 Hex generation is two passes:
 1. For each feature polygon, compute covering H3 cells (large array per feature)
 2. Unnest arrays row-by-row; **peak RAM = size of the largest single feature's cell array**
