@@ -1,5 +1,85 @@
 apiVersion: v1
 data:
+  armada_gapfill.py: |
+    """Enumerate missing staged slices for a combination and emit an Armada job set to fill them.
+
+    Armada exposes no retry service on NRP (`armadactl get retry-policies` -> Unimplemented) and, per
+    the NRP docs, preempted jobs are not rescheduled. So **any** transient failure leaves a
+    permanently missing slice, and gap-fill is a required pipeline stage rather than an exception.
+
+    Measured failure rate: 1-4 slices per 3,780 (~0.1%), and the one reason readable from the event
+    stream was `Pod unexpectedly started up after delete was called` — a scheduler race, unrelated to
+    the job's resources. Failures are roughly uniform across variables, not concentrated in the dense
+    ones, so this is about retry semantics, not sizing.
+
+    ⛔ Find gaps by ENUMERATING the expected set, never by counting. 3,779 of 3,780 reads as complete
+    at a glance, and a count cannot tell you which slice is absent.
+    """
+    import argparse
+    import re
+    import sys
+    import urllib.parse
+    import urllib.request
+
+    VARS = ["bio1", "bio4", "bio5", "bio6", "bio12", "bio15", "bio17"]
+    MEMBERS = ["gfdl_esm4", "ipsl_cm6a_lr", "mpi_esm1_2_hr", "mri_esm2_0", "ukesm1_0_ll"]
+    BASE = "https://s3-west.nrp-nautilus.io/public-bioclimate"
+
+
+    def keys(prefix):
+        tok, out = None, []
+        while True:
+            u = f"{BASE}?list-type=2&prefix={urllib.parse.quote(prefix)}&max-keys=1000"
+            if tok:
+                u += "&continuation-token=" + urllib.parse.quote(tok)
+            x = urllib.request.urlopen(u, timeout=90).read().decode()
+            out += re.findall(r"<Key>([^<]*)</Key>", x)
+            m = re.search(r"<NextContinuationToken>([^<]*)</NextContinuationToken>", x)
+            if not m:
+                break
+            tok = m.group(1)
+        return out
+
+
+    def main():
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--combo", required=True, help="e.g. ssp126-2041-2070")
+        ap.add_argument("--staging", default="staging")
+        ap.add_argument("--reference", default="chelsa-2-1/ssp370-2041-2070/hex/",
+                        help="a published hex whose h0 set defines the land partitions")
+        ap.add_argument("--grid", default="s3://public-grids/hex/h0-valid.parquet")
+        args = ap.parse_args()
+
+        land_cells = sorted(set(re.findall(r"hex/h0=(\d+)/", "".join(keys(args.reference)))))
+        if not land_cells:
+            print(f"ERROR: no land h0 found under {args.reference}", file=sys.stderr)
+            return 1
+
+        got = set()
+        for k in keys(f"{args.staging}/{args.combo}/"):
+            m = re.search(rf"{re.escape(args.staging)}/{re.escape(args.combo)}/([^/]+)/h0=(\d+)/", k)
+            if m:
+                got.add((m.group(1), m.group(2)))
+
+        expected = len(land_cells) * len(VARS) * len(MEMBERS)
+        missing = [(v, m, h) for h in land_cells for v in VARS for m in MEMBERS
+                   if (f"{v}_{m}", h) not in got]
+
+        print(f"{args.combo}: {expected - len(missing)}/{expected} staged, {len(missing)} missing")
+        for v, m, h in missing:
+            print(f"  MISSING {v}_{m} h0cell={h}")
+
+        # Emit the h0 CELL ids; the caller maps them back to --h0-indexes for the generator.
+        if missing:
+            cells = sorted({h for _, _, h in missing})
+            vars_ = sorted({v for v, _, _ in missing})
+            print(f"\nGAPFILL_CELLS={','.join(cells)}")
+            print(f"GAPFILL_VARS={','.join(vars_)}")
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
   chelsa_cast_float32.py: |
     """Rewrite a published CHELSA hex partition with float32 value columns (data-workflows #564).
 
@@ -252,6 +332,91 @@ data:
         sys.exit(1)
 
     print(row[0])
+  chelsa_join_baseline.py: |
+    """Join the per-variable baseline hex partitions for one h0 (data-workflows #448).
+
+    The present-day baseline is an observational climatology, not an ensemble: one raster per
+    variable, no GCM members. So the output is one plain column per variable rather than the futures'
+    five members plus median/min/max, and a delta against a future collection reads directly:
+
+        SELECT AVG(f.bio1_median - b.bio1) FROM <future> f JOIN <baseline> b USING (h8)
+
+    Values arrive already in physical units — cng-datasets hands the raster path to exactextract,
+    whose GDAL source applies the band scale/offset. No transform here.
+
+    Exit 3 means nothing survived the land mask, which the caller treats as a skip.
+    """
+    import argparse
+    import glob
+    import json
+    import sys
+
+    import duckdb
+
+
+    def part(root, var, h0):
+        hits = glob.glob(f"{root}/{var}/h0={h0}/data_0.parquet")
+        if not hits:
+            raise SystemExit(f"ERROR: missing partition for {var} h0={h0}")
+        return hits[0]
+
+
+    def main() -> int:
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--h0", required=True)
+        ap.add_argument("--vars", required=True)
+        ap.add_argument("--hex-root", required=True)
+        ap.add_argument("--mask", required=True)
+        ap.add_argument("--out", required=True)
+        ap.add_argument("--bounds", required=True)
+        args = ap.parse_args()
+
+        variables = [v.strip() for v in args.vars.split(",") if v.strip()]
+        bounds = json.loads(args.bounds)
+        con = duckdb.connect()
+        paths = {v: part(args.hex_root, v, args.h0) for v in variables}
+        base = variables[0]
+
+        sel = ", ".join(f"CAST({v}t.{v} AS FLOAT) AS {v}" for v in variables)
+        joins = " ".join(f"JOIN read_parquet('{paths[v]}') {v}t ON {v}t.h8 = {base}t.h8"
+                         for v in variables if v != base)
+
+        con.execute(f"""
+            COPY (
+                SELECT {base}t.h8, {base}t.h5, {base}t.h4, {base}t.h0, {sel}
+                FROM read_parquet('{paths[base]}') {base}t
+                {joins}
+                SEMI JOIN (SELECT DISTINCT h8 FROM read_parquet('{args.mask}')) msk
+                  ON {base}t.h8 = msk.h8
+            ) TO '{args.out}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+        """)
+
+        before = con.execute(f"SELECT COUNT(*) FROM read_parquet('{paths[base]}')").fetchone()[0]
+        after = con.execute(f"SELECT COUNT(*) FROM read_parquet('{args.out}')").fetchone()[0]
+        print(f"MASK h0={args.h0} rows_before={before} rows_after={after}")
+        if after == 0:
+            print("EMPTY after land mask")
+            return 3
+
+        failures = 0
+        for v in variables:
+            lo, hi, nulls = con.execute(
+                f"SELECT MIN({v}), MAX({v}), COUNT(*) FILTER (WHERE {v} IS NULL) "
+                f"FROM read_parquet('{args.out}')").fetchone()
+            print(f"MEASURED {v}: min={lo} max={hi} nulls={nulls}")
+            blo, bhi = bounds[v]
+            # A wrong scale/offset or a leaked nodata sentinel survives every structural check,
+            # because a linear transform preserves ordering and cardinality. Only a physical
+            # bound catches it.
+            if lo is not None and lo < blo:
+                print(f"ERROR: {v} min {lo} below bound {blo}", file=sys.stderr); failures += 1
+            if hi is not None and hi > bhi:
+                print(f"ERROR: {v} max {hi} above bound {bhi}", file=sys.stderr); failures += 1
+        return 5 if failures else 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
   chelsa_join_mask.py: |
     """Join the per-GCM hex partitions for one h0, apply units + land mask (data-workflows #564).
 
@@ -612,6 +777,750 @@ data:
               f"NODATA={fmt_nodata(nodata)}")
         del band
         del ds
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
+  gen_armada_baseline.py: |
+    """Generate the Armada job sets for the CHELSA v2.1 present-day baseline (data-workflows #448).
+
+    The baseline is an observational climatology, not an ensemble: one raster per variable, no GCM
+    members. So the schema is plain `bio1`, `bio4`, ... rather than the futures' `bio1_<member>` plus
+    median/min/max, and a delta against a future collection reads naturally:
+
+        SELECT AVG(f.bio1_median - b.bio1) AS warming_c
+        FROM   <future>/hex/... f JOIN <baseline>/hex/... b USING (h8)
+
+    Same shape as the futures build otherwise: one hex job per (h0, variable), masked to land before
+    staging, then one join per h0. Sizing is the measured 8 Gi / 4 cores, and Armada has no retry, so
+    the caller must still run armada_gapfill.py before joining.
+    """
+    import argparse
+    import sys
+
+    import yaml
+
+    VARS = ["bio1", "bio4", "bio5", "bio6", "bio12", "bio15", "bio17"]
+    BASE = "https://s3-west.nrp-nautilus.io/public-bioclimate"
+
+    HEX = r"""set -euo pipefail
+    H0IDX=__H0IDX__ ; V=__VAR__ ; PERIOD=__PERIOD__ ; STAGING=__STAGING__
+    RAW="public-bioclimate/raw/chelsa-2-1/${PERIOD}"
+    F="CHELSA_${V}_${PERIOD}_V.2.1.tif"
+    rm -rf /tmp/hex /tmp/mask /tmp/cache && mkdir -p /tmp/hex /tmp/mask /tmp/cache
+
+    rclone copyto nrp:public-grids/hex/h0-valid.parquet /tmp/h0grid.parquet \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s
+    H0=$(python3 /opt/scripts/chelsa_h0_for_index.py --grid /tmp/h0grid.parquet --index ${H0IDX})
+    echo "h0-index ${H0IDX} -> ${H0} | ${V} baseline ${PERIOD}"
+
+    # rclone copyto exits 0 when the source is absent, so test for the file itself
+    rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" /tmp/mask/eco.parquet \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null || true
+    if [ ! -s /tmp/mask/eco.parquet ]; then echo "no land in h0=${H0} — nothing to do"; exit 0; fi
+
+    META=$(python3 /opt/scripts/chelsa_read_meta.py --input "/vsicurl/https://${AWS_PUBLIC_ENDPOINT}/${RAW}/${F}")
+    echo "${V} metadata: ${META}"
+    eval "$META"
+    NODATA_ARG=""; if [ -n "${NODATA:-}" ]; then NODATA_ARG="--nodata ${NODATA}"; fi
+
+    cng-datasets raster \
+      --input "s3://${RAW}/${F}" \
+      --output-parquet /tmp/hex/out \
+      --h0-index ${H0IDX} \
+      --resolution 8 --parent-resolutions 5,4,0 \
+      --value-column "${V}" \
+      --hex-resampling mean ${NODATA_ARG} \
+      --local-cache-dir /tmp/cache
+
+    SRC=$(ls /tmp/hex/out/h0=*/data_0.parquet | head -1)
+    set +e
+    python3 /opt/scripts/chelsa_mask_one.py --src "${SRC}" --mask /tmp/mask/eco.parquet --out /tmp/masked.parquet
+    rc=$?; set -e
+    if [ "$rc" -eq 3 ]; then echo "empty after mask"; exit 0; fi
+    if [ "$rc" -ne 0 ]; then echo "mask failed rc=${rc}"; exit "$rc"; fi
+
+    rclone copyto /tmp/masked.parquet \
+      "nrp:public-bioclimate/${STAGING}/${PERIOD}/${V}/h0=${H0}/data_0.parquet" \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s
+    echo "staged ${V} h0=${H0}"
+    """
+
+    JOIN = r"""set -euo pipefail
+    H0IDX=__H0IDX__ ; PERIOD=__PERIOD__ ; STAGING=__STAGING__ ; VARS=__VARS__ ; OUTPREFIX=__OUTPREFIX__
+    rm -rf /tmp/hex /tmp/mask && mkdir -p /tmp/hex /tmp/mask
+
+    rclone copyto nrp:public-grids/hex/h0-valid.parquet /tmp/h0grid.parquet \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s
+    H0=$(python3 /opt/scripts/chelsa_h0_for_index.py --grid /tmp/h0grid.parquet --index ${H0IDX})
+    rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" /tmp/mask/eco.parquet \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null || true
+    if [ ! -s /tmp/mask/eco.parquet ]; then echo "no land in h0=${H0}"; exit 0; fi
+
+    missing=0
+    for V in ${VARS//,/ }; do
+      D="/tmp/hex/${V}/h0=${H0}"; mkdir -p "$D"
+      rclone copyto "nrp:public-bioclimate/${STAGING}/${PERIOD}/${V}/h0=${H0}/data_0.parquet" \
+        "${D}/data_0.parquet" --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null || true
+      [ -s "${D}/data_0.parquet" ] || { echo "MISSING ${V} h0=${H0}" >&2; missing=$((missing+1)); }
+    done
+    # refuse a partial join: it would write a partition that looks complete but lacks variables
+    if [ "$missing" -ne 0 ]; then echo "ERROR: ${missing} pieces missing for h0=${H0}" >&2; exit 1; fi
+
+    set +e
+    python3 /opt/scripts/chelsa_join_baseline.py --h0 "${H0}" --vars "${VARS}" \
+      --hex-root /tmp/hex --mask /tmp/mask/eco.parquet --out /tmp/final.parquet --bounds "${BOUNDS}"
+    rc=$?; set -e
+    if [ "$rc" -eq 3 ]; then echo "empty after mask"; exit 0; fi
+    if [ "$rc" -ne 0 ]; then echo "join failed rc=${rc}"; exit "$rc"; fi
+
+    rclone copyto /tmp/final.parquet \
+      "nrp:public-bioclimate/${OUTPREFIX}/${PERIOD}/hex/h0=${H0}/data_0.parquet" \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s
+    echo "h0=${H0} joined"
+    """
+
+    BOUNDS = ('{"bio1":[-100,60],"bio4":[0,5000],"bio5":[-70,65],"bio6":[-100,45],'
+              '"bio12":[0,12000],"bio15":[0,400],"bio17":[0,6000]}')
+
+
+    def pod(script, memory, cpu, ephemeral, extra_env=None):
+        env = [
+            {"name": "AWS_ACCESS_KEY_ID", "valueFrom": {"secretKeyRef": {"name": "aws", "key": "AWS_ACCESS_KEY_ID"}}},
+            {"name": "AWS_SECRET_ACCESS_KEY", "valueFrom": {"secretKeyRef": {"name": "aws", "key": "AWS_SECRET_ACCESS_KEY"}}},
+            {"name": "AWS_S3_ENDPOINT", "value": "rook-ceph-rgw-nautiluss3.rook"},
+            {"name": "AWS_PUBLIC_ENDPOINT", "value": "s3-west.nrp-nautilus.io"},
+            {"name": "AWS_HTTPS", "value": "false"},
+            {"name": "AWS_VIRTUAL_HOSTING", "value": "FALSE"},
+            {"name": "GDAL_DATA", "value": "/usr/share/gdal"},
+            {"name": "PYTHONPATH", "value": "/usr/lib/python3/dist-packages"},
+            {"name": "CNG_HEX_WORKERS", "value": str(cpu)},
+        ] + (extra_env or [])
+        return {
+            "restartPolicy": "Never", "terminationGracePeriodSeconds": 30,
+            "containers": [{
+                "name": "task", "image": "ghcr.io/boettiger-lab/datasets:latest",
+                "imagePullPolicy": "Always", "env": env, "command": ["bash", "-c", script],
+                "volumeMounts": [
+                    {"name": "rclone-config", "mountPath": "/root/.config/rclone", "readOnly": True},
+                    {"name": "scripts", "mountPath": "/opt/scripts", "readOnly": True}],
+                "resources": {
+                    "requests": {"cpu": str(cpu), "memory": memory, "ephemeral-storage": ephemeral},
+                    "limits": {"cpu": str(cpu), "memory": memory, "ephemeral-storage": ephemeral}},
+            }],
+            "volumes": [
+                {"name": "rclone-config", "secret": {"secretName": "rclone-config"}},
+                {"name": "scripts", "configMap": {"name": "chelsa-scripts"}}],
+        }
+
+
+    def main():
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--phase", choices=["hex", "join"], required=True)
+        ap.add_argument("--period", default="1981-2010")
+        ap.add_argument("--queue", default="geo-workflows")
+        ap.add_argument("--namespace", default="geo-workflows")
+        ap.add_argument("--job-set-id", required=True)
+        ap.add_argument("--staging", default="staging-baseline")
+        ap.add_argument("--output-prefix", default="chelsa-2-1/baseline")
+        ap.add_argument("--h0-indexes", default="0-121")
+        ap.add_argument("--vars", default=",".join(VARS))
+        ap.add_argument("--memory", default="8Gi")
+        ap.add_argument("--cpu", type=int, default=4)
+        ap.add_argument("--priority-class", default="armada-preemptible")
+        ap.add_argument("--out", required=True)
+        args = ap.parse_args()
+
+        if "-" in args.h0_indexes and "," not in args.h0_indexes:
+            lo, hi = args.h0_indexes.split("-")
+            idxs = list(range(int(lo), int(hi) + 1))
+        else:
+            idxs = [int(i) for i in args.h0_indexes.split(",")]
+        variables = [v.strip() for v in args.vars.split(",") if v.strip()]
+
+        jobs = []
+        for h0idx in idxs:
+            if args.phase == "hex":
+                for v in variables:
+                    s = (HEX.replace("__H0IDX__", str(h0idx)).replace("__VAR__", v)
+                            .replace("__PERIOD__", args.period).replace("__STAGING__", args.staging))
+                    jobs.append({"namespace": args.namespace, "priorityClassName": args.priority_class,
+                                 "podSpec": pod(s, args.memory, args.cpu, "8Gi")})
+            else:
+                s = (JOIN.replace("__H0IDX__", str(h0idx)).replace("__PERIOD__", args.period)
+                         .replace("__STAGING__", args.staging).replace("__VARS__", ",".join(variables))
+                         .replace("__OUTPREFIX__", args.output_prefix))
+                jobs.append({"namespace": args.namespace, "priorityClassName": args.priority_class,
+                             "podSpec": pod(s, "8Gi", 4, "40Gi", [{"name": "BOUNDS", "value": BOUNDS}])})
+
+        with open(args.out, "w") as f:
+            yaml.safe_dump({"queue": args.queue, "jobSetId": args.job_set_id, "jobs": jobs}, f, sort_keys=False)
+        print(f"{len(jobs)} {args.phase} jobs -> {args.out}")
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
+  gen_armada_hex.py: |
+    """Generate an Armada job set for microsliced CHELSA hexing (data-workflows #564).
+
+    One Armada job per (h0, variable, GCM member) — 122 x 7 x 5 = 4,270 units for a full
+    (ssp, period) combination, each roughly five minutes, against 122 jobs of ~3.5 hours on the
+    k8s path. Armada is not bound by the k8s indexed-Job completion cap (~200, an etcd pressure
+    limit), which is what makes this shape possible.
+
+    Why microslice, beyond preemption:
+      * the unit of loss on preemption drops from hours to minutes
+      * each job requests what one raster needs, not the peak of a 35-step chain
+      * small pods pack into free scraps instead of waiting for large contiguous slots, so realised
+        parallelism is far closer to requested
+      * a straggler retries invisibly instead of holding up a batch and leaving stale output
+
+    Each job masks to land before staging, so the intermediate is the land subset rather than all
+    5,764,801 cells of the h0.
+    """
+    import argparse
+    import json
+    import sys
+
+    import yaml
+
+    VARS = ["bio1", "bio4", "bio5", "bio6", "bio12", "bio15", "bio17"]
+    GCMS = [
+        ("GFDL-ESM4", "gfdl_esm4"),
+        ("IPSL-CM6A-LR", "ipsl_cm6a_lr"),
+        ("MPI-ESM1-2-HR", "mpi_esm1_2_hr"),
+        ("MRI-ESM2-0", "mri_esm2_0"),
+        ("UKESM1-0-LL", "ukesm1_0_ll"),
+    ]
+
+    SCRIPT = r"""set -euo pipefail
+    H0IDX=__H0IDX__ ; V=__VAR__ ; G=__GCM__ ; C=__COL__
+    SSP=__SSP__ ; PERIOD=__PERIOD__
+    RAW="public-bioclimate/raw/chelsa-2-1/${PERIOD}"
+    GL=$(echo "$G" | tr 'A-Z' 'a-z')
+    rm -rf /tmp/hex /tmp/mask /tmp/cache && mkdir -p /tmp/hex /tmp/mask /tmp/cache
+
+    rclone copyto nrp:public-grids/hex/h0-valid.parquet /tmp/h0grid.parquet \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s
+    H0=$(python3 /opt/scripts/chelsa_h0_for_index.py --grid /tmp/h0grid.parquet --index ${H0IDX})
+    echo "h0-index ${H0IDX} -> ${H0} | ${V} / ${G}"
+
+    # rclone copyto exits 0 when the source is absent, so test for the file itself.
+    rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" /tmp/mask/eco.parquet \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null || true
+    if [ ! -s /tmp/mask/eco.parquet ]; then
+      echo "no land in h0=${H0} — nothing to do"; exit 0
+    fi
+
+    META=$(python3 /opt/scripts/chelsa_read_meta.py \
+      --input "/vsicurl/https://${AWS_PUBLIC_ENDPOINT}/${RAW}/${G}/${SSP}/CHELSA_${V}_${PERIOD}_${GL}_${SSP}_V.2.1.tif")
+    echo "${V} metadata: ${META}"
+    eval "$META"
+    NODATA_ARG=""; if [ -n "${NODATA:-}" ]; then NODATA_ARG="--nodata ${NODATA}"; fi
+
+    cng-datasets raster \
+      --input "s3://${RAW}/${G}/${SSP}/CHELSA_${V}_${PERIOD}_${GL}_${SSP}_V.2.1.tif" \
+      --output-parquet "/tmp/hex/out" \
+      --h0-index ${H0IDX} \
+      --resolution 8 --parent-resolutions 5,4,0 \
+      --value-column "${V}_${C}" \
+      --hex-resampling mean ${NODATA_ARG} \
+      --local-cache-dir /tmp/cache
+
+    SRC=$(ls /tmp/hex/out/h0=*/data_0.parquet | head -1)
+    # Mask to land before staging: the intermediate becomes the land subset rather than all
+    # 5,764,801 cells of the h0, which is most of the staging volume for a mostly-ocean cell.
+    # A script, not inline SQL -- the statement would otherwise have to survive shell, YAML and
+    # Python quoting, and that escaping collapses at runtime rather than at generation time.
+    set +e
+    python3 /opt/scripts/chelsa_mask_one.py \
+      --src "${SRC}" --mask /tmp/mask/eco.parquet --out /tmp/masked.parquet
+    rc=$?
+    set -e
+    if [ "$rc" -eq 3 ]; then echo "empty after mask"; exit 0; fi
+    if [ "$rc" -ne 0 ]; then echo "mask failed rc=${rc}"; exit "$rc"; fi
+
+    rclone copyto /tmp/masked.parquet \
+      "nrp:public-bioclimate/__STAGING__/${SSP}-${PERIOD}/${V}_${C}/h0=${H0}/data_0.parquet" \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s
+    echo "staged ${V}_${C} h0=${H0}"
+    """
+
+
+    def make_pod(h0idx, var, gcm, col, ssp, period, staging, memory, cpu):
+        script = (SCRIPT
+                  .replace("__H0IDX__", str(h0idx)).replace("__VAR__", var)
+                  .replace("__GCM__", gcm).replace("__COL__", col)
+                  .replace("__SSP__", ssp).replace("__PERIOD__", period)
+                  .replace("__STAGING__", staging))
+        return {
+            "restartPolicy": "Never",
+            "terminationGracePeriodSeconds": 30,
+            "containers": [{
+                "name": "hex",
+                "image": "ghcr.io/boettiger-lab/datasets:latest",
+                "imagePullPolicy": "Always",
+                "env": [
+                    {"name": "AWS_ACCESS_KEY_ID", "valueFrom": {"secretKeyRef": {"name": "aws", "key": "AWS_ACCESS_KEY_ID"}}},
+                    {"name": "AWS_SECRET_ACCESS_KEY", "valueFrom": {"secretKeyRef": {"name": "aws", "key": "AWS_SECRET_ACCESS_KEY"}}},
+                    {"name": "AWS_S3_ENDPOINT", "value": "rook-ceph-rgw-nautiluss3.rook"},
+                    {"name": "AWS_PUBLIC_ENDPOINT", "value": "s3-west.nrp-nautilus.io"},
+                    {"name": "AWS_HTTPS", "value": "false"},
+                    {"name": "AWS_VIRTUAL_HOSTING", "value": "FALSE"},
+                    {"name": "GDAL_DATA", "value": "/usr/share/gdal"},
+                    {"name": "PYTHONPATH", "value": "/usr/lib/python3/dist-packages"},
+                    {"name": "CNG_HEX_WORKERS", "value": str(cpu)},
+                ],
+                "command": ["bash", "-c", script],
+                "volumeMounts": [
+                    {"name": "rclone-config", "mountPath": "/root/.config/rclone", "readOnly": True},
+                    {"name": "scripts", "mountPath": "/opt/scripts", "readOnly": True},
+                ],
+                "resources": {
+                    "requests": {"cpu": str(cpu), "memory": memory, "ephemeral-storage": "8Gi"},
+                    "limits": {"cpu": str(cpu), "memory": memory, "ephemeral-storage": "8Gi"},
+                },
+            }],
+            "volumes": [
+                {"name": "rclone-config", "secret": {"secretName": "rclone-config"}},
+                {"name": "scripts", "configMap": {"name": "chelsa-scripts"}},
+            ],
+        }
+
+
+    def main():
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--ssp", required=True)
+        ap.add_argument("--period", required=True)
+        ap.add_argument("--queue", default="geo-workflows")
+        ap.add_argument("--namespace", default="geo-workflows")
+        ap.add_argument("--job-set-id", required=True)
+        ap.add_argument("--staging", default="staging")
+        ap.add_argument("--h0-indexes", default="0-121",
+                        help="'0-121', or a comma list, to scope a proof run")
+        ap.add_argument("--vars", default=",".join(VARS))
+        # MEASURED, not inherited. `kubectl top pod` across 25 running slices showed peak 5.4 Gi
+        # and mean 3.9 Gi, so 8Gi carries ~48% headroom. The first version asked for 32Gi -- half of
+        # the k8s job's 64Gi, which was itself sized for a 35-raster chain rather than one raster --
+        # and the scheduler reported "4,231 jobs do not fit on any node" while only ~28 ran. RAM is
+        # what limits how many pods the cluster can hold, so an over-request directly throttles
+        # concurrency: a node with 10Gi free and cores to spare can take an 8Gi pod but not a 32Gi one.
+        #
+        # NRP also caps controller-less pods (which every Armada pod is) at 16 cores / 32 GB.
+        # Exceeding that is rejected at admission, not at submit -- armadactl --dry-run passes.
+        ap.add_argument("--memory", default="8Gi")
+        # MEASURED: mean 3.3 cores used against an 8-core request (peak 8.6, but only 19 of 100
+        # pods exceeded 7 and 64 used under 4). exact_extract does use its workers, but the localize,
+        # metadata read, mask and upload around it are single-threaded, so the lifetime average is far
+        # below the hot-loop peak. cpu binds placement on this cluster, so the over-ask throttled our
+        # own queue harder than the memory one did.
+        ap.add_argument("--cpu", type=int, default=4)
+        # armada-default is non-preemptible (priority 100). Preemptible is a fine default once
+        # units are minutes rather than hours; see the armada-pipeline skill.
+        # Two-tier memory. The common tier is measured (peak 5.2 Gi -> 8Gi); a small dense tier gets
+        # headroom. Evidence: of 4,270 slices at a flat 8Gi, exactly ONE failed -- bio4 on the densest
+        # h0 (5,764,801 land cells, the res-8 maximum, and a 494 MB source). Sizing the whole fleet for
+        # that unit would cost ~2/3 of the concurrency to benefit ~10% of jobs; sizing none of it for
+        # that unit costs one nine-minute retry. Tiering costs neither.
+        #
+        # Dense = a large-source variable on an h0 with a lot of land. The default h0 list is those
+        # with >= 2M land cells (40 of 108), measured from the WWF ecoregions mask.
+        ap.add_argument("--dense-vars", default="bio4,bio12,bio17",
+                        help="variables whose source rasters are large (bio4 494MB, bio12 694MB)")
+        ap.add_argument("--dense-h0", default="1,3,5,8,12,20,21,31,37,45,50,52,53,54,55,62,63,65,69,"
+                                             "70,71,72,74,78,79,81,83,87,88,92,93,96,99,100,105,112,"
+                                             "115,117,118,121",
+                        help="h0 indexes with >= 2M land cells")
+        ap.add_argument("--dense-memory", default="24Gi")
+        ap.add_argument("--priority-class", default="armada-preemptible")
+        ap.add_argument("--out", required=True)
+        args = ap.parse_args()
+
+        if "-" in args.h0_indexes and "," not in args.h0_indexes:
+            lo, hi = args.h0_indexes.split("-")
+            idxs = list(range(int(lo), int(hi) + 1))
+        else:
+            idxs = [int(i) for i in args.h0_indexes.split(",")]
+        variables = [v.strip() for v in args.vars.split(",") if v.strip()]
+
+        dense_vars = {v.strip() for v in args.dense_vars.split(",") if v.strip()}
+        dense_h0 = {int(i) for i in args.dense_h0.split(",") if i.strip()}
+
+        jobs, n_dense = [], 0
+        for h0idx in idxs:
+            for var in variables:
+                is_dense = var in dense_vars and h0idx in dense_h0
+                mem = args.dense_memory if is_dense else args.memory
+                for gcm, col in GCMS:
+                    if is_dense:
+                        n_dense += 1
+                    jobs.append({
+                        "namespace": args.namespace,
+                        "priorityClassName": args.priority_class,
+                        "podSpec": make_pod(h0idx, var, gcm, col, args.ssp, args.period,
+                                            args.staging, mem, args.cpu),
+                    })
+
+        spec = {"queue": args.queue, "jobSetId": args.job_set_id, "jobs": jobs}
+        with open(args.out, "w") as f:
+            yaml.safe_dump(spec, f, sort_keys=False)
+        print(f"{len(jobs)} jobs -> {args.out} "
+              f"({len(idxs)} h0 x {len(variables)} vars x {len(GCMS)} members); "
+              f"{n_dense} dense @ {args.dense_memory}, {len(jobs)-n_dense} @ {args.memory}")
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
+  gen_armada_join.py: |
+    """Generate the Armada join phase for microsliced CHELSA hexing (data-workflows #564).
+
+    Phase 1 (gen_armada_hex.py) writes one staged parquet per (h0, variable, member). This phase is
+    one job per h0: it pulls that h0's 35 staged pieces, joins them on h8 into the wide row, computes
+    median/min/max per variable, checks each against a physical plausibility bound, and writes the
+    published partition.
+
+    This phase exists only because the work was microsliced. The all-in-one k8s pod joined in /tmp
+    for free; splitting the work means the intermediates go to S3 and something has to bring them
+    back together. That is the honest cost of microslicing, alongside the ~100-150 GB of staged
+    intermediates per (ssp, period) combination.
+    """
+    import argparse
+    import sys
+
+    import yaml
+
+    VARS = ["bio1", "bio4", "bio5", "bio6", "bio12", "bio15", "bio17"]
+    MEMBERS = ["gfdl_esm4", "ipsl_cm6a_lr", "mpi_esm1_2_hr", "mri_esm2_0", "ukesm1_0_ll"]
+
+    SCRIPT = r"""set -euo pipefail
+    H0IDX=__H0IDX__ ; SSP=__SSP__ ; PERIOD=__PERIOD__
+    STAGING=__STAGING__ ; VARS=__VARS__ ; MEMBERS=__MEMBERS__
+    rm -rf /tmp/hex /tmp/mask && mkdir -p /tmp/hex /tmp/mask
+
+    rclone copyto nrp:public-grids/hex/h0-valid.parquet /tmp/h0grid.parquet \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s
+    H0=$(python3 /opt/scripts/chelsa_h0_for_index.py --grid /tmp/h0grid.parquet --index ${H0IDX})
+    echo "h0-index ${H0IDX} -> ${H0}"
+
+    # rclone copyto exits 0 when the source is absent, so test for the file itself.
+    rclone copyto "nrp:public-ecoregion/ecoregion/hex/h0=${H0}/data_0.parquet" /tmp/mask/eco.parquet \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null || true
+    if [ ! -s /tmp/mask/eco.parquet ]; then
+      echo "no land in h0=${H0} — nothing to join"; exit 0
+    fi
+
+    # Pull this h0's staged pieces into the layout chelsa_join_vars.py expects.
+    missing=0
+    for V in ${VARS//,/ }; do
+      for M in ${MEMBERS//,/ }; do
+        D="/tmp/hex/${V}_${M}/h0=${H0}"
+        mkdir -p "$D"
+        rclone copyto "nrp:public-bioclimate/${STAGING}/${SSP}-${PERIOD}/${V}_${M}/h0=${H0}/data_0.parquet" \
+          "${D}/data_0.parquet" --retries 5 --low-level-retries 20 --retries-sleep 10s 2>/dev/null || true
+        if [ ! -s "${D}/data_0.parquet" ]; then
+          echo "MISSING staged piece: ${V}_${M} h0=${H0}" >&2
+          missing=$((missing+1))
+        fi
+      done
+    done
+    # Fail loudly rather than joining a subset: a partial join would write a partition that looks
+    # complete by row count but silently lacks variables.
+    if [ "$missing" -ne 0 ]; then
+      echo "ERROR: ${missing} staged pieces missing for h0=${H0}; refusing to join a subset" >&2
+      exit 1
+    fi
+
+    set +e
+    python3 /opt/scripts/chelsa_join_vars.py \
+      --h0 "${H0}" --vars "${VARS}" --members "${MEMBERS}" \
+      --bounds "${BOUNDS}" \
+      --hex-root /tmp/hex --mask /tmp/mask/eco.parquet --out /tmp/final.parquet
+    rc=$?
+    set -e
+    if [ "$rc" -eq 3 ]; then echo "empty after land mask — skipping h0=${H0}"; exit 0; fi
+    if [ "$rc" -ne 0 ]; then echo "join failed rc=${rc}"; exit "$rc"; fi
+
+    rclone copyto /tmp/final.parquet \
+      "nrp:public-bioclimate/__OUTPREFIX__/${SSP}-${PERIOD}/hex/h0=${H0}/data_0.parquet" \
+      --retries 5 --low-level-retries 20 --retries-sleep 10s
+    echo "h0=${H0} joined and published"
+    """
+
+    BOUNDS = ('{"bio1":[-100,60],"bio4":[0,5000],"bio5":[-70,65],"bio6":[-100,45],'
+              '"bio12":[0,12000],"bio15":[0,400],"bio17":[0,6000]}')
+
+
+    def make_pod(h0idx, ssp, period, staging, outprefix, variables, members, memory, cpu):
+        script = (SCRIPT
+                  .replace("__H0IDX__", str(h0idx)).replace("__SSP__", ssp)
+                  .replace("__PERIOD__", period).replace("__STAGING__", staging)
+                  .replace("__OUTPREFIX__", outprefix)
+                  .replace("__VARS__", ",".join(variables))
+                  .replace("__MEMBERS__", ",".join(members)))
+        return {
+            "restartPolicy": "Never",
+            "terminationGracePeriodSeconds": 30,
+            "containers": [{
+                "name": "join",
+                "image": "ghcr.io/boettiger-lab/datasets:latest",
+                "imagePullPolicy": "Always",
+                "env": [
+                    {"name": "AWS_ACCESS_KEY_ID", "valueFrom": {"secretKeyRef": {"name": "aws", "key": "AWS_ACCESS_KEY_ID"}}},
+                    {"name": "AWS_SECRET_ACCESS_KEY", "valueFrom": {"secretKeyRef": {"name": "aws", "key": "AWS_SECRET_ACCESS_KEY"}}},
+                    {"name": "AWS_S3_ENDPOINT", "value": "rook-ceph-rgw-nautiluss3.rook"},
+                    {"name": "AWS_PUBLIC_ENDPOINT", "value": "s3-west.nrp-nautilus.io"},
+                    {"name": "AWS_HTTPS", "value": "false"},
+                    {"name": "AWS_VIRTUAL_HOSTING", "value": "FALSE"},
+                    {"name": "PYTHONPATH", "value": "/usr/lib/python3/dist-packages"},
+                    {"name": "BOUNDS", "value": BOUNDS},
+                ],
+                "command": ["bash", "-c", script],
+                "volumeMounts": [
+                    {"name": "rclone-config", "mountPath": "/root/.config/rclone", "readOnly": True},
+                    {"name": "scripts", "mountPath": "/opt/scripts", "readOnly": True},
+                ],
+                "resources": {
+                    "requests": {"cpu": str(cpu), "memory": memory, "ephemeral-storage": "40Gi"},
+                    "limits": {"cpu": str(cpu), "memory": memory, "ephemeral-storage": "40Gi"},
+                },
+            }],
+            "volumes": [
+                {"name": "rclone-config", "secret": {"secretName": "rclone-config"}},
+                {"name": "scripts", "configMap": {"name": "chelsa-scripts"}},
+            ],
+        }
+
+
+    def main():
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--ssp", required=True)
+        ap.add_argument("--period", required=True)
+        ap.add_argument("--queue", default="geo-workflows")
+        ap.add_argument("--namespace", default="geo-workflows")
+        ap.add_argument("--job-set-id", required=True)
+        ap.add_argument("--staging", default="staging")
+        # Defaults to the published path. Point a partial or trial run somewhere else: a join over a
+        # subset of variables writes a partition that looks valid but silently lacks columns, and it
+        # would overwrite a complete one.
+        ap.add_argument("--output-prefix", default="chelsa-2-1")
+        ap.add_argument("--h0-indexes", default="0-121")
+        ap.add_argument("--vars", default=",".join(VARS))
+        ap.add_argument("--members", default=",".join(MEMBERS))
+        # NRP caps controller-less pods at 16 cores / 32 GB, and every Armada pod is
+        # controller-less. 48Gi was rejected at admission:
+        #   admission webhook "pod.nrp-nautilus.io" denied the request:
+        #   PODs without controllers are limited to 16 cores and 32 GB of RAM
+        ap.add_argument("--memory", default="32Gi")
+        ap.add_argument("--cpu", type=int, default=8)
+        ap.add_argument("--priority-class", default="armada-preemptible")
+        ap.add_argument("--out", required=True)
+        args = ap.parse_args()
+
+        if "-" in args.h0_indexes and "," not in args.h0_indexes:
+            lo, hi = args.h0_indexes.split("-")
+            idxs = list(range(int(lo), int(hi) + 1))
+        else:
+            idxs = [int(i) for i in args.h0_indexes.split(",")]
+        variables = [v.strip() for v in args.vars.split(",") if v.strip()]
+        members = [m.strip() for m in args.members.split(",") if m.strip()]
+
+        jobs = [{
+            "namespace": args.namespace,
+            "priorityClassName": args.priority_class,
+            "podSpec": make_pod(i, args.ssp, args.period, args.staging, args.output_prefix,
+                                variables, members, args.memory, args.cpu),
+        } for i in idxs]
+
+        with open(args.out, "w") as f:
+            yaml.safe_dump({"queue": args.queue, "jobSetId": args.job_set_id, "jobs": jobs},
+                           f, sort_keys=False)
+        print(f"{len(jobs)} join jobs -> {args.out} "
+              f"({len(variables)} vars x {len(members)} members per h0)")
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
+  gen_chelsa_stac.py: |
+    """Generate the STAC collection for one CHELSA future-bioclimate (ssp, period) combination.
+
+    One generator for all nine collections, so the per-column text is identical everywhere by
+    construction. The mcp-data-server renderer folds identical per-column descriptions across assets
+    and keeps the first it sees, so a hand-edit of one collection would silently lose the other
+    version; a single source avoids that entirely.
+
+    Measured ranges are passed in per combination — they differ by scenario and period, and the rule
+    is to document what was ingested rather than what the source documentation claims.
+    """
+    import argparse
+    import json
+    import sys
+
+    MEMBERS = [("gfdl_esm4", "GFDL-ESM4"), ("ipsl_cm6a_lr", "IPSL-CM6A-LR"),
+               ("mpi_esm1_2_hr", "MPI-ESM1-2-HR"), ("mri_esm2_0", "MRI-ESM2-0"),
+               ("ukesm1_0_ll", "UKESM1-0-LL")]
+
+    VARS = [
+        ("bio1",  "Annual mean air temperature", "degrees Celsius"),
+        ("bio4",  "Temperature seasonality, the standard deviation of monthly mean temperature multiplied by 100", "degrees Celsius x 100"),
+        ("bio5",  "Maximum air temperature of the warmest month", "degrees Celsius"),
+        ("bio6",  "Minimum air temperature of the coldest month", "degrees Celsius"),
+        ("bio12", "Annual precipitation", "millimetres"),
+        ("bio15", "Precipitation seasonality, the coefficient of variation of monthly precipitation", "percent"),
+        ("bio17", "Precipitation of the driest quarter", "millimetres"),
+    ]
+
+    SSP_LABEL = {"ssp126": "SSP1-2.6", "ssp370": "SSP3-7.0", "ssp585": "SSP5-8.5"}
+    SSP_BLURB = {
+        "ssp126": "SSP1-2.6 is a low-emissions pathway in which warming stabilises and eases back "
+                  "slightly late in the century.",
+        "ssp370": "SSP3-7.0 is a high-emissions pathway with warming continuing throughout the century.",
+        "ssp585": "SSP5-8.5 is the highest-emissions pathway considered here, with the largest warming "
+                  "by 2100.",
+    }
+    BASE = "https://s3-west.nrp-nautilus.io/public-bioclimate"
+
+
+    def columns(rng, clipped):
+        cols = []
+        for v, what, units in VARS:
+            lo, hi = rng[v]
+            rtxt = f"Observed range across this dataset: {lo} to {hi}."
+            for suf, gcm in MEMBERS:
+                cols.append({"name": f"{v}_{suf}", "type": "float32",
+                             "description": f"{what}, in {units}, from the {gcm} climate model. {rtxt}"})
+            med = (f"Median {what[0].lower()}{what[1:]}, in {units}, across the five climate models. "
+                   f"This is the recommended single value when one number is wanted for a cell. {rtxt}")
+            if v == "bio12":
+                med += (" The source encoding tops out at 6553.5 millimetres, which is below the "
+                        f"wettest places on Earth, so cells at that value are a lower bound rather "
+                        f"than a measurement. {clipped:,} cells reach it in the median. Exclude them "
+                        "when looking at extremes: WHERE bio12_median < 6553.5")
+            cols.append({"name": f"{v}_median", "type": "float32", "description": med})
+            cols.append({"name": f"{v}_min", "type": "float32",
+                         "description": f"Lowest value of {what[0].lower()}{what[1:]}, in {units}, among the five "
+                                        f"climate models for this cell. With {v}_max it gives the full spread of "
+                                        "model results."})
+            cols.append({"name": f"{v}_max", "type": "float32",
+                         "description": f"Highest value of {what[0].lower()}{what[1:]}, in {units}, among the five "
+                                        f"climate models for this cell. The difference between {v}_max and {v}_min "
+                                        "shows how much the models disagree about this place."})
+        cols += [
+            {"name": "h8", "type": "uint64", "description": "H3 cell identifier at resolution 8. This is the native resolution of this dataset and the usual key for joining against other datasets in this catalog."},
+            {"name": "h5", "type": "uint64", "description": "H3 cell identifier at resolution 5, for joining against datasets held at that resolution."},
+            {"name": "h4", "type": "uint64", "description": "H3 cell identifier at resolution 4, for joining against datasets held at that resolution."},
+            {"name": "h0", "type": "int64",  "description": "H3 cell identifier at resolution 0, used as the partition key for hive-partitioned reads."},
+        ]
+        return cols
+
+
+    def main():
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--ssp", required=True)
+        ap.add_argument("--period", required=True)
+        ap.add_argument("--ranges", required=True, help='JSON {"bio1":[lo,hi], ...}')
+        ap.add_argument("--bio12-clipped", type=int, required=True)
+        ap.add_argument("--out", required=True)
+        args = ap.parse_args()
+
+        rng = json.loads(args.ranges)
+        ssp, period = args.ssp, args.period
+        label = SSP_LABEL[ssp]
+        y0, y1 = period.split("-")
+        slug = f"{ssp}-{period}"
+        akey = f"{slug}-hex"
+
+        d = {
+            "type": "Collection", "stac_version": "1.0.0",
+            "stac_extensions": ["https://stac-extensions.github.io/table/v1.2.0/schema.json"],
+            "id": f"chelsa-2-1-{slug}",
+            "title": f"CHELSA 2.1 Future Bioclimate — {label}, {y0}-{y1} (global land)",
+            "description": (
+                f"Downscaled CMIP6 bioclimatic variables for {y0}-{y1} under the {label} scenario, from "
+                "CHELSA version 2.1, aggregated to H3 hexagonal cells at resolution 8 over the global "
+                "land surface. Seven variables are included: annual mean temperature, temperature "
+                "seasonality, maximum temperature of the warmest month, minimum temperature of the "
+                "coldest month, annual precipitation, precipitation seasonality, and precipitation of "
+                "the driest quarter.\n\n"
+                f"{SSP_BLURB[ssp]} Companion collections in this bucket cover the other scenario and "
+                "period combinations, so a cell can be compared across pathways by joining them on h8.\n\n"
+                "Each cell carries the value from all five global climate models CHELSA provides for "
+                "this scenario, kept as separate columns, together with their median, minimum and "
+                "maximum. Keeping every model means any summary a consumer needs can be computed "
+                "directly, and the disagreement between models stays visible rather than being averaged "
+                "away.\n\n"
+                "Footprint: global land. The CHELSA source is a worldwide surface that also covers the "
+                "ocean, so this dataset is restricted to cells that intersect the WWF Terrestrial "
+                "Ecoregions of the World, which includes Antarctica. That leaves 195,048,994 cells "
+                "across 108 partitions. The source grid spans 84 degrees North to 90 degrees South; no "
+                "land falls above its northern edge, so nothing is lost to it.\n\n"
+                "Annual precipitation is limited by the source encoding to 6553.5 millimetres. Cells at "
+                "that value are a lower bound rather than a measurement, and should be excluded from "
+                "any analysis of precipitation extremes.\n\n"
+                "These are projections, not observations. Every value is conditional on the scenario "
+                "and on the climate model that produced it."
+            ),
+            "license": "CC0-1.0",
+            "keywords": ["climate", "bioclimate", "CMIP6", "CHELSA", "temperature", "precipitation",
+                         "projection", "H3", label],
+            "providers": [
+                {"name": "CHELSA (Swiss Federal Institute for Forest, Snow and Landscape Research WSL)",
+                 "roles": ["producer", "licensor"], "url": "https://chelsa-climate.org/"},
+                {"name": "Boettiger Lab, UC Berkeley", "roles": ["processor", "host"],
+                 "url": f"{BASE}/"},
+            ],
+            "extent": {
+                "spatial": {"bbox": [[-180.0, -90.0, 180.0, 83.7]]},
+                "temporal": {"interval": [[f"{y0}-01-01T00:00:00Z", f"{y1}-12-31T23:59:59Z"]]},
+            },
+            "links": [
+                {"rel": "self", "href": f"{BASE}/chelsa-2-1/{slug}/stac-collection.json", "type": "application/json"},
+                {"rel": "root", "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json", "type": "application/json"},
+                {"rel": "parent", "href": f"{BASE}/stac-collection.json", "type": "application/json"},
+                {"rel": "license", "href": "https://chelsa-climate.org/terms-of-use/", "type": "text/html",
+                 "title": "CHELSA terms of use (CC0 1.0)"},
+                {"rel": "cite-as", "href": "https://doi.org/10.1038/sdata.2017.122", "type": "text/html",
+                 "title": "Karger et al. 2017, Climatologies at high resolution for the earth's land surface areas"},
+            ],
+            "assets": {
+                akey: {
+                    "href": f"{BASE}/chelsa-2-1/{slug}/hex/h0=*/data_0.parquet",
+                    "type": "application/x-parquet", "roles": ["data"],
+                    "title": f"Future bioclimate H3 hex, seven variables at resolution 8 ({label}, {y0}-{y1})",
+                    "description": (
+                        "One row per H3 cell at resolution 8, covering the global land surface, holding "
+                        "seven bioclimatic variables. Each value is the area-weighted mean of the "
+                        "roughly 1 km CHELSA source pixels falling inside that cell, so the columns are "
+                        "already averages: combining cells means averaging again, weighted by cell area, "
+                        "rather than adding. For each variable the five climate model columns, the "
+                        "median, the minimum and the maximum all describe the same cell, so they are "
+                        "alternative readings of one place rather than quantities to be summed "
+                        "together.\n\n"
+                        "Cells are the unit of aggregation and every row is a distinct cell, so no "
+                        "de-duplication is needed before aggregating.\n\n"
+                        "To combine this with other datasets in this catalog, join on h8. Coarser "
+                        "datasets can be met at h5 or h4, which are carried as columns for that "
+                        "purpose.\n\n"
+                        "```sql\n"
+                        f"-- compare this scenario against another for the same cells\n"
+                        f"SELECT AVG(a.bio1_median - b.bio1_median) AS warming_difference_c\n"
+                        f"FROM read_parquet('{BASE}/chelsa-2-1/{slug}/hex/h0=*/data_0.parquet') a\n"
+                        f"JOIN read_parquet('{BASE}/chelsa-2-1/ssp126-{period}/hex/h0=*/data_0.parquet') b\n"
+                        "  USING (h8)\n"
+                        "```\n\n"
+                        "For an area-weighted combination of cells, see the H3 guidance the data server "
+                        "publishes; cell area varies with latitude and should not be assumed constant."
+                    ),
+                    "h3:native_resolution": 8,
+                    "h3:parent_resolutions": [5, 4, 0],
+                    "table:columns": columns(rng, args.bio12_clipped),
+                }
+            },
+        }
+        with open(args.out, "w") as f:
+            json.dump(d, f, indent=2, ensure_ascii=False)
+        print(f"{d['id']}: {len(d['assets'][akey]['table:columns'])} columns -> {args.out}")
         return 0
 
 
