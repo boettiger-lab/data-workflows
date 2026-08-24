@@ -432,7 +432,7 @@ live in issue #593; the measured evidence lives here. Neither is in anyone's ses
 | `mtbs-severity-conus-hex-fractions` | ⏳ queued behind it |
 | `MEASURED` in `gen_stac.py` | ◐ Alaska `mode` values filled; `ak.frac_rows` + all four CONUS values open |
 | STAC for the two severity collections + bucket patch + README | ❌ not published |
-| PR | ❌ not opened; branch `worktree-mtbs-593` is not pushed |
+| PR | ◐ **open as a DRAFT: [#612](https://github.com/boettiger-lab/data-workflows/pull/612)**, branch `worktree-mtbs-593` pushed. Deliberately draft — the severity data is not built, so `verify-stac` is red and the acceptance table in the PR body is the merge gate. Mark ready only when that table is green. |
 
 **Wall-clock still to run is the dominant fact here.** A res-10 index takes a median 2.2 h. Alaska
 fractions is 36 indexes at parallelism 61, so one wave: 2–4 h. Each CONUS layer is 234 indexes at
@@ -483,8 +483,10 @@ kubectl apply -n geo-workflows -f catalog/fire/k8s/mtbs/severity-hex-workflow.ya
    `rclone copyto` the two severity collections, the patched bucket collection and the patched
    README. The perimeters collection is already live and must not be clobbered.
 6. **`scripts/verify-stac.py --bucket public-fire`** must exit 0.
-7. **Push and open the PR** — `feat(#593): …`, body closes #593 with an acceptance-criteria table.
-   CI's `verify-stac` is expected RED at PR-open and re-fired after the data lands.
+7. **Finish the PR.** [#612](https://github.com/boettiger-lab/data-workflows/pull/612) is already
+   open as a draft with the acceptance-criteria table as its merge gate. Update that table as
+   criteria go green, re-fire CI's `verify-stac` once the STAC is published (Actions → Verify STAC
+   → Run workflow; GitHub does not re-read S3 on its own), then `gh pr ready 612`.
 
 ### Things already learned — do not rediscover them
 
