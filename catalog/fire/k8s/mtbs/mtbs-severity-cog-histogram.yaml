@@ -1,0 +1,157 @@
+# MTBS severity — per-year class histogram of the published WGS84 COGs.
+#
+# This job exists to produce the VALIDATION TRUTH for the hex build, and nothing else: it writes
+# no dataset artifact. `mode` collapses each H3 cell to its dominant class, so the hex class shares
+# can only be checked against the class shares of the raster the hex was actually built from.
+#
+# Why re-derive rather than read the build logs: `mtbs-severity-cog` printed each source Albers
+# histogram at build time, but those pods are long gone (TTL) and their logs with them. The COGs
+# themselves are published and permanent, so they are the reproducible reference. They are also the
+# CORRECT reference — the hex reads the WGS84 COG, not the Albers source, so comparing against the
+# COG isolates the hex reducer from the warp. Any Albers-vs-WGS84 difference is a nearest-neighbour
+# reprojection effect, which is a separate question from whether `mode` behaves.
+#
+# Cost: 75 COGs, 1.6 GB compressed in total. Full-pixel decompression is the only real work.
+# parallelism is deliberately LOW (12, not 61) because this runs alongside the severity hex
+# campaign, which is already holding 61 pods at 192Gi — the AGENTS.md <=200-pod target is shared.
+#
+# Output: one TSV per (domain, year) at
+#   s3://public-fire/raw/mtbs/cog-histograms/<domain>-<year>.tsv
+# with columns  domain, year, class, pixels.  Written to S3 rather than left in the pod log so it
+# survives the job TTL — the same reason this job had to be written in the first place.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mtbs-severity-cog-histogram
+  namespace: geo-workflows
+  labels:
+    k8s-app: mtbs-severity-cog-histogram
+spec:
+  completions: 75
+  parallelism: 12
+  completionMode: Indexed
+  # Never backoffLimit: 0 -- a partial indexed run must surface as Failed rather than be read as a
+  # complete histogram set (#409).
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 5
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: mtbs-severity-cog-histogram
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: histogram
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        # PROJ_DATA / PROJ_LIB are deliberately NOT set. The image ships eight proj.db at differing
+        # layout versions and pinning the wrong one broke -t_srs on ~10% of pods during the NLCD
+        # Annual build (#453). GDAL's own default resolves correctly.
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          CONUS=(1984 1985 1986 1987 1988 1989 1990 1991 1992 1993 1994 1995 1996 1997 1998 1999 2000 2001 2002 2003 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2018 2019 2020 2021 2022 2023 2024)
+          AK=(1984 1985 1986 1988 1989 1990 1991 1992 1993 1994 1996 1997 1998 1999 2000 2002 2003 2004 2005 2006 2007 2008 2009 2010 2011 2012 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023)
+          IDX=${JOB_COMPLETION_INDEX}
+          if [ "${IDX}" -lt "${#CONUS[@]}" ]; then
+            DOM=conus; Y=${CONUS[$IDX]}
+          else
+            DOM=ak;    Y=${AK[$(( IDX - ${#CONUS[@]} ))]}
+          fi
+          COG="mtbs-severity-${DOM}-${Y}-cog.tif"
+          echo "=== histogram ${DOM} ${Y} (idx ${IDX}) ==="
+          # Localize with rclone rather than reading through /vsis3: GDAL's S3 driver is flaky and
+          # node-dependent on this cluster, and a full-raster scan is the worst case for it.
+          rclone copyto "nrp:public-fire/mtbs-severity-1984-2024-${DOM}/${COG}" "/tmp/${COG}"
+          python3 - "$DOM" "$Y" "/tmp/${COG}" <<'PY'
+          import sys
+          import numpy as np
+          from osgeo import gdal
+
+          gdal.UseExceptions()
+          dom, year, path = sys.argv[1], sys.argv[2], sys.argv[3]
+          ds = gdal.Open(path)
+          band = ds.GetRasterBand(1)
+          w, h = ds.RasterXSize, ds.RasterYSize
+
+          # Accumulate over full-width row strips. Blocked reads keep peak RAM at one strip
+          # (a few hundred MB) regardless of the 13-21 gigapixel CONUS grids, and minlength=256
+          # means an out-of-domain byte lands in its own bucket instead of being silently folded
+          # into a valid class.
+          total = np.zeros(256, dtype=np.int64)
+          STRIP = 512
+          for y0 in range(0, h, STRIP):
+              rows = min(STRIP, h - y0)
+              arr = band.ReadAsArray(0, y0, w, rows)
+              total += np.bincount(arr.ravel(), minlength=256)
+
+          print(f"# {dom} {year}: {w} x {h} = {w*h} pixels", file=sys.stderr)
+          nonzero = {int(v): int(c) for v, c in enumerate(total) if c}
+          print(f"# value counts: {nonzero}", file=sys.stderr)
+          # Fail loudly on anything outside the documented 0-6 domain rather than writing a TSV
+          # that quietly carries a class the STAC does not declare.
+          bad = {v: c for v, c in nonzero.items() if v > 6}
+          if bad:
+              raise SystemExit(f"FAIL {dom} {year}: out-of-domain pixel values {bad}")
+          if sum(c for v, c in nonzero.items() if v > 0) == 0:
+              raise SystemExit(f"FAIL {dom} {year}: COG is entirely nodata")
+
+          with open("/tmp/hist.tsv", "w") as f:
+              f.write("domain\tyear\tclass\tpixels\n")
+              for v in range(0, 7):
+                  f.write(f"{dom}\t{year}\t{v}\t{int(total[v])}\n")
+          PY
+          rclone copyto /tmp/hist.tsv "nrp:public-fire/raw/mtbs/cog-histograms/${DOM}-${Y}.tsv"
+          echo "=== wrote cog-histograms/${DOM}-${Y}.tsv ==="
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

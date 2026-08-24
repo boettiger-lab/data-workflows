@@ -60,8 +60,14 @@ MEASURED = {
     },
     "conus": {"hex_rows": None, "frac_rows": None, "h0_count": 6, "bbox": None,
               "cells_burned": None},
-    "ak": {"hex_rows": None, "frac_rows": None, "h0_count": 3, "bbox": None,
-           "cells_burned": None},
+    # Alaska, read back 2026-08-24 off the completed `mode` hex through the duckdb-geo MCP.
+    # h0_count is 1 and not 3: MTBS Alaska fires fall entirely inside base cell
+    # 576707042908045311, which the measured bbox below confirms (see BUILD.md).
+    "ak": {"hex_rows": 12270403,     # COUNT(*) on hex/
+           "frac_rows": None,        # COUNT(*) on hex-fractions/
+           "h0_count": 1,
+           "bbox": [-166.191, 56.730, -140.157, 70.159],   # h3_cell_to_lng/lat over hex/
+           "cells_burned": 11429727},                      # COUNT(DISTINCT h10) on hex/
 }
 
 
@@ -595,10 +601,13 @@ def severity_collection(dom):
         "title": f"MTBS burn severity, {cfg['name']} - H3 hex, dominant class, all years",
         "description": (
             f"One row per (year, populated resolution 10 cell) — {num(m['hex_rows'])} rows across "
-            f"{len(years)} years and {m['h0_count']} resolution 0 partitions. The `mode` reducer "
-            "gives each cell the majority severity class of the source pixels inside it, which "
-            "preserves classes that exist in the source where an average would fabricate ones "
-            "that do not. Cells with no burned pixel are dropped, so this asset covers burned "
+            f"{len(years)} years and {m['h0_count']} resolution 0 partitions, covering "
+            f"{num(m['cells_burned'])} distinct cells of ground. Rows exceed distinct cells because "
+            "ground that burned in more than one year appears once per year; that difference is "
+            "the reburn record, so which of the two a total means has to be stated. The `mode` "
+            "reducer gives each cell the majority severity class of the source pixels inside it, "
+            "which preserves classes that exist in the source where an average would fabricate "
+            "ones that do not. Cells with no burned pixel are dropped, so this asset covers burned "
             "ground only. No attribute is repeated across cells here, so `COUNT(*)` counts cells "
             "and cells are a valid area proxy. For the share of an area at a given severity, use "
             "the fractional-coverage asset instead — `mode` keeps only the dominant class."
