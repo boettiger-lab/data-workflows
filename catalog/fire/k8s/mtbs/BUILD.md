@@ -434,19 +434,46 @@ live in issue #593; the measured evidence lives here. Neither is in anyone's ses
 | STAC for the two severity collections + bucket patch + README | ❌ not published |
 | PR | ◐ **open as a DRAFT: [#612](https://github.com/boettiger-lab/data-workflows/pull/612)**, branch `worktree-mtbs-593` pushed. Deliberately draft — the severity data is not built, so `verify-stac` is red and the acceptance table in the PR body is the merge gate. Mark ready only when that table is green. |
 
-**Wall-clock still to run is the dominant fact here.** A res-10 index takes a median 2.2 h. Alaska
-fractions is 36 indexes at parallelism 61, so one wave: 2–4 h. Each CONUS layer is 234 indexes at
-parallelism 61, so four waves: 9–16 h each. The chain is strictly sequential (`AGENTS.md`: never
-more than one concurrent k8s hex workflow, and 61 pods at 192Gi is already ~11.7 TB of RAM), so
-budget **roughly 24–36 h from 2026-08-24T20:18:50Z** before the CONUS collection can be measured.
+**Wall-clock still to run is the dominant fact here, and the earlier estimate in this file was
+wrong — too optimistic.** It said "a res-10 index runs a median 2.2 h, so CONUS is roughly 12–16 h
+per layer." Measured against what actually happened, that does not hold.
 
-Raising parallelism is not the lever. 234 is 78x3, so `parallelism: 78` would cost three waves per
-CONUS layer instead of the 3.84 that 61 rounds up to four — tempting, and it stays inside the
-<=200-pod target. It was considered and **rejected**: at 192Gi a pod, 78 concurrent is ~15 TB of
-RAM, this namespace cannot list nodes (least privilege), and there is therefore no evidence the
-cluster would schedule it. Pods that sit `Pending` buy nothing and deviate from the one
-configuration that has actually been observed to run. If someone with cluster-wide read confirms
-the headroom, 78 is the principled number to try.
+The completed Alaska `mode` layer is the evidence, and it is a clean one: 36 indexes at
+parallelism 61, so every index ran in a single wave with nothing queued behind it. Its partition
+mtimes span **8.32 h** from first completion to last (2026-08-21 23:38:27 → 2026-08-22 07:57:50).
+So one 36-index wave cost at least 8.3 h, not 2.2.
+
+The per-index cost is also **roughly constant across domains**, which is easy to get backwards:
+`cng-datasets raster` enumerates all ~280 M resolution 10 children of an h0 cell whether or not
+data sits in them — that is the entire reason the fan-out is restricted to 6 cells and not 122. So
+CONUS is not cheaper per index, it is simply 234 of them against Alaska's 36 (6.5x the work) at
+61-way rather than 36-way concurrency (1.7x the throughput) — about **3.8x Alaska's wall clock per
+layer**, twice over. The chain is strictly sequential (`AGENTS.md`: never
+more than one concurrent k8s hex workflow, and 61 pods at 192Gi is already ~11.7 TB of RAM), so
+On that basis budget **roughly 40–50 h from 2026-08-24T20:18:50Z**, not the 24–36 h an earlier
+revision of this file claimed.
+
+⚠️ **One thing would overturn this, and it is worth measuring rather than assuming.** Those 36
+Alaska completions did not arrive smoothly — they clustered at roughly +0, +1, +2.3, +4.0–4.6,
++5.0, +6.1–6.5 and +8.0–8.3 h. Thirty-six pods that all started together should not finish in
+steps like that; it looks more like throughput contention than genuine per-index variation. If so,
+the layer is not concurrency-bound and **raising `parallelism` would buy nothing** — 117 pods
+would simply be 117 slow ones. The restarted Alaska fractions run has a known start
+(2026-08-24T20:18:51Z, all 36 pods started within 36 s of each other on an otherwise idle cluster),
+so it measures this directly. Record the answer here.
+
+**On raising `parallelism`: the decision is reversible, so do not agonise over it up front.**
+`Job.spec.parallelism` is mutable on a running Job — `kubectl -n geo-workflows patch job/<name> -p
+'{"spec":{"parallelism":117}}'` takes effect on the next scheduling pass. So the sound order is
+measure first, widen later, rather than betting up front.
+
+If the measurement shows these jobs really are concurrency-bound, **117 is the number** (234 =
+117x2, two clean waves). 78 gives three waves against 61's 3.84 and is not worth the churn. Going
+to 234 exceeds the AGENTS.md <=200-pod good-practice target and should not be done.
+
+Capacity is a real constraint but not an unknown one: this namespace cannot list nodes (least
+privilege), so it cannot be checked directly — but the cluster absorbed 36 pods at 192Gi (~6.75 TB)
+within 36 s on 2026-08-24, which is a lower bound on the headroom.
 
 Check where the campaign is:
 
