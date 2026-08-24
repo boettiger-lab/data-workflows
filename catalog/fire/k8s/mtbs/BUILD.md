@@ -339,9 +339,81 @@ that would have produced a `values` array no consumer query could match:
 also **text**, not numeric, and stay text through conversion — documented with the cast a consumer
 needs. This is the "coded domains come from the ingest, not the docs" rule earning its place.
 
-### `mtbs-severity-1984-2024-conus` / `-ak`
+### `mtbs-severity-1984-2024-ak` (2026-08-24)
 
-_Pending the hex campaign._
+`mode` layer complete and read back through the duckdb-geo MCP.
+
+| | |
+|---|---:|
+| Hex rows (`mode`) | 12,270,403 |
+| `COUNT(DISTINCT h10)` — unique ground | 11,429,727 |
+| Years | 36 (1984–2023 less 1987, 1995, 2001, 2013) |
+| Severity value set | {1,2,3,4,5,6} — no 0, no out-of-domain code |
+| NULL `h10` / `h9` / `h8` | 0 / 0 / 0 |
+| Populated h0 partitions | **1** per year, all 36 years |
+| Measured footprint | −166.191, 56.730, −140.157, 70.159 |
+
+The footprint sits wholly inside base cell `576707042908045311`, which is the direct confirmation
+that the one-cell Alaska fan-out was right and the WHP-inherited three-cell set would have bought
+72 guaranteed-empty resolution 10 indexes. Rows exceed unique cells by 7.4% — Alaska's reburn rate
+over 36 years, far below CONUS's 27.5% across the perimeters.
+
+`catalog/fire/k8s/mtbs/check-severity-coverage.sh ak hex` passes 36/36 in about 10 s.
+
+### `mtbs-severity-1984-2024-conus`
+
+_Pending — `mtbs-severity-conus-hex` and `-hex-fractions` are queued behind the Alaska fractions
+job in `mtbs-severity-hex-workflow`._
+
+### Criterion 1, measured: `mode` tracks the COG but understates high severity
+
+`mtbs-severity-cog-histogram.yaml` re-derives the per-year class histogram of all 75 published
+COGs to `raw/mtbs/cog-histograms/`. The original source histograms were printed by the
+`mtbs-severity-cog` pods, whose logs are long gone; the COGs are permanent, **and they are the
+better reference anyway** — the hex is built from the WGS84 COG, not the Albers source, so
+comparing against the COG isolates the reducer from the warp.
+
+⚠️ **The COG is EPSG:4326 and its pixel counts are therefore a geographic share, not an area
+share** — a pixel's ground area falls as cos(latitude), while H3 cells are equal-area. The job
+emits `area_weight` (each row band weighted by `sin(φ_top) − sin(φ_bot)`) beside the raw count,
+and the area-weighted column is the one comparable to the hex. Measured, the correction turns out
+to be small — at most 0.43 pp on any CONUS class, under 0.04 pp on any Alaska class, because the
+class mix barely tracks latitude even though cos(lat) varies steeply. That is a result, not an
+assumption: it is worth establishing rather than asserting, and the job is cheap.
+
+**Alaska, 36 years, `mode` hex against the area-weighted COG:**
+
+| Code | Label | COG area % | `mode` hex % | Δ pp |
+|---:|---|---:|---:|---:|
+| 1 | Unburned to Low | 13.807 | 15.720 | **+1.913** |
+| 2 | Low | 24.937 | 24.205 | −0.732 |
+| 3 | Moderate | 29.698 | 29.225 | −0.473 |
+| 4 | High | 20.554 | 19.630 | **−0.924** |
+| 5 | Increased Greenness | 0.622 | 0.516 | −0.106 |
+| 6 | Non-Processing Area Mask | 10.383 | 10.704 | +0.321 |
+
+Per year, high-severity share (code 4 over codes 1–4), all 36 years:
+
+| | |
+|---|---:|
+| Pearson r, `mode` vs COG | **0.99699** |
+| Mean Δ | **−1.123 pp** |
+| Max abs Δ | 2.528 pp (1985) |
+| Years where `mode` understates | 34 of 36 |
+
+**Both halves of criterion 1 pass, and the residual is the expected one rather than an error.**
+r = 0.997 across 36 independent years means no year is mis-assigned to the wrong partition — a
+shuffled `year` key could not survive that correlation. The bias is one-directional and it is the
+winner-take-all signature: a resolution 10 cell holds only ~17 source pixels, high-severity patches
+are typically smaller than that, so they lose the majority vote to the surrounding moderate and low
+classes and get absorbed into class 1. `mode` therefore **understates high severity by about
+1.1 pp**, roughly 4% relative.
+
+That is the argument for the `fractions` layer stated as a number instead of an assertion. Anyone
+quoting a high-severity share off the `mode` asset is low by ~4%, which is why the STAC, the README
+and the collection descriptions all route that question to `hex-fractions`. The equivalent
+`fractions`-vs-COG check is the stronger invariant — `SUM(frac)` per class is area-proportional, so
+it should reproduce the area-weighted COG share to well under a point — and is pending that layer.
 
 ## State of the build, and how to resume it
 
@@ -353,12 +425,21 @@ live in issue #593; the measured evidence lives here. Neither is in anyone's ses
 | `mtbs-stage-raw` | ✅ complete — 95 mosaics + perimeters staged and MD5-verified; 6 objects broken upstream |
 | `mtbs-perimeters-1984-2024` | ✅ **built, published, verified** — collection is live and `verify-stac.py --bucket public-fire --dataset mtbs-perimeters-1984-2024` passes with data checks |
 | `mtbs-severity-cog` (75 COGs) | ✅ complete — all 39 CONUS + 36 AK published, values {0…6} |
-| `mtbs-severity-ak-hex` (`mode`) | ✅ complete and validated — 36/36 years |
-| `mtbs-severity-ak-hex-fractions` | ⏳ driven by `mtbs-severity-hex-workflow` |
+| `mtbs-severity-ak-hex` (`mode`) | ✅ complete and validated — 36/36 years, coverage gate passes, criterion 1 measured |
+| `mtbs-severity-cog-histogram` | ✅ complete — 75/75, `raw/mtbs/cog-histograms/`, the criterion 1 reference |
+| `mtbs-severity-ak-hex-fractions` | ⏳ running (started 2026-08-24T18:31Z), 36 pods, driven by `mtbs-severity-hex-workflow` |
 | `mtbs-severity-conus-hex` | ⏳ queued behind it |
 | `mtbs-severity-conus-hex-fractions` | ⏳ queued behind it |
+| `MEASURED` in `gen_stac.py` | ◐ Alaska `mode` values filled; `ak.frac_rows` + all four CONUS values open |
 | STAC for the two severity collections + bucket patch + README | ❌ not published |
 | PR | ❌ not opened; branch `worktree-mtbs-593` is not pushed |
+
+**Wall-clock still to run is the dominant fact here.** A res-10 index takes a median 2.2 h. Alaska
+fractions is 36 indexes at parallelism 61, so one wave: 2–4 h. Each CONUS layer is 234 indexes at
+parallelism 61, so four waves: 9–16 h each. The chain is strictly sequential (`AGENTS.md`: never
+more than one concurrent k8s hex workflow, and 61 pods at 192Gi is already ~11.7 TB of RAM), so
+budget **roughly 24–36 h from 2026-08-24T18:31Z** before the CONUS collection can be measured.
+Raising parallelism is not the lever: 122 concurrent pods would be ~23 TB and would not schedule.
 
 Check where the campaign is:
 
@@ -388,11 +469,16 @@ kubectl apply -n geo-workflows -f catalog/fire/k8s/mtbs/severity-hex-workflow.ya
    (234 indexes, parallelism 61) is roughly 12–16 h per layer.
 2. **Run the h0 coverage gate per year per domain** — see *Post-build verification* below.
 3. **Fill `MEASURED` in `gen_stac.py`.** It prints every unfilled key when run and refuses to let you
-   forget. The severity keys are `hex_rows`, `frac_rows`, `bbox`, `cells_burned` per domain. Query
-   through the duckdb-geo MCP, never local duckdb.
-4. **Validate the class shares** against the source Albers histograms, which are printed in each
-   `mtbs-severity-cog` pod's log — those logs are gone now, so re-derive from the COGs or accept the
-   WHP precedent of ±0.6 pp. Record the table here.
+   forget. Alaska's `mode` values are in; what remains is `ak.frac_rows` and all four CONUS keys.
+   Query through the duckdb-geo MCP, never local duckdb. The queries are the ones in
+   *`mtbs-severity-1984-2024-ak`* above — `COUNT(*)`, `COUNT(DISTINCT h10)`, and
+   `h3_cell_to_lng`/`h3_cell_to_lat` extremes for the bbox.
+4. **Validate the class shares.** Done for Alaska `mode` — see *Criterion 1, measured* above; the
+   reference histograms are already built and permanent at `raw/mtbs/cog-histograms/`, so this is
+   now just a comparison, not a rebuild. Repeat for CONUS `mode`, and run the stronger
+   `fractions`-vs-COG invariant on both domains (`SUM(frac)` per class is area-proportional and
+   should reproduce the area-weighted COG share to well under a point; a large gap there IS a
+   defect, unlike the `mode` gap, which is expected and quantified).
 5. **Publish**: `python3 gen_stac.py`, then `scripts/verify-stac.py --no-data` on each, then
    `rclone copyto` the two severity collections, the patched bucket collection and the patched
    README. The perimeters collection is already live and must not be clobbered.
@@ -409,21 +495,41 @@ kubectl apply -n geo-workflows -f catalog/fire/k8s/mtbs/severity-hex-workflow.ya
 - `mtbs_CONUS_2005.tif` has 23 out-of-domain pixels, clamped by a VRT LUT.
 - The severity h0 sets are measured, not inherited from WHP — CONUS 6 cells, **Alaska 1**.
 - `parallelism: 61`, not 12: every index in these jobs is real work.
+- **`gen_stac.py` reproduces the live perimeters collection byte-identically** (verified
+  2026-08-24 by diffing its output against the published S3 object). The generator is the single
+  source of truth, so re-running and re-uploading it cannot clobber the live collection with drift.
+- **`MEASURED["ak"]["h0_count"]` was 3 and is 1.** It had inherited the WHP three-cell set that
+  this file already records as *rejected*. The published Alaska hex has exactly one partition per
+  year across all 36 years.
+- **Join severity to `roadless-areas-2001` on `h10`, not `h8`.** Both are native resolution 10.
+  One res-8 parent holds 49 res-10 cells, so an `h8` join admits every cell whose parent merely
+  touches an IRA: measured on Alaska, 4,555 burned roadless cells against the exact 3,928 — a 16%
+  overcount, all boundary. `h8` is for reaching collections that are *not* native resolution 10.
+- **The COG histograms are area-weighted for a reason, and the reason is verification, not size.**
+  EPSG:4326 pixel counts are a geographic share; H3 cells are equal-area. The measured correction
+  is small (≤0.43 pp CONUS, ≤0.04 pp Alaska) because the class mix does not track latitude — but
+  that is a finding, not something to have assumed.
 
 ## Post-build verification
 
 ```bash
-# h0 coverage gate, per domain per year; mode (sparse) against fractions (same COG) is the
-# right pairing -- and it communicates through its exit code, so read ${PIPESTATUS[0]} if piped.
-for Y in $(seq 1984 2024); do
-  scripts/check-hex-coverage.sh nrp:public-fire/mtbs-severity-1984-2024-conus/hex/year=$Y/ \
-    --reference nrp:public-fire/mtbs-severity-1984-2024-conus/hex-fractions/year=$Y/
-done
+# h0 coverage gate -- all 150 year-layers (39 CONUS + 36 AK years x mode + fractions) in ~40 s.
+# Exits 1 and names every incomplete prefix. Optionally narrow: `... ak hex`.
+catalog/fire/k8s/mtbs/check-severity-coverage.sh
 
 # STAC, static then data-backed
 python3 scripts/verify-stac.py --no-data /tmp/mtbs-perimeters-1984-2024-stac.json
 python3 scripts/verify-stac.py --bucket public-fire
 ```
+
+`check-severity-coverage.sh` gates against the **explicit measured h0 sets**, not against
+`--reference`. Pairing `mode` against `hex-fractions` is a reasonable cross-check but the two
+layers come from the same fan-out over the same restricted h0 list — so an error in that list, or
+an h0 lost in both runs, cancels out and the reference agrees with the target about a hole they
+share. Comparing each layer against the build's ground truth removes that blind spot. It ships
+with the check that matters most for this dataset already encoded: a *missing year* is expected
+for the six broken-upstream mosaics, so those years are excluded from the expected set rather
+than reported as failures.
 
 ⚠️ Do **not** gate a per-domain severity build against a national layer such as
 `roadless-areas-2001/hex/` as `--reference` — a national reference is a guaranteed false FAIL.
@@ -432,12 +538,12 @@ python3 scripts/verify-stac.py --bucket public-fire
 
 | # | Criterion | Status |
 |---|---|---|
-| 1 | Severity `mode` majority agrees with the COG majority on a sample; values within the valid code set | _pending_ |
+| 1 | Severity `mode` majority agrees with the COG majority on a sample; values within the valid code set | ◐ **Alaska done** — value set {1…6}, r = 0.997 vs the COG across all 36 years, mean Δ −1.12 pp with the expected winner-take-all sign (see *Criterion 1, measured*). CONUS pending its hex. |
 | 2 | Classes 5/6 documented and excludable from severity denominators | ✅ `classification:classes` + `values` + the denominator SQL in both severity collections |
 | 3 | Burned share and high-severity share for IRA vs roaded NFS vs wilderness | ⚠️ partly blocked — see below |
 | 4 | Reburn handling documented; unique-ground and fire-years both reportable | ✅ both queries in the collection descriptions and the bucket README |
 | 5 | MTBS size threshold (incomplete census) stated in the collection description | ✅ all three collections |
-| 6 | `mode` is sparse — h0 partition gate with `--min-bytes` filtering | _pending_ |
+| 6 | `mode` is sparse — h0 partition gate with `--min-bytes` filtering | ◐ gate written and exercised in both directions (`check-severity-coverage.sh`); **Alaska `mode` passes 36/36**, the rest pending their builds |
 | 7 | `verify-stac.py` clean | _pending the live data_ |
 
 **Criterion 3 is only partly deliverable, and inventing the missing denominators would be worse
@@ -447,6 +553,16 @@ there is no way to separate roaded National Forest System land from everything e
 has no issue in the `roadless` set at all and needs one filed. This build delivers the IRA
 comparison and records the blocker rather than substituting a denominator that would not mean what
 the criterion says.
+
+**The Alaska half of criterion 3 is computable now, and it is nearly degenerate — which is itself
+the answer.** Joined on `h10` (the exact key; see above), 3,928 of the 1,708,717 resolution 10
+cells inside Alaska's inventoried roadless areas carry any burn severity at all across 36 years:
+**0.23%**. Alaska's National Forest System units are the Tongass and the Chugach, coastal temperate
+rainforest that essentially does not burn, while Alaska's fire is interior boreal and almost
+entirely outside the NFS. So the Alaska IRA sample is too small to carry a severity comparison, and
+the substantive IRA-versus-domain test is the CONUS one, pending that build. Reporting a
+high-severity share off 3,928 cells as though it characterised "roadless areas" would be the kind
+of number this file exists to prevent.
 
 ## Notes for the downstream issues
 

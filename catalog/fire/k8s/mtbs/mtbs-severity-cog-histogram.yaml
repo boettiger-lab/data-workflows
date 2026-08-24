@@ -125,9 +125,12 @@ spec:
           # ~0.14 degrees, over which cos(lat) moves less than 0.2%, so the residual is far below
           # the tolerance any of this is checked against.
           #
-          # It matters most exactly where the data is: Alaska's fires span 56.7-70.2 N, where
-          # cos(lat) runs 0.549 down to 0.339 -- a raw pixel share there is wrong by tens of
-          # percent relative, not by rounding.
+          # MEASURED, after the fact, over all 75 COGs: the correction is small -- at most 0.43 pp
+          # on any CONUS class (Low) and under 0.04 pp on any Alaska class. cos(lat) does vary
+          # steeply across these domains (0.549 to 0.339 over Alaska's 56.7-70.2 N), but the class
+          # MIX barely tracks latitude, so the weights very nearly cancel. That is a fact about
+          # this data, not a property of the method: it is exactly what a projection correction is
+          # supposed to establish rather than assume, and it is cheap enough to keep.
           total = np.zeros(256, dtype=np.int64)
           weighted = np.zeros(256, dtype=np.float64)
           STRIP = 512
