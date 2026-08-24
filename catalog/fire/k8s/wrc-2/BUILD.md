@@ -270,12 +270,29 @@ two-tier proposal: `boettiger-lab/datasets#172`.
 # h0 coverage gate -- per domain, against its own measured h0 set.
 # ⚠️ NEVER gate these against a national reference such as roadless-areas-2001/hex/: each WRC
 # collection is one domain, so a national reference is a guaranteed false FAIL (learned on #586).
-scripts/check-hex-coverage.sh nrp:public-fire/wrc-2-rps-conus/hex/ --expect-h0 <6 measured>
-scripts/check-hex-coverage.sh nrp:public-fire/wrc-2-rps-ak/hex/    --expect-h0 <3 measured>
+scripts/check-hex-coverage.sh nrp:public-fire/wrc-2-rps-conus/hex/ \
+  --expect-h0 576812596024311807,577164439745200127,577199624117288959,577234808489377791,577692205326532607,577762574070710271
+scripts/check-hex-coverage.sh nrp:public-fire/wrc-2-rps-ak/hex/ \
+  --expect-h0 576707042908045311,576812596024311807,576988517884755967
 
 # STAC, with data checks
 python3 scripts/verify-stac.py --bucket public-fire
 ```
+
+### Expected h0 partition sets, measured from published neighbours
+
+Taken from layers that already cover these exact footprints, so the gate has a target before the
+build rather than after it:
+
+| Domain | Expected populated h0 | Source of the expectation |
+|---|---|---|
+| CONUS (6) | `576812596024311807`, `577164439745200127`, `577199624117288959`, `577234808489377791`, `577692205326532607`, `577762574070710271` | `nlcd/hex/year=2024` (CONUS 30 m, res 10) |
+| Alaska (3) | `576707042908045311`, `576812596024311807`, `576988517884755967` | `whp-2023-classified-ak` (same Alaska clip) |
+
+Two things to note. `576812596024311807` appears in **both** sets — it is a genuinely shared base
+cell, not a bookkeeping error. And `576707042908045311` is the **dateline** cell and Alaska's
+densest (15,085,997 cells at resolution 9, so roughly 105 M at resolution 10); its presence is the
+standard check that the antimeridian is handled rather than seam-inflated.
 
 `check-hex-coverage.sh` communicates through its exit code — read `${PIPESTATUS[0]}` if piping. It
 compares **populated** partitions (`--min-bytes`), which is what avoided the #409/#410 phantom-gap
@@ -295,5 +312,48 @@ Value checks, via the duckdb-geo MCP:
 
 ## Build results
 
-_Pending — staging in progress. Row counts, populated h0 sets, measured footprints, value ranges,
-percentile agreement and the headline IRA statistics are recorded here as each stage lands._
+### Stage raw (2026-08-24) — 8/8, every member byte-exact
+
+Job `Complete=True`, `succeeded=8`, `failedIndexes` empty. Each pod asserted the member's
+uncompressed size from the Zip64 central directory before uploading, and every one matched:
+
+| Member | Staged bytes | Expected |
+|---|---:|---|
+| `RPS_CONUS` | 27,368,546,444 | ✅ |
+| `BP_CONUS` | 26,196,396,386 | ✅ |
+| `CFL_CONUS` | 23,587,116,646 | ✅ |
+| `Exposure_CONUS` | 4,554,904,628 | ✅ |
+| `RPS_AK` | 5,423,384,600 | ✅ |
+| `BP_AK` | 5,059,258,202 | ✅ |
+| `CFL_AK` | 3,347,670,548 | ✅ |
+| `Exposure_AK` | 511,598,120 | ✅ |
+
+**89.5 GiB staged**, with zero size drift. The `.ovr` pyramids were never transferred — roughly
+45 GB of bytes the ranged extraction skipped that a whole-archive download would have moved.
+
+Measured throughput, which is what informed the COG design: Box → pod ≈ 26–36 MiB/s per pod;
+pod → NRP S3 (internal endpoint) **375 MiB/s** for `RPS_CONUS`, 118 MiB/s for `RPS_AK`.
+
+### A datum note worth recording
+
+`gdalwarp` emits `Several coordinate operations are going to be used. Artifacts may appear.` on
+every one of these warps. Both source CRSs are **NAD83** (EPSG:5070 and EPSG:3338) and the target
+is **WGS84** (EPSG:4326), and PROJ has more than one candidate NAD83→WGS84 transform, so different
+parts of the grid can take different ones. The disagreement between those candidates is on the
+order of **1–2 m**, against a **30 m** pixel — sub-pixel, and well below the resampling difference
+the hex reduce introduces. It is left at PROJ's default rather than pinned with
+`-to ONLY_BEST=YES`, which can fail outright when the best transform needs a grid file the image
+does not ship. Recorded here so the warning is not mistaken for a defect later. #586 warped the
+same NAD83 Albers grids and had the same warning.
+
+### RPS COGs (in progress)
+
+Warp behaviour worth knowing for the next reader: **the output file sits at 0 bytes for several
+minutes** and that is not a hang. GDAL buffers output blocks in its 8 GB block cache
+(`GDAL_CACHEMAX=8192`) and nothing reaches disk until eviction starts. The signal that a warp is
+alive is `ps` CPU **time climbing** (a stalled `/vsis3` read shows it flat near zero), not file
+size. Alaska additionally grows slowly at first because the top of its clipped 4326 extent
+(~71.6°N) is Arctic Ocean, and all-nodata tiles compress to almost nothing.
+
+_Row counts, populated h0 sets, measured footprints, value ranges, percentile agreement and the
+headline IRA statistics are recorded here as each stage lands._
