@@ -8,12 +8,38 @@
 # coverage gate catches it. Both WRC domains are projected (CONUS EPSG:5070, Alaska EPSG:3338), so
 # both need this.
 #
-# ⚠️ WHY THE `rechunk-scratch` PVC AND NOT EPHEMERAL
-# These are Float32 30 m national rasters: RPS_CONUS alone is 27.4 GB, and raw + warped
-# intermediate + final COG is ~84 GB in flight. That is far past the 50Gi ephemeral cap, and per
-# `job-troubleshooting` the fix is a PVC rather than fighting the cap. This is also the RIGHT use
-# of the cephfs PVC -- a handful of very large files, not the many-small-file localize whose
-# metadata latency crippled the DEM mosaic (#426).
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# ⚠️ WHY S3 IS THE SCRATCH SPACE AND THE `rechunk-scratch` PVC IS NOT — MEASURED, NOT ASSUMED
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# The obvious design for a ~30 GB working set is the cephfs PVC, since raw + warped intermediate +
+# COG is ~84 GB and the ephemeral cap is 50Gi. That was tried first and is WRONG here. Measured on
+# the same rasters, same cluster, within the same hour:
+#
+#   S3 -> local ephemeral (/tmp), rclone            375 MiB/s     (RPS_CONUS, 25.5 GiB)
+#   S3 -> rechunk-scratch PVC (rook-cephfs)       1.4-6.5 MiB/s   (RPS_CONUS and RPS_AK)
+#
+# That is 60-250x slower, turning a 75-second localize into a 1-hour one before any GDAL work
+# starts. The `raster-hexing` skill's note that "a handful of large-file opens is fine on cephfs"
+# holds for OPEN latency; it does not promise write THROUGHPUT, and throughput is what a 30 GB
+# sequential write needs.
+#
+# So: keep every byte on local ephemeral, and use S3 itself as the scratch tier — it is the
+# fastest storage available to these pods. The working set is kept under the 50Gi cap by never
+# holding two large files at once:
+#
+#   1. gdalwarp reads the source over /vsis3            -> local: warp only  (~30 GB)
+#   2. upload the warped intermediate, delete it locally-> local: 0
+#   3. gdal_translate -of COG reads it back over /vsis3 -> local: COG only   (~30 GB)
+#   4. upload the COG, delete the S3 intermediate       -> local: 0
+#
+# ⚠️ This is a deliberate, narrow exception to the raster-hexing rule "never /vsis3 for GDAL".
+# That rule exists because localizing is more reliable for the 122-pod hex step, where a flaky
+# node retries cheaply. Here /vsis3 is the only way to stay inside the ephemeral cap, so it is
+# hardened instead of avoided: an explicit `gdalinfo` gate over /vsis3 fails the pod immediately
+# if the endpoint misbehaves, retries and a large read cache are configured below, and the source
+# being striped (1 row per block) means the warp reads it near-sequentially, which is the access
+# pattern /vsis3 handles best. The COG step reads a TILED intermediate, so its multi-pass overview
+# reads are efficient too.
 #
 # ⚠️ RESAMPLING IS `near`, DELIBERATELY.
 # The warp is ~1:1 in ground resolution (30 m -> ~0.00034 deg at 38N), so interpolation buys no
@@ -31,6 +57,9 @@
 # The clip drops the far-western Aleutians (~157E..180), which hold NO National Forest System land
 # -- the Alaska units are the Tongass and Chugach, far to the east -- so nothing relevant to the
 # roadless question is lost. Recorded in STAC.
+#
+# RPS-FIRST: indexes 0 and 1 are RPS_CONUS and RPS_AK. To build only those, apply with
+# `sed 's/^  completions: 8$/  completions: 2/'` -- the index map below is unchanged.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -44,6 +73,11 @@ spec:
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
@@ -51,9 +85,11 @@ spec:
         k8s-app: wrc-2-make-cogs
     spec:
       restartPolicy: Never
-      # ClusterFirst is required: rclone's nrp: remote resolves the INTERNAL endpoint
-      # rook-ceph-rgw-nautiluss3.rook, which only cluster DNS can resolve.
+      # ClusterFirst is required: both rclone's nrp: remote and GDAL's /vsis3 resolve the INTERNAL
+      # endpoint rook-ceph-rgw-nautiluss3.rook, which only cluster DNS can resolve.
       dnsPolicy: ClusterFirst
+      # A CONUS warp over /vsis3 plus the COG pass is a multi-hour pod; bound a true node hang.
+      activeDeadlineSeconds: 28800
       containers:
       - name: make-cog
         image: ghcr.io/boettiger-lab/datasets:latest
@@ -69,6 +105,7 @@ spec:
             secretKeyRef:
               name: aws
               key: AWS_SECRET_ACCESS_KEY
+        # GDAL reads these for /vsis3 as well as rclone for nrp:.
         - name: AWS_S3_ENDPOINT
           value: rook-ceph-rgw-nautiluss3.rook
         - name: AWS_PUBLIC_ENDPOINT
@@ -84,15 +121,28 @@ spec:
           value: '8192'
         - name: GDAL_NUM_THREADS
           value: ALL_CPUS
-        - name: CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE
-          value: 'YES'
+        # /vsis3 hardening: don't list the bucket on open, cache reads, coalesce the striped
+        # source's many small row reads into 16 MB range requests, and retry transient 5xx.
+        - name: GDAL_DISABLE_READDIR_ON_OPEN
+          value: EMPTY_DIR
+        - name: VSI_CACHE
+          value: 'TRUE'
+        - name: VSI_CACHE_SIZE
+          value: '1000000000'
+        - name: CPL_VSIL_CURL_CHUNK_SIZE
+          value: '16777216'
+        - name: GDAL_HTTP_MAX_RETRY
+          value: '5'
+        - name: GDAL_HTTP_RETRY_DELAY
+          value: '2'
+        - name: TMPDIR
+          value: /tmp
+        - name: CPL_TMPDIR
+          value: /tmp
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
           readOnly: true
-        - name: scratch
-          mountPath: /scratch
-          subPath: wrc-2-make-cogs
         command:
         - bash
         - -c
@@ -108,58 +158,64 @@ spec:
 
           i=${JOB_COMPLETION_INDEX}
           s=${SRC[$i]}; o=${OUT[$i]}; te=${TE[$i]}
-          W=/scratch/$o
-          mkdir -p "$W"
-          export TMPDIR="$W" CPL_TMPDIR="$W"
-          trap 'rm -rf "$W"' EXIT
+          RAW="/vsis3/public-fire/raw/wrc-2/${s}.tif"
+          WARP_S3="nrp:public-fire/tmp/wrc-2/${o}-warp.tif"
+          WARP_VSI="/vsis3/public-fire/tmp/wrc-2/${o}-warp.tif"
 
           echo "=== [$i] $s -> $o-cog.tif  (nodata $ND) ${te:+clip: $te} ==="
+          df -h /tmp | tail -1
 
-          rclone copyto "nrp:public-fire/raw/wrc-2/${s}.tif" "$W/${s}.tif" -P --retries 6
-          ls -la "$W/${s}.tif"
+          # Gate: fail immediately and loudly if /vsis3 cannot read the source, rather than
+          # discovering it mid-warp. This also prints the real CRS/size/nodata for the record.
+          echo "--- source over /vsis3 ---"
+          gdalinfo "$RAW" > /tmp/src-info.txt
+          grep -E '^Size is|ID\["EPSG|Pixel Size|NoData|Type=|Block=' /tmp/src-info.txt | head -20
 
-          echo "--- source CRS / size / nodata ---"
-          gdalinfo "$W/${s}.tif" | grep -E '^Size is|ID\["EPSG|Pixel Size|NoData|Type=' | head -20
-
-          # Warp to EPSG:4326. No -tr: let gdalwarp preserve the source ground resolution near the
-          # centre of the extent rather than hardcoding a degree value, which would silently
-          # rescale the grid.
-          gdalwarp \
+          # ── 1. warp to EPSG:4326, reading the source over /vsis3 ──────────────────────────────
+          # No -tr: let gdalwarp preserve the source ground resolution near the centre of the
+          # extent rather than hardcoding a degree value, which would silently rescale the grid.
+          echo "--- warping (source streamed from S3, output local) ---"
+          time gdalwarp \
             -t_srs EPSG:4326 \
             -r near \
             -srcnodata "$ND" -dstnodata "$ND" \
             $te \
-            -multi -wo NUM_THREADS=ALL_CPUS -wm 8192 \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 4096 \
             -co COMPRESS=DEFLATE -co PREDICTOR=3 -co BIGTIFF=YES \
             -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 \
             -co NUM_THREADS=ALL_CPUS \
-            "$W/${s}.tif" "$W/${o}-warp.tif"
+            "$RAW" "/tmp/${o}-warp.tif"
 
-          rm -f "$W/${s}.tif"
+          ls -la "/tmp/${o}-warp.tif"; df -h /tmp | tail -1
+          gdalinfo "/tmp/${o}-warp.tif" | grep -E '^Size is|Pixel Size|NoData|Upper Left|Lower Right'
 
-          echo "--- warped ---"
-          gdalinfo "$W/${o}-warp.tif" | grep -E '^Size is|Pixel Size|NoData|Upper Left|Lower Right'
+          # ── 2. park the intermediate on S3 and free the disk ─────────────────────────────────
+          echo "--- parking warped intermediate on S3 ---"
+          rclone copyto "/tmp/${o}-warp.tif" "$WARP_S3" -P --transfers 4 --retries 6
+          rm -f "/tmp/${o}-warp.tif"
+          df -h /tmp | tail -1
 
-          # COG-ify: proper layout plus overviews. AVERAGE overviews are correct for a continuous
-          # float layer (NEAREST would be right only for categorical, as in #586's classified WHP).
-          gdal_translate "$W/${o}-warp.tif" "$W/${o}-cog.tif" \
+          # ── 3. COG-ify, reading the tiled intermediate back over /vsis3 ──────────────────────
+          # AVERAGE overviews are correct for a continuous float layer (NEAREST would be right
+          # only for categorical, as in #586's classified WHP).
+          echo "--- building COG (intermediate streamed from S3, output local) ---"
+          time gdal_translate "$WARP_VSI" "/tmp/${o}-cog.tif" \
             -of COG \
             -co COMPRESS=DEFLATE -co PREDICTOR=3 -co BIGTIFF=YES \
             -co OVERVIEW_RESAMPLING=AVERAGE -co BLOCKSIZE=512 \
             -co NUM_THREADS=ALL_CPUS
-          rm -f "$W/${o}-warp.tif"
 
+          ls -la "/tmp/${o}-cog.tif"; df -h /tmp | tail -1
           echo "--- final COG ---"
-          gdalinfo "$W/${o}-cog.tif" | grep -E '^Size is|Pixel Size|NoData|Overviews|Block'
-          ls -la "$W/${o}-cog.tif"
+          gdalinfo "/tmp/${o}-cog.tif" | grep -E '^Size is|Pixel Size|NoData|Overviews|Block'
 
-          # Sanity gate: a published all-nodata COG is a real failure mode and is exactly what
-          # hexing the raw Albers source produces. Stats come off the overviews (approx_ok) so this
-          # costs seconds rather than a full 28 GB read, and the min/max/mean it prints IS the
-          # validation truth the `mean` hex reducer is later checked against.
-          # NOTE: gdalinfo -stats caches into a .tif.aux.xml sidecar and will report STALE values
-          # on a rebuild in the same directory -- we compute in-process and never write a sidecar.
-          python3 - "$W/${o}-cog.tif" "$ND" <<'PY'
+          # ── 4. gate: a published all-nodata COG is a real failure mode, and is exactly what
+          # hexing the raw Albers source produces. Stats come off the overviews (approx_ok) so
+          # this costs seconds rather than a full 30 GB read, and the min/max/mean it prints IS
+          # the validation truth the `mean` hex reducer is later checked against.
+          # NOTE: gdalinfo -stats caches into a .tif.aux.xml sidecar and reports STALE values on
+          # a rebuild; we compute in-process and never write a sidecar.
+          python3 - "/tmp/${o}-cog.tif" "$ND" <<'PY'
           import sys
           from osgeo import gdal
           gdal.UseExceptions()
@@ -189,26 +245,31 @@ spec:
               sys.exit(1)
           PY
 
-          echo "--- uploading ---"
-          rclone copyto "$W/${o}-cog.tif" "nrp:public-fire/${o}-cog.tif" -P --transfers 4 --retries 6
+          # ── 5. publish, then drop the S3 intermediate ────────────────────────────────────────
+          echo "--- uploading COG ---"
+          rclone copyto "/tmp/${o}-cog.tif" "nrp:public-fire/${o}-cog.tif" -P --transfers 4 --retries 6
           rclone size "nrp:public-fire/${o}-cog.tif"
+          rm -f "/tmp/${o}-cog.tif"
+
+          echo "--- removing warped intermediate from S3 ---"
+          rclone deletefile "$WARP_S3" || echo "WARNING: could not delete $WARP_S3 -- remove by hand"
           echo "DONE $o"
         resources:
+          # No PVC: everything is on local ephemeral, which measured 375 MiB/s against S3 versus
+          # 1.4-6.5 MiB/s for the cephfs PVC. 45Gi holds one ~30 GB file at a time, which is all
+          # this design ever needs.
           requests:
             cpu: '8'
-            memory: 48Gi
-            ephemeral-storage: 8Gi
+            memory: 32Gi
+            ephemeral-storage: 45Gi
           limits:
             cpu: '8'
-            memory: 48Gi
-            ephemeral-storage: 8Gi
+            memory: 32Gi
+            ephemeral-storage: 45Gi
       volumes:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      - name: scratch
-        persistentVolumeClaim:
-          claimName: rechunk-scratch
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
