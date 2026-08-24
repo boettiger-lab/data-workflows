@@ -1,15 +1,266 @@
 apiVersion: v1
+data:
+  mtbs-severity-ak-hex-fractions.yaml: "# MTBS annual thematic burn severity -> H3 res-10 hex, Alaska\
+    \ domain, per-class fractions.\n#\n# UNIFIED MULTI-YEAR LAYOUT, copied from the `nlcd` Annual build\
+    \ (#453), which is this catalog's\n# precedent for exactly this problem -- many annual years of one\
+    \ categorical raster in ONE\n# hive-partitioned dataset:\n#\n#     mtbs-severity-1984-2024-ak/hex-fractions/year=<YEAR>/h0=<CELL>/data_0.parquet\n\
+    #\n# `year` and `h0` are both partition columns, so `WHERE year=YYYY` filters one year and reburn\
+    \ is a\n# self-join on the H3 cell across years. No per-year collections.\n#\n# Index maps to (year,\
+    \ h0): YI = IDX / 1, HI = IDX % 1.  36 years x 1 h0 = 36 completions.\n#\n# Reducer is `fractions`:\
+    \ per-class fractional coverage, long format, one row per (cell, class)\n# with `frac` in 0..1. This\
+    \ is the layer that answers the question #593 exists to ask -- what\n# SHARE of an area burned at\
+    \ high severity -- because `mode` collapses a cell that is 40% high\n# and 60% moderate to \"moderate\"\
+    \ and loses the 40% entirely. It also makes codes 5 (increased\n# greenness) and 6 (non-processing\
+    \ mask) cleanly excludable from a severity denominator.\n# `--resampling near` keeps the class codes\
+    \ intact while the fractions are computed.\n#\n# /!\\ THE h0 FAN-OUT IS RESTRICTED TO 1 OF THE 122\
+    \ BASE CELLS -- a deliberate deviation from the\n# 122 the generator emits, because at res 10 an h0\
+    \ index that holds no data is NOT free: the tool\n# prunes only h0 cells whose envelope misses the\
+    \ raster, and every surviving cell enumerates all\n# ~280 M of its res-10 children before discovering\
+    \ they are all nodata. Running 122 per year would\n# be 4392 pod slots at 192Gi to do 36 cells' worth\
+    \ of work.\n#\n# The 1 index below is MEASURED, not guessed: it is the h0 partition that\n# `mtbs-perimeters-1984-2024`\
+    \ actually populates inside this domain, read from the cell CENTROIDS\n# (h3_cell_to_lat / h3_cell_to_lng)\
+    \ of its completed res-10 hex rather than from the res-0 partition\n# footprint. Severity pixels exist\
+    \ only inside MTBS perimeters, so the perimeter h0 set is a strict\n# SUPERSET of the severity h0\
+    \ set for this domain -- and the perimeters cover all 41 years, including\n# the years whose severity\
+    \ mosaic is missing, so it is a superset in time as well.\n#\n# Two wider sets were rejected, both\
+    \ for concrete reasons:\n#   - the populated set of `whp-2023-classified-ak`. WHP maps every land\
+    \ pixel of its domain (it\n#     carries explicit non-burnable and water classes) while MTBS maps\
+    \ only ground that burned. For\n#     Alaska that is three h0 cells against one: MTBS Alaska fires\
+    \ span 56.7-70.2 N, -166.2 to\n#     -140.2, entirely inside a single base cell.\n#   - the domain\
+    \ bounding box, which is wider still. The Alaska clip box reaches about 2.4 degrees\n#     south of\
+    \ any Alaska data, so it pulls in a h0 cell holding nothing but open Pacific.\n# The post-build check-hex-coverage.sh\
+    \ gate verifies per year that every expected partition is\n# populated, so a wrong list fails loudly\
+    \ rather than shipping a hole.\n#\n#   h0 index -> cell\n#     105  ->  576707042908045311\napiVersion:\
+    \ batch/v1\nkind: Job\nmetadata:\n  name: mtbs-severity-ak-hex-fractions\n  namespace: geo-workflows\n\
+    \  labels:\n    k8s-app: mtbs-severity-ak-hex-fractions\nspec:\n  completions: 36\n  parallelism:\
+    \ 61\n  # 61, not the 12 the `nlcd` annual build uses. NLCD runs the full 122 h0 per year, so most\
+    \ of its\n  # indexes are pruned in seconds and 12 slots are ample; restricting this fan-out to the\
+    \ h0 cells\n  # that actually hold data means every index here is real work. Measured on the Alaska\
+    \ pilot: a\n  # res-10 index takes a median 2.2 h (max over 3.7 h), so concurrency is what sets wall-clock.\
+    \ 61\n  # is the tool's default for a raster hex workflow and stays inside the <=200 pod target.\n\
+    \  completionMode: Indexed\n  # Never backoffLimit: 0 -- a partial indexed run must surface as Failed,\
+    \ not publish as complete\n  # (#409). maxFailedIndexes absorbs a transient Ceph RGW blip without\
+    \ aborting the siblings.\n  backoffLimitPerIndex: 3\n  maxFailedIndexes: 30\n  ttlSecondsAfterFinished:\
+    \ 86400\n  template:\n    metadata:\n      labels:\n        k8s-app: mtbs-severity-ak-hex-fractions\n\
+    \    spec:\n      restartPolicy: Never\n      # priorityClassName is deliberately OMITTED: `opportunistic`\
+    \ was preempted within ~20 s on\n      # these nodes during the WHP build (#586), which wastes the\
+    \ whole cell enumeration.\n      containers:\n      - name: hex-task\n        image: ghcr.io/boettiger-lab/datasets:latest\n\
+    \        imagePullPolicy: Always\n        env:\n        - name: AWS_ACCESS_KEY_ID\n          valueFrom:\n\
+    \            secretKeyRef:\n              name: aws\n              key: AWS_ACCESS_KEY_ID\n      \
+    \  - name: AWS_SECRET_ACCESS_KEY\n          valueFrom:\n            secretKeyRef:\n              name:\
+    \ aws\n              key: AWS_SECRET_ACCESS_KEY\n        - name: AWS_S3_ENDPOINT\n          value:\
+    \ rook-ceph-rgw-nautiluss3.rook\n        - name: AWS_PUBLIC_ENDPOINT\n          value: s3-west.nrp-nautilus.io\n\
+    \        - name: AWS_HTTPS\n          value: 'false'\n        - name: AWS_VIRTUAL_HOSTING\n      \
+    \    value: 'FALSE'\n        - name: GDAL_DATA\n          value: /usr/share/gdal\n        - name:\
+    \ PYTHONPATH\n          value: /usr/lib/python3/dist-packages\n        - name: CNG_HEX_WORKERS\n \
+    \         value: '8'\n        volumeMounts:\n        # The tool localizes the COG with rclone before\
+    \ hexing; without this mount the job fails.\n        - name: rclone-config\n          mountPath: /root/.config/rclone\n\
+    \          readOnly: true\n        command:\n        - bash\n        - -c\n        - |-\n        \
+    \  set -e\n          YEARS=(1984 1985 1986 1988 1989 1990 1991 1992 1993 1994 1996 1997 1998 1999\
+    \ 2000 2002 2003 2004 2005 2006 2007 2008 2009 2010 2011 2012 2014 2015 2016 2017 2018 2019 2020 2021\
+    \ 2022 2023)\n          H0S=(105)\n          IDX=${JOB_COMPLETION_INDEX}\n          Y=${YEARS[$((\
+    \ IDX / ${#H0S[@]} ))]}\n          H0=${H0S[$(( IDX % ${#H0S[@]} ))]}\n          echo \"=== MTBS severity\
+    \ ak $Y res-10 per-class fractions, h0-index $H0 (global idx $IDX) ===\"\n          cng-datasets raster\
+    \ \\\n            --input \"s3://public-fire/mtbs-severity-1984-2024-ak/mtbs-severity-ak-${Y}-cog.tif\"\
+    \ \\\n            --output-parquet \"s3://public-fire/mtbs-severity-1984-2024-ak/hex-fractions/year=${Y}/\"\
+    \ \\\n            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \\\n            --value-column\
+    \ severity --hex-resampling fractions --resampling near --nodata \"0\"\n        resources:\n     \
+    \     # NLCD's res-10 CONUS hex measured a 105-141Gi peak; 192Gi covers it with margin and still\n\
+    \          # fits every 256Gi node (a 256Gi request barely fits allocatable -> chronic\n         \
+    \ # FailedScheduling). Cell enumeration, not data volume, sets this -- MTBS being sparse\n       \
+    \   # does not make it cheaper.\n          requests:\n            cpu: '8'\n            memory: 192Gi\n\
+    \            ephemeral-storage: 40Gi\n          limits:\n            cpu: '8'\n            memory:\
+    \ 192Gi\n            ephemeral-storage: 40Gi\n      volumes:\n      - name: rclone-config\n      \
+    \  secret:\n          secretName: rclone-config\n      affinity:\n        nodeAffinity:\n        \
+    \  requiredDuringSchedulingIgnoredDuringExecution:\n            nodeSelectorTerms:\n            -\
+    \ matchExpressions:\n              - key: feature.node.kubernetes.io/pci-10de.present\n          \
+    \      operator: NotIn\n                values:\n                - 'true'\n              - key: kubernetes.io/hostname\n\
+    \                operator: NotIn\n                values:\n                - hpc-nrp-g1.nmsu.edu\n\
+    \                - service-02.nrp.mghpcc.org\n"
+  mtbs-severity-conus-hex-fractions.yaml: "# MTBS annual thematic burn severity -> H3 res-10 hex, CONUS\
+    \ domain, per-class fractions.\n#\n# UNIFIED MULTI-YEAR LAYOUT, copied from the `nlcd` Annual build\
+    \ (#453), which is this catalog's\n# precedent for exactly this problem -- many annual years of one\
+    \ categorical raster in ONE\n# hive-partitioned dataset:\n#\n#     mtbs-severity-1984-2024-conus/hex-fractions/year=<YEAR>/h0=<CELL>/data_0.parquet\n\
+    #\n# `year` and `h0` are both partition columns, so `WHERE year=YYYY` filters one year and reburn\
+    \ is a\n# self-join on the H3 cell across years. No per-year collections.\n#\n# Index maps to (year,\
+    \ h0): YI = IDX / 6, HI = IDX % 6.  39 years x 6 h0 = 234 completions.\n#\n# Reducer is `fractions`:\
+    \ per-class fractional coverage, long format, one row per (cell, class)\n# with `frac` in 0..1. This\
+    \ is the layer that answers the question #593 exists to ask -- what\n# SHARE of an area burned at\
+    \ high severity -- because `mode` collapses a cell that is 40% high\n# and 60% moderate to \"moderate\"\
+    \ and loses the 40% entirely. It also makes codes 5 (increased\n# greenness) and 6 (non-processing\
+    \ mask) cleanly excludable from a severity denominator.\n# `--resampling near` keeps the class codes\
+    \ intact while the fractions are computed.\n#\n# /!\\ THE h0 FAN-OUT IS RESTRICTED TO 6 OF THE 122\
+    \ BASE CELLS -- a deliberate deviation from the\n# 122 the generator emits, because at res 10 an h0\
+    \ index that holds no data is NOT free: the tool\n# prunes only h0 cells whose envelope misses the\
+    \ raster, and every surviving cell enumerates all\n# ~280 M of its res-10 children before discovering\
+    \ they are all nodata. Running 122 per year would\n# be 4758 pod slots at 192Gi to do 234 cells' worth\
+    \ of work.\n#\n# The 6 indexes below are MEASURED, not guessed: they are the h0 partitions that\n\
+    # `mtbs-perimeters-1984-2024` actually populates inside this domain, read from the cell CENTROIDS\n\
+    # (h3_cell_to_lat / h3_cell_to_lng) of its completed res-10 hex rather than from the res-0 partition\n\
+    # footprint. Severity pixels exist only inside MTBS perimeters, so the perimeter h0 set is a strict\n\
+    # SUPERSET of the severity h0 set for this domain -- and the perimeters cover all 41 years, including\n\
+    # the years whose severity mosaic is missing, so it is a superset in time as well.\n#\n# Two wider\
+    \ sets were rejected, both for concrete reasons:\n#   - the populated set of `whp-2023-classified-conus`.\
+    \ WHP maps every land pixel of its domain (it\n#     carries explicit non-burnable and water classes)\
+    \ while MTBS maps only ground that burned. For\n#     Alaska that is three h0 cells against one: MTBS\
+    \ Alaska fires span 56.7-70.2 N, -166.2 to\n#     -140.2, entirely inside a single base cell.\n# \
+    \  - the domain bounding box, which is wider still. The Alaska clip box reaches about 2.4 degrees\n\
+    #     south of any Alaska data, so it pulls in a h0 cell holding nothing but open Pacific.\n# The\
+    \ post-build check-hex-coverage.sh gate verifies per year that every expected partition is\n# populated,\
+    \ so a wrong list fails loudly rather than shipping a hole.\n#\n#   h0 index -> cell\n#      12  ->\
+    \  576812596024311807\n#      14  ->  577692205326532607\n#      20  ->  577164439745200127\n#   \
+    \   50  ->  577199624117288959\n#      71  ->  577762574070710271\n#      78  ->  577234808489377791\n\
+    apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: mtbs-severity-conus-hex-fractions\n  namespace:\
+    \ geo-workflows\n  labels:\n    k8s-app: mtbs-severity-conus-hex-fractions\nspec:\n  completions:\
+    \ 234\n  parallelism: 117\n  # 117, not the tool's default 61, and not the 12 the `nlcd` annual build\
+    \ uses. NLCD runs the full\n  # 122 h0 per year, so most of its indexes are pruned in seconds and\
+    \ 12 slots are ample;\n  # restricting this fan-out to the h0 cells that actually hold data means\
+    \ every index here is real\n  # work, so concurrency sets wall-clock almost entirely.\n  #\n  # 234\
+    \ = 117 x 2, so this is two clean waves rather than the 3.84 that 61 rounds up to four.\n  # Wall\
+    \ clock for an indexed job of N equal-cost tasks over P slots is ~ N x mean_duration / P, so\n  #\
+    \ halving the wave count roughly halves the layer.\n  #\n  # MEASURED 2026-08-24 on the Alaska fractions\
+    \ run, which is what justifies going wide: its 36\n  # pods were spread over 30 DISTINCT nodes, at\
+    \ most 3 on any one. Pods are not packed, so an extra\n  # pod lands on another idle node rather than\
+    \ contending with a sibling -- the speed-up is close\n  # to linear in P. The stepped completion times\
+    \ (a fast group at 76-101 min on SDSU/Fresno/SDSC\n  # hardware, a slower group at 140-150 min elsewhere)\
+    \ are node-speed HETEROGENEITY across the\n  # federation, not contention, and more slots do not make\
+    \ that worse.\n  #\n  # Risk is asymmetric and small: if the cluster cannot place 117 pods at 192Gi\
+    \ the surplus simply\n  # sits Pending and the job still runs at whatever concurrency it achieves.\
+    \ Nothing fails. And\n  # `Job.spec.parallelism` is mutable, so this is patchable up or down on a\
+    \ running job:\n  #     kubectl -n geo-workflows patch job/<name> -p '{\"spec\":{\"parallelism\":61}}'\n\
+    \  # 117 stays inside the AGENTS.md <=200-pod good-practice target; 234 would not.\n  completionMode:\
+    \ Indexed\n  # Never backoffLimit: 0 -- a partial indexed run must surface as Failed, not publish\
+    \ as complete\n  # (#409). maxFailedIndexes absorbs a transient Ceph RGW blip without aborting the\
+    \ siblings.\n  backoffLimitPerIndex: 3\n  maxFailedIndexes: 30\n  ttlSecondsAfterFinished: 86400\n\
+    \  template:\n    metadata:\n      labels:\n        k8s-app: mtbs-severity-conus-hex-fractions\n \
+    \   spec:\n      restartPolicy: Never\n      # priorityClassName is deliberately OMITTED: `opportunistic`\
+    \ was preempted within ~20 s on\n      # these nodes during the WHP build (#586), which wastes the\
+    \ whole cell enumeration.\n      containers:\n      - name: hex-task\n        image: ghcr.io/boettiger-lab/datasets:latest\n\
+    \        imagePullPolicy: Always\n        env:\n        - name: AWS_ACCESS_KEY_ID\n          valueFrom:\n\
+    \            secretKeyRef:\n              name: aws\n              key: AWS_ACCESS_KEY_ID\n      \
+    \  - name: AWS_SECRET_ACCESS_KEY\n          valueFrom:\n            secretKeyRef:\n              name:\
+    \ aws\n              key: AWS_SECRET_ACCESS_KEY\n        - name: AWS_S3_ENDPOINT\n          value:\
+    \ rook-ceph-rgw-nautiluss3.rook\n        - name: AWS_PUBLIC_ENDPOINT\n          value: s3-west.nrp-nautilus.io\n\
+    \        - name: AWS_HTTPS\n          value: 'false'\n        - name: AWS_VIRTUAL_HOSTING\n      \
+    \    value: 'FALSE'\n        - name: GDAL_DATA\n          value: /usr/share/gdal\n        - name:\
+    \ PYTHONPATH\n          value: /usr/lib/python3/dist-packages\n        - name: CNG_HEX_WORKERS\n \
+    \         value: '8'\n        volumeMounts:\n        # The tool localizes the COG with rclone before\
+    \ hexing; without this mount the job fails.\n        - name: rclone-config\n          mountPath: /root/.config/rclone\n\
+    \          readOnly: true\n        command:\n        - bash\n        - -c\n        - |-\n        \
+    \  set -e\n          YEARS=(1984 1985 1986 1987 1988 1989 1990 1991 1992 1993 1994 1995 1996 1997\
+    \ 1998 1999 2000 2001 2002 2003 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2018 2019\
+    \ 2020 2021 2022 2023 2024)\n          H0S=(12 14 20 50 71 78)\n          IDX=${JOB_COMPLETION_INDEX}\n\
+    \          Y=${YEARS[$(( IDX / ${#H0S[@]} ))]}\n          H0=${H0S[$(( IDX % ${#H0S[@]} ))]}\n   \
+    \       echo \"=== MTBS severity conus $Y res-10 per-class fractions, h0-index $H0 (global idx $IDX)\
+    \ ===\"\n          cng-datasets raster \\\n            --input \"s3://public-fire/mtbs-severity-1984-2024-conus/mtbs-severity-conus-${Y}-cog.tif\"\
+    \ \\\n            --output-parquet \"s3://public-fire/mtbs-severity-1984-2024-conus/hex-fractions/year=${Y}/\"\
+    \ \\\n            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \\\n            --value-column\
+    \ severity --hex-resampling fractions --resampling near --nodata \"0\"\n        resources:\n     \
+    \     # NLCD's res-10 CONUS hex measured a 105-141Gi peak; 192Gi covers it with margin and still\n\
+    \          # fits every 256Gi node (a 256Gi request barely fits allocatable -> chronic\n         \
+    \ # FailedScheduling). Cell enumeration, not data volume, sets this -- MTBS being sparse\n       \
+    \   # does not make it cheaper.\n          requests:\n            cpu: '8'\n            memory: 192Gi\n\
+    \            ephemeral-storage: 40Gi\n          limits:\n            cpu: '8'\n            memory:\
+    \ 192Gi\n            ephemeral-storage: 40Gi\n      volumes:\n      - name: rclone-config\n      \
+    \  secret:\n          secretName: rclone-config\n      affinity:\n        nodeAffinity:\n        \
+    \  requiredDuringSchedulingIgnoredDuringExecution:\n            nodeSelectorTerms:\n            -\
+    \ matchExpressions:\n              - key: feature.node.kubernetes.io/pci-10de.present\n          \
+    \      operator: NotIn\n                values:\n                - 'true'\n              - key: kubernetes.io/hostname\n\
+    \                operator: NotIn\n                values:\n                - hpc-nrp-g1.nmsu.edu\n\
+    \                - service-02.nrp.mghpcc.org\n"
+  mtbs-severity-conus-hex.yaml: "# MTBS annual thematic burn severity -> H3 res-10 hex, CONUS domain,\
+    \ mode reducer.\n#\n# UNIFIED MULTI-YEAR LAYOUT, copied from the `nlcd` Annual build (#453), which\
+    \ is this catalog's\n# precedent for exactly this problem -- many annual years of one categorical\
+    \ raster in ONE\n# hive-partitioned dataset:\n#\n#     mtbs-severity-1984-2024-conus/hex/year=<YEAR>/h0=<CELL>/data_0.parquet\n\
+    #\n# `year` and `h0` are both partition columns, so `WHERE year=YYYY` filters one year and reburn\
+    \ is a\n# self-join on the H3 cell across years. No per-year collections.\n#\n# Index maps to (year,\
+    \ h0): YI = IDX / 6, HI = IDX % 6.  39 years x 6 h0 = 234 completions.\n#\n# Reducer is `mode`: a\
+    \ majority vote over the source pixels in each cell. Correct for coded\n# class values -- a mean would\
+    \ fabricate classes the source does not contain. `mode` is SPARSE:\n# a cell with no valid pixel is\
+    \ dropped, so only burned ground appears. It also keeps ONLY the\n# dominant class and discards the\
+    \ mix, which is why the companion `hex-fractions` layer exists --\n# use that one, not this, for any\
+    \ \"share burned at high severity\" statistic.\n#\n# /!\\ THE h0 FAN-OUT IS RESTRICTED TO 6 OF THE\
+    \ 122 BASE CELLS -- a deliberate deviation from the\n# 122 the generator emits, because at res 10\
+    \ an h0 index that holds no data is NOT free: the tool\n# prunes only h0 cells whose envelope misses\
+    \ the raster, and every surviving cell enumerates all\n# ~280 M of its res-10 children before discovering\
+    \ they are all nodata. Running 122 per year would\n# be 4758 pod slots at 192Gi to do 234 cells' worth\
+    \ of work.\n#\n# The 6 indexes below are MEASURED, not guessed: they are the h0 partitions that\n\
+    # `mtbs-perimeters-1984-2024` actually populates inside this domain, read from the cell CENTROIDS\n\
+    # (h3_cell_to_lat / h3_cell_to_lng) of its completed res-10 hex rather than from the res-0 partition\n\
+    # footprint. Severity pixels exist only inside MTBS perimeters, so the perimeter h0 set is a strict\n\
+    # SUPERSET of the severity h0 set for this domain -- and the perimeters cover all 41 years, including\n\
+    # the years whose severity mosaic is missing, so it is a superset in time as well.\n#\n# Two wider\
+    \ sets were rejected, both for concrete reasons:\n#   - the populated set of `whp-2023-classified-conus`.\
+    \ WHP maps every land pixel of its domain (it\n#     carries explicit non-burnable and water classes)\
+    \ while MTBS maps only ground that burned. For\n#     Alaska that is three h0 cells against one: MTBS\
+    \ Alaska fires span 56.7-70.2 N, -166.2 to\n#     -140.2, entirely inside a single base cell.\n# \
+    \  - the domain bounding box, which is wider still. The Alaska clip box reaches about 2.4 degrees\n\
+    #     south of any Alaska data, so it pulls in a h0 cell holding nothing but open Pacific.\n# The\
+    \ post-build check-hex-coverage.sh gate verifies per year that every expected partition is\n# populated,\
+    \ so a wrong list fails loudly rather than shipping a hole.\n#\n#   h0 index -> cell\n#      12  ->\
+    \  576812596024311807\n#      14  ->  577692205326532607\n#      20  ->  577164439745200127\n#   \
+    \   50  ->  577199624117288959\n#      71  ->  577762574070710271\n#      78  ->  577234808489377791\n\
+    apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: mtbs-severity-conus-hex\n  namespace: geo-workflows\n\
+    \  labels:\n    k8s-app: mtbs-severity-conus-hex\nspec:\n  completions: 234\n  parallelism: 117\n\
+    \  # 117, not the tool's default 61, and not the 12 the `nlcd` annual build uses. NLCD runs the full\n\
+    \  # 122 h0 per year, so most of its indexes are pruned in seconds and 12 slots are ample;\n  # restricting\
+    \ this fan-out to the h0 cells that actually hold data means every index here is real\n  # work, so\
+    \ concurrency sets wall-clock almost entirely.\n  #\n  # 234 = 117 x 2, so this is two clean waves\
+    \ rather than the 3.84 that 61 rounds up to four.\n  # Wall clock for an indexed job of N equal-cost\
+    \ tasks over P slots is ~ N x mean_duration / P, so\n  # halving the wave count roughly halves the\
+    \ layer.\n  #\n  # MEASURED 2026-08-24 on the Alaska fractions run, which is what justifies going\
+    \ wide: its 36\n  # pods were spread over 30 DISTINCT nodes, at most 3 on any one. Pods are not packed,\
+    \ so an extra\n  # pod lands on another idle node rather than contending with a sibling -- the speed-up\
+    \ is close\n  # to linear in P. The stepped completion times (a fast group at 76-101 min on SDSU/Fresno/SDSC\n\
+    \  # hardware, a slower group at 140-150 min elsewhere) are node-speed HETEROGENEITY across the\n\
+    \  # federation, not contention, and more slots do not make that worse.\n  #\n  # Risk is asymmetric\
+    \ and small: if the cluster cannot place 117 pods at 192Gi the surplus simply\n  # sits Pending and\
+    \ the job still runs at whatever concurrency it achieves. Nothing fails. And\n  # `Job.spec.parallelism`\
+    \ is mutable, so this is patchable up or down on a running job:\n  #     kubectl -n geo-workflows\
+    \ patch job/<name> -p '{\"spec\":{\"parallelism\":61}}'\n  # 117 stays inside the AGENTS.md <=200-pod\
+    \ good-practice target; 234 would not.\n  completionMode: Indexed\n  # Never backoffLimit: 0 -- a\
+    \ partial indexed run must surface as Failed, not publish as complete\n  # (#409). maxFailedIndexes\
+    \ absorbs a transient Ceph RGW blip without aborting the siblings.\n  backoffLimitPerIndex: 3\n  maxFailedIndexes:\
+    \ 30\n  ttlSecondsAfterFinished: 86400\n  template:\n    metadata:\n      labels:\n        k8s-app:\
+    \ mtbs-severity-conus-hex\n    spec:\n      restartPolicy: Never\n      # priorityClassName is deliberately\
+    \ OMITTED: `opportunistic` was preempted within ~20 s on\n      # these nodes during the WHP build\
+    \ (#586), which wastes the whole cell enumeration.\n      containers:\n      - name: hex-task\n  \
+    \      image: ghcr.io/boettiger-lab/datasets:latest\n        imagePullPolicy: Always\n        env:\n\
+    \        - name: AWS_ACCESS_KEY_ID\n          valueFrom:\n            secretKeyRef:\n            \
+    \  name: aws\n              key: AWS_ACCESS_KEY_ID\n        - name: AWS_SECRET_ACCESS_KEY\n      \
+    \    valueFrom:\n            secretKeyRef:\n              name: aws\n              key: AWS_SECRET_ACCESS_KEY\n\
+    \        - name: AWS_S3_ENDPOINT\n          value: rook-ceph-rgw-nautiluss3.rook\n        - name:\
+    \ AWS_PUBLIC_ENDPOINT\n          value: s3-west.nrp-nautilus.io\n        - name: AWS_HTTPS\n     \
+    \     value: 'false'\n        - name: AWS_VIRTUAL_HOSTING\n          value: 'FALSE'\n        - name:\
+    \ GDAL_DATA\n          value: /usr/share/gdal\n        - name: PYTHONPATH\n          value: /usr/lib/python3/dist-packages\n\
+    \        - name: CNG_HEX_WORKERS\n          value: '8'\n        volumeMounts:\n        # The tool\
+    \ localizes the COG with rclone before hexing; without this mount the job fails.\n        - name:\
+    \ rclone-config\n          mountPath: /root/.config/rclone\n          readOnly: true\n        command:\n\
+    \        - bash\n        - -c\n        - |-\n          set -e\n          YEARS=(1984 1985 1986 1987\
+    \ 1988 1989 1990 1991 1992 1993 1994 1995 1996 1997 1998 1999 2000 2001 2002 2003 2005 2006 2007 2008\
+    \ 2009 2010 2011 2012 2013 2014 2015 2016 2018 2019 2020 2021 2022 2023 2024)\n          H0S=(12 14\
+    \ 20 50 71 78)\n          IDX=${JOB_COMPLETION_INDEX}\n          Y=${YEARS[$(( IDX / ${#H0S[@]} ))]}\n\
+    \          H0=${H0S[$(( IDX % ${#H0S[@]} ))]}\n          echo \"=== MTBS severity conus $Y res-10\
+    \ mode reducer, h0-index $H0 (global idx $IDX) ===\"\n          cng-datasets raster \\\n         \
+    \   --input \"s3://public-fire/mtbs-severity-1984-2024-conus/mtbs-severity-conus-${Y}-cog.tif\" \\\
+    \n            --output-parquet \"s3://public-fire/mtbs-severity-1984-2024-conus/hex/year=${Y}/\" \\\
+    \n            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \\\n            --value-column\
+    \ severity --hex-resampling mode --nodata \"0\"\n        resources:\n          # NLCD's res-10 CONUS\
+    \ hex measured a 105-141Gi peak; 192Gi covers it with margin and still\n          # fits every 256Gi\
+    \ node (a 256Gi request barely fits allocatable -> chronic\n          # FailedScheduling). Cell enumeration,\
+    \ not data volume, sets this -- MTBS being sparse\n          # does not make it cheaper.\n       \
+    \   requests:\n            cpu: '8'\n            memory: 192Gi\n            ephemeral-storage: 40Gi\n\
+    \          limits:\n            cpu: '8'\n            memory: 192Gi\n            ephemeral-storage:\
+    \ 40Gi\n      volumes:\n      - name: rclone-config\n        secret:\n          secretName: rclone-config\n\
+    \      affinity:\n        nodeAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n\
+    \            nodeSelectorTerms:\n            - matchExpressions:\n              - key: feature.node.kubernetes.io/pci-10de.present\n\
+    \                operator: NotIn\n                values:\n                - 'true'\n            \
+    \  - key: kubernetes.io/hostname\n                operator: NotIn\n                values:\n     \
+    \           - hpc-nrp-g1.nmsu.edu\n                - service-02.nrp.mghpcc.org\n"
 kind: ConfigMap
 metadata:
   name: mtbs-severity-hex-jobs
   namespace: geo-workflows
-data:
-  mtbs-severity-ak-hex-fractions.yaml: "# MTBS annual thematic burn severity -> H3 res-10 hex, Alaska domain, per-class fractions.\n#\n# UNIFIED MULTI-YEAR LAYOUT, copied from the `nlcd` Annual build (#453), which is this catalog's\n# precedent for exactly this problem -- many annual years of one categorical raster in ONE\n# hive-partitioned dataset:\n#\n#     mtbs-severity-1984-2024-ak/hex-fractions/year=<YEAR>/h0=<CELL>/data_0.parquet\n#\n# `year` and `h0` are both partition columns, so `WHERE year=YYYY` filters one year and reburn is a\n# self-join on the H3 cell across years. No per-year collections.\n#\n# Index maps to (year, h0): YI = IDX / 1, HI = IDX % 1.  36 years x 1 h0 = 36 completions.\n#\n# Reducer is `fractions`: per-class fractional coverage, long format, one row per (cell, class)\n# with `frac` in 0..1. This is the layer that answers the question #593 exists to ask -- what\n# SHARE of an area burned at high severity -- because `mode` collapses a cell that is 40% high\n# and 60% moderate to \"moderate\" and loses the 40% entirely. It also makes codes 5 (increased\n# greenness) and 6 (non-processing mask) cleanly excludable from a severity denominator.\n# `--resampling near` keeps the class codes intact while the fractions are computed.\n#\n# /!\\ THE h0 FAN-OUT IS RESTRICTED TO 1 OF THE 122 BASE CELLS -- a deliberate deviation from the\n# 122 the generator emits, because at res 10 an h0 index that holds no data is NOT free: the tool\n# prunes only h0 cells whose envelope misses the raster, and every surviving cell enumerates all\n# ~280 M of its res-10 children before discovering they are all nodata. Running 122 per year would\n# be 4392 pod slots at 192Gi to do 36 cells' worth of work.\n#\n# The 1 index below is MEASURED, not guessed: it is the h0 partition that\n# `mtbs-perimeters-1984-2024` actually populates inside this domain, read from the cell CENTROIDS\n# (h3_cell_to_lat / h3_cell_to_lng) of its completed res-10 hex rather than from the res-0 partition\n# footprint. Severity pixels exist only inside MTBS perimeters, so the perimeter h0 set is a strict\n# SUPERSET of the severity h0 set for this domain -- and the perimeters cover all 41 years, including\n# the years whose severity mosaic is missing, so it is a superset in time as well.\n#\n# Two wider sets were rejected, both for concrete reasons:\n#   - the populated set of `whp-2023-classified-ak`. WHP maps every land pixel of its domain (it\n#     carries explicit non-burnable and water classes) while MTBS maps only ground that burned. For\n#     Alaska that is three h0 cells against one: MTBS Alaska fires span 56.7-70.2 N, -166.2 to\n#     -140.2, entirely inside a single base cell.\n#   - the domain bounding box, which is wider still. The Alaska clip box reaches about 2.4 degrees\n#     south of any Alaska data, so it pulls in a h0 cell holding nothing but open Pacific.\n# The post-build check-hex-coverage.sh gate verifies per year that every expected partition is\n# populated, so a wrong list fails loudly rather than shipping a hole.\n#\n#   h0 index -> cell\n#     105  ->  576707042908045311\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: mtbs-severity-ak-hex-fractions\n  namespace: geo-workflows\n  labels:\n    k8s-app: mtbs-severity-ak-hex-fractions\nspec:\n  completions: 36\n  parallelism: 61\n  # 61, not the 12 the `nlcd` annual build uses. NLCD runs the full 122 h0 per year, so most of its\n  # indexes are pruned in seconds and 12 slots are ample; restricting this fan-out to the h0 cells\n  # that actually hold data means every index here is real work. Measured on the Alaska pilot: a\n  # res-10 index takes a median 2.2 h (max over 3.7 h), so concurrency is what sets wall-clock. 61\n  # is the tool's default for a raster hex workflow and stays inside the <=200 pod target.\n  completionMode: Indexed\n  # Never backoffLimit: 0 -- a partial indexed run must surface as Failed, not publish as complete\n  # (#409). maxFailedIndexes absorbs a transient Ceph RGW blip without aborting the siblings.\n  backoffLimitPerIndex: 3\n  maxFailedIndexes:\
-    \ 30\n  ttlSecondsAfterFinished: 86400\n  template:\n    metadata:\n      labels:\n        k8s-app: mtbs-severity-ak-hex-fractions\n    spec:\n      restartPolicy: Never\n      # priorityClassName is deliberately OMITTED: `opportunistic` was preempted within ~20 s on\n      # these nodes during the WHP build (#586), which wastes the whole cell enumeration.\n      containers:\n      - name: hex-task\n        image: ghcr.io/boettiger-lab/datasets:latest\n        imagePullPolicy: Always\n        env:\n        - name: AWS_ACCESS_KEY_ID\n          valueFrom:\n            secretKeyRef:\n              name: aws\n              key: AWS_ACCESS_KEY_ID\n        - name: AWS_SECRET_ACCESS_KEY\n          valueFrom:\n            secretKeyRef:\n              name: aws\n              key: AWS_SECRET_ACCESS_KEY\n        - name: AWS_S3_ENDPOINT\n          value: rook-ceph-rgw-nautiluss3.rook\n        - name: AWS_PUBLIC_ENDPOINT\n          value: s3-west.nrp-nautilus.io\n        - name: AWS_HTTPS\n          value: 'false'\n        - name: AWS_VIRTUAL_HOSTING\n          value: 'FALSE'\n        - name: GDAL_DATA\n          value: /usr/share/gdal\n        - name: PYTHONPATH\n          value: /usr/lib/python3/dist-packages\n        - name: CNG_HEX_WORKERS\n          value: '8'\n        volumeMounts:\n        # The tool localizes the COG with rclone before hexing; without this mount the job fails.\n        - name: rclone-config\n          mountPath: /root/.config/rclone\n          readOnly: true\n        command:\n        - bash\n        - -c\n        - |-\n          set -e\n          YEARS=(1984 1985 1986 1988 1989 1990 1991 1992 1993 1994 1996 1997 1998 1999 2000 2002 2003 2004 2005 2006 2007 2008 2009 2010 2011 2012 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023)\n          H0S=(105)\n          IDX=${JOB_COMPLETION_INDEX}\n          Y=${YEARS[$(( IDX / ${#H0S[@]} ))]}\n          H0=${H0S[$(( IDX % ${#H0S[@]} ))]}\n          echo \"=== MTBS severity ak $Y res-10 per-class fractions, h0-index $H0 (global idx $IDX) ===\"\n          cng-datasets raster \\\n            --input \"s3://public-fire/mtbs-severity-1984-2024-ak/mtbs-severity-ak-${Y}-cog.tif\" \\\n            --output-parquet \"s3://public-fire/mtbs-severity-1984-2024-ak/hex-fractions/year=${Y}/\" \\\n            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \\\n            --value-column severity --hex-resampling fractions --resampling near --nodata \"0\"\n        resources:\n          # NLCD's res-10 CONUS hex measured a 105-141Gi peak; 192Gi covers it with margin and still\n          # fits every 256Gi node (a 256Gi request barely fits allocatable -> chronic\n          # FailedScheduling). Cell enumeration, not data volume, sets this -- MTBS being sparse\n          # does not make it cheaper.\n          requests:\n            cpu: '8'\n            memory: 192Gi\n            ephemeral-storage: 40Gi\n          limits:\n            cpu: '8'\n            memory: 192Gi\n            ephemeral-storage: 40Gi\n      volumes:\n      - name: rclone-config\n        secret:\n          secretName: rclone-config\n      affinity:\n        nodeAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            nodeSelectorTerms:\n            - matchExpressions:\n              - key: feature.node.kubernetes.io/pci-10de.present\n                operator: NotIn\n                values:\n                - 'true'\n              - key: kubernetes.io/hostname\n                operator: NotIn\n                values:\n                - hpc-nrp-g1.nmsu.edu\n                - service-02.nrp.mghpcc.org\n"
-  mtbs-severity-conus-hex.yaml: "# MTBS annual thematic burn severity -> H3 res-10 hex, CONUS domain, mode reducer.\n#\n# UNIFIED MULTI-YEAR LAYOUT, copied from the `nlcd` Annual build (#453), which is this catalog's\n# precedent for exactly this problem -- many annual years of one categorical raster in ONE\n# hive-partitioned dataset:\n#\n#     mtbs-severity-1984-2024-conus/hex/year=<YEAR>/h0=<CELL>/data_0.parquet\n#\n# `year` and `h0` are both partition columns, so `WHERE year=YYYY` filters one year and reburn is a\n# self-join on the H3 cell across years. No per-year collections.\n#\n# Index maps to (year, h0): YI = IDX / 6, HI = IDX % 6.  39 years x 6 h0 = 234 completions.\n#\n# Reducer is `mode`: a majority vote over the source pixels in each cell. Correct for coded\n# class values -- a mean would fabricate classes the source does not contain. `mode` is SPARSE:\n# a cell with no valid pixel is dropped, so only burned ground appears. It also keeps ONLY the\n# dominant class and discards the mix, which is why the companion `hex-fractions` layer exists --\n# use that one, not this, for any \"share burned at high severity\" statistic.\n#\n# /!\\ THE h0 FAN-OUT IS RESTRICTED TO 6 OF THE 122 BASE CELLS -- a deliberate deviation from the\n# 122 the generator emits, because at res 10 an h0 index that holds no data is NOT free: the tool\n# prunes only h0 cells whose envelope misses the raster, and every surviving cell enumerates all\n# ~280 M of its res-10 children before discovering they are all nodata. Running 122 per year would\n# be 4758 pod slots at 192Gi to do 234 cells' worth of work.\n#\n# The 6 indexes below are MEASURED, not guessed: they are the h0 partitions that\n# `mtbs-perimeters-1984-2024` actually populates inside this domain, read from the cell CENTROIDS\n# (h3_cell_to_lat / h3_cell_to_lng) of its completed res-10 hex rather than from the res-0 partition\n# footprint. Severity pixels exist only inside MTBS perimeters, so the perimeter h0 set is a strict\n# SUPERSET of the severity h0 set for this domain -- and the perimeters cover all 41 years, including\n# the years whose severity mosaic is missing, so it is a superset in time as well.\n#\n# Two wider sets were rejected, both for concrete reasons:\n#   - the populated set of `whp-2023-classified-conus`. WHP maps every land pixel of its domain (it\n#     carries explicit non-burnable and water classes) while MTBS maps only ground that burned. For\n#     Alaska that is three h0 cells against one: MTBS Alaska fires span 56.7-70.2 N, -166.2 to\n#     -140.2, entirely inside a single base cell.\n#   - the domain bounding box, which is wider still. The Alaska clip box reaches about 2.4 degrees\n#     south of any Alaska data, so it pulls in a h0 cell holding nothing but open Pacific.\n# The post-build check-hex-coverage.sh gate verifies per year that every expected partition is\n# populated, so a wrong list fails loudly rather than shipping a hole.\n#\n#   h0 index -> cell\n#      12  ->  576812596024311807\n#      14  ->  577692205326532607\n#      20  ->  577164439745200127\n#      50  ->  577199624117288959\n#      71  ->  577762574070710271\n#      78  ->  577234808489377791\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: mtbs-severity-conus-hex\n  namespace: geo-workflows\n  labels:\n    k8s-app: mtbs-severity-conus-hex\nspec:\n  completions: 234\n  parallelism: 61\n  # 61, not the 12 the `nlcd` annual build uses. NLCD runs the full 122 h0 per year, so most of its\n  # indexes are pruned in seconds and 12 slots are ample; restricting this fan-out to the h0 cells\n  # that actually hold data means every index here is real work. Measured on the Alaska pilot: a\n  # res-10 index takes a median 2.2 h (max over 3.7 h), so concurrency is what sets wall-clock. 61\n  # is the tool's default for a raster hex workflow and stays inside the <=200 pod target.\n  completionMode: Indexed\n  # Never backoffLimit: 0 -- a partial indexed run must surface as Failed, not publish as complete\n  # (#409). maxFailedIndexes absorbs a transient Ceph RGW blip without aborting the\
-    \ siblings.\n  backoffLimitPerIndex: 3\n  maxFailedIndexes: 30\n  ttlSecondsAfterFinished: 86400\n  template:\n    metadata:\n      labels:\n        k8s-app: mtbs-severity-conus-hex\n    spec:\n      restartPolicy: Never\n      # priorityClassName is deliberately OMITTED: `opportunistic` was preempted within ~20 s on\n      # these nodes during the WHP build (#586), which wastes the whole cell enumeration.\n      containers:\n      - name: hex-task\n        image: ghcr.io/boettiger-lab/datasets:latest\n        imagePullPolicy: Always\n        env:\n        - name: AWS_ACCESS_KEY_ID\n          valueFrom:\n            secretKeyRef:\n              name: aws\n              key: AWS_ACCESS_KEY_ID\n        - name: AWS_SECRET_ACCESS_KEY\n          valueFrom:\n            secretKeyRef:\n              name: aws\n              key: AWS_SECRET_ACCESS_KEY\n        - name: AWS_S3_ENDPOINT\n          value: rook-ceph-rgw-nautiluss3.rook\n        - name: AWS_PUBLIC_ENDPOINT\n          value: s3-west.nrp-nautilus.io\n        - name: AWS_HTTPS\n          value: 'false'\n        - name: AWS_VIRTUAL_HOSTING\n          value: 'FALSE'\n        - name: GDAL_DATA\n          value: /usr/share/gdal\n        - name: PYTHONPATH\n          value: /usr/lib/python3/dist-packages\n        - name: CNG_HEX_WORKERS\n          value: '8'\n        volumeMounts:\n        # The tool localizes the COG with rclone before hexing; without this mount the job fails.\n        - name: rclone-config\n          mountPath: /root/.config/rclone\n          readOnly: true\n        command:\n        - bash\n        - -c\n        - |-\n          set -e\n          YEARS=(1984 1985 1986 1987 1988 1989 1990 1991 1992 1993 1994 1995 1996 1997 1998 1999 2000 2001 2002 2003 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2018 2019 2020 2021 2022 2023 2024)\n          H0S=(12 14 20 50 71 78)\n          IDX=${JOB_COMPLETION_INDEX}\n          Y=${YEARS[$(( IDX / ${#H0S[@]} ))]}\n          H0=${H0S[$(( IDX % ${#H0S[@]} ))]}\n          echo \"=== MTBS severity conus $Y res-10 mode reducer, h0-index $H0 (global idx $IDX) ===\"\n          cng-datasets raster \\\n            --input \"s3://public-fire/mtbs-severity-1984-2024-conus/mtbs-severity-conus-${Y}-cog.tif\" \\\n            --output-parquet \"s3://public-fire/mtbs-severity-1984-2024-conus/hex/year=${Y}/\" \\\n            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \\\n            --value-column severity --hex-resampling mode --nodata \"0\"\n        resources:\n          # NLCD's res-10 CONUS hex measured a 105-141Gi peak; 192Gi covers it with margin and still\n          # fits every 256Gi node (a 256Gi request barely fits allocatable -> chronic\n          # FailedScheduling). Cell enumeration, not data volume, sets this -- MTBS being sparse\n          # does not make it cheaper.\n          requests:\n            cpu: '8'\n            memory: 192Gi\n            ephemeral-storage: 40Gi\n          limits:\n            cpu: '8'\n            memory: 192Gi\n            ephemeral-storage: 40Gi\n      volumes:\n      - name: rclone-config\n        secret:\n          secretName: rclone-config\n      affinity:\n        nodeAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            nodeSelectorTerms:\n            - matchExpressions:\n              - key: feature.node.kubernetes.io/pci-10de.present\n                operator: NotIn\n                values:\n                - 'true'\n              - key: kubernetes.io/hostname\n                operator: NotIn\n                values:\n                - hpc-nrp-g1.nmsu.edu\n                - service-02.nrp.mghpcc.org\n"
-  mtbs-severity-conus-hex-fractions.yaml: "# MTBS annual thematic burn severity -> H3 res-10 hex, CONUS domain, per-class fractions.\n#\n# UNIFIED MULTI-YEAR LAYOUT, copied from the `nlcd` Annual build (#453), which is this catalog's\n# precedent for exactly this problem -- many annual years of one categorical raster in ONE\n# hive-partitioned dataset:\n#\n#     mtbs-severity-1984-2024-conus/hex-fractions/year=<YEAR>/h0=<CELL>/data_0.parquet\n#\n# `year` and `h0` are both partition columns, so `WHERE year=YYYY` filters one year and reburn is a\n# self-join on the H3 cell across years. No per-year collections.\n#\n# Index maps to (year, h0): YI = IDX / 6, HI = IDX % 6.  39 years x 6 h0 = 234 completions.\n#\n# Reducer is `fractions`: per-class fractional coverage, long format, one row per (cell, class)\n# with `frac` in 0..1. This is the layer that answers the question #593 exists to ask -- what\n# SHARE of an area burned at high severity -- because `mode` collapses a cell that is 40% high\n# and 60% moderate to \"moderate\" and loses the 40% entirely. It also makes codes 5 (increased\n# greenness) and 6 (non-processing mask) cleanly excludable from a severity denominator.\n# `--resampling near` keeps the class codes intact while the fractions are computed.\n#\n# /!\\ THE h0 FAN-OUT IS RESTRICTED TO 6 OF THE 122 BASE CELLS -- a deliberate deviation from the\n# 122 the generator emits, because at res 10 an h0 index that holds no data is NOT free: the tool\n# prunes only h0 cells whose envelope misses the raster, and every surviving cell enumerates all\n# ~280 M of its res-10 children before discovering they are all nodata. Running 122 per year would\n# be 4758 pod slots at 192Gi to do 234 cells' worth of work.\n#\n# The 6 indexes below are MEASURED, not guessed: they are the h0 partitions that\n# `mtbs-perimeters-1984-2024` actually populates inside this domain, read from the cell CENTROIDS\n# (h3_cell_to_lat / h3_cell_to_lng) of its completed res-10 hex rather than from the res-0 partition\n# footprint. Severity pixels exist only inside MTBS perimeters, so the perimeter h0 set is a strict\n# SUPERSET of the severity h0 set for this domain -- and the perimeters cover all 41 years, including\n# the years whose severity mosaic is missing, so it is a superset in time as well.\n#\n# Two wider sets were rejected, both for concrete reasons:\n#   - the populated set of `whp-2023-classified-conus`. WHP maps every land pixel of its domain (it\n#     carries explicit non-burnable and water classes) while MTBS maps only ground that burned. For\n#     Alaska that is three h0 cells against one: MTBS Alaska fires span 56.7-70.2 N, -166.2 to\n#     -140.2, entirely inside a single base cell.\n#   - the domain bounding box, which is wider still. The Alaska clip box reaches about 2.4 degrees\n#     south of any Alaska data, so it pulls in a h0 cell holding nothing but open Pacific.\n# The post-build check-hex-coverage.sh gate verifies per year that every expected partition is\n# populated, so a wrong list fails loudly rather than shipping a hole.\n#\n#   h0 index -> cell\n#      12  ->  576812596024311807\n#      14  ->  577692205326532607\n#      20  ->  577164439745200127\n#      50  ->  577199624117288959\n#      71  ->  577762574070710271\n#      78  ->  577234808489377791\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: mtbs-severity-conus-hex-fractions\n  namespace: geo-workflows\n  labels:\n    k8s-app: mtbs-severity-conus-hex-fractions\nspec:\n  completions: 234\n  parallelism: 61\n  # 61, not the 12 the `nlcd` annual build uses. NLCD runs the full 122 h0 per year, so most of its\n  # indexes are pruned in seconds and 12 slots are ample; restricting this fan-out to the h0 cells\n  # that actually hold data means every index here is real work. Measured on the Alaska pilot: a\n  # res-10 index takes a median 2.2 h (max over 3.7 h), so concurrency is what sets wall-clock. 61\n  # is the tool's default for a raster hex workflow and stays inside the <=200 pod target.\n  completionMode: Indexed\n  # Never backoffLimit: 0 -- a partial indexed\
-    \ run must surface as Failed, not publish as complete\n  # (#409). maxFailedIndexes absorbs a transient Ceph RGW blip without aborting the siblings.\n  backoffLimitPerIndex: 3\n  maxFailedIndexes: 30\n  ttlSecondsAfterFinished: 86400\n  template:\n    metadata:\n      labels:\n        k8s-app: mtbs-severity-conus-hex-fractions\n    spec:\n      restartPolicy: Never\n      # priorityClassName is deliberately OMITTED: `opportunistic` was preempted within ~20 s on\n      # these nodes during the WHP build (#586), which wastes the whole cell enumeration.\n      containers:\n      - name: hex-task\n        image: ghcr.io/boettiger-lab/datasets:latest\n        imagePullPolicy: Always\n        env:\n        - name: AWS_ACCESS_KEY_ID\n          valueFrom:\n            secretKeyRef:\n              name: aws\n              key: AWS_ACCESS_KEY_ID\n        - name: AWS_SECRET_ACCESS_KEY\n          valueFrom:\n            secretKeyRef:\n              name: aws\n              key: AWS_SECRET_ACCESS_KEY\n        - name: AWS_S3_ENDPOINT\n          value: rook-ceph-rgw-nautiluss3.rook\n        - name: AWS_PUBLIC_ENDPOINT\n          value: s3-west.nrp-nautilus.io\n        - name: AWS_HTTPS\n          value: 'false'\n        - name: AWS_VIRTUAL_HOSTING\n          value: 'FALSE'\n        - name: GDAL_DATA\n          value: /usr/share/gdal\n        - name: PYTHONPATH\n          value: /usr/lib/python3/dist-packages\n        - name: CNG_HEX_WORKERS\n          value: '8'\n        volumeMounts:\n        # The tool localizes the COG with rclone before hexing; without this mount the job fails.\n        - name: rclone-config\n          mountPath: /root/.config/rclone\n          readOnly: true\n        command:\n        - bash\n        - -c\n        - |-\n          set -e\n          YEARS=(1984 1985 1986 1987 1988 1989 1990 1991 1992 1993 1994 1995 1996 1997 1998 1999 2000 2001 2002 2003 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2018 2019 2020 2021 2022 2023 2024)\n          H0S=(12 14 20 50 71 78)\n          IDX=${JOB_COMPLETION_INDEX}\n          Y=${YEARS[$(( IDX / ${#H0S[@]} ))]}\n          H0=${H0S[$(( IDX % ${#H0S[@]} ))]}\n          echo \"=== MTBS severity conus $Y res-10 per-class fractions, h0-index $H0 (global idx $IDX) ===\"\n          cng-datasets raster \\\n            --input \"s3://public-fire/mtbs-severity-1984-2024-conus/mtbs-severity-conus-${Y}-cog.tif\" \\\n            --output-parquet \"s3://public-fire/mtbs-severity-1984-2024-conus/hex-fractions/year=${Y}/\" \\\n            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \\\n            --value-column severity --hex-resampling fractions --resampling near --nodata \"0\"\n        resources:\n          # NLCD's res-10 CONUS hex measured a 105-141Gi peak; 192Gi covers it with margin and still\n          # fits every 256Gi node (a 256Gi request barely fits allocatable -> chronic\n          # FailedScheduling). Cell enumeration, not data volume, sets this -- MTBS being sparse\n          # does not make it cheaper.\n          requests:\n            cpu: '8'\n            memory: 192Gi\n            ephemeral-storage: 40Gi\n          limits:\n            cpu: '8'\n            memory: 192Gi\n            ephemeral-storage: 40Gi\n      volumes:\n      - name: rclone-config\n        secret:\n          secretName: rclone-config\n      affinity:\n        nodeAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            nodeSelectorTerms:\n            - matchExpressions:\n              - key: feature.node.kubernetes.io/pci-10de.present\n                operator: NotIn\n                values:\n                - 'true'\n              - key: kubernetes.io/hostname\n                operator: NotIn\n                values:\n                - hpc-nrp-g1.nmsu.edu\n                - service-02.nrp.mghpcc.org\n"
 ---
 apiVersion: batch/v1
 kind: Job

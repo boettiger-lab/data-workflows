@@ -56,12 +56,28 @@ metadata:
     k8s-app: mtbs-severity-conus-hex
 spec:
   completions: 234
-  parallelism: 61
-  # 61, not the 12 the `nlcd` annual build uses. NLCD runs the full 122 h0 per year, so most of its
-  # indexes are pruned in seconds and 12 slots are ample; restricting this fan-out to the h0 cells
-  # that actually hold data means every index here is real work. Measured on the Alaska pilot: a
-  # res-10 index takes a median 2.2 h (max over 3.7 h), so concurrency is what sets wall-clock. 61
-  # is the tool's default for a raster hex workflow and stays inside the <=200 pod target.
+  parallelism: 117
+  # 117, not the tool's default 61, and not the 12 the `nlcd` annual build uses. NLCD runs the full
+  # 122 h0 per year, so most of its indexes are pruned in seconds and 12 slots are ample;
+  # restricting this fan-out to the h0 cells that actually hold data means every index here is real
+  # work, so concurrency sets wall-clock almost entirely.
+  #
+  # 234 = 117 x 2, so this is two clean waves rather than the 3.84 that 61 rounds up to four.
+  # Wall clock for an indexed job of N equal-cost tasks over P slots is ~ N x mean_duration / P, so
+  # halving the wave count roughly halves the layer.
+  #
+  # MEASURED 2026-08-24 on the Alaska fractions run, which is what justifies going wide: its 36
+  # pods were spread over 30 DISTINCT nodes, at most 3 on any one. Pods are not packed, so an extra
+  # pod lands on another idle node rather than contending with a sibling -- the speed-up is close
+  # to linear in P. The stepped completion times (a fast group at 76-101 min on SDSU/Fresno/SDSC
+  # hardware, a slower group at 140-150 min elsewhere) are node-speed HETEROGENEITY across the
+  # federation, not contention, and more slots do not make that worse.
+  #
+  # Risk is asymmetric and small: if the cluster cannot place 117 pods at 192Gi the surplus simply
+  # sits Pending and the job still runs at whatever concurrency it achieves. Nothing fails. And
+  # `Job.spec.parallelism` is mutable, so this is patchable up or down on a running job:
+  #     kubectl -n geo-workflows patch job/<name> -p '{"spec":{"parallelism":61}}'
+  # 117 stays inside the AGENTS.md <=200-pod good-practice target; 234 would not.
   completionMode: Indexed
   # Never backoffLimit: 0 -- a partial indexed run must surface as Failed, not publish as complete
   # (#409). maxFailedIndexes absorbs a transient Ceph RGW blip without aborting the siblings.
