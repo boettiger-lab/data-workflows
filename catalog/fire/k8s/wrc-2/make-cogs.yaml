@@ -1,0 +1,225 @@
+# Reproject the staged WRC v2 source rasters to EPSG:4326 COGs on NRP S3.
+#
+# ⛔ THIS STEP IS NOT OPTIONAL AND ITS ABSENCE FAILS SILENTLY.
+# `cng-datasets raster` hands H3 cell polygons, in degrees, to exactextract. Against a source in
+# Albers metres every cell lands within ~100 m of the projection origin -- EPSG:5070 (0,0) is
+# lon -96 / lat 23, in the Gulf of Mexico -- so every cell reads nodata, ZERO rows are written and
+# the Job exits 0. Measured on #586. Structural checks all pass on an empty build; only the h0
+# coverage gate catches it. Both WRC domains are projected (CONUS EPSG:5070, Alaska EPSG:3338), so
+# both need this.
+#
+# ⚠️ WHY THE `rechunk-scratch` PVC AND NOT EPHEMERAL
+# These are Float32 30 m national rasters: RPS_CONUS alone is 27.4 GB, and raw + warped
+# intermediate + final COG is ~84 GB in flight. That is far past the 50Gi ephemeral cap, and per
+# `job-troubleshooting` the fix is a PVC rather than fighting the cap. This is also the RIGHT use
+# of the cephfs PVC -- a handful of very large files, not the many-small-file localize whose
+# metadata latency crippled the DEM mosaic (#426).
+#
+# ⚠️ RESAMPLING IS `near`, DELIBERATELY.
+# The warp is ~1:1 in ground resolution (30 m -> ~0.00034 deg at 38N), so interpolation buys no
+# accuracy, while `bilinear` would smear the -9999 sentinel across every nodata boundary -- the
+# exact leak the downstream plausibility bound exists to catch. The real area weighting happens in
+# exactextract when hexing. #586 used `near` for both its products for the same reason.
+#
+# ⚠️ COGs STAY Float32 -- no scale/offset integer encoding.
+# These layers have huge dynamic range (RPS spans ~1e-23 to 13.2; the published 1st-percentile
+# CONUS RPS is 2.4e-4). A linear Int16 + scale encoding would annihilate the low end and break
+# agreement with the source's published percentile table, so the size win is not available here.
+#
+# Alaska is clipped to -180..-129 lon. Its EPSG:3338 grid spans the antimeridian, and a naive warp
+# to EPSG:4326 yields a ~360-deg-wide, almost entirely nodata raster sitting on the dateline seam.
+# The clip drops the far-western Aleutians (~157E..180), which hold NO National Forest System land
+# -- the Alaska units are the Tongass and Chugach, far to the east -- so nothing relevant to the
+# roadless question is lost. Recorded in STAC.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-make-cogs
+  namespace: geo-workflows
+  labels:
+    k8s-app: wrc-2-make-cogs
+spec:
+  completions: 8
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wrc-2-make-cogs
+    spec:
+      restartPolicy: Never
+      # ClusterFirst is required: rclone's nrp: remote resolves the INTERNAL endpoint
+      # rook-ceph-rgw-nautiluss3.rook, which only cluster DNS can resolve.
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: make-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        # ⛔ Do NOT set PROJ_DATA / PROJ_LIB. The image ships 8 proj.db at differing layout
+        # versions and a stale pick breaks -t_srs EPSG:4326 non-deterministically (#453).
+        # GDAL's own default resolves the matching one correctly.
+        - name: GDAL_CACHEMAX
+          value: '8192'
+        - name: GDAL_NUM_THREADS
+          value: ALL_CPUS
+        - name: CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE
+          value: 'YES'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: wrc-2-make-cogs
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # Same index order as wrc-2-stage-raw.yaml.
+          SRC=(RPS_CONUS RPS_AK BP_CONUS BP_AK CFL_CONUS CFL_AK Exposure_CONUS Exposure_AK)
+          OUT=(wrc-2-rps-conus wrc-2-rps-ak wrc-2-bp-conus wrc-2-bp-ak wrc-2-cfl-conus wrc-2-cfl-ak wrc-2-exposure-conus wrc-2-exposure-ak)
+          # Alaska is clipped east of the antimeridian; CONUS needs no clip.
+          TE=("" "-te -180 48.8 -129.0 71.6" "" "-te -180 48.8 -129.0 71.6" "" "-te -180 48.8 -129.0 71.6" "" "-te -180 48.8 -129.0 71.6")
+          ND=-9999
+
+          i=${JOB_COMPLETION_INDEX}
+          s=${SRC[$i]}; o=${OUT[$i]}; te=${TE[$i]}
+          W=/scratch/$o
+          mkdir -p "$W"
+          export TMPDIR="$W" CPL_TMPDIR="$W"
+          trap 'rm -rf "$W"' EXIT
+
+          echo "=== [$i] $s -> $o-cog.tif  (nodata $ND) ${te:+clip: $te} ==="
+
+          rclone copyto "nrp:public-fire/raw/wrc-2/${s}.tif" "$W/${s}.tif" -P --retries 6
+          ls -la "$W/${s}.tif"
+
+          echo "--- source CRS / size / nodata ---"
+          gdalinfo "$W/${s}.tif" | grep -E '^Size is|ID\["EPSG|Pixel Size|NoData|Type=' | head -20
+
+          # Warp to EPSG:4326. No -tr: let gdalwarp preserve the source ground resolution near the
+          # centre of the extent rather than hardcoding a degree value, which would silently
+          # rescale the grid.
+          gdalwarp \
+            -t_srs EPSG:4326 \
+            -r near \
+            -srcnodata "$ND" -dstnodata "$ND" \
+            $te \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 8192 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=3 -co BIGTIFF=YES \
+            -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 \
+            -co NUM_THREADS=ALL_CPUS \
+            "$W/${s}.tif" "$W/${o}-warp.tif"
+
+          rm -f "$W/${s}.tif"
+
+          echo "--- warped ---"
+          gdalinfo "$W/${o}-warp.tif" | grep -E '^Size is|Pixel Size|NoData|Upper Left|Lower Right'
+
+          # COG-ify: proper layout plus overviews. AVERAGE overviews are correct for a continuous
+          # float layer (NEAREST would be right only for categorical, as in #586's classified WHP).
+          gdal_translate "$W/${o}-warp.tif" "$W/${o}-cog.tif" \
+            -of COG \
+            -co COMPRESS=DEFLATE -co PREDICTOR=3 -co BIGTIFF=YES \
+            -co OVERVIEW_RESAMPLING=AVERAGE -co BLOCKSIZE=512 \
+            -co NUM_THREADS=ALL_CPUS
+          rm -f "$W/${o}-warp.tif"
+
+          echo "--- final COG ---"
+          gdalinfo "$W/${o}-cog.tif" | grep -E '^Size is|Pixel Size|NoData|Overviews|Block'
+          ls -la "$W/${o}-cog.tif"
+
+          # Sanity gate: a published all-nodata COG is a real failure mode and is exactly what
+          # hexing the raw Albers source produces. Stats come off the overviews (approx_ok) so this
+          # costs seconds rather than a full 28 GB read, and the min/max/mean it prints IS the
+          # validation truth the `mean` hex reducer is later checked against.
+          # NOTE: gdalinfo -stats caches into a .tif.aux.xml sidecar and will report STALE values
+          # on a rebuild in the same directory -- we compute in-process and never write a sidecar.
+          python3 - "$W/${o}-cog.tif" "$ND" <<'PY'
+          import sys
+          from osgeo import gdal
+          gdal.UseExceptions()
+
+          path, nd = sys.argv[1], float(sys.argv[2])
+          ds = gdal.Open(path)
+          b = ds.GetRasterBand(1)
+          print(f'  size      : {ds.RasterXSize} x {ds.RasterYSize}')
+          print(f'  dtype     : {gdal.GetDataTypeName(b.DataType)}')
+          print(f'  nodata    : {b.GetNoDataValue()}')
+          print(f'  overviews : {b.GetOverviewCount()}')
+          if b.GetNoDataValue() is None or abs(b.GetNoDataValue() - nd) > 1e-6:
+              print(f'FATAL: COG nodata is {b.GetNoDataValue()}, expected {nd}')
+              sys.exit(1)
+          try:
+              mn, mx, mean, sd = b.ComputeStatistics(True)
+          except Exception as exc:
+              print(f'FATAL: no valid pixels ({exc})')
+              sys.exit(1)
+          print(f'  min/max   : {mn} / {mx}')
+          print(f'  mean/std  : {mean} / {sd}')
+          if mn <= nd + 1e-6:
+              print(f'FATAL: nodata sentinel {nd} survived into the valid range')
+              sys.exit(1)
+          if not (mx > mn):
+              print('FATAL: degenerate value range -- COG is constant or empty')
+              sys.exit(1)
+          PY
+
+          echo "--- uploading ---"
+          rclone copyto "$W/${o}-cog.tif" "nrp:public-fire/${o}-cog.tif" -P --transfers 4 --retries 6
+          rclone size "nrp:public-fire/${o}-cog.tif"
+          echo "DONE $o"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 48Gi
+            ephemeral-storage: 8Gi
+          limits:
+            cpu: '8'
+            memory: 48Gi
+            ephemeral-storage: 8Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

@@ -1,0 +1,112 @@
+# WRC v2 Risk to Potential Structures (RPS), Alaska — res-10 `mean` hex.
+#
+# RPS is the "Risk to Homes" layer of the Wildfire Risk to Communities web application: the
+# expected Net Value Change if each pixel held a house as the only highly-valued asset. It is the
+# layer that actually measures risk TO COMMUNITIES, as opposed to WHP (#586), which measures fire
+# hazard and whose own source metadata says it does not account for what is exposed.
+#
+# Reducer `mean`: RPS is a continuous index / intensity, not an amount integrated per pixel, so
+# `sum` would be meaningless (raster-hexing: the density-vs-amount trap). There is no meaningful
+# "total RPS" — consumers compare means across land classes.
+#
+# Resolution 10: the source is 30 m, and `h10` (0.0150 km²) is the catalog's finest, so 30 m is
+# mildly UNDER-sampled — accepted per the raster-hexing anchor table. Parents 9,8,0 match
+# `roadless-areas-2001` (public-usfs) and `silvis-wui-2020` (public-wui) exactly, so this layer
+# joins both cell-for-cell at h10 — which is the whole point of the ingest.
+#
+# Expect ~116 M rows over 3 populated h0 partitions, scaling the measured whp-2023 Alaska res-9
+# count (16,540,214 over 3 h0) by the 7x cells-per-parent step from res 9 to res 10.
+#
+# The Alaska COG is clipped to -180..-129 lon (see make-cogs.yaml): the source EPSG:3338 grid
+# spans the antimeridian and a naive warp yields a ~360-deg-wide, almost entirely nodata raster.
+# The dropped far-western Aleutians hold no National Forest System land. The dateline h0
+# 576707042908045311 is one of the three populated partitions and must be present.
+#
+# ⚠️ `priorityClassName` is deliberately OMITTED. Default priority 0 is admitted in
+# geo-workflows and is two billion points above `opportunistic` (-2000000000). A full-land res-10
+# h0 runs 1.5–2 h, and per the pod-preemption skill an opportunistic pod that long is near-certain
+# to be preempted; the paired fix is lower parallelism so the claim on shared nodes does not grow.
+# ⛔ Do NOT node-pin: a 192Gi/8cpu pod fills a node, so pinning serializes the job (#307 turned a
+# CONUS res-10 hex from hours into 30–50 h).
+#
+# NOTE ON THE 116 NEAR-NO-OP PODS. Completions are fixed at 122 (one per h0 base cell) but only 3
+# intersect the Alaska COG, so ~116 pods localize the ~28 GB COG and produce nothing. That is the same
+# waste the `nlcd` build accepts, and it is NOT optimized away here on purpose: the index -> h0
+# cell mapping is `cng-datasets`' own and guessing it risks silently skipping a POPULATED cell.
+# Each pod echoes its index below; once this job has run we can read the real mapping out of the
+# pod logs and use the established explicit `CHUNK_MAP=(...)` pattern (see catalog/rap, catalog/cwhr)
+# for the remaining WRC layers. Upstream two-tier proposal: boettiger-lab/datasets#172.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-rps-ak-hex
+  namespace: geo-workflows
+  labels: {k8s-app: wrc-2-rps-ak-hex}
+spec:
+  completions: 122
+  parallelism: 6
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  # 0: a partial indexed run must surface as Failed rather than be published as complete (#409).
+  maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    # A preemption/eviction is not a data error; don't spend the index's retry budget on it.
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: wrc-2-rps-ak-hex}}
+    spec:
+      restartPolicy: Never
+      # Pod-level: bounds a true bad-node hang. A dense res-10 h0 legitimately runs 1.5-2 h.
+      activeDeadlineSeconds: 21600
+      # rclone's nrp: remote resolves the INTERNAL endpoint, which only cluster DNS can resolve.
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        volumeMounts:
+        # MANDATORY: cng-datasets rclone-localizes the COG before hexing. Generated YAML omits
+        # this secret and the job then fails on localize.
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          echo "=== WRC v2 RPS Alaska res-10 mean, h0-index ${JOB_COMPLETION_INDEX} ==="
+          cng-datasets raster \
+            --input "s3://public-fire/wrc-2-rps-ak-cog.tif" \
+            --output-parquet "s3://public-fire/wrc-2-rps-ak/hex/" \
+            --h0-index ${JOB_COMPLETION_INDEX} \
+            --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column rps --hex-resampling mean --nodata -9999
+        resources:
+          # 128Gi: Alaska's densest res-10 h0 is roughly a quarter of CONUS's 227 M cells, so the
+          # 105-141Gi measured CONUS peak (#453) scales well down; 128Gi keeps a wide margin
+          # while fitting more nodes. Ephemeral 50Gi covers the localized COG plus output.
+          requests: {cpu: '8', memory: 128Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 128Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              # Known-bad egress/S3 hosts: pods schedule but hang on localize.
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
