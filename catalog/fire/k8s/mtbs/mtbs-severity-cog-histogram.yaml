@@ -17,8 +17,10 @@
 #
 # Output: one TSV per (domain, year) at
 #   s3://public-fire/raw/mtbs/cog-histograms/<domain>-<year>.tsv
-# with columns  domain, year, class, pixels.  Written to S3 rather than left in the pod log so it
-# survives the job TTL — the same reason this job had to be written in the first place.
+# with columns  domain, year, class, pixels, area_weight.  Written to S3 rather than left in the
+# pod log so it survives the job TTL — the same reason this job had to be written in the first
+# place.  `pixels` is a raw count on the EPSG:4326 grid and is therefore a GEOGRAPHIC share;
+# `area_weight` is cos(latitude)-corrected and is the one comparable to the equal-area hex.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -94,6 +96,7 @@ spec:
           # node-dependent on this cluster, and a full-raster scan is the worst case for it.
           rclone copyto "nrp:public-fire/mtbs-severity-1984-2024-${DOM}/${COG}" "/tmp/${COG}"
           python3 - "$DOM" "$Y" "/tmp/${COG}" <<'PY'
+          import math
           import sys
           import numpy as np
           from osgeo import gdal
@@ -103,17 +106,40 @@ spec:
           ds = gdal.Open(path)
           band = ds.GetRasterBand(1)
           w, h = ds.RasterXSize, ds.RasterYSize
+          gt = ds.GetGeoTransform()
 
-          # Accumulate over full-width row strips. Blocked reads keep peak RAM at one strip
-          # (a few hundred MB) regardless of the 13-21 gigapixel CONUS grids, and minlength=256
-          # means an out-of-domain byte lands in its own bucket instead of being silently folded
-          # into a valid class.
+          # Two histograms, because the COG and the hex do not measure area the same way and
+          # comparing the wrong pair invents a discrepancy that is not a defect:
+          #
+          #   pixels      raw pixel counts. The COG is EPSG:4326, so a pixel's GROUND area falls
+          #               as cos(latitude) -- these counts are a geographic share, not an area
+          #               share. Kept because they are the primitive, and because the hex `mode`
+          #               layer is itself a per-cell vote rather than an area measure.
+          #   area_weight counts weighted by true ground area. This is the number comparable to
+          #               the hex `fractions` layer, whose H3 cells are equal-area: SUM(frac) per
+          #               class is proportional to ground area, so the COG side has to be too.
+          #
+          # The weight is exact per row band: a row spanning latitudes phi_top..phi_bot covers
+          # ground proportional to sin(phi_top) - sin(phi_bot). Applying one strip-mean weight to
+          # a 512-row strip assumes classes are evenly spread within the strip; a strip spans
+          # ~0.14 degrees, over which cos(lat) moves less than 0.2%, so the residual is far below
+          # the tolerance any of this is checked against.
+          #
+          # It matters most exactly where the data is: Alaska's fires span 56.7-70.2 N, where
+          # cos(lat) runs 0.549 down to 0.339 -- a raw pixel share there is wrong by tens of
+          # percent relative, not by rounding.
           total = np.zeros(256, dtype=np.int64)
+          weighted = np.zeros(256, dtype=np.float64)
           STRIP = 512
           for y0 in range(0, h, STRIP):
               rows = min(STRIP, h - y0)
               arr = band.ReadAsArray(0, y0, w, rows)
-              total += np.bincount(arr.ravel(), minlength=256)
+              counts = np.bincount(arr.ravel(), minlength=256)
+              lat_top = gt[3] + y0 * gt[5]
+              lat_bot = gt[3] + (y0 + rows) * gt[5]
+              wgt = (math.sin(math.radians(lat_top)) - math.sin(math.radians(lat_bot))) / rows
+              total += counts
+              weighted += counts * wgt
 
           print(f"# {dom} {year}: {w} x {h} = {w*h} pixels", file=sys.stderr)
           nonzero = {int(v): int(c) for v, c in enumerate(total) if c}
@@ -127,9 +153,9 @@ spec:
               raise SystemExit(f"FAIL {dom} {year}: COG is entirely nodata")
 
           with open("/tmp/hist.tsv", "w") as f:
-              f.write("domain\tyear\tclass\tpixels\n")
+              f.write("domain\tyear\tclass\tpixels\tarea_weight\n")
               for v in range(0, 7):
-                  f.write(f"{dom}\t{year}\t{v}\t{int(total[v])}\n")
+                  f.write(f"{dom}\t{year}\t{v}\t{int(total[v])}\t{weighted[v]:.10e}\n")
           PY
           rclone copyto /tmp/hist.tsv "nrp:public-fire/raw/mtbs/cog-histograms/${DOM}-${Y}.tsv"
           echo "=== wrote cog-histograms/${DOM}-${Y}.tsv ==="
