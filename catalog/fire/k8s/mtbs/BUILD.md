@@ -427,7 +427,7 @@ live in issue #593; the measured evidence lives here. Neither is in anyone's ses
 | `mtbs-severity-cog` (75 COGs) | ✅ complete — all 39 CONUS + 36 AK published, values {0…6} |
 | `mtbs-severity-ak-hex` (`mode`) | ✅ complete and validated — 36/36 years, coverage gate passes, criterion 1 measured |
 | `mtbs-severity-cog-histogram` | ✅ complete — 75/75, `raw/mtbs/cog-histograms/`, the criterion 1 reference |
-| `mtbs-severity-ak-hex-fractions` | ⏳ running (started 2026-08-24T18:31Z), 36 pods, driven by `mtbs-severity-hex-workflow` |
+| `mtbs-severity-ak-hex-fractions` | ⏳ running (restarted 2026-08-24T20:18:50Z), 36 pods, driven by `mtbs-severity-hex-workflow` |
 | `mtbs-severity-conus-hex` | ⏳ queued behind it |
 | `mtbs-severity-conus-hex-fractions` | ⏳ queued behind it |
 | `MEASURED` in `gen_stac.py` | ◐ Alaska `mode` values filled; `ak.frac_rows` + all four CONUS values open |
@@ -438,8 +438,15 @@ live in issue #593; the measured evidence lives here. Neither is in anyone's ses
 fractions is 36 indexes at parallelism 61, so one wave: 2–4 h. Each CONUS layer is 234 indexes at
 parallelism 61, so four waves: 9–16 h each. The chain is strictly sequential (`AGENTS.md`: never
 more than one concurrent k8s hex workflow, and 61 pods at 192Gi is already ~11.7 TB of RAM), so
-budget **roughly 24–36 h from 2026-08-24T18:31Z** before the CONUS collection can be measured.
-Raising parallelism is not the lever: 122 concurrent pods would be ~23 TB and would not schedule.
+budget **roughly 24–36 h from 2026-08-24T20:18:50Z** before the CONUS collection can be measured.
+
+Raising parallelism is not the lever. 234 is 78x3, so `parallelism: 78` would cost three waves per
+CONUS layer instead of the 3.84 that 61 rounds up to four — tempting, and it stays inside the
+<=200-pod target. It was considered and **rejected**: at 192Gi a pod, 78 concurrent is ~15 TB of
+RAM, this namespace cannot list nodes (least privilege), and there is therefore no evidence the
+cluster would schedule it. Pods that sit `Pending` buy nothing and deviate from the one
+configuration that has actually been observed to run. If someone with cluster-wide read confirms
+the headroom, 78 is the principled number to try.
 
 Check where the campaign is:
 
