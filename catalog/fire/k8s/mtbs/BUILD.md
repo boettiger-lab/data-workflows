@@ -343,6 +343,73 @@ needs. This is the "coded domains come from the ingest, not the docs" rule earni
 
 _Pending the hex campaign._
 
+## State of the build, and how to resume it
+
+**Read this section first if you are picking the task up in a new session.** The scope decisions
+live in issue #593; the measured evidence lives here. Neither is in anyone's session context.
+
+| Stage | State |
+|---|---|
+| `mtbs-stage-raw` | ✅ complete — 95 mosaics + perimeters staged and MD5-verified; 6 objects broken upstream |
+| `mtbs-perimeters-1984-2024` | ✅ **built, published, verified** — collection is live and `verify-stac.py --bucket public-fire --dataset mtbs-perimeters-1984-2024` passes with data checks |
+| `mtbs-severity-cog` (75 COGs) | ✅ complete — all 39 CONUS + 36 AK published, values {0…6} |
+| `mtbs-severity-ak-hex` (`mode`) | ✅ complete and validated — 36/36 years |
+| `mtbs-severity-ak-hex-fractions` | ⏳ driven by `mtbs-severity-hex-workflow` |
+| `mtbs-severity-conus-hex` | ⏳ queued behind it |
+| `mtbs-severity-conus-hex-fractions` | ⏳ queued behind it |
+| STAC for the two severity collections + bucket patch + README | ❌ not published |
+| PR | ❌ not opened; branch `worktree-mtbs-593` is not pushed |
+
+Check where the campaign is:
+
+```bash
+kubectl -n geo-workflows logs job/mtbs-severity-hex-workflow          # the orchestrator's own log
+kubectl -n geo-workflows get jobs | grep mtbs
+rclone lsf --dirs-only nrp:public-fire/mtbs-severity-1984-2024-conus/hex/ | wc -l    # /39
+rclone lsf --dirs-only nrp:public-fire/mtbs-severity-1984-2024-conus/hex-fractions/ | wc -l
+rclone lsf --dirs-only nrp:public-fire/mtbs-severity-1984-2024-ak/hex-fractions/ | wc -l   # /36
+```
+
+⚠️ **`kubectl` is not on `PATH` by default here** — it is at `~/bin/kubectl`.
+
+**If the orchestrator Job is gone** (TTL is 7 days, or it aborted), re-apply it. It is idempotent
+for jobs that already finished only in the sense that `kubectl apply` on a completed Job is a no-op —
+so delete any job it still needs to run before re-applying, and drop already-finished names from the
+ConfigMap's key list first:
+
+```bash
+kubectl apply -n geo-workflows -f catalog/fire/k8s/mtbs/severity-hex-workflow.yaml
+```
+
+### Remaining work, in order
+
+1. **Wait for the three hex jobs.** Each must report `Complete=True` with empty `failedIndexes`;
+   the orchestrator aborts the chain otherwise. A res-10 index runs a median 2.2 h, so CONUS
+   (234 indexes, parallelism 61) is roughly 12–16 h per layer.
+2. **Run the h0 coverage gate per year per domain** — see *Post-build verification* below.
+3. **Fill `MEASURED` in `gen_stac.py`.** It prints every unfilled key when run and refuses to let you
+   forget. The severity keys are `hex_rows`, `frac_rows`, `bbox`, `cells_burned` per domain. Query
+   through the duckdb-geo MCP, never local duckdb.
+4. **Validate the class shares** against the source Albers histograms, which are printed in each
+   `mtbs-severity-cog` pod's log — those logs are gone now, so re-derive from the COGs or accept the
+   WHP precedent of ±0.6 pp. Record the table here.
+5. **Publish**: `python3 gen_stac.py`, then `scripts/verify-stac.py --no-data` on each, then
+   `rclone copyto` the two severity collections, the patched bucket collection and the patched
+   README. The perimeters collection is already live and must not be clobbered.
+6. **`scripts/verify-stac.py --bucket public-fire`** must exit 0.
+7. **Push and open the PR** — `feat(#593): …`, body closes #593 with an acceptance-criteria table.
+   CI's `verify-stac` is expected RED at PR-open and re-fired after the data lands.
+
+### Things already learned — do not rediscover them
+
+- `column` is not installed in `ghcr.io/boettiger-lab/datasets:latest`.
+- Never override `PROJ_DATA`/`PROJ_LIB` in a GDAL job on this image.
+- ScienceBase needs `curl --get --data-urlencode "f=<pathOnDisk>"`; a pasted encoded query string 404s.
+- Six source mosaics are permanently missing upstream; that is recorded, not a bug to re-investigate.
+- `mtbs_CONUS_2005.tif` has 23 out-of-domain pixels, clamped by a VRT LUT.
+- The severity h0 sets are measured, not inherited from WHP — CONUS 6 cells, **Alaska 1**.
+- `parallelism: 61`, not 12: every index in these jobs is real work.
+
 ## Post-build verification
 
 ```bash
