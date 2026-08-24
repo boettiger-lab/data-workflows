@@ -480,17 +480,46 @@ kubectl apply -n geo-workflows -f catalog/fire/k8s/mtbs/severity-hex-workflow.ya
    Query through the duckdb-geo MCP, never local duckdb. The queries are the ones in
    *`mtbs-severity-1984-2024-ak`* above — `COUNT(*)`, `COUNT(DISTINCT h10)`, and
    `h3_cell_to_lng`/`h3_cell_to_lat` extremes for the bbox.
-4. **Validate the class shares.** Done for Alaska `mode` — see *Criterion 1, measured* above; the
+4. 🔴 **Settle what `frac` is normalised over, BEFORE publishing — it changes the STAC wording and
+   the denominator semantics.** `gen_stac.py` currently describes `frac` as "Share of the H3 cell
+   covered by this severity class … shares within one cell and year sum to approximately 1." That
+   is only true if the tool divides by the whole cell. If it divides by the cell's *valid* pixels
+   instead, every cell sums to exactly 1 no matter how little of it burned, and two things are
+   wrong at once: the description misstates what the number is, and `SUM(frac)` stops being
+   area-proportional — a cell 10% inside a fire perimeter would carry the same weight as one wholly
+   inside it, which biases every "share burned at high severity" figure toward fire edges.
+
+   **This could not be settled from the existing catalog.** `nlcd` and `cgls-lc100` are the two
+   fractions precedents and neither has interior nodata (CGLS maps ocean as class 200, not nodata),
+   so both sum to exactly 1 either way — checked, 4.7 M NLCD cells, min = max = avg = 1.0. MTBS is
+   the first sparse fractions layer here: nodata 0 is dropped and cells on a perimeter's edge are
+   genuinely part-burned. The moment `hex-fractions` exists, run:
+
+   ```sql
+   -- if min < 1 and a real tail sits below 1, frac is share-of-cell (description is correct).
+   -- if min = max = 1 exactly, frac is renormalised over valid pixels (description must change,
+   -- and the denominator caveat has to be written).
+   SELECT ROUND(MIN(s),4), ROUND(MAX(s),4), ROUND(AVG(s),4),
+          COUNT(*) FILTER (WHERE s < 0.99) AS partial_cells, COUNT(*) AS cells
+   FROM (SELECT year, h10, SUM(frac) AS s
+         FROM read_parquet('s3://public-fire/mtbs-severity-1984-2024-ak/hex-fractions/year=*/h0=*/data_0.parquet')
+         GROUP BY year, h10);
+   ```
+
+   Fire perimeters guarantee part-covered cells exist, so "no cell below 1" is a positive result
+   for renormalisation, not an absence of evidence.
+
+5. **Validate the class shares.** Done for Alaska `mode` — see *Criterion 1, measured* above; the
    reference histograms are already built and permanent at `raw/mtbs/cog-histograms/`, so this is
    now just a comparison, not a rebuild. Repeat for CONUS `mode`, and run the stronger
    `fractions`-vs-COG invariant on both domains (`SUM(frac)` per class is area-proportional and
    should reproduce the area-weighted COG share to well under a point; a large gap there IS a
    defect, unlike the `mode` gap, which is expected and quantified).
-5. **Publish**: `python3 gen_stac.py`, then `scripts/verify-stac.py --no-data` on each, then
+6. **Publish**: `python3 gen_stac.py`, then `scripts/verify-stac.py --no-data` on each, then
    `rclone copyto` the two severity collections, the patched bucket collection and the patched
    README. The perimeters collection is already live and must not be clobbered.
-6. **`scripts/verify-stac.py --bucket public-fire`** must exit 0.
-7. **Finish the PR.** [#612](https://github.com/boettiger-lab/data-workflows/pull/612) is already
+7. **`scripts/verify-stac.py --bucket public-fire`** must exit 0.
+8. **Finish the PR.** [#612](https://github.com/boettiger-lab/data-workflows/pull/612) is already
    open as a draft with the acceptance-criteria table as its merge gate. Update that table as
    criteria go green, re-fire CI's `verify-stac` once the STAC is published (Actions → Verify STAC
    → Run workflow; GitHub does not re-read S3 on its own), then `gh pr ready 612`.
