@@ -755,12 +755,16 @@ SELECT ROUND(100.0 * SUM(frac) FILTER (WHERE severity = 4)
 FROM read_parquet('{BASE}/{SEVERITY['conus']['id']}/hex-fractions/year=*/h0=*/data_0.parquet')
 WHERE year = 2020;
 
--- burn severity inside inventoried roadless areas, joined on the shared resolution 8 cell
+-- burn severity inside inventoried roadless areas. Both collections are native resolution 10,
+-- so join on h10 and the boundary is exact. Joining these two on h8 instead would count every
+-- cell whose resolution 8 parent merely touches a roadless area -- 49 resolution 10 cells per
+-- parent -- which inflates the roadless footprint along every edge. Use h8 to reach collections
+-- that are not native resolution 10.
 SELECT s.severity, SUM(s.frac) AS cell_shares
 FROM read_parquet('{BASE}/{SEVERITY['conus']['id']}/hex-fractions/year=*/h0=*/data_0.parquet') s
-JOIN (SELECT DISTINCT h8 FROM read_parquet(
+JOIN (SELECT DISTINCT h10 FROM read_parquet(
         'https://s3-west.nrp-nautilus.io/public-usfs/roadless-areas-2001/hex/h0=*/data_0.parquet')) r
-  USING (h8)
+  USING (h10)
 GROUP BY s.severity ORDER BY s.severity;
 
 -- how often each place burned: unique ground versus fire-years
