@@ -163,11 +163,21 @@ spec:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
+            # The generator's GPU exclusion (feature.node.kubernetes.io/pci-10de.present NotIn
+            # true) is deliberately DROPPED here, per AGENTS.md: "You do NOT need to exclude GPU
+            # nodes for CPU-only jobs ... Dropping the GPU exclusion widens the schedulable pool,
+            # which finishes fan-out jobs faster." This is a CPU-only hex reduce with no reason to
+            # avoid GPU-host contention.
+            #
+            # MEASURED 2026-08-25, which is what motivated removing it: with the exclusion in
+            # place the scheduler rejected pending pods with "158 node(s) didn't match Pod's node
+            # affinity/selector" out of 529, and only 60 of 117 pods could be placed. Those 158 are
+            # overwhelmingly GPU nodes, which on this cluster carry large amounts of spare RAM.
+            #
+            # The two host exclusions below are KEPT. They are not capacity tuning: both have
+            # broken egress/S3 connectivity, where pods schedule and then hang on the rclone
+            # localize with no progress, which a long-running indexed job cannot absorb.
             - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
-                operator: NotIn
-                values:
-                - 'true'
               - key: kubernetes.io/hostname
                 operator: NotIn
                 values:
