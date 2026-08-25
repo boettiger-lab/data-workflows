@@ -182,8 +182,15 @@ H3_COLS = [
 ]
 
 
+# tippecanoe coarsens attribute types, so a timestamp arrives in the tiles as a string.
+PMTILES_TYPE_MAP = {"timestamp": "string"}
+
+
 def col_entry(name, dtype, desc, dom_key, lean=False):
-    e = {"name": name, "type": TYPE_MAP[dtype]}
+    t = TYPE_MAP[dtype]
+    if lean:
+        t = PMTILES_TYPE_MAP.get(t, t)
+    e = {"name": name, "type": t}
     if not lean:
         e["description"] = desc
     vals = values_for(dom_key) if dom_key else None
