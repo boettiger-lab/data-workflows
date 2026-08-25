@@ -85,7 +85,8 @@ spec:
           ogrinfo -al -so /tmp/fmmp-2022.gpkg fmmp_2022
 
           echo "==> Zipping and staging to s3://public-ca30x30/raw/"
-          cd /tmp && zip -q -1 fmmp-2022-featureserver-2026-08-25.zip fmmp-2022.gpkg
+          # The datasets image has no zip(1); python's zipfile module is always present.
+          cd /tmp && python3 -m zipfile -c fmmp-2022-featureserver-2026-08-25.zip fmmp-2022.gpkg
           ls -l /tmp/fmmp-2022-featureserver-2026-08-25.zip
           rclone copyto /tmp/fmmp-2022-featureserver-2026-08-25.zip \
             nrp:public-ca30x30/raw/fmmp-2022-featureserver-2026-08-25.zip -v
