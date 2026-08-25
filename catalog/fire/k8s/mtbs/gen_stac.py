@@ -60,7 +60,7 @@ MEASURED = {
     },
     # CONUS, read back 2026-08-25 off the completed `mode` hex through the duckdb-geo MCP.
     "conus": {"hex_rows": 47072660,    # COUNT(*) on hex/
-              "frac_rows": None,       # COUNT(*) on hex-fractions/ -- job still running
+              "frac_rows": 105233527,  # COUNT(*) on hex-fractions/ (incl. the code-0 rows)
               "h0_count": 6,
               "bbox": [-124.408, 25.189, -67.183, 49.092],   # h3_cell_to_lng/lat over hex/
               "cells_burned": 34811828},                     # COUNT(DISTINCT h10) on hex/

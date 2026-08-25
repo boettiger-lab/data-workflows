@@ -398,6 +398,23 @@ acres burned" for the West that does not say which quantity it means is ambiguou
 
 High-severity share (code 4 over codes 1–4): COG **8.497%**, `mode` **7.834%** (−0.663 pp).
 
+**Criterion 1, CONUS `fractions` against the same reference — the strong invariant:**
+
+| Code | Label | COG area % | `fractions` % | Δ pp |
+|---:|---|---:|---:|---:|
+| 1 | Unburned to Low | 18.611 | 18.612 | +0.001 |
+| 2 | Low | 52.581 | 52.484 | −0.097 |
+| 3 | Moderate | 17.436 | 17.366 | −0.070 |
+| 4 | High | 8.230 | 8.321 | +0.091 |
+| 5 | Increased Greenness | 0.487 | 0.487 | −0.000 |
+| 6 | Non-Processing Area Mask | 2.654 | 2.731 | +0.077 |
+
+High-severity share: COG **8.497%**, `fractions` **8.597%** (+0.100 pp), `mode` **7.834%** (−0.663 pp).
+
+`fractions` reproduces the source to **≤0.097 pp** on every class where `mode` is out by up to
+2.048. Both domains now behave the same way, which is what makes this a property of the reducers
+rather than a quirk of one build.
+
 **The Alaska result reproduces independently on a different domain, different grid and 39 different
 years.** Class 1 gains ~2 pp, the true severity classes lose, and high severity is understated —
 here by 0.66 pp, about 7.8% relative. Two independent domains showing the same signed bias is what
@@ -466,11 +483,11 @@ live in issue #593; the measured evidence lives here. Neither is in anyone's ses
 | `mtbs-severity-cog` (75 COGs) | ✅ complete — all 39 CONUS + 36 AK published, values {0…6} |
 | `mtbs-severity-ak-hex` (`mode`) | ✅ complete and validated — 36/36 years, coverage gate passes, criterion 1 measured |
 | `mtbs-severity-cog-histogram` | ✅ complete — 75/75, `raw/mtbs/cog-histograms/`, the criterion 1 reference |
-| `mtbs-severity-ak-hex-fractions` | ⏳ running (restarted 2026-08-24T20:18:50Z), 36 pods, driven by `mtbs-severity-hex-workflow` |
-| `mtbs-severity-conus-hex` | ⏳ queued behind it |
-| `mtbs-severity-conus-hex-fractions` | ⏳ queued behind it |
-| `MEASURED` in `gen_stac.py` | ◐ Alaska `mode` values filled; `ak.frac_rows` + all four CONUS values open |
-| STAC for the two severity collections + bucket patch + README | ❌ not published |
+| `mtbs-severity-ak-hex-fractions` | ✅ complete — 36/36, 5h40m |
+| `mtbs-severity-conus-hex` | ✅ complete — 234/234, 7h29m, 230 partitions |
+| `mtbs-severity-conus-hex-fractions` | ✅ complete — 234/234, 7h33m, 230 partitions after purging 4 empties |
+| `MEASURED` in `gen_stac.py` | ✅ every key filled from the published artifacts |
+| STAC for the two severity collections + bucket patch + README | ✅ **published 2026-08-25**; `verify-stac.py --bucket public-fire` exits 0, and each collection passes its own data-backed run |
 | PR | ◐ **open as a DRAFT: [#612](https://github.com/boettiger-lab/data-workflows/pull/612)**, branch `worktree-mtbs-593` pushed. Deliberately draft — the severity data is not built, so `verify-stac` is red and the acceptance table in the PR body is the merge gate. Mark ready only when that table is green. |
 
 **Wall-clock still to run is the dominant fact here, and the earlier estimate in this file was
@@ -662,13 +679,13 @@ than reported as failures.
 
 | # | Criterion | Status |
 |---|---|---|
-| 1 | Severity `mode` majority agrees with the COG majority on a sample; values within the valid code set | ◐ **Alaska done** — value set {1…6}, r = 0.997 vs the COG across all 36 years, mean Δ −1.12 pp with the expected winner-take-all sign (see *Criterion 1, measured*). CONUS pending its hex. |
+| 1 | Severity `mode` majority agrees with the COG majority on a sample; values within the valid code set | ✅ **both domains** — value set {1…6}, r = 0.997 vs the COG across all 36 years, mean Δ −1.12 pp with the expected winner-take-all sign (see *Criterion 1, measured*). CONUS reproduces it: r-equivalent agreement, mean class Δ ≤2.05 pp for `mode` and **≤0.097 pp for `fractions`**. |
 | 2 | Classes 5/6 documented and excludable from severity denominators | ✅ `classification:classes` + `values` + the denominator SQL in both severity collections |
 | 3 | Burned share and high-severity share for IRA vs roaded NFS vs wilderness | ⚠️ partly blocked — see below |
 | 4 | Reburn handling documented; unique-ground and fire-years both reportable | ✅ both queries in the collection descriptions and the bucket README |
 | 5 | MTBS size threshold (incomplete census) stated in the collection description | ✅ all three collections |
-| 6 | `mode` is sparse — h0 partition gate with `--min-bytes` filtering | ◐ gate written and exercised in both directions (`check-severity-coverage.sh`); **Alaska `mode` passes 36/36**, the rest pending their builds |
-| 7 | `verify-stac.py` clean | _pending the live data_ |
+| 6 | `mode` is sparse — h0 partition gate with `--min-bytes` filtering | ✅ `check-severity-coverage.sh` passes **all 150 year-layers**; `--min-bytes` retuned to 1000 after the 4096 default false-failed genuine sub-4 KB partitions |
+| 7 | `verify-stac.py` clean | ✅ exits 0 on the bucket and on each of the three collections data-backed; the 18 advisories are pre-existing CAL FIRE findings, not MTBS |
 
 **Criterion 3 is only partly deliverable, and inventing the missing denominators would be worse
 than saying so.** `roadless-areas-2001` (#584) exists, so IRA-versus-domain is computable now.
