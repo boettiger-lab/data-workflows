@@ -35,7 +35,7 @@ SHP_L = ("SHAPE_LEN", "double",
          "Perimeter of the source polygon in the publisher's own projected coordinate system.", None)
 GEOM = ("geom", "geometry", "Feature geometry (GeoParquet), in EPSG:4326.", None)
 FORESTNAME = ("FORESTNAME", "string", "Name of the national forest or grassland.", None)
-FORESTNUMB = ("FORESTNUMB", "string", "Forest number within the region.", None)
+FORESTNUMB = ("FORESTNUMB", "string", "Forest number within the region. Identifies the forest inside its region rather than nationally, so the same number recurs across regions.", None)
 
 # H3 columns — kept grain-neutral so the same text is valid on every hex asset.
 H3 = [("h10", "uint64", "H3 cell identifier at resolution 10.", None),
@@ -185,7 +185,7 @@ LAYERS = {
         columns=[CNG, OGC,
                  ("ADMINFORES", "string", "Forest Service identifier for the administrative unit.", None),
                  ("REGION", "string", REGION_DEF, REGIONS), FORESTNUMB,
-                 ("FORESTORGC", "string", "Organisation code for the administrative unit.", None),
+                 ("FORESTORGC", "string", "Forest Service organisation identifier for the administrative unit, unique to each of the 112 units.", None),
                  FORESTNAME, ACRES, SHP_A, SHP_L]),
     "proclaimed-forest": dict(
         title="National Forest System Proclaimed Forest Boundaries",
@@ -218,7 +218,7 @@ LAYERS = {
                  ("RANGERDIST", "string", "Forest Service identifier for the ranger district.", None),
                  ("REGION", "string", REGION_DEF, REGIONS), FORESTNUMB,
                  ("DISTRICTNU", "string", "District number within the forest.", None),
-                 ("DISTRICTOR", "string", "Organisation code for the ranger district.", None),
+                 ("DISTRICTOR", "string", "Forest Service organisation identifier for the ranger district, unique to each of the 503 districts.", None),
                  FORESTNAME,
                  ("DISTRICTNA", "string", "Name of the ranger district.", None),
                  ACRES, SHP_A, SHP_L]),
@@ -331,6 +331,90 @@ def bucket_collection():
     }
 
 
+README = """# `public-usfs` — USDA Forest Service datasets
+
+Cloud-optimized Forest Service geospatial data published from the
+[Forest Service Enterprise Data Warehouse](https://data.fs.usda.gov/geodata/edw/datasets.php).
+US Government work, public domain.
+
+| Dataset | What it is | Acres |
+|---|---|---|
+| `roadless-areas-2001` | Inventoried Roadless Areas of the 2001 Roadless Rule | 58,419,694 |
+| `nfs-surface-ownership` | **Forest Service surface ownership** | 193,174,461 (Forest Service class) |
+| `administrative-forest` | Administrative boundaries of forests and grasslands | 236,835,251 |
+| `proclaimed-forest` | Proclaimed forest boundaries | 225,145,181 |
+| `ranger-district` | Ranger district boundaries | 237,098,674 |
+
+## Which boundary layer do I want?
+
+Only `nfs-surface-ownership` records what the Forest Service **owns**. The other three are
+administrative envelopes that also enclose inholdings and private, state and other-federal land,
+so they run 32 to 44 million acres larger. For any "share of Forest Service land" figure, the
+denominator is surface ownership.
+
+```sql
+-- National Forest System land: 193,174,461 acres
+SELECT SUM(GIS_ACRES)
+FROM read_parquet('https://s3-west.nrp-nautilus.io/public-usfs/nfs-surface-ownership.parquet')
+WHERE OWNERCLASS = 'USDA FOREST SERVICE';
+```
+
+There is no state column on any of these four layers. To attribute acreage to a state, join
+against a state boundary layer at resolution 8 — `census-2024/state` in this catalog.
+
+## Query with DuckDB
+
+```sql
+INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial;
+
+-- ownership by class
+SELECT OWNERCLASS, COUNT(*) AS parcels, SUM(GIS_ACRES) AS acres
+FROM read_parquet('https://s3-west.nrp-nautilus.io/public-usfs/nfs-surface-ownership.parquet')
+GROUP BY OWNERCLASS ORDER BY acres DESC;
+
+-- hex: one row per (polygon, resolution 10 cell), so dedup before totalling
+SELECT SUM(GIS_ACRES) FROM (
+  SELECT DISTINCT _cng_fid, GIS_ACRES
+  FROM read_parquet(
+    'https://s3-west.nrp-nautilus.io/public-usfs/nfs-surface-ownership/hex/h0=*/data_0.parquet'));
+```
+
+## Map with MapLibre GL JS
+
+The `source-layer` is the dataset name — `nfs-surface-ownership`, `administrative-forest`,
+`proclaimed-forest`, `ranger-district`, `roadless-areas-2001`.
+
+```js
+map.addSource('nfs', {
+  type: 'vector',
+  url: 'pmtiles://https://s3-west.nrp-nautilus.io/public-usfs/nfs-surface-ownership.pmtiles'
+});
+map.addLayer({
+  id: 'nfs-fill',
+  type: 'fill',
+  source: 'nfs',
+  'source-layer': 'nfs-surface-ownership',   // = the dataset name
+  paint: {
+    'fill-color': [
+      'match', ['get', 'OWNERCLASS'],
+      'USDA FOREST SERVICE', '#2d6a4f',
+      'NON-FS', '#b7791f',
+      '#999999'
+    ],
+    'fill-opacity': 0.6
+  }
+});
+```
+
+## Formats
+
+Each dataset publishes three assets: a GeoParquet (`<name>.parquet`) for geometry and
+distance work, PMTiles (`<name>.pmtiles`) for web maps, and H3 hex parquet
+(`<name>/hex/h0=*/data_0.parquet`) at native resolution 10 with parents 9, 8 and 0 for
+spatial joins. Resolution 8 is the shared join key across this catalog.
+"""
+
+
 if __name__ == "__main__":
     import sys
     rows = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
@@ -346,3 +430,5 @@ if __name__ == "__main__":
     out = "/tmp/usfs-stac/bucket-stac-collection.json"
     json.dump(bucket_collection(), open(out, "w"), indent=2, ensure_ascii=False)
     print("wrote", out)
+    open("/tmp/usfs-stac/README.md", "w").write(README)
+    print("wrote /tmp/usfs-stac/README.md")
