@@ -166,8 +166,12 @@ def main():
             s = (JOIN.replace("__H0IDX__", str(h0idx)).replace("__PERIOD__", args.period)
                      .replace("__STAGING__", args.staging).replace("__VARS__", ",".join(variables))
                      .replace("__OUTPREFIX__", args.output_prefix))
+            # 12Gi ephemeral, not 40. A join holds seven small parquet pieces and one output;
+            # 40Gi was copied from the futures join and is far more than it needs. It also blocks
+            # placement: one job cycled Leased -> Pending -> LeaseReturned repeatedly because no
+            # node had that much free ephemeral, while 121 identical jobs placed fine.
             jobs.append({"namespace": args.namespace, "priorityClassName": args.priority_class,
-                         "podSpec": pod(s, "8Gi", 4, "40Gi", [{"name": "BOUNDS", "value": BOUNDS}])})
+                         "podSpec": pod(s, "8Gi", 4, "12Gi", [{"name": "BOUNDS", "value": BOUNDS}])})
 
     with open(args.out, "w") as f:
         yaml.safe_dump({"queue": args.queue, "jobSetId": args.job_set_id, "jobs": jobs}, f, sort_keys=False)
