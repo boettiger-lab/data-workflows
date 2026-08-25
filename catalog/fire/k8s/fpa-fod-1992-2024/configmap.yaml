@@ -115,7 +115,11 @@ data:
       completions: 200
       parallelism: 50
       completionMode: Indexed
-      backoffLimit: 0
+      # Mirrors the standalone fpa-fod-1992-2024-hex.yaml: never backoffLimit: 0 on an indexed
+      # fan-out (#409) -- a partial run must surface as Failed, and a pod hung on a flaky node's
+      # broken egress needs its index retried elsewhere rather than blocking the job.
+      backoffLimitPerIndex: 3
+      maxFailedIndexes: 10
       podFailurePolicy:
         rules:
         - action: Ignore

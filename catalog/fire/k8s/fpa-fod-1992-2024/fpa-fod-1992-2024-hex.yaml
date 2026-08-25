@@ -29,13 +29,17 @@ spec:
   completions: 200
   parallelism: 50
   completionMode: Indexed
-  backoffLimit: 0
+  # Never backoffLimit: 0 -- a partial indexed run must surface as Failed, not publish as complete
+  # (#409). With backoffLimit: 0 a pod that hangs on a flaky node's broken egress never recovers
+  # and blocks the whole fan-out; per-index retries move that index to a healthy node instead.
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 10
   podFailurePolicy:
     rules:
     - action: Ignore
       onPodConditions:
       - type: DisruptionTarget
-  ttlSecondsAfterFinished: 10800
+  ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
@@ -91,8 +95,17 @@ spec:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
+            # The generator's GPU exclusion (feature.node.kubernetes.io/pci-10de.present NotIn
+            # true) is deliberately DROPPED, per AGENTS.md: excluding GPU nodes from a CPU-only
+            # hex reduce only narrows the schedulable pool. Measured on #593: with it in place the
+            # scheduler rejected 158 of 529 nodes on affinity alone.
+            #
+            # The two host exclusions are KEPT -- not capacity tuning. Both have broken egress/S3
+            # connectivity, where pods schedule and then hang on the rclone localize with no
+            # progress, which an indexed fan-out cannot absorb.
             - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
+              - key: kubernetes.io/hostname
                 operator: NotIn
                 values:
-                - 'true'
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

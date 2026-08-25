@@ -114,3 +114,62 @@ data instead of written from memory (#294).
 (+144.9) to Puerto Rico, so the overall bbox **crosses the antimeridian** and its west edge has a
 larger longitude than its east edge. Measure it from the data; do not paste the `ogrinfo`
 min/max box, which reads -178.8 → +144.9 and describes 323° of longitude instead of ~149°.
+
+## Hex build, 2026-08-25
+
+Ran once the namespace hex lock cleared (#593's MTBS severity chain finished; its orchestrator
+Job shows `Failed`, but that was an eviction *after* all three child jobs completed).
+
+| Step | Result |
+|---|---|
+| `fpa-fod-1992-2024-hex` | ✅ **200/200, 2m10s**, `Complete=True`, `failedIndexes` empty |
+| `fpa-fod-1992-2024-repartition` | ✅ 1/1, 57s → 13 `h0` partitions, 113.8 MiB |
+| Coverage gate | ✅ hex `COUNT(DISTINCT _cng_fid)` = **2,661,383** — exactly the flat count |
+| `verify-stac.py --bucket public-fire --dataset fpa-fod-1992-2024` | ✅ **0 hard**, 8 advisory |
+
+**The whole chain took three minutes.** It had been recorded as blocked for a day behind a lock
+that a 7.5-hour-per-layer raster build was holding; this is a 2.66 M-point vector hex and is not
+in that cost class. Worth checking the lock is *actually* held rather than assuming, especially
+since the documented check silently returns a false clear (see below).
+
+### Manifest hardening applied before the run
+
+The generated hex manifest carried `backoffLimit: 0`, which AGENTS.md/#409 prohibits on an
+indexed fan-out: a partial run can publish as complete, and a pod hung on a flaky node's broken
+egress never recovers. Replaced with `backoffLimitPerIndex: 3` + `maxFailedIndexes: 10` in both
+the standalone manifest **and** the copy inside `configmap.yaml` (the orchestrator applies the
+latter). Also dropped the generator's GPU-node exclusion, kept the two known-bad-egress host
+exclusions, and raised `ttlSecondsAfterFinished` 10800 → 86400 — a 3 h TTL is what made #586
+unable to answer "did that job finish?" from the cluster at all.
+
+### Two STAC code lists were wrong, and only the data-backed gate caught them
+
+`verify-stac.py --no-data` passed; the full run failed with 2 HARD `values-incomplete` findings on
+the NWCG unit lookup. Both were transcription slips in `_codes.json`, enumerated against the
+ingested table to fix:
+
+| Column | Declared | Actually in the data |
+|---|---|---|
+| `GeographicArea` | `CB` (labelled "Great Basin") | **`GB`** — 360 rows |
+| `GACC` | `USAKCC` | **`USAKACC`** — 183 rows |
+
+Both lists had the right *length*, so a count check would not have found them. This is the
+#114/#294 class exactly: a plausible-looking code written from a document rather than read back
+out of the ingest.
+
+### Not measured
+
+Hex pod memory. The plan was to sample `kubectl top pod` and trim from the 8Gi starting point,
+but at 2m10s the pods completed before they could be sampled and `kubectl top` reports live pods
+only. 8Gi is already the low end and a rerun to trim it is not worth the lane time — recording
+this as unmeasured rather than implying it was checked.
+
+### `kubectl` lock check — use the PATH prefix
+
+`~/bin/kubectl` invoked by absolute path fails: its client-go credential plugin `exec`s `kubectl`
+from `PATH`, the error goes to stderr, and the grep prints nothing — indistinguishable from "no
+hex jobs running", which is the exact failure the lock exists to prevent.
+
+```bash
+PATH="$HOME/bin:$PATH" ~/bin/kubectl -n geo-workflows get jobs | grep -E 'hex'
+```
