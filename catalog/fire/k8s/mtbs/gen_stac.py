@@ -95,22 +95,30 @@ CLASSES = [
 CLASS_LIST = ", ".join(f"{v}={n}" for v, n, _, _ in CLASSES)
 CLASS_VALUES = [v for v, _, _, _ in CLASSES]
 
-# ── The `fractions` reducer ALSO emits code 0, and the `mode` reducer does not. Measured on the
-# ── completed Alaska build: hex/ holds codes 1-6 only, while hex-fractions/ holds 1,376,671 rows
-# ── of code 0 carrying 5.53% of the total `frac` mass. That is not a defect -- it is what makes
-# ── every cell's shares sum to exactly 1.0 (verified across all 12,270,403 (year, cell) pairs):
-# ── code 0 is the part of the cell that is not mapped burned ground, so `frac` is a share of the
-# ── WHOLE cell rather than of its burned part. Declaring 1-6 here would understate the column's
-# ── domain and would fail verify-stac.py's data-backed `values` check.
-CLASSES_FRACTIONS = [
+# ── Code 0 is REAL in two of the three asset kinds, and omitting it broke the STAC's own
+# ── consistency check. The source rasters are mostly code 0 -- it is the background outside any
+# ── mapped fire, declared as `nodata` in raster:bands -- so the COG carries it. The `fractions`
+# ── reducer keeps it as an explicit category: measured on the completed Alaska build,
+# ── hex-fractions/ holds 1,376,671 code-0 rows carrying 5.53% of the total `frac` mass, and that
+# ── is exactly what makes every one of the 12,270,403 (year, cell) pairs sum to 1.0 -- `frac` is a
+# ── share of the WHOLE cell, not of its burned part. Only `mode` genuinely excludes it (verified:
+# ── the Alaska hex holds 1-6 and no 0), because a majority vote drops no-data outright.
+# ──
+# ── So: COG and fractions declare 0-6, `mode` declares 1-6. `values` must match what each asset
+# ── actually contains -- verify-stac.py both checks values against the ingested DISTINCT and
+# ── cross-checks that the hex codes are a subset of the COG's classification:classes.
+CLASSES_WITH_BACKGROUND = [
     (0, "Background / Not Mapped",
-     "The part of the cell that is not mapped burned ground -- outside any MTBS perimeter, or "
-     "source no-data. Present only in the fractional-coverage asset, where it is what makes each "
-     "cell's shares sum to 1. Not a severity level; exclude it from every severity denominator.",
+     "Ground that is not mapped burned area -- outside any MTBS fire perimeter, or source "
+     "no-data. This is the raster's no-data value and the large majority of every source mosaic. "
+     "In the fractional-coverage asset it is the share of the cell lying outside any mapped fire, "
+     "which is what makes each cell's shares sum to 1. It is absent from the dominant-class "
+     "asset, where no-data is dropped. Not a severity level: exclude it from every severity "
+     "denominator.",
      "000000"),
 ] + CLASSES
-CLASS_LIST_FRACTIONS = ", ".join(f"{v}={n}" for v, n, _, _ in CLASSES_FRACTIONS)
-CLASS_VALUES_FRACTIONS = [v for v, _, _, _ in CLASSES_FRACTIONS]
+CLASS_LIST_FRACTIONS = ", ".join(f"{v}={n}" for v, n, _, _ in CLASSES_WITH_BACKGROUND)
+CLASS_VALUES_FRACTIONS = [v for v, _, _, _ in CLASSES_WITH_BACKGROUND]
 
 # Years actually built, per domain. CONUS is 1984-2024 and Alaska 1984-2023, each less the
 # years whose source object is broken upstream (see MISSING_NOTE).
@@ -494,32 +502,35 @@ SEVERITY = {
     },
 }
 
+# The single authority for the `severity` column's prose. It must be IDENTICAL on every asset
+# that carries the column: verify-stac.py HARD-fails divergent text, because the mcp-data-server
+# fold (#303) keeps the first-seen description and silently drops the others. The two hex assets
+# therefore differ only in `values`, which the fold does not touch and which has to stay true to
+# what each asset actually contains. Anything asset-specific belongs in that asset's own
+# `description`, not here.
+SEVERITY_DESCRIPTION = (
+    "Thematic burn severity class. Values: " + CLASS_LIST_FRACTIONS + ". Classes 1 to 4 are "
+    "severity levels; class 5 is increased post-fire greenness and class 6 is area excluded from "
+    "severity mapping, so neither is a severity level. Labels are those published with the source "
+    "rasters. Code 0 is background — ground outside any mapped fire — and whether it is present "
+    "depends on the asset: the dominant-class (`mode`) asset drops source no-data, so it holds "
+    "only codes 1 to 6 and every row is burned ground, while the fractional-coverage asset keeps "
+    "code 0 as the unburned share of each cell, which is what makes a cell's shares sum to 1. "
+    "Exclude 0, 5 and 6 from any severity denominator."
+)
+
 SEVERITY_COLUMN = {
     "name": "severity",
     "type": "uint8",
-    "description": (
-        "Thematic burn severity class. Values: " + CLASS_LIST + ". Classes 1 to 4 are severity "
-        "levels; class 5 is increased post-fire greenness and class 6 is area excluded from "
-        "severity mapping, so neither is a severity level. Labels are those published with the "
-        "source rasters. Source no-data (0, unburned background) is dropped rather than stored, "
-        "so this column is never null and only burned ground appears."
-    ),
-    "values": CLASS_VALUES,
+    "description": SEVERITY_DESCRIPTION,
+    "values": CLASS_VALUES,          # `mode`: 1-6, verified against the built Alaska hex
 }
 
 SEVERITY_COLUMN_FRACTIONS = {
     "name": "severity",
     "type": "uint8",
-    "description": (
-        "Thematic burn severity class. Values: " + CLASS_LIST_FRACTIONS + ". Classes 1 to 4 are "
-        "severity levels; class 5 is increased post-fire greenness and class 6 is area excluded "
-        "from severity mapping, so neither is a severity level. **Class 0 is not burned ground at "
-        "all** — it is the share of the cell lying outside any mapped fire, and it is present in "
-        "this asset (unlike the dominant-class asset, where source no-data is dropped) because it "
-        "is what makes each cell's shares sum to 1. Leave 0, 5 and 6 out of any severity "
-        "denominator."
-    ),
-    "values": CLASS_VALUES_FRACTIONS,
+    "description": SEVERITY_DESCRIPTION,
+    "values": CLASS_VALUES_FRACTIONS,   # `fractions`: 0-6, verified against the built Alaska hex
 }
 
 FRAC_COLUMN = {
@@ -628,7 +639,7 @@ def severity_collection(dom):
                 "unit": "class code",
                 "classification:classes": [
                     {"value": v, "name": n, "description": d, "color_hint": c}
-                    for v, n, d, c in CLASSES
+                    for v, n, d, c in CLASSES_WITH_BACKGROUND
                 ],
             }],
         }
@@ -677,7 +688,7 @@ def severity_collection(dom):
         "h3:native_resolution": 10,
         "h3:parent_resolutions": [9, 8, 0],
         "classification:classes": [{"value": v, "name": n, "description": d}
-                                   for v, n, d, _ in CLASSES_FRACTIONS],
+                                   for v, n, d, _ in CLASSES_WITH_BACKGROUND],
         "table:columns": ([SEVERITY_COLUMN_FRACTIONS, FRAC_COLUMN] + h3_cols(10, [9, 8, 0])
                           + [{"name": "year", "type": "int64", "description": YEAR_DESC}]),
     }
