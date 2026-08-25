@@ -615,6 +615,18 @@ kubectl apply -n geo-workflows -f catalog/fire/k8s/mtbs/severity-hex-workflow.ya
 - Six source mosaics are permanently missing upstream; that is recorded, not a bug to re-investigate.
 - `mtbs_CONUS_2005.tif` has 23 out-of-domain pixels, clamped by a VRT LUT.
 - The severity h0 sets are measured, not inherited from WHP — CONUS 6 cells, **Alaska 1**.
+- 🔴 **The orchestrator finished `Failed`, and that was a near-miss rather than a cosmetic
+  oddity.** All three child jobs reported `Complete` with empty `failedIndexes`, and the data
+  passes every gate — but `mtbs-severity-hex-workflow` itself was **evicted**: *"The node was low
+  on resource: ephemeral-storage … Container orchestrator was using 2568Ki, request is 0."* A
+  container requesting **0** of a resource is the first thing the kubelet evicts when that
+  resource runs short, no matter how little it is using, and `backoffLimit: 0` (correct for an
+  orchestrator — you never want the chain re-run from the top) makes an eviction terminal.
+  It was evicted *after* launching the last child job, so that job completed on its own and
+  nothing was lost. **Evicted one job earlier and the chain would have stopped silently**, with
+  every job that had run still reporting success. The manifest now requests 1Gi of
+  ephemeral-storage. Do not judge a chain by the orchestrator's own status — check the child jobs
+  and the coverage gate.
 - `parallelism: 61`, not 12: every index in these jobs is real work. CONUS runs at **117**
   (234 = 117 x 2, two clean waves).
 - 🔴 **Do not keep the generator's GPU-node exclusion on these jobs.** `cng-datasets` emits a

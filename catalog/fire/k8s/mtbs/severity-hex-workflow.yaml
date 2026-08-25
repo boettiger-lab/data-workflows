@@ -290,12 +290,24 @@ spec:
         - name: yamls
           mountPath: /yamls
         resources:
+          # ⚠️ ephemeral-storage is declared DELIBERATELY, and its absence cost this campaign a
+          # near-miss. On the 2026-08-25 run the orchestrator was EVICTED mid-chain:
+          #   "The node was low on resource: ephemeral-storage ... Container orchestrator was
+          #    using 2568Ki, request is 0, has larger consumption of ephemeral-storage"
+          # A container that requests 0 of a resource is the FIRST thing the kubelet evicts when
+          # that resource runs short, however little it is actually using -- and with
+          # backoffLimit: 0 (correct here, so the chain is never re-run from the top) an eviction
+          # is terminal. It happened to be evicted AFTER launching the final child job, so that
+          # job ran to completion on its own and nothing was lost. Evicted one job earlier and the
+          # chain would have stopped silently, with every child job reporting success.
           requests:
             cpu: 200m
             memory: 256Mi
+            ephemeral-storage: 1Gi
           limits:
             cpu: 200m
             memory: 256Mi
+            ephemeral-storage: 1Gi
       volumes:
       - name: yamls
         configMap:
