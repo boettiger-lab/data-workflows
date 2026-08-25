@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landfire-2024-hex
+  namespace: geo-workflows
+  labels: {k8s-app: landfire-2024-hex}
+spec:
+  completions: 48            # 2 reducers x 4 layers x 6 populated CONUS h0 cells
+  parallelism: 48
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 8        # absorb preemption without aborting the siblings
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata: {labels: {k8s-app: landfire-2024-hex}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # LANDFIRE 2024 CONUS res-10 hex. BOTH reducers ride in this one indexed Job:
+          # mode and fractions are independent per (layer, h0, reducer), and the namespace
+          # rule is one hex WORKFLOW at a time -- so folding the reducer into the index
+          # fans both out in a single wave instead of two serialized passes.
+          #
+          # Index maps to (reducer, layer, h0):
+          #   R = IDX/24,  L = (IDX%24)/6,  H0 = H0S[IDX%6]
+          #
+          # H0S is the six h0 cells that actually carry CONUS at res 10 -- derived from
+          # s3://public-grids/hex/h0-valid.parquet against the LANDFIRE bbox and confirmed
+          # identical to NLCD 2024's populated partitions and to the MTBS CONUS set. Running
+          # these 6 instead of all 122 avoids 116 pods per layer that each localize a
+          # multi-GB COG only to find no overlap and skip.
+          #
+          # mode  -> hex/           : dominant class per cell. Sparse: cells with no valid
+          #                           pixel are dropped, so a missing partition is expected
+          #                           where a layer has no data, not a defect.
+          # fractions -> hex-fractions/ : one row per (cell, class) with `frac` = the class's
+          #                           coverage-weighted share, nodata kept as an explicit
+          #                           class so frac sums to <=1 and the unclassified share
+          #                           stays recoverable. This is what area accounting needs;
+          #                           mode alone keeps only the plurality and cannot answer
+          #                           "share of forest that is departed".
+          LAYERS=(vcc evt evc fbfm40)
+          H0S=(12 14 20 50 71 78)
+          NODATA=("-9999,-1111,32767" "-9999,32767" "-9999,32767" "-9999,32767")
+          IDX=${JOB_COMPLETION_INDEX}
+          R=$(( IDX / 24 )); LI=$(( (IDX % 24) / 6 )); H0=${H0S[$(( IDX % 6 ))]}
+          L=${LAYERS[$LI]}; ND=${NODATA[$LI]}
+          if [ "$R" -eq 0 ]; then
+            RED=mode;      OUT=hex;           EXTRA=""
+          else
+            RED=fractions; OUT=hex-fractions; EXTRA="--resampling near"
+          fi
+          echo "=== LANDFIRE 2024 ${L} res-10 ${RED}, h0-index ${H0} (global idx ${IDX}, nodata ${ND}) ==="
+          cng-datasets raster \
+            --input "s3://public-landfire/landfire-2024-${L}/landfire-2024-${L}-cog.tif" \
+            --output-parquet "s3://public-landfire/landfire-2024-${L}/${OUT}/" \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column ${L} --hex-resampling ${RED} ${EXTRA} --nodata "${ND}"
+        resources:
+          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

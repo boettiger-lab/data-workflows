@@ -1,0 +1,91 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landfire-2024-cog
+  namespace: geo-workflows
+  labels: {k8s-app: landfire-2024-cog}
+spec:
+  completions: 4
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 3        # a transient NRP Ceph RGW blip must NOT abort the siblings
+  ttlSecondsAfterFinished: 172800
+  activeDeadlineSeconds: 28800
+  template:
+    metadata: {labels: {k8s-app: landfire-2024-cog}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          # One full-CONUS WGS84 COG per LANDFIRE 2024 layer. Indexed: one layer per pod.
+          #
+          # -r near and OVERVIEW_RESAMPLING=NEAREST are REQUIRED: every one of these four
+          # layers is categorical class codes, and averaging class codes is exactly the
+          # silent corruption this build exists to avoid. (EVC is NOT a percentage raster --
+          # its values are lifeform+percent composites, so mean(115,215)=165 would decode as
+          # "tree cover 65%", true of neither input.)
+          #
+          # NODATA is the value MEASURED by landfire-2024-stage-raw, not the value in the
+          # shipped FGDC XML and not the band declaration -- both have been observed wrong.
+          # A GDAL band carries only ONE nodata value, so where a layer has a second fill
+          # code it stays a real pixel value here (documented in classification:classes) and
+          # is excluded at the hex step, which accepts a list. (#590)
+          #
+          # Do NOT override PROJ_DATA/PROJ_LIB: the image ships 8 proj.db at differing layout
+          # versions and a stale pick breaks -t_srs EPSG:4326 non-deterministically. (#453)
+          PRODS=(VCC EVT EVC FBFM40)
+          LOWER=(vcc evt evc fbfm40)
+          NODATA=(-9999 -9999 -9999 -9999)   # primary fill; secondary codes stay as pixels and are excluded at hex
+          I=${JOB_COMPLETION_INDEX}
+          P=${PRODS[$I]}; L=${LOWER[$I]}; ND=${NODATA[$I]}
+          ZIP=LF2024_${P}_CONUS.zip
+          OUT=/tmp/landfire-2024-${L}-cog.tif
+          cd /tmp
+
+          echo "=== [$I] COG LANDFIRE 2024 $P  (nodata=$ND) ==="
+          rclone copyto nrp:public-landfire/raw/${ZIP} /tmp/${ZIP} -P \
+            --retries 10 --low-level-retries 20 --retries-sleep 20s
+          unzip -o -j /tmp/${ZIP} "*/Tif/LF2024_${P}_CONUS.tif" -d /tmp/tif/
+          rm -f /tmp/${ZIP}
+          TIF=/tmp/tif/LF2024_${P}_CONUS.tif
+          ls -l "$TIF"
+          gdalinfo "$TIF" | grep -E 'Size is|Pixel Size|Origin|NoData|Type='
+
+          gdalwarp -t_srs EPSG:4326 -r near -of COG \
+            -srcnodata ${ND} -dstnodata ${ND} \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 4096 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BLOCKSIZE=512 \
+            -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS \
+            "$TIF" "$OUT"
+          rm -f "$TIF"
+
+          echo "--- resulting COG ---"
+          gdalinfo "$OUT" | grep -E 'Size is|Pixel Size|Lower Left|Upper Right|NoData|Type=|COMPRESSION|LAYOUT'
+          ls -l "$OUT"
+          rclone copyto "$OUT" nrp:public-landfire/landfire-2024-${L}/landfire-2024-${L}-cog.tif -P \
+            --retries 10 --low-level-retries 20 --retries-sleep 20s
+          rm -f "$OUT"
+          echo "COG COMPLETE $P"
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

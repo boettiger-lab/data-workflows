@@ -1,0 +1,130 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landfire-2024-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: landfire-2024-stage-raw}
+spec:
+  completions: 4
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 3      # a transient landfire.gov blip must not abort the siblings
+  ttlSecondsAfterFinished: 172800
+  activeDeadlineSeconds: 21600
+  template:
+    metadata: {labels: {k8s-app: landfire-2024-stage-raw}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          # LANDFIRE 2024 Update (LF 2024, version 2.5.0) CONUS -- stage the four source zips
+          # to s3://public-landfire/raw/, extract the small sidecars needed for STAC authoring,
+          # and MEASURE each raster's exact value histogram. The measurement is the point:
+          # the shipped FGDC XML reports wrong row/col counts for three of the four layers,
+          # and the band nodata declaration is not trustworthy (LF2023_EVT declares 32767
+          # while the documented fill code is -9999). --nodata for the COG and hex steps is
+          # set from THIS output, never from upstream documentation. (#590)
+          PRODS=(VCC EVT EVC FBFM40)
+          P=${PRODS[$JOB_COMPLETION_INDEX]}
+          BASE=https://landfire.gov/data-downloads/CONUS_LF2024
+          ZIP=LF2024_${P}_CONUS.zip
+          DEST=nrp:public-landfire/raw/${ZIP}
+          SIDE=nrp:public-landfire/raw/landfire-2024/${P}
+          cd /tmp
+
+          echo "=== [$JOB_COMPLETION_INDEX] LANDFIRE 2024 $P ==="
+          if rclone lsf "$DEST" 2>/dev/null | grep -q .; then
+            echo "zip already staged at $DEST -- skipping download"
+            rclone copyto "$DEST" /tmp/${ZIP} -P --retries 10 --low-level-retries 20 --retries-sleep 20s
+          else
+            curl -sSL --retry 8 --retry-delay 15 --fail -o /tmp/${ZIP} "${BASE}/${ZIP}"
+            ls -l /tmp/${ZIP}
+            rclone copyto /tmp/${ZIP} "$DEST" -P --retries 10 --low-level-retries 20 --retries-sleep 20s
+          fi
+
+          echo "--- provenance fingerprint (staged object) ---"
+          echo "url:  ${BASE}/${ZIP}"
+          echo "path: s3://public-landfire/raw/${ZIP}"
+          echo "size: $(stat -c%s /tmp/${ZIP}) bytes"
+          echo "sha256: $(sha256sum /tmp/${ZIP} | cut -d' ' -f1)"
+          echo "accessed: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          echo "--- archive layout ---"
+          unzip -l /tmp/${ZIP} | head -40
+
+          # Sidecars for STAC: the CSV legend (class codes), the FGDC metadata, the README
+          # (carries the authoritative version ladder), and the raster attribute table --
+          # the .vat.dbf holds the published RGB palette that becomes classification:classes
+          # color_hint, so it is not optional.
+          unzip -o -j /tmp/${ZIP} \
+            "*/CSV_Data/*" "*/General_Metadata/*" "*/README*" "*/Tif/*.vat.dbf" "*/Tif/*.tif.aux.xml" \
+            -d /tmp/side/ || true
+          ls -l /tmp/side/
+          rclone copy /tmp/side/ "$SIDE"/ -P --retries 10
+
+          echo "--- extracting raster ---"
+          unzip -o -j /tmp/${ZIP} "*/Tif/LF2024_${P}_CONUS.tif" -d /tmp/tif/
+          TIF=/tmp/tif/LF2024_${P}_CONUS.tif
+          rm -f /tmp/${ZIP}
+          ls -l "$TIF"
+          gdalinfo "$TIF" | head -40
+
+          echo "--- EXACT value histogram (full-raster pass) ---"
+          python3 - "$TIF" <<'PY'
+          import sys
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open(sys.argv[1]); b = ds.GetRasterBand(1)
+          nx, ny = ds.RasterXSize, ds.RasterYSize
+          bx, by = b.GetBlockSize()
+          print(f"dims      : {nx} x {ny} = {nx*ny:,} px")
+          print(f"dtype     : {gdal.GetDataTypeName(b.DataType)}  block {bx}x{by}")
+          print(f"declared nodata : {b.GetNoDataValue()}")
+          # Int16 domain is small enough to count exactly with bincount; this is the
+          # authoritative value set for --nodata, for the STAC `values` array, and for
+          # validating the hex output against the source.
+          OFF = 32768
+          counts = np.zeros(65536, dtype=np.int64)
+          step = max(by, 512)
+          for y0 in range(0, ny, step):
+              rows = min(step, ny - y0)
+              a = b.ReadAsArray(0, y0, nx, rows).astype(np.int32).ravel() + OFF
+              counts += np.bincount(a, minlength=65536)
+          present = np.nonzero(counts)[0]
+          total = int(counts.sum())
+          print(f"distinct values : {len(present)}   total px : {total:,}")
+          print("value,count,pct")
+          for v in present:
+              c = int(counts[v])
+              print(f"{v-OFF},{c},{100.0*c/total:.4f}")
+          PY
+          echo "STAGE-RAW COMPLETE $P"
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
