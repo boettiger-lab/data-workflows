@@ -203,15 +203,12 @@ geoparquet_cols = [col_entry(*c) for c in COLS]
 # Hex: same columns and the SAME per-column prose (the renderer folds identical text across
 # assets and silently drops divergent text), minus geometry, plus the H3 index columns.
 hex_cols = [col_entry(*c) for c in COLS if c[0] != "Shape"] + H3_COLS
-# PMTiles: lean -- name/type/values only; the prose stays canonical on the GeoParquet asset.
-PMTILES_FIELDS = {
-    "_cng_fid", "FOD_ID", "FIRE_YEAR", "DISCOVERY_DATE", "DISCOVERY_DOY", "FIRE_NAME",
-    "NWCG_CAUSE_CLASSIFICATION", "NWCG_GENERAL_CAUSE", "FIRE_SIZE", "FIRE_SIZE_CLASS",
-    "OWNER_DESCR", "STATE", "COUNTY", "FIPS_CODE", "NWCG_REPORTING_AGENCY",
-    "NWCG_REPORTING_UNIT_NAME", "MTBS_ID", "LATITUDE", "LONGITUDE",
-}
-pmtiles_cols = [col_entry(*c, lean=True) for c in COLS
-                if c[0] in PMTILES_FIELDS and c[0] != "Shape"]
+# PMTiles: MIRROR the GeoParquet schema, in lean form (name/type/values, no prose -- the prose
+# stays canonical on the GeoParquet asset). Verified against the published tile footer: tippecanoe
+# keeps every attribute column, so the tile field set is exactly the GeoParquet columns minus the
+# geometry. Hand-curating a subset here would hide stylable fields from MapLibre authors and the
+# geo-agent, which is the defect #283/#320 exist to prevent.
+pmtiles_cols = [col_entry(*c, lean=True) for c in COLS if c[0] != "Shape"]
 
 # --- companion non-spatial NWCG unit lookup -------------------------------------------------
 UNIT_COLS = [
@@ -383,8 +380,9 @@ collection = {
                 f"Vector tiles for MapLibre GL JS. The MapLibre source-layer id is '{DS}'. "
                 "Good default fields for styling are NWCG_CAUSE_CLASSIFICATION or "
                 "NWCG_GENERAL_CAUSE for cause, FIRE_SIZE_CLASS or FIRE_SIZE for magnitude, and "
-                "FIRE_YEAR for time filtering. Join on _cng_fid to the GeoParquet for the "
-                "columns not carried in tiles."
+                "FIRE_YEAR for time filtering. The tiles carry every attribute column, so any "
+                "field listed below can be styled or filtered directly; the column definitions "
+                "are on the GeoParquet asset."
             ),
             "vector:layers": [DS],
             "table:columns": pmtiles_cols,
