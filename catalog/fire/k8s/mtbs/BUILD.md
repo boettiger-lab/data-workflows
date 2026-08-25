@@ -471,7 +471,11 @@ and the collection descriptions all route that question to `hex-fractions`. The 
 `fractions`-vs-COG check is the stronger invariant — `SUM(frac)` per class is area-proportional, so
 it should reproduce the area-weighted COG share to well under a point — and is pending that layer.
 
-## State of the build, and how to resume it
+## State of the build
+
+**The build is complete.** All three collections are published and verified; what remains is
+review and merge of [#612](https://github.com/boettiger-lab/data-workflows/pull/612), plus the
+cross-issue follow-ups recorded below.
 
 **Read this section first if you are picking the task up in a new session.** The scope decisions
 live in issue #593; the measured evidence lives here. Neither is in anyone's session context.
@@ -488,11 +492,12 @@ live in issue #593; the measured evidence lives here. Neither is in anyone's ses
 | `mtbs-severity-conus-hex-fractions` | ✅ complete — 234/234, 7h33m, 230 partitions after purging 4 empties |
 | `MEASURED` in `gen_stac.py` | ✅ every key filled from the published artifacts |
 | STAC for the two severity collections + bucket patch + README | ✅ **published 2026-08-25**; `verify-stac.py --bucket public-fire` exits 0, and each collection passes its own data-backed run |
-| PR | ◐ **open as a DRAFT: [#612](https://github.com/boettiger-lab/data-workflows/pull/612)**, branch `worktree-mtbs-593` pushed. Deliberately draft — the severity data is not built, so `verify-stac` is red and the acceptance table in the PR body is the merge gate. Mark ready only when that table is green. |
+| PR | ✅ **open and ready for review: [#612](https://github.com/boettiger-lab/data-workflows/pull/612)**, branch `worktree-mtbs-593` pushed, CI `verify` green. The acceptance table in the PR body is the merge gate and is green on 6 of 7 criteria; criterion 3 is partly blocked on #585 by design, not by an unfinished build (see *Acceptance criteria* below). |
 
-**Wall-clock still to run is the dominant fact here, and the earlier estimate in this file was
-wrong — too optimistic.** It said "a res-10 index runs a median 2.2 h, so CONUS is roughly 12–16 h
-per layer." Measured against what actually happened, that does not hold.
+**Wall-clock was the dominant fact of this build, and an earlier estimate in this file was wrong —
+too optimistic.** It said "a res-10 index runs a median 2.2 h, so CONUS is roughly 12–16 h per
+layer." Measured against what actually happened, that did not hold. The corrected figures below
+are the sizing evidence for the next res-10 CONUS hex, whichever dataset runs it.
 
 The completed Alaska `mode` layer is the evidence, and it is a clean one: 36 indexes at
 parallelism 61, so every index ran in a single wave with nothing queued behind it. Its partition
@@ -504,10 +509,14 @@ The per-index cost is also **roughly constant across domains**, which is easy to
 data sits in them — that is the entire reason the fan-out is restricted to 6 cells and not 122. So
 CONUS is not cheaper per index, it is simply 234 of them against Alaska's 36 (6.5x the work) at
 61-way rather than 36-way concurrency (1.7x the throughput) — about **3.8x Alaska's wall clock per
-layer**, twice over. The chain is strictly sequential (`AGENTS.md`: never
-more than one concurrent k8s hex workflow, and 61 pods at 192Gi is already ~11.7 TB of RAM), so
-On that basis budget **roughly 40–50 h from 2026-08-24T20:18:50Z**, not the 24–36 h an earlier
-revision of this file claimed.
+layer**, twice over. The chain is strictly sequential (`AGENTS.md`: never more than one concurrent
+k8s hex workflow, and 61 pods at 192Gi is already ~11.7 TB of RAM).
+
+**What it actually cost, for the next estimate:** the three remaining layers ran back to back from
+2026-08-24T20:18:50Z — `ak-hex-fractions` 5h40m, `conus-hex` 7h29m, `conus-hex-fractions` 7h47m —
+**about 21 h of job time and ~22 h of wall clock.** So the 40–50 h budgeted here was roughly 2x
+pessimistic, and the 24–36 h an earlier revision claimed was closer. Budget **~7.5 h per res-10
+CONUS layer** at 234 indexes / parallelism 61, and ~5.5 h for a 36-index Alaska layer.
 
 ⚠️ **One thing would overturn this, and it is worth measuring rather than assuming.** Those 36
 Alaska completions did not arrive smoothly — they clustered at roughly +0, +1, +2.3, +4.0–4.6,
@@ -516,7 +525,16 @@ steps like that; it looks more like throughput contention than genuine per-index
 the layer is not concurrency-bound and **raising `parallelism` would buy nothing** — 117 pods
 would simply be 117 slow ones. The restarted Alaska fractions run has a known start
 (2026-08-24T20:18:51Z, all 36 pods started within 36 s of each other on an otherwise idle cluster),
-so it measures this directly. Record the answer here.
+so it measures this directly.
+
+**Partly answered, and the honest version is that it was not fully captured.** That restarted
+Alaska fractions run finished in **5h40m** for a single 36-index wave (~5.7 h for the slowest
+index), against CONUS's ~1.9 h per index (7h29m over 3.84 waves). So per-index cost is **not**
+"roughly constant across domains" as claimed above — Alaska's indexes were roughly 3x slower each,
+which is consistent with contention rather than clean concurrency limiting. But the per-index
+partition mtimes for the restarted run were not recorded before the job TTL'd, so this stops short
+of a verdict. It no longer blocks anything here; **capture the mtime spread on the next res-10
+CONUS hex** (#592 WRC or #590 LANDFIRE) and settle it there.
 
 **On raising `parallelism`: the decision is reversible, so do not agonise over it up front.**
 `Job.spec.parallelism` is mutable on a running Job — `kubectl -n geo-workflows patch job/<name> -p
@@ -552,60 +570,19 @@ ConfigMap's key list first:
 kubectl apply -n geo-workflows -f catalog/fire/k8s/mtbs/severity-hex-workflow.yaml
 ```
 
-### Remaining work, in order
+### Follow-ups — not this build's work, but blocking its last criterion
 
-1. **Wait for the three hex jobs.** Each must report `Complete=True` with empty `failedIndexes`;
-   the orchestrator aborts the chain otherwise. A res-10 index runs a median 2.2 h, so CONUS
-   (234 indexes, parallelism 61) is roughly 12–16 h per layer.
-2. **Run the h0 coverage gate per year per domain** — see *Post-build verification* below.
-3. **Fill `MEASURED` in `gen_stac.py`.** It prints every unfilled key when run and refuses to let you
-   forget. Alaska's `mode` values are in; what remains is `ak.frac_rows` and all four CONUS keys.
-   Query through the duckdb-geo MCP, never local duckdb. The queries are the ones in
-   *`mtbs-severity-1984-2024-ak`* above — `COUNT(*)`, `COUNT(DISTINCT h10)`, and
-   `h3_cell_to_lng`/`h3_cell_to_lat` extremes for the bbox.
-4. 🔴 **Settle what `frac` is normalised over, BEFORE publishing — it changes the STAC wording and
-   the denominator semantics.** `gen_stac.py` currently describes `frac` as "Share of the H3 cell
-   covered by this severity class … shares within one cell and year sum to approximately 1." That
-   is only true if the tool divides by the whole cell. If it divides by the cell's *valid* pixels
-   instead, every cell sums to exactly 1 no matter how little of it burned, and two things are
-   wrong at once: the description misstates what the number is, and `SUM(frac)` stops being
-   area-proportional — a cell 10% inside a fire perimeter would carry the same weight as one wholly
-   inside it, which biases every "share burned at high severity" figure toward fire edges.
+Both belong to other issues. Neither is a defect here.
 
-   **This could not be settled from the existing catalog.** `nlcd` and `cgls-lc100` are the two
-   fractions precedents and neither has interior nodata (CGLS maps ocean as class 200, not nodata),
-   so both sum to exactly 1 either way — checked, 4.7 M NLCD cells, min = max = avg = 1.0. MTBS is
-   the first sparse fractions layer here: nodata 0 is dropped and cells on a perimeter's edge are
-   genuinely part-burned. The moment `hex-fractions` exists, run:
-
-   ```sql
-   -- if min < 1 and a real tail sits below 1, frac is share-of-cell (description is correct).
-   -- if min = max = 1 exactly, frac is renormalised over valid pixels (description must change,
-   -- and the denominator caveat has to be written).
-   SELECT ROUND(MIN(s),4), ROUND(MAX(s),4), ROUND(AVG(s),4),
-          COUNT(*) FILTER (WHERE s < 0.99) AS partial_cells, COUNT(*) AS cells
-   FROM (SELECT year, h10, SUM(frac) AS s
-         FROM read_parquet('s3://public-fire/mtbs-severity-1984-2024-ak/hex-fractions/year=*/h0=*/data_0.parquet')
-         GROUP BY year, h10);
-   ```
-
-   Fire perimeters guarantee part-covered cells exist, so "no cell below 1" is a positive result
-   for renormalisation, not an absence of evidence.
-
-5. **Validate the class shares.** Done for Alaska `mode` — see *Criterion 1, measured* above; the
-   reference histograms are already built and permanent at `raw/mtbs/cog-histograms/`, so this is
-   now just a comparison, not a rebuild. Repeat for CONUS `mode`, and run the stronger
-   `fractions`-vs-COG invariant on both domains (`SUM(frac)` per class is area-proportional and
-   should reproduce the area-weighted COG share to well under a point; a large gap there IS a
-   defect, unlike the `mode` gap, which is expected and quantified).
-6. **Publish**: `python3 gen_stac.py`, then `scripts/verify-stac.py --no-data` on each, then
-   `rclone copyto` the two severity collections, the patched bucket collection and the patched
-   README. The perimeters collection is already live and must not be clobbered.
-7. **`scripts/verify-stac.py --bucket public-fire`** must exit 0.
-8. **Finish the PR.** [#612](https://github.com/boettiger-lab/data-workflows/pull/612) is already
-   open as a draft with the acceptance-criteria table as its merge gate. Update that table as
-   criteria go green, re-fire CI's `verify-stac` once the STAC is published (Actions → Verify STAC
-   → Run workflow; GitHub does not re-read S3 on its own), then `gh pr ready 612`.
+1. **Criterion 3's "roaded NFS" stratum needs #585** (USFS Administrative Forest / Surface
+   Ownership). The scope is settled — ingest `S_USA.SurfaceOwnership` filtered to
+   `OWNERCLASS = 'USDA FOREST SERVICE'`, acceptance gate `SUM(GIS_ACRES)` = 193,174,461,
+   cross-checked against `pad-us-4-1/fee` USFS = 193,275,732 — and the raw is staged to
+   `s3://public-usfs/raw/`, but the build has not run. Until it does, IRA-versus-domain is
+   computable and IRA-versus-roaded-NFS is not.
+2. **The "wilderness" stratum has no issue in the `roadless` set at all** and needs one filed.
+   `pad-us-4.1` is already in the catalog and carries the designation, so this is a scoping
+   question rather than a missing ingest.
 
 ### Things already learned — do not rediscover them
 
@@ -615,6 +592,16 @@ kubectl apply -n geo-workflows -f catalog/fire/k8s/mtbs/severity-hex-workflow.ya
 - Six source mosaics are permanently missing upstream; that is recorded, not a bug to re-investigate.
 - `mtbs_CONUS_2005.tif` has 23 out-of-domain pixels, clamped by a VRT LUT.
 - The severity h0 sets are measured, not inherited from WHP — CONUS 6 cells, **Alaska 1**.
+- **`frac` is share-of-cell, and this was settled by measurement, not assumption.** It was the open
+  question of this build, because MTBS is the catalog's first *sparse* fractions layer (`nlcd` and
+  `cgls-lc100` have no interior nodata, so both sum to 1 either way and could not decide it). The
+  answer: nodata class `0` is **retained as an explicit class** in `hex-fractions` (Alaska:
+  1,376,671 rows, mean `frac` 0.49), so the seven classes partition each cell exactly and
+  `SUM(frac)` per (`year`, `h10`) is **1 by construction** — measured `min = max = avg = 1.0000`
+  over 12,270,403 cells, 0 partial. So `SUM(frac)` stays area-proportional and the published STAC
+  wording is correct. **A cell summing to exactly 1 is therefore NOT evidence of renormalisation
+  here** — check whether class `0` rows are present before concluding anything from that. Class `0`
+  is unburned ground, not a severity level: exclude it from every severity denominator.
 - 🔴 **The orchestrator finished `Failed`, and that was a near-miss rather than a cosmetic
   oddity.** All three child jobs reported `Complete` with empty `failedIndexes`, and the data
   passes every gate — but `mtbs-severity-hex-workflow` itself was **evicted**: *"The node was low
