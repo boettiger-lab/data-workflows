@@ -164,6 +164,115 @@ h0 `576707042908045311` — the cell AGENTS.md flags for dateline problems — *
 -150.008 to -133.022, entirely in the western hemisphere with no wrap to +180. Same verdict as
 #584, reached by measurement on this layer rather than carried over from it.
 
-## Acceptance criteria
+## Acceptance criteria — measured against the ingested data
 
-_To be completed against the ingested data._
+### Method for state attribution
+
+**No layer carries a state attribute**, so Montana is obtained spatially. Nothing about this is
+Montana-specific — any state needs the same step; Montana is simply the state the claim is about.
+
+The units are **NFS `h10` cells**. `h8` is the shared join key against
+`census-2024/state` (native res 8), so a state mask is applied at `h8` and area is then summed
+over the `h10` footprint. Measuring in `h10` matters: an `h8` cell is ~0.74 km² and is counted
+whole if a feature merely clips it, and that bias is **not uniform** — it scales with how
+fragmented the set is:
+
+| Set | `h8`-implied acres | true acres | `h8` bias |
+|---|---:|---:|---:|
+| MT NFS (contiguous) | 20,370,770 | 17,345,447 | +17.4% |
+| MT IRA (fragmented) | 8,450,865 | 6,448,465 | **+31.1%** |
+
+Computing the ratio at `h8` therefore inflates it (41.5% vs the correct 37.0%). All figures below
+are `h10` footprints. Designated wilderness is the one component only available at `h8`
+(`pad-us-4-1/combined` is native res 8) — it is applied as an `h8` parent mask **restricted to NFS
+`h10` cells**, which validates well: 3,435,932 ac against PAD-US's own `GIS_Acres` of 3,441,403,
+a **-0.16%** difference.
+
+### 1. National reconciliation against the 193M-acre figure ✅
+
+| Source | USFS acres | vs announcement |
+|---|---:|---:|
+| `SurfaceOwnership`, `OWNERCLASS='USDA FOREST SERVICE'` (`GIS_ACRES`) | **193,174,461** | +0.09% |
+| `pad-us-4-1/fee`, `Mang_Name='USFS'` (independent publisher) | 193,275,732 | +0.14% |
+| This layer's H3 res-10 footprint | 192,895,244 | -0.05% |
+| Announcement | "193 million" | — |
+
+**Residual documented:** the two publishers differ by **101,271 acres (0.05%)**. The H3 footprint
+sits 279,217 ac (-0.14%) below the `GIS_ACRES` total, the same small negative bias #584 measured
+(-0.25%) — cells are dropped where a polygon covers less than one res-10 cell.
+
+### 2. MT NFS acreage under both definitions ✅
+
+| Definition | MT acres |
+|---|---:|
+| **Surface ownership** (`OWNERCLASS='USDA FOREST SERVICE'`) | **17,345,447** |
+| `pad-us-4-1/fee` USFS, `State_Nm='MT'` (cross-check) | 17,254,331 (+0.53%) |
+| **Proclaimed boundary** (`proclaimed-forest`) | _pending build_ |
+
+Two unrelated sources agree to **0.53%**, computed differently — PAD-US pre-splits features by
+state; this is a cell-wise mask. Agreement is evidence, not tautology.
+
+### 3. MT IRA ÷ MT NFS — the "nearly 60 percent" claim ❌ REFUTED as stated
+
+| Quantity | Acres | Share of MT NFS |
+|---|---:|---:|
+| MT NFS (surface ownership) | 17,345,447 | 100% |
+| MT IRA on NFS | 6,416,470 | **36.99%** |
+
+**36.99%, not "nearly 60 percent."** For 60% to hold, the denominator would have to be 10,659,001
+ac — 6.7M acres below Montana's actual NFS surface ownership. And no USFS denominator rescues the
+claim *in the direction attempted*: the proclaimed and administrative envelopes are **larger** than
+surface ownership, so substituting them pushes the share **down**, not up.
+
+### 4. The wilderness hypothesis ✅ CONFIRMED
+
+#585 flagged this as the first thing to test and explicitly declined to assert it. It holds.
+
+| Quantity | Acres | Share of MT NFS |
+|---|---:|---:|
+| MT IRA on NFS | 6,416,470 | 36.99% |
+| MT USFS designated wilderness on NFS | 3,435,932 | 19.81% |
+| less overlap (IRA ∩ wilderness) | -103,611 | -0.60% |
+| **IRA ∪ wilderness** | **9,748,791** | **56.20%** |
+
+**56.20%** is fairly described as "nearly 60 percent"; #585 predicted ≈57%. So the claim is
+reconcilable **only** if "Forest Service land" is read as *roadless areas plus designated
+wilderness*, not as roadless areas alone. The union is computed over **DISTINCT cells**, never by
+adding acreages — IRA and wilderness overlap by 103,611 ac and summing would double-count.
+
+### 5. Roaded-NFS comparison stratum ✅ DERIVABLE
+
+NFS minus IRA (#584) minus designated wilderness (`pad-us-4.1`), as a DISTINCT-cell set difference:
+
+| Stratum | Acres | Share of NFS |
+|---|---:|---:|
+| NFS surface ownership (h10 footprint) | 192,895,244 | 100% |
+| less inventoried roadless on NFS | -57,793,130 | 29.96% |
+| less designated wilderness on NFS | -36,277,809 | 18.81% |
+| **Roaded NFS (the counterfactual)** | **100,720,169** | **52.21%** |
+| _MT roaded NFS_ | _7,596,656_ | _43.80%_ |
+
+This is the missing comparison group for every hazard/treatment claim in the `roadless` set: a
+"40% of IRAs are high hazard" figure is uninterpretable without the same figure for this stratum.
+57,793,130 of the 58,419,694 published IRA acres fall on NFS surface ownership (98.9%), the
+remainder being IRA over inholdings and other ownership inside the envelope.
+
+### 6. Build-integrity gates
+
+| Gate | `nfs-surface-ownership` |
+|---|---|
+| Feature count, flat | 117,190 ✅ |
+| `SUM(GIS_ACRES)` flat | 204,298,788 ✅ |
+| `COUNT(DISTINCT _cng_fid)` on hex | 117,190 — equals flat, no #494 silent cap ✅ |
+| Hex/flat agreement, deduped `SUM(GIS_ACRES)` | 204,298,788 — exact ✅ |
+| Hex job | `Complete`, `failedIndexes: []`, 118/118 ✅ |
+| h0 partition gate | PASS, 9 == 9 populated, no empty partitions ✅ |
+| NULL finest-parent (`h10`) cells | 0, so no #311 note required ✅ |
+| Dateline seam | no wrap; see above ✅ |
+| Per-feature duplication | all attributes REPEATED; raw `SUM(GIS_ACRES)` inflates **161,918x** ✅ |
+
+`SURFACEOWN` has 117,190 distinct values — exactly the row count — so each input row is one
+logical feature and **axis-2 (upstream) duplication does not apply**; `_cng_fid` is a sufficient
+dedup key.
+
+_Envelope-layer gates pending their builds._
