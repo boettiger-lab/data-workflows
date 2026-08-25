@@ -1,0 +1,9 @@
+{
+  "_source": "Measured from the ingested parquet + hex via the duckdb-geo MCP, 2026-08-25. See gen_stac.py docstring for the queries. verify-stac.py checks these against SELECT DISTINCT.",
+  "n_features": 16490899,
+  "n_counties": 3233,
+  "n_hex_rows": null,
+  "bbox": [-176.959, -14.367, 179.453, 71.386],
+  "mtfcc": ["S1100","S1200","S1400","S1500","S1630","S1640","S1710","S1720","S1730","S1740","S1750","S1780","S1810","S1820","S1830"],
+  "rttyp": ["C","I","M","O","S","U"]
+}

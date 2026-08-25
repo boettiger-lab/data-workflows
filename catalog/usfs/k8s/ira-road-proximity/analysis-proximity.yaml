@@ -113,9 +113,13 @@ spec:
               "roadcore-all":     ("rc", "TRUE"),
               "roadcore-ml2to5":  ("rc", f"{ML} IN ('2','3','4','5')"),
               "roadcore-ml1only": ("rc", f"{ML} = '1'"),
-              "tiger-all":        ("tg", "TRUE"),
               "tiger-drivable":   ("tg", f"MTFCC NOT IN {PED}"),
-              "union-deis":       ("both", f"TRUE"),   # roadcore-all + tiger-drivable
+              # union-deis is the DEIS-equivalent road set and the one every acceptance
+              # criterion depends on, so it runs BEFORE tiger-all, which is informational
+              # only (all MTFCC classes including the four pedestrian ones). If the run has
+              # to be cut short, tiger-all is the stratum to lose.
+              "union-deis":       ("both", "TRUE"),    # roadcore-all + tiger-drivable
+              "tiger-all":        ("tg", "TRUE"),
           }
           REGIONS = ["CONUS", "AK", "PR"]
 

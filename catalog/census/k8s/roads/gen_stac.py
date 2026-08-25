@@ -10,7 +10,24 @@ Counts and the MTFCC `values` list are read from `_measured.json`, which is writ
 values against DISTINCT in the data, so they must come from the data, not from the Census
 code list.
 
-    python3 measure.py > _measured.json     # via the duckdb-geo MCP, cluster-side
+Write `_measured.json` from these queries, run through the duckdb-geo MCP (AGENTS.md Hard
+Boundary 0 — never a local duckdb over S3), then run this script:
+
+    -- n_features, n_counties, bbox
+    SELECT COUNT(*), COUNT(DISTINCT GEOID_COUNTY),
+           ROUND(MIN(ST_XMin(geometry)),4), ROUND(MIN(ST_YMin(geometry)),4),
+           ROUND(MAX(ST_XMax(geometry)),4), ROUND(MAX(ST_YMax(geometry)),4)
+    FROM read_parquet('s3://public-census/census-2025/roads.parquet');
+
+    -- mtfcc, rttyp (declared `values` must equal these exactly)
+    SELECT DISTINCT MTFCC FROM read_parquet('s3://public-census/census-2025/roads.parquet')
+    WHERE MTFCC IS NOT NULL ORDER BY 1;
+    SELECT DISTINCT RTTYP FROM read_parquet('s3://public-census/census-2025/roads.parquet')
+    WHERE RTTYP IS NOT NULL ORDER BY 1;
+
+    -- n_hex_rows
+    SELECT COUNT(*) FROM read_parquet('s3://public-census/census-2025/roads/hex/h0=*/data_0.parquet');
+
     python3 gen_stac.py
 """
 import json
@@ -51,9 +68,9 @@ MTFCC_DEFS = {
     "S1740": "Private road for service vehicles — logging, oil field, ranch, industrial",
     "S1750": "Internal US Census Bureau use",
     "S1780": "Parking lot road",
+    "S1810": "Winter trail or ice road — passable only in winter; a motor vehicle travelway, but seasonally",
     "S1820": "Bike path or trail — NOT a motor vehicle travelway",
     "S1830": "Bridle path — NOT a motor vehicle travelway",
-    "S2000": "Road median",
 }
 
 PEDESTRIAN = ["S1710", "S1720", "S1820", "S1830"]
@@ -64,6 +81,9 @@ MTFCC_DEF = (
     "walkway, S1720 stairway, S1820 bike path, S1830 bridle path. They are retained here so the "
     "choice stays visible, but including them in a 'distance to road' calculation is wrong under "
     "36 CFR 294.11, which defines a road as 'a motor vehicle travelway over 50 inches wide'. "
+    "S1810 (winter trail / ice road) and S1500 (4WD vehicular trail) ARE motor vehicle "
+    "travelways and are retained, but both are seasonally or conditionally passable — worth "
+    "separating in any accessibility analysis. "
     "Values: " + "; ".join(f"{c}={MTFCC_DEFS.get(c, 'see Census TIGER/Line documentation')}"
                            for c in MTFCC_PRESENT)
 )

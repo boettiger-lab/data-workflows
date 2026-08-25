@@ -1,0 +1,220 @@
+# #588 deliverable 2 of 2: distance-to-nearest-road per H3 cell inside the Inventoried
+# Roadless Areas — the join product #587 needs for its ignition-density gradient.
+#
+# Built by JOINING ONTO the already-published roadless-areas-2001 hex (16,309,549 rows at
+# res 10, already carrying _cng_fid and h10/h9/h8/h0 from #584) rather than re-polyfilling.
+# No new hex build, no hex lock taken.
+#
+# Distance is measured from each cell's centre to the nearest road centreline, in the same
+# equal-area projection the acreage analysis uses. The per-IRA road union computed for the
+# proximity ladder is reused: every road within 3,380 m of the IRA is in it, which covers
+# every ladder distance for any cell inside that IRA.
+#
+# ⚠️ This asset is a CROSS-CHECK and a join key, NOT the source of the headline acreage.
+# The 11.3M-acre reproduction runs on flat geometry (analysis-proximity.yaml). A res-10
+# cell is ~0.015 km2, fine enough to integrate area to ~0.25% (measured in #584), but the
+# authoritative number is still the true-geometry one.
+#
+# h8 is present, so this joins directly to public-fire/fpa-fod-1992-2024 for #587.
+#
+# Requires: analysis-workingset.yaml.
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ira-road-distance-hex
+  labels:
+    k8s-app: ira-road-distance-hex
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ira-road-distance-hex
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: distance-hex
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp_588_dist
+        resources:
+          requests:
+            cpu: '16'
+            memory: 96Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '16'
+            memory: 96Gi
+            ephemeral-storage: 20Gi
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp_588_dist
+          python3 - <<'PY'
+          import os, duckdb
+
+          WORK = "s3://public-usfs/_work/588"
+          IRAHEX = "s3://public-usfs/roadless-areas-2001/hex/h0=*/data_0.parquet"
+          OUT = "s3://public-usfs/ira-road-distance/hex"
+          MAXD = 3218.688 * 1.05
+          CRS = {"CONUS": "EPSG:5070", "AK": "EPSG:3338", "PR": "EPSG:32161"}
+          PED = "('S1710','S1720','S1820','S1830')"
+          ML = "substr(OPER_MAINT_LEVEL, 1, 1)"
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs; "
+                      "INSTALL h3 FROM community; LOAD h3;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
+          con.execute("SET memory_limit='80GB'; SET threads=16;")
+          con.execute("SET temp_directory='/scratch/tmp_588_dist';")
+          con.execute("SET preserve_insertion_order=false;")
+
+          con.execute(f"CREATE TABLE ira AS SELECT _cng_fid, crs_region, STATE, rule_affected "
+                      f"FROM read_parquet('{WORK}/ira.parquet')")
+          con.execute(f"CREATE TABLE rc AS SELECT * FROM read_parquet('{WORK}/roads_rc.parquet')")
+          con.execute(f"CREATE TABLE tg AS SELECT * FROM read_parquet('{WORK}/roads_tg.parquet')")
+          tiger = con.execute("SELECT COUNT(*) FROM tg").fetchone()[0] > 0
+          print(f"working set: ira={con.execute('SELECT COUNT(*) FROM ira').fetchone()[0]:,} "
+                f"rc={con.execute('SELECT COUNT(*) FROM rc').fetchone()[0]:,} "
+                f"tg={con.execute('SELECT COUNT(*) FROM tg').fetchone()[0]:,}", flush=True)
+          if not tiger:
+              raise SystemExit("roads_tg is EMPTY — re-run analysis-workingset.yaml after "
+                               "merge-roads.yaml before building the distance hex.")
+
+          # Per-IRA road unions, one per stratum. Buffering the IRA and joining on
+          # ST_Intersects is the optimizable predicate; ST_DWithin is not.
+          con.execute(f"""
+            CREATE TABLE ib AS
+            SELECT i._cng_fid AS fid, i.crs_region,
+                   ST_Buffer(w.g, {MAXD}) AS gb
+            FROM ira i JOIN read_parquet('{WORK}/ira.parquet') w USING (_cng_fid)
+          """)
+
+          STRATA = {
+              "roadcore":       "SELECT g, crs_region FROM rc",
+              "roadcore_ml2to5": f"SELECT g, crs_region FROM rc WHERE {ML} IN ('2','3','4','5')",
+              "all":            f"SELECT g, crs_region FROM rc UNION ALL "
+                                f"SELECT g, crs_region FROM tg WHERE MTFCC NOT IN {PED}",
+          }
+          for name, sql in STRATA.items():
+              con.execute(f"DROP TABLE IF EXISTS u_{name}")
+              con.execute(f"""
+                CREATE TABLE u_{name} AS
+                SELECT b.fid, ST_Union_Agg(r.g) AS rg
+                FROM ib b JOIN ({sql}) r ON r.crs_region = b.crs_region
+                                        AND ST_Intersects(b.gb, r.g)
+                GROUP BY b.fid
+              """)
+              n = con.execute(f"SELECT COUNT(*) FROM u_{name}").fetchone()[0]
+              print(f"  road union '{name}': {n:,} IRA polygons with roads in range", flush=True)
+
+          # Cell centres from the PUBLISHED #584 hex — no new polyfill.
+          case_crs = " ".join(
+              f"WHEN i.crs_region='{r}' THEN ST_Transform(ST_Point(c.lng, c.lat),"
+              f"'EPSG:4326','{c}', always_xy := true)" for r, c in CRS.items())
+          con.execute(f"""
+            CREATE TABLE cells AS
+            SELECT h.h10, h.h9, h.h8, h.h0, h._cng_fid,
+                   i.crs_region, i.STATE, i.rule_affected,
+                   (CASE {case_crs} END) AS pt
+            FROM (SELECT DISTINCT h10, h9, h8, h0, _cng_fid
+                  FROM read_parquet('{IRAHEX}')) h
+            JOIN ira i USING (_cng_fid)
+            CROSS JOIN LATERAL (
+              SELECT h3_cell_to_lat(h.h10) AS lat, h3_cell_to_lng(h.h10) AS lng
+            ) c
+          """)
+          nc = con.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
+          print(f"IRA res-10 cells: {nc:,}", flush=True)
+
+          con.execute(f"""
+            COPY (
+              SELECT c.h10, c.h9, c.h8, c.h0, c._cng_fid, c.STATE, c.rule_affected,
+                     ST_Distance(c.pt, ur.rg)   AS dist_m_roadcore,
+                     ST_Distance(c.pt, um.rg)   AS dist_m_roadcore_ml2to5,
+                     ST_Distance(c.pt, ua.rg)   AS dist_m_all,
+                     CASE
+                       WHEN ST_Distance(c.pt, ua.rg) IS NULL       THEN '>3218m'
+                       WHEN ST_Distance(c.pt, ua.rg) <=   50 THEN '0-50m'
+                       WHEN ST_Distance(c.pt, ua.rg) <=  100 THEN '50-100m'
+                       WHEN ST_Distance(c.pt, ua.rg) <=  200 THEN '100-200m'
+                       WHEN ST_Distance(c.pt, ua.rg) <=  400 THEN '200-400m'
+                       WHEN ST_Distance(c.pt, ua.rg) <=  804.672 THEN '400-805m'
+                       WHEN ST_Distance(c.pt, ua.rg) <= 1000 THEN '805-1000m'
+                       WHEN ST_Distance(c.pt, ua.rg) <= 1609.344 THEN '1000-1609m'
+                       WHEN ST_Distance(c.pt, ua.rg) <= 2414.016 THEN '1609-2414m'
+                       WHEN ST_Distance(c.pt, ua.rg) <= 3218.688 THEN '2414-3219m'
+                       ELSE '>3218m'
+                     END AS band
+              FROM cells c
+              LEFT JOIN u_roadcore        ur ON ur.fid = c._cng_fid
+              LEFT JOIN u_roadcore_ml2to5 um ON um.fid = c._cng_fid
+              LEFT JOIN u_all             ua ON ua.fid = c._cng_fid
+            )
+            TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000,
+                        PARTITION_BY (h0), OVERWRITE_OR_IGNORE 1,
+                        FILENAME_PATTERN 'data_{{i}}')
+          """)
+          print("✓ wrote", OUT, flush=True)
+
+          chk = con.execute(f"""
+            SELECT COUNT(*), COUNT(DISTINCT _cng_fid), COUNT(DISTINCT h0),
+                   ROUND(100.0 * COUNT(*) FILTER (WHERE dist_m_all <= 804.672) / COUNT(*), 2)
+            FROM read_parquet('{OUT}/h0=*/data_0.parquet')
+          """).fetchone()
+          print(f"rows={chk[0]:,} iras={chk[1]:,} h0={chk[2]} "
+                f"pct of IRA cells within 0.5 mi of a road = {chk[3]}%", flush=True)
+          PY
+          echo "✓ Complete"
+      volumes:
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
