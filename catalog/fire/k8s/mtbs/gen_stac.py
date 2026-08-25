@@ -64,7 +64,7 @@ MEASURED = {
     # h0_count is 1 and not 3: MTBS Alaska fires fall entirely inside base cell
     # 576707042908045311, which the measured bbox below confirms (see BUILD.md).
     "ak": {"hex_rows": 12270403,     # COUNT(*) on hex/
-           "frac_rows": None,        # COUNT(*) on hex-fractions/
+           "frac_rows": 30679520,    # COUNT(*) on hex-fractions/ (incl. the code-0 rows)
            "h0_count": 1,
            "bbox": [-166.191, 56.730, -140.157, 70.159],   # h3_cell_to_lng/lat over hex/
            "cells_burned": 11429727},                      # COUNT(DISTINCT h10) on hex/
@@ -94,6 +94,23 @@ CLASSES = [
 ]
 CLASS_LIST = ", ".join(f"{v}={n}" for v, n, _, _ in CLASSES)
 CLASS_VALUES = [v for v, _, _, _ in CLASSES]
+
+# ── The `fractions` reducer ALSO emits code 0, and the `mode` reducer does not. Measured on the
+# ── completed Alaska build: hex/ holds codes 1-6 only, while hex-fractions/ holds 1,376,671 rows
+# ── of code 0 carrying 5.53% of the total `frac` mass. That is not a defect -- it is what makes
+# ── every cell's shares sum to exactly 1.0 (verified across all 12,270,403 (year, cell) pairs):
+# ── code 0 is the part of the cell that is not mapped burned ground, so `frac` is a share of the
+# ── WHOLE cell rather than of its burned part. Declaring 1-6 here would understate the column's
+# ── domain and would fail verify-stac.py's data-backed `values` check.
+CLASSES_FRACTIONS = [
+    (0, "Background / Not Mapped",
+     "The part of the cell that is not mapped burned ground -- outside any MTBS perimeter, or "
+     "source no-data. Present only in the fractional-coverage asset, where it is what makes each "
+     "cell's shares sum to 1. Not a severity level; exclude it from every severity denominator.",
+     "000000"),
+] + CLASSES
+CLASS_LIST_FRACTIONS = ", ".join(f"{v}={n}" for v, n, _, _ in CLASSES_FRACTIONS)
+CLASS_VALUES_FRACTIONS = [v for v, _, _, _ in CLASSES_FRACTIONS]
 
 # Years actually built, per domain. CONUS is 1984-2024 and Alaska 1984-2023, each less the
 # years whose source object is broken upstream (see MISSING_NOTE).
@@ -137,11 +154,14 @@ REBURN = (
 )
 
 SEV_DENOM = (
-    "**Codes 5 and 6 are not severity levels and belong outside any severity denominator.** "
-    "Code 5 is increased post-fire greenness; code 6 is area the program excluded from mapping "
-    "because of cloud, shadow or missing imagery. A \"share burned at high severity\" figure that "
-    "leaves them in the denominator is diluted by ground that was never assigned a severity at "
-    "all:\n\n"
+    "**Codes 5 and 6 are not severity levels and belong outside any severity denominator, and in "
+    "the fractional-coverage asset neither does code 0.** Code 5 is increased post-fire greenness; "
+    "code 6 is area the program excluded from mapping because of cloud, shadow or missing "
+    "imagery; code 0, which appears only in the fractional-coverage asset, is the part of a cell "
+    "that is not mapped burned ground at all and typically carries several percent of the total "
+    "coverage. A \"share burned at high severity\" figure that leaves any of them in the "
+    "denominator is diluted by ground that was never assigned a severity at all — which is why "
+    "the query below names the classes it wants rather than dividing by a bare `SUM(frac)`:\n\n"
     "```sql\n"
     "-- share of burned area at high severity, codes 1-4 as the denominator\n"
     "SELECT SUM(frac) FILTER (WHERE severity = 4) / SUM(frac) FILTER (WHERE severity BETWEEN 1 AND 4)\n"
@@ -487,13 +507,31 @@ SEVERITY_COLUMN = {
     "values": CLASS_VALUES,
 }
 
+SEVERITY_COLUMN_FRACTIONS = {
+    "name": "severity",
+    "type": "uint8",
+    "description": (
+        "Thematic burn severity class. Values: " + CLASS_LIST_FRACTIONS + ". Classes 1 to 4 are "
+        "severity levels; class 5 is increased post-fire greenness and class 6 is area excluded "
+        "from severity mapping, so neither is a severity level. **Class 0 is not burned ground at "
+        "all** — it is the share of the cell lying outside any mapped fire, and it is present in "
+        "this asset (unlike the dominant-class asset, where source no-data is dropped) because it "
+        "is what makes each cell's shares sum to 1. Leave 0, 5 and 6 out of any severity "
+        "denominator."
+    ),
+    "values": CLASS_VALUES_FRACTIONS,
+}
+
 FRAC_COLUMN = {
     "name": "frac",
     "type": "double",
     "description": (
-        "Share of the H3 cell covered by this severity class, between 0 and 1. One row per "
-        "(year, cell, class), so the shares within one cell and year sum to approximately 1. "
-        "Multiply by the cell's ground area for the area in that class."
+        "Share of the whole H3 cell covered by this severity class, between 0 and 1 — a share of "
+        "the cell's full ground area, not of its burned part. One row per (year, cell, class). "
+        "The shares within one cell and year sum to exactly 1, but only because class 0 (the "
+        "unburned remainder of the cell) is included; summing only classes 1 to 6 gives the share "
+        "of the cell that is mapped burned ground. Multiply by the cell's ground area for the "
+        "area in that class."
     ),
 }
 
@@ -639,8 +677,8 @@ def severity_collection(dom):
         "h3:native_resolution": 10,
         "h3:parent_resolutions": [9, 8, 0],
         "classification:classes": [{"value": v, "name": n, "description": d}
-                                   for v, n, d, _ in CLASSES],
-        "table:columns": ([SEVERITY_COLUMN, FRAC_COLUMN] + h3_cols(10, [9, 8, 0])
+                                   for v, n, d, _ in CLASSES_FRACTIONS],
+        "table:columns": ([SEVERITY_COLUMN_FRACTIONS, FRAC_COLUMN] + h3_cols(10, [9, 8, 0])
                           + [{"name": "year", "type": "int64", "description": YEAR_DESC}]),
     }
 
