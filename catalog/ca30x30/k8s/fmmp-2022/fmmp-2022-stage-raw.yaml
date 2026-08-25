@@ -7,6 +7,16 @@
 # publish anything unless the assembled feature count matches the service's own
 # returnCountOnly. That assertion is the whole point of the job — without it the
 # same silent truncation can recur.
+#
+# The paging script is mounted from a configMap, so create it before applying this job:
+#
+#   kubectl create configmap fmmp-2022-stage-raw-script -n geo-workflows \
+#     --from-file=page_featureserver.py=catalog/ca30x30/k8s/fmmp-2022/page_featureserver.py \
+#     --dry-run=client -o yaml | kubectl apply -n geo-workflows -f -
+#   kubectl apply -n geo-workflows -f catalog/ca30x30/k8s/fmmp-2022/fmmp-2022-stage-raw.yaml
+#
+# This job is NOT part of the orchestrator DAG in workflow.yaml -- it stages raw/ and must
+# finish before the convert step runs, exactly as Step 1b describes for a stage-raw job.
 apiVersion: batch/v1
 kind: Job
 metadata:
