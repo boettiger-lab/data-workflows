@@ -1,0 +1,127 @@
+# Stage FMMP 2022 raw from the authoritative ArcGIS FeatureServer (#615).
+#
+# The previous raw (raw/fmmp-2022.zip) came from the ArcGIS Hub export API, which
+# serves a truncated cached artifact: 45,285 of 127,133 features, 13 of 38 counties.
+# Hub is therefore NOT a usable source for this dataset. This job pages the
+# FeatureServer directly (supportsPagination, maxRecordCount 2000) and refuses to
+# publish anything unless the assembled feature count matches the service's own
+# returnCountOnly. That assertion is the whole point of the job — without it the
+# same silent truncation can recur.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fmmp-2022-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: fmmp-2022-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: fmmp-2022-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: script
+          mountPath: /script
+          readOnly: true
+        command: [bash, -c]
+        args:
+        - |
+          set -euo pipefail
+          python3 /script/page_featureserver.py
+
+          echo "==> Building single-layer GeoPackage from pages"
+          rm -f /tmp/fmmp-2022.gpkg
+          first=1
+          for f in /tmp/pages/page_*.geojson; do
+            if [ "$first" = 1 ]; then
+              ogr2ogr -f GPKG -nln fmmp_2022 -a_srs EPSG:4326 /tmp/fmmp-2022.gpkg "$f"
+              first=0
+            else
+              ogr2ogr -f GPKG -nln fmmp_2022 -append /tmp/fmmp-2022.gpkg "$f"
+            fi
+          done
+
+          echo "==> Verifying GeoPackage against the service count"
+          expected=$(cat /tmp/expected_count.txt)
+          got=$(ogrinfo -al -so /tmp/fmmp-2022.gpkg fmmp_2022 | awk -F': ' '/^Feature Count/ {print $2}')
+          echo "expected=$expected gpkg=$got"
+          [ "$got" = "$expected" ] || { echo "FATAL: GeoPackage has $got features, expected $expected"; exit 1; }
+
+          counties=$(ogrinfo -sql "SELECT COUNT(DISTINCT county_nam) AS n FROM fmmp_2022" /tmp/fmmp-2022.gpkg \
+                     | awk -F'= ' '/n \(Integer/ {print $2}')
+          echo "distinct counties = $counties"
+          [ "$counties" = "38" ] || { echo "FATAL: expected 38 counties, got $counties"; exit 1; }
+
+          ogrinfo -al -so /tmp/fmmp-2022.gpkg fmmp_2022
+
+          echo "==> Zipping and staging to s3://public-ca30x30/raw/"
+          cd /tmp && zip -q -1 fmmp-2022-featureserver-2026-08-25.zip fmmp-2022.gpkg
+          ls -l /tmp/fmmp-2022-featureserver-2026-08-25.zip
+          rclone copyto /tmp/fmmp-2022-featureserver-2026-08-25.zip \
+            nrp:public-ca30x30/raw/fmmp-2022-featureserver-2026-08-25.zip -v
+
+          echo "==> Quarantining the truncated Hub export so it cannot be mistaken for source"
+          if rclone lsf nrp:public-ca30x30/raw/fmmp-2022.zip >/dev/null 2>&1; then
+            rclone moveto nrp:public-ca30x30/raw/fmmp-2022.zip \
+              nrp:public-ca30x30/raw/fmmp-2022-hub-truncated-2025-10-24.zip -v
+          else
+            echo "  raw/fmmp-2022.zip already absent — nothing to quarantine"
+          fi
+
+          echo "Done."
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: script
+        configMap:
+          name: fmmp-2022-stage-raw-script
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
