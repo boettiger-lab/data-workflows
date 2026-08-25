@@ -1,0 +1,284 @@
+# #588 analysis, stage 2 of 2: the buffer ladder, the ML1 breakout, and the solve for the
+# "near" distance implied by the 11.3M-acre claim.
+#
+# ⛔ TRUE GEOMETRY, NOT HEX. Every acreage here comes from
+#    ST_Area(ST_Intersection(ira, ST_Buffer(ST_Union_Agg(roads), d))) in an equal-area
+#    projection, per the issue's explicit instruction. The res-10 IRA hex is used only as
+#    an independent cross-check, in a separate job.
+#
+# Lines are unioned BEFORE buffering (one buffer per IRA x distance, not one per road) —
+# same result, orders of magnitude fewer GEOS calls.
+#
+# Checkpointed per (region, stratum) to s3://public-usfs/_work/588/prox/, so a failure or
+# preemption resumes instead of restarting the whole ladder.
+#
+# Requires: analysis-workingset.yaml (which hard-gates the equal-area projections).
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ira-road-proximity
+  labels:
+    k8s-app: ira-road-proximity
+spec:
+  backoffLimit: 3
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ira-road-proximity
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: proximity
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp_588_prox
+        resources:
+          requests:
+            cpu: '16'
+            memory: 96Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '16'
+            memory: 96Gi
+            ephemeral-storage: 20Gi
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp_588_prox
+          python3 - <<'PY'
+          import os, subprocess, duckdb
+
+          WORK  = "s3://public-usfs/_work/588"
+          M2_AC = 4046.8564224
+          MI_M  = 1609.344
+          MAXD  = 3218.688 * 1.05
+
+          # The ladder. 804.672 m = 0.5 mi is the agency's stated definition of "near"
+          # (DEIS Vol I p. 41 fn. 10); 1609.344 m = 1 mi is the Economic Analysis's second
+          # published figure. The rest bracket them so the result does not hinge on one
+          # reverse-engineered number, and double as the #587 distance bands.
+          LADDER = [50.0, 100.0, 200.0, 400.0, 804.672, 1000.0, 1609.344, 2414.016, 3218.688]
+
+          # ML values arrive as '1 - BASIC CUSTODIAL CARE (CLOSED)' etc, so key on the
+          # leading digit. ML1 = closed/stored, often impassable: counting it as an
+          # "existing road" is exactly the inflation #588 was filed to measure.
+          ML  = "substr(OPER_MAINT_LEVEL, 1, 1)"
+          # TIGER pedestrian classes are not motor-vehicle travelways and cannot satisfy
+          # 36 CFR 294.11 ("a motor vehicle travelway over 50 inches wide").
+          PED = "('S1710','S1720','S1820','S1830')"
+
+          STRATA = {
+              "roadcore-all":     ("rc", "TRUE"),
+              "roadcore-ml2to5":  ("rc", f"{ML} IN ('2','3','4','5')"),
+              "roadcore-ml1only": ("rc", f"{ML} = '1'"),
+              "tiger-all":        ("tg", "TRUE"),
+              "tiger-drivable":   ("tg", f"MTFCC NOT IN {PED}"),
+              "union-deis":       ("both", f"TRUE"),   # roadcore-all + tiger-drivable
+          }
+          REGIONS = ["CONUS", "AK", "PR"]
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
+          con.execute("SET memory_limit='80GB'; SET threads=16;")
+          con.execute("SET temp_directory='/scratch/tmp_588_prox';")
+          con.execute("SET preserve_insertion_order=false;")
+
+          con.execute(f"CREATE TABLE ira AS SELECT * FROM read_parquet('{WORK}/ira.parquet')")
+          con.execute(f"CREATE TABLE rc  AS SELECT * FROM read_parquet('{WORK}/roads_rc.parquet')")
+          con.execute(f"CREATE TABLE tg  AS SELECT * FROM read_parquet('{WORK}/roads_tg.parquet')")
+          print("loaded working set:",
+                con.execute("SELECT (SELECT COUNT(*) FROM ira), (SELECT COUNT(*) FROM rc), "
+                            "(SELECT COUNT(*) FROM tg)").fetchone(), flush=True)
+
+          def done(key):
+              r = subprocess.run(["rclone", "lsf", f"nrp:public-usfs/_work/588/prox/{key}.parquet"],
+                                 capture_output=True, text=True)
+              return bool(r.stdout.strip())
+
+          ladder_vals = ", ".join(f"({d})" for d in LADDER)
+
+          tiger_loaded = con.execute("SELECT COUNT(*) FROM tg").fetchone()[0] > 0
+          if not tiger_loaded:
+              print("\n!! roads_tg is EMPTY — computing the roadcore-* strata only.\n"
+                    "!! Re-run analysis-workingset.yaml after merge-roads.yaml, then re-run\n"
+                    "!! this job: the roadcore checkpoints are reused and only tiger-* and\n"
+                    "!! union-deis are computed.\n", flush=True)
+
+          for stratum, (src, filt) in STRATA.items():
+              if src in ("tg", "both") and not tiger_loaded:
+                  print(f"defer {stratum} (TIGER not loaded)", flush=True)
+                  continue
+              for region in REGIONS:
+                  key = f"{stratum}__{region}"
+                  if done(key):
+                      print(f"skip {key} (already checkpointed)", flush=True)
+                      continue
+
+                  if src == "both":
+                      roads_sql = f"""
+                        SELECT g FROM rc WHERE crs_region = '{region}'
+                        UNION ALL
+                        SELECT g FROM tg WHERE crs_region = '{region}'
+                                          AND MTFCC NOT IN {PED}
+                      """
+                  else:
+                      roads_sql = f"SELECT g FROM {src} WHERE crs_region = '{region}' AND ({filt})"
+
+                  con.execute("DROP TABLE IF EXISTS r_s")
+                  con.execute(f"CREATE TEMP TABLE r_s AS {roads_sql}")
+                  nr = con.execute("SELECT COUNT(*) FROM r_s").fetchone()[0]
+
+                  con.execute("DROP TABLE IF EXISTS i_s")
+                  con.execute(f"""
+                    CREATE TEMP TABLE i_s AS
+                    SELECT _cng_fid, STATE, CATEGORY, rule_affected, ACRES, g, g_pae,
+                           ST_Buffer(g, {MAXD}) AS gb
+                    FROM ira WHERE crs_region = '{region}'
+                  """)
+                  ni = con.execute("SELECT COUNT(*) FROM i_s").fetchone()[0]
+                  print(f"\n=== {key}: {ni:,} IRA polygons x {nr:,} roads ===", flush=True)
+
+                  if nr == 0 or ni == 0:
+                      con.execute(f"""
+                        COPY (SELECT NULL::BIGINT _cng_fid, ''::VARCHAR STATE, ''::VARCHAR CATEGORY,
+                                     FALSE rule_affected, 0.0::DOUBLE ira_acres, 0.0::DOUBLE d_m,
+                                     0.0::DOUBLE acres_within, 0.0::DOUBLE pae_acres_within,
+                                     0.0::DOUBLE road_miles_inside
+                              WHERE FALSE)
+                        TO '{WORK}/prox/{key}.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)
+                      """)
+                      print(f"  empty -> wrote sentinel", flush=True)
+                      continue
+
+                  # Union the lines near each IRA ONCE, then buffer that union per distance.
+                  # ST_Intersects against the pre-buffered polygon is the optimizable join
+                  # predicate; ST_DWithin is not, and at 20M roads that difference decides
+                  # whether this finishes.
+                  con.execute("DROP TABLE IF EXISTS nearr")
+                  con.execute(f"""
+                    CREATE TEMP TABLE nearr AS
+                    SELECT i._cng_fid AS fid, ST_Union_Agg(r.g) AS rg
+                    FROM i_s i JOIN r_s r ON ST_Intersects(i.gb, r.g)
+                    GROUP BY i._cng_fid
+                  """)
+                  nn = con.execute("SELECT COUNT(*) FROM nearr").fetchone()[0]
+                  print(f"  {nn:,} IRA polygons have a road within {MAXD:.0f} m", flush=True)
+
+                  con.execute(f"""
+                    COPY (
+                      SELECT i._cng_fid, i.STATE, i.CATEGORY, i.rule_affected,
+                             i.ACRES AS ira_acres,
+                             dl.d    AS d_m,
+                             ST_Area(ST_Intersection(i.g, ST_Buffer(n.rg, dl.d))) / {M2_AC}
+                               AS acres_within,
+                             CASE WHEN i.g_pae IS NULL THEN NULL
+                                  ELSE ST_Area(ST_Intersection(i.g_pae, ST_Buffer(n.rg, dl.d)))
+                                       / {M2_AC} END
+                               AS pae_acres_within,
+                             ST_Length(ST_Intersection(i.g, n.rg)) / {MI_M}
+                               AS road_miles_inside
+                      FROM i_s i
+                      JOIN nearr n ON n.fid = i._cng_fid
+                      CROSS JOIN (VALUES {ladder_vals}) AS dl(d)
+                    )
+                    TO '{WORK}/prox/{key}.parquet'
+                    (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 20000)
+                  """)
+                  print(f"  ✓ wrote {WORK}/prox/{key}.parquet", flush=True)
+
+          # ------------------------------------------------------------ consolidated table
+          con.execute(f"""
+            CREATE TABLE prox AS
+            SELECT regexp_extract(filename, 'prox/([^_]+(?:-[^_]+)*)__', 1) AS road_stratum,
+                   regexp_extract(filename, '__([A-Z]+)\\.parquet', 1)      AS region,
+                   * EXCLUDE (filename)
+            FROM read_parquet('{WORK}/prox/*.parquet', filename := true)
+            WHERE _cng_fid IS NOT NULL
+          """)
+          print("\nconsolidated rows:",
+                con.execute("SELECT COUNT(*) FROM prox").fetchone()[0], flush=True)
+
+          con.execute(f"""
+            COPY (SELECT * FROM prox)
+            TO '{WORK}/proximity-raw.parquet'
+            (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 20000)
+          """)
+
+          # ------------------------------------------------------------------- headline
+          print("\n" + "=" * 78)
+          print("ACRES WITHIN d OF A ROAD  (true geometry, equal-area)")
+          print("=" * 78, flush=True)
+          rows = con.execute(f"""
+            SELECT road_stratum, d_m,
+                   SUM(acres_within)                                    AS all_ira,
+                   SUM(acres_within) FILTER (WHERE rule_affected)       AS rule_affected,
+                   SUM(pae_acres_within) FILTER (WHERE rule_affected)   AS pae
+            FROM prox GROUP BY 1,2 ORDER BY 1,2
+          """).fetchall()
+          print(f"{'stratum':<18}{'d (m)':>10}{'all-IRA':>16}{'rule-affected':>16}{'PAE':>16}")
+          for s, d, a, r, p in rows:
+              print(f"{s:<18}{d:>10.1f}{a:>16,.0f}{r:>16,.0f}{(p or 0):>16,.0f}")
+
+          print("\nRoad miles inside IRAs (rule-affected base; EA reports ~17,000):")
+          for s, m in con.execute("""
+            SELECT road_stratum, SUM(road_miles_inside)
+            FROM (SELECT DISTINCT road_stratum, _cng_fid, rule_affected, road_miles_inside FROM prox)
+            WHERE rule_affected GROUP BY 1 ORDER BY 2 DESC
+          """).fetchall():
+              print(f"  {s:<18}{m:>14,.0f} mi")
+          print("\n✓ proximity ladder complete", flush=True)
+          PY
+          echo "✓ Complete"
+      volumes:
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

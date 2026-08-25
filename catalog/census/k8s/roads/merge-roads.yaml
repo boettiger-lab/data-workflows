@@ -1,0 +1,147 @@
+# Step 1c (part 2) for census-2025/roads: union the 56 per-state GeoParquets staged by
+# preprocess-roads.yaml into the single national dataset parquet that the standard
+# cng-datasets workflow consumes.
+#
+# ~20M line features. DuckDB streams (larger-than-memory spills to disk), so the work is
+# bounded by the scratch PVC rather than RAM — temp_directory points at rechunk-scratch
+# (2Ti RWX rook-cephfs) rather than the 50Gi-capped pod ephemeral storage.
+#
+# Row groups stay at 100000: TIGER road geometries are short (~200 B WKB), so a geometry
+# column chunk lands near 20 MB — three orders of magnitude under the ~2.8 GB DuckDB
+# httpfs `stoi` cliff (AGENTS.md serialization standard).
+#
+# Reads and writes over the INTERNAL endpoint (rook-ceph-rgw-nautiluss3.rook), never the
+# public one.
+#
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-2025-roads-merge
+  labels:
+    k8s-app: census-2025-roads-merge
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: census-2025-roads-merge
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: merge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp_roads_merge
+        resources:
+          requests:
+            cpu: '8'
+            memory: 48Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '8'
+            memory: 48Gi
+            ephemeral-storage: 20Gi
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp_roads_merge
+
+          # Fail loudly if preprocess did not stage all 56 states — a short union would
+          # silently publish a partial "national" layer, which is exactly the failure
+          # class the h0-coverage gate exists to catch downstream.
+          N=$(rclone lsf nrp:public-census/raw/roads-2025/ | grep -c '\.parquet$')
+          echo "staged state parquets: ${N}"
+          if [ "${N}" -ne 56 ]; then
+            echo "ERROR: expected 56 state parquets, found ${N} — re-run preprocess-roads.yaml" >&2
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import os, duckdb
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ['AWS_ACCESS_KEY_ID'])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ['AWS_SECRET_ACCESS_KEY'])
+          con.execute("SET memory_limit='40GB'; SET threads=8;")
+          con.execute("SET temp_directory='/scratch/tmp_roads_merge';")
+          con.execute("SET preserve_insertion_order=false;")
+
+          SRC = "s3://public-census/raw/roads-2025/*.parquet"
+
+          n, ncty = con.execute(f"""
+            SELECT COUNT(*), COUNT(DISTINCT GEOID_COUNTY)
+            FROM read_parquet('{SRC}')
+          """).fetchone()
+          print(f"input: {n:,} features across {ncty} counties", flush=True)
+          if ncty != 3233:
+              raise SystemExit(f"ERROR: expected 3233 counties, got {ncty}")
+
+          con.execute(f"""
+            COPY (
+              SELECT LINEARID, FULLNAME, RTTYP, MTFCC, GEOID_COUNTY, geometry
+              FROM read_parquet('{SRC}')
+              WHERE geometry IS NOT NULL AND NOT ST_IsEmpty(geometry)
+            )
+            TO 's3://public-census/census-2025/roads.parquet'
+            (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+          """)
+
+          out = con.execute(
+            "SELECT COUNT(*) FROM read_parquet('s3://public-census/census-2025/roads.parquet')"
+          ).fetchone()[0]
+          print(f"output: {out:,} features (dropped {n - out:,} null/empty geometries)", flush=True)
+          PY
+
+          rclone lsl nrp:public-census/census-2025/roads.parquet
+          echo "✓ Complete"
+      volumes:
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
