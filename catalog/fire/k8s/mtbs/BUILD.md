@@ -559,7 +559,27 @@ kubectl apply -n geo-workflows -f catalog/fire/k8s/mtbs/severity-hex-workflow.ya
 - Six source mosaics are permanently missing upstream; that is recorded, not a bug to re-investigate.
 - `mtbs_CONUS_2005.tif` has 23 out-of-domain pixels, clamped by a VRT LUT.
 - The severity h0 sets are measured, not inherited from WHP — CONUS 6 cells, **Alaska 1**.
-- `parallelism: 61`, not 12: every index in these jobs is real work.
+- `parallelism: 61`, not 12: every index in these jobs is real work. CONUS runs at **117**
+  (234 = 117 x 2, two clean waves).
+- 🔴 **Do not keep the generator's GPU-node exclusion on these jobs.** `cng-datasets` emits a
+  `feature.node.kubernetes.io/pci-10de.present NotIn true` affinity term; AGENTS.md says not to
+  keep it for CPU-only work, and on this build it was the single biggest throughput constraint.
+  With it, the scheduler rejected pods with *"158 node(s) didn't match Pod's node
+  affinity/selector"* out of 529 and only **60 of 117** pods could be placed. Without it: **112
+  placed across 87 nodes**, ~1.87x the concurrency, for four deleted lines.
+
+  That Pending backlog is easy to misread, and it was misread here first: it looks exactly like
+  cluster memory pressure, and was briefly recorded as proof that `parallelism: 117` had bought
+  nothing. It was self-inflicted. **Check `kubectl top pod` against the request before believing a
+  capacity story** — measured here at a 138Gi peak and 120Gi mean against a 192Gi request, with
+  cpu 7.1 of 8, i.e. not memory-bound at all.
+- **Keep the two host exclusions** (`hpc-nrp-g1.nmsu.edu`, `service-02.nrp.mghpcc.org`). They are
+  not capacity tuning — both have broken egress/S3 connectivity where pods schedule and then hang
+  on the rclone localize.
+- **A Job's pod template is immutable**, so an affinity or resource change means delete + recreate.
+  Recreate under the **same name**: the orchestrator polls its child jobs by name, so a replacement
+  with the same name is picked up seamlessly and completion is still detected. `parallelism` alone
+  *is* mutable and can be patched on a running job.
 - **`gen_stac.py` reproduces the live perimeters collection byte-identically** (verified
   2026-08-24 by diffing its output against the published S3 object). The generator is the single
   source of truth, so re-running and re-uploading it cannot clobber the live collection with drift.
