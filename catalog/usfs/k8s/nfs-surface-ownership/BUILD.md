@@ -154,10 +154,15 @@ per-feature totals **repeated on every cell the feature covers**; dedup key is `
 Derive area from the H3 footprint over DISTINCT cells instead of summing `GIS_ACRES`. This is
 flagged at the hex asset description level in each collection's STAC.
 
-**Dateline.** Unlike #584 — whose Alaska coverage is the Southeast panhandle and Chugach only,
-so the seam genuinely was not in play — these four layers cover all of Alaska including the
-Aleutians. h0 `576707042908045311` **is** in play and must be checked for ±180 wrap inflation
-rather than inheriting #584's verdict.
+**Dateline — checked, not inherited.** Measured bounding boxes are `-150.008 .. -64.734`
+(ownership) and `-150.008 .. -65.700` (the three envelopes), western limit identical to #584.
+**These layers do not reach the Aleutians**, so the antimeridian is never crossed. An earlier
+note in this file predicted Aleutian coverage and a live seam risk; the data refutes it.
+
+h0 `576707042908045311` — the cell AGENTS.md flags for dateline problems — **is** populated in
+`nfs-surface-ownership`, but legitimately: 661 features / 2,002,031 hex rows spanning longitudes
+-150.008 to -133.022, entirely in the western hemisphere with no wrap to +180. Same verdict as
+#584, reached by measurement on this layer rather than carried over from it.
 
 ## Acceptance criteria
 

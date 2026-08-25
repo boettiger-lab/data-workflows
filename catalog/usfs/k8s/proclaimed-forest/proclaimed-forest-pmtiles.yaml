@@ -74,15 +74,14 @@ spec:
         resources:
           requests:
             cpu: '4'
-            memory: 16Gi
+            memory: 8Gi
           limits:
             cpu: '4'
-            memory: 16Gi
+            memory: 8Gi
       volumes:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

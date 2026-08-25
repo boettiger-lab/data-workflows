@@ -2,7 +2,7 @@ queue: geo-workflows
 jobSetId: proclaimed-forest-repartition
 jobs:
 - namespace: geo-workflows
-  priorityClassName: armada-preemptible
+  priorityClassName: armada-default
   podSpec:
     restartPolicy: Never
     containers:

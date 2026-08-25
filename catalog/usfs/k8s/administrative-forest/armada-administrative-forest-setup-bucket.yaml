@@ -2,7 +2,7 @@ queue: geo-workflows
 jobSetId: administrative-forest-setup-bucket
 jobs:
 - namespace: geo-workflows
-  priorityClassName: armada-preemptible
+  priorityClassName: armada-default
   podSpec:
     restartPolicy: Never
     containers:

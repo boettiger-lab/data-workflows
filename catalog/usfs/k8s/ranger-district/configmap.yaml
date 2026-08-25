@@ -72,15 +72,14 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
               limits:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
           volumes:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -98,8 +97,8 @@ data:
       labels:
         k8s-app: ranger-district-hex
     spec:
-      completions: 503
-      parallelism: 50
+      completions: 168
+      parallelism: 25
       completionMode: Indexed
       backoffLimit: 0
       podFailurePolicy:
@@ -148,17 +147,16 @@ data:
             - -c
             - |-
               set -e
-              cng-datasets vector --input s3://public-usfs/ranger-district.parquet --output s3://public-usfs/ranger-district/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+              cng-datasets vector --input s3://public-usfs/ranger-district.parquet --output s3://public-usfs/ranger-district/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 3 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
             resources:
               requests:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
                 ephemeral-storage: 10Gi
               limits:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
                 ephemeral-storage: 10Gi
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -245,15 +243,14 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
               limits:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
           volumes:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -331,7 +328,6 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -411,7 +407,6 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:

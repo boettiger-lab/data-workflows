@@ -6,7 +6,7 @@ metadata:
     k8s-app: administrative-forest-hex
 spec:
   completions: 112
-  parallelism: 50
+  parallelism: 25
   completionMode: Indexed
   backoffLimit: 0
   podFailurePolicy:
@@ -59,13 +59,12 @@ spec:
         resources:
           requests:
             cpu: '4'
-            memory: 16Gi
+            memory: 8Gi
             ephemeral-storage: 10Gi
           limits:
             cpu: '4'
-            memory: 16Gi
+            memory: 8Gi
             ephemeral-storage: 10Gi
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

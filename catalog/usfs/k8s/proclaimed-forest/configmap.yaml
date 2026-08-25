@@ -72,15 +72,14 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
               limits:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
           volumes:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -152,13 +151,12 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
                 ephemeral-storage: 10Gi
               limits:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
                 ephemeral-storage: 10Gi
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -245,15 +243,14 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
               limits:
                 cpu: '4'
-                memory: 16Gi
+                memory: 8Gi
           volumes:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -331,7 +328,6 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -411,7 +407,6 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
