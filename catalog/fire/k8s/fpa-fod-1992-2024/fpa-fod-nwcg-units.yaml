@@ -1,0 +1,123 @@
+# Extract the non-spatial NWCG unit lookup table from the staged FPA-FOD 7th-edition GPKG.
+#
+# Issue #587. The Fires layer identifies the reporting unit only by NWCG_REPORTING_UNIT_ID /
+# _NAME. This table resolves a UnitId to its Department / Agency / WildlandRole / GACC, which is
+# how the NFS-only stratum is isolated by a join rather than by string matching on a unit name.
+#
+# Single pod, reads the already-staged GPKG over the INTERNAL endpoint - safe to run while a hex
+# fan-out holds the namespace-wide hex lock.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fpa-fod-nwcg-units
+  namespace: geo-workflows
+  labels:
+    k8s-app: fpa-fod-nwcg-units
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: fpa-fod-nwcg-units
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: extract-units
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          GPKG=/vsis3/public-fire/raw/FPA_FOD_20260615.gpkg
+          OUT=s3://public-fire/fpa-fod-1992-2024-nwcg-units.parquet
+
+          echo "=== discovering the unit-lookup layer name ==="
+          ogrinfo -so "$GPKG" | tee /tmp/layers.txt
+          LAYER=$(grep -oE 'NWCG_UnitI[dD]Active[A-Za-z0-9_]*' /tmp/layers.txt | head -1)
+          if [ -z "$LAYER" ]; then
+            echo "FATAL: could not find the NWCG unit lookup layer in $GPKG" >&2
+            exit 1
+          fi
+          echo "unit lookup layer: $LAYER"
+
+          export LAYER OUT
+          python3 <<'PYEOF'
+          import duckdb, os
+          layer, out = os.environ['LAYER'], os.environ['OUT']
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial;")
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute(f"""
+              CREATE SECRET s (
+                  TYPE S3,
+                  KEY_ID '{os.environ['AWS_ACCESS_KEY_ID']}',
+                  SECRET '{os.environ['AWS_SECRET_ACCESS_KEY']}',
+                  ENDPOINT '{os.environ['AWS_S3_ENDPOINT']}',
+                  URL_STYLE 'path',
+                  USE_SSL false
+              )
+          """)
+          print(f"reading layer {layer} ...")
+          con.execute(f"""
+              COPY (
+                  SELECT * FROM ST_Read('/vsis3/public-fire/raw/FPA_FOD_20260615.gpkg',
+                                        layer='{layer}')
+              ) TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD)
+          """)
+          n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{out}')").fetchone()[0]
+          print(f"wrote {out}: {n} rows")
+          print("=== schema ===")
+          for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{out}')").fetchall():
+              print("   ", r[0], r[1])
+          print("=== WildlandRole / Agency spread (NFS isolation sanity check) ===")
+          for r in con.execute(f"""
+              SELECT Agency, COUNT(*) AS n
+              FROM read_parquet('{out}') GROUP BY Agency ORDER BY n DESC LIMIT 15
+          """).fetchall():
+              print("   ", r)
+          PYEOF
+          echo "DONE"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 8Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 8Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

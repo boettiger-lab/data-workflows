@@ -1,0 +1,90 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fpa-fod-1992-2024-convert
+  labels:
+    k8s-app: fpa-fod-1992-2024-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: fpa-fod-1992-2024-convert
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-fire
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # Localize the GPKG before converting. A GeoPackage is a SQLite database, and reading it
+          # in place over /vsis3 turns the conversion into thousands of small random range requests
+          # -- "Detecting geometry column" alone ran 6+ minutes at ~7% CPU and flat memory, i.e.
+          # pure I/O wait. rclone pulls the same file from the internal endpoint at ~200 MiB/s, so
+          # localizing costs seconds and the convert then reads at local-disk speed.
+          echo "=== localizing source GPKG ==="
+          rclone copyto nrp:public-fire/raw/FPA_FOD_20260615.gpkg /tmp/FPA_FOD_20260615.gpkg \
+            --transfers 8 --checkers 8
+          ls -la /tmp/FPA_FOD_20260615.gpkg
+
+          echo "=== converting ==="
+          cng-convert-to-parquet \
+            /tmp/FPA_FOD_20260615.gpkg \
+            s3://public-fire/fpa-fod-1992-2024.parquet \
+            --row-group-size 100000 \
+            --layer Fires
+          echo "DONE"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 16Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
