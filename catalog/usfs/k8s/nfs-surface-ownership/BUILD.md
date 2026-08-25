@@ -207,7 +207,7 @@ sits 279,217 ac (-0.14%) below the `GIS_ACRES` total, the same small negative bi
 |---|---:|
 | **Surface ownership** (`OWNERCLASS='USDA FOREST SERVICE'`) | **17,345,447** |
 | `pad-us-4-1/fee` USFS, `State_Nm='MT'` (cross-check) | 17,254,331 (+0.53%) |
-| **Proclaimed boundary** (`proclaimed-forest`) | _pending build_ |
+| **Proclaimed boundary** (`proclaimed-forest`) | **19,239,590** |
 
 Two unrelated sources agree to **0.53%**, computed differently — PAD-US pre-splits features by
 state; this is a cell-wise mask. Agreement is evidence, not tautology.
@@ -219,10 +219,13 @@ state; this is a cell-wise mask. Agreement is evidence, not tautology.
 | MT NFS (surface ownership) | 17,345,447 | 100% |
 | MT IRA on NFS | 6,416,470 | **36.99%** |
 
-**36.99%, not "nearly 60 percent."** For 60% to hold, the denominator would have to be 10,659,001
-ac — 6.7M acres below Montana's actual NFS surface ownership. And no USFS denominator rescues the
-claim *in the direction attempted*: the proclaimed and administrative envelopes are **larger** than
-surface ownership, so substituting them pushes the share **down**, not up.
+| MT IRA inside the proclaimed boundary | 6,446,012 | **33.33%** |
+
+**36.99% against ownership and 33.33% against the proclaimed envelope — neither is "nearly 60
+percent."** For 60% to hold, the denominator would have to be 10,659,001 ac, some 6.7M below
+Montana's actual NFS surface ownership. And the prediction that no USFS denominator rescues the
+claim *in the direction attempted* is now measured rather than argued: the proclaimed boundary is
+**larger** (19,239,590 vs 17,345,447), so substituting it pushes the share **down** to 33.33%.
 
 ### 4. The wilderness hypothesis ✅ CONFIRMED
 
@@ -275,4 +278,40 @@ remainder being IRA over inholdings and other ownership inside the envelope.
 logical feature and **axis-2 (upstream) duplication does not apply**; `_cng_fid` is a sufficient
 dedup key.
 
-_Envelope-layer gates pending their builds._
+All four layers, measured against the ingested data:
+
+| Gate | ownership | administrative | proclaimed | ranger district |
+|---|---|---|---|---|
+| Features, flat | 117,190 | 112 | 154 | 503 |
+| `SUM(GIS_ACRES)` flat | 204,298,788 | 236,835,251 | 225,145,181 | 237,098,674 |
+| `COUNT(DISTINCT _cng_fid)` on hex | 117,190 ✅ | 112 ✅ | 154 ✅ | 503 ✅ |
+| Hex/flat deduped `SUM` | exact ✅ | exact ✅ | exact ✅ | exact ✅ |
+| Hex rows | 55,509,398 | 64,066,734 | 61,007,536 | 64,129,590 |
+| `failedIndexes` | `[]` ✅ | `[]` ✅ | `[]` ✅ | `[]` ✅ |
+| h0 partition gate | 9/9 ✅ | 9/9 ✅ | 9/9 ✅ | 9/9 ✅ |
+| NULL finest-parent `h10` | 0 ✅ | 0 ✅ | 0 ✅ | 0 ✅ |
+| `verify-stac.py` (data-backed) | PASS ✅ | PASS ✅ | PASS ✅ | PASS ✅ |
+| PMTiles + categorical linters | PASS ✅ | PASS ✅ | PASS ✅ | PASS ✅ |
+
+`COUNT(DISTINCT _cng_fid)` on hex equals the flat feature count for every layer, so no build was
+silently capped, and every deduped `SUM(GIS_ACRES)` reproduces its flat total exactly.
+
+## Build notes worth carrying forward
+
+**Preemption cost real work, and it is invisible in the usual place.** `administrative-forest`
+chunk 111 — the Tongass National Forest, 17,700,540 acres and the largest feature in the set —
+ran twelve minutes at `priorityClassName: opportunistic` (priority -2,000,000,000, the lowest
+available), was preempted, and restarted from zero. Because the job's `podFailurePolicy` ignores
+`DisruptionTarget`, the loss never appeared in `.status.failed`. Re-running that one index at
+default priority (0) completed it. The two layers built afterwards at default priority recorded
+**zero pod deaths across 322 chunks**.
+
+**Memory was over-requested roughly twentyfold.** Measured peak across every hex pod here was
+400–900 MiB against an initial 16Gi request. Memory decides how many placement slots exist, so
+the over-ask costs concurrency for nothing. 8Gi is ample for this work, and the biggest single
+feature in the catalogue did not come close to it.
+
+**The repartition step hit a slow image pull**, not a data fault: a pod sat in `ContainerCreating`
+for twelve minutes on one node pulling the 2.4 GB image. Deleting the job and re-applying placed
+it elsewhere and it finished in fifty seconds. Repartition reads chunks from S3 and is idempotent,
+so re-running is safe.
