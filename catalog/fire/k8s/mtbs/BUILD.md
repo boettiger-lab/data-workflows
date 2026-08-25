@@ -360,10 +360,49 @@ over 36 years, far below CONUS's 27.5% across the perimeters.
 
 `catalog/fire/k8s/mtbs/check-severity-coverage.sh ak hex` passes 36/36 in about 10 s.
 
-### `mtbs-severity-1984-2024-conus`
+### `mtbs-severity-1984-2024-conus` (2026-08-25)
 
-_Pending — `mtbs-severity-conus-hex` and `-hex-fractions` are queued behind the Alaska fractions
-job in `mtbs-severity-hex-workflow`._
+`mode` complete; `fractions` still running.
+
+| | |
+|---|---:|
+| Hex rows (`mode`) | 47,072,660 |
+| `COUNT(DISTINCT h10)` — unique ground | 34,811,828 |
+| Years | 39 (1984–2024 less 2004, 2017) |
+| Severity value set | {1,2,3,4,5,6} |
+| NULL `h10` / `h9` / `h8` | 0 / 0 / 0 |
+| Populated h0 partitions | 230 of 234 — see below |
+| Measured footprint | −124.408, 25.189, −67.183, 49.092 |
+
+**230 partitions, not 234, and that is correct.** `mode` is sparse, so a (year, h0) with no burned
+pixel writes nothing. All four absences are h0 `576812596024311807` — the thin northern-border
+strip — in 1990, 1993, 1995 and 2024, and each is confirmed against the perimeters collection,
+which covers all 41 years and is a strict superset: that cell has **zero** mapped fires in those
+years. The Job reported 234/234 succeeded with no failed indexes, and 234 − 4 = 230 closes exactly.
+
+**Reburn is four times heavier in CONUS than in Alaska.** 47,072,660 fire-years against 34,811,828
+unique cells is **35.2% more fire-years than unique ground**, where Alaska is 7.4% and the national
+perimeters figure is 27.5%. This is the single number most likely to be quoted wrongly: a "total
+acres burned" for the West that does not say which quantity it means is ambiguous by about a third.
+
+**Criterion 1, CONUS `mode` against the area-weighted COG:**
+
+| Code | Label | COG area % | `mode` hex % | Δ pp |
+|---:|---|---:|---:|---:|
+| 1 | Unburned to Low | 18.611 | 20.659 | **+2.048** |
+| 2 | Low | 52.581 | 53.145 | +0.564 |
+| 3 | Moderate | 17.436 | 15.444 | −1.992 |
+| 4 | High | 8.230 | 7.586 | **−0.644** |
+| 5 | Increased Greenness | 0.487 | 0.409 | −0.078 |
+| 6 | Non-Processing Area Mask | 2.654 | 2.757 | +0.103 |
+
+High-severity share (code 4 over codes 1–4): COG **8.497%**, `mode` **7.834%** (−0.663 pp).
+
+**The Alaska result reproduces independently on a different domain, different grid and 39 different
+years.** Class 1 gains ~2 pp, the true severity classes lose, and high severity is understated —
+here by 0.66 pp, about 7.8% relative. Two independent domains showing the same signed bias is what
+turns "mode discards the mix" from a plausible claim into a measured property of the reducer, and
+it is why every share question is routed to `hex-fractions`.
 
 ### Criterion 1, measured: `mode` tracks the COG but understates high severity
 

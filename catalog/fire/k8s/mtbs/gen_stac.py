@@ -58,8 +58,12 @@ MEASURED = {
         "raw_size": 374092911,
         "raw_md5": "65278fcb893f94cd0eaf66d966ee7125",   # recomputed from the staged object
     },
-    "conus": {"hex_rows": None, "frac_rows": None, "h0_count": 6, "bbox": None,
-              "cells_burned": None},
+    # CONUS, read back 2026-08-25 off the completed `mode` hex through the duckdb-geo MCP.
+    "conus": {"hex_rows": 47072660,    # COUNT(*) on hex/
+              "frac_rows": None,       # COUNT(*) on hex-fractions/ -- job still running
+              "h0_count": 6,
+              "bbox": [-124.408, 25.189, -67.183, 49.092],   # h3_cell_to_lng/lat over hex/
+              "cells_burned": 34811828},                     # COUNT(DISTINCT h10) on hex/
     # Alaska, read back 2026-08-24 off the completed `mode` hex through the duckdb-geo MCP.
     # h0_count is 1 and not 3: MTBS Alaska fires fall entirely inside base cell
     # 576707042908045311, which the measured bbox below confirms (see BUILD.md).
