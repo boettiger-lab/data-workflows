@@ -21,9 +21,11 @@ metadata:
   labels:
     k8s-app: ira-road-proximity
 spec:
-  backoffLimit: 3
-  completions: 1
-  parallelism: 1
+  completions: 60
+  parallelism: 20
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
   ttlSecondsAfterFinished: 172800
   template:
     metadata:
@@ -66,14 +68,16 @@ spec:
           value: 'FALSE'
         - name: TMPDIR
           value: /scratch/tmp_588_prox
+        - name: NSHARDS
+          value: '60' 
         resources:
           requests:
-            cpu: '16'
-            memory: 96Gi
+            cpu: '4'
+            memory: 28Gi
             ephemeral-storage: 20Gi
           limits:
-            cpu: '16'
-            memory: 96Gi
+            cpu: '4'
+            memory: 28Gi
             ephemeral-storage: 20Gi
         volumeMounts:
         - name: scratch
@@ -94,6 +98,10 @@ spec:
           M2_AC = 4046.8564224
           MI_M  = 1609.344
           MAXD  = 3218.688 * 1.05
+          SHARD  = int(os.environ["JOB_COMPLETION_INDEX"])
+          NSHARD = int(os.environ["NSHARDS"])
+          NEARR_PQ = f"/scratch/tmp_588_prox/nearr_{SHARD}.parquet"
+          IRA_PQ   = f"/scratch/tmp_588_prox/ira_stratum_{SHARD}.parquet"
 
           # The ladder. 804.672 m = 0.5 mi is the agency's stated definition of "near"
           # (DEIS Vol I p. 41 fn. 10); 1609.344 m = 1 mi is the Economic Analysis's second
@@ -129,7 +137,7 @@ spec:
           con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
           con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
           con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
-          con.execute("SET memory_limit='80GB'; SET threads=16;")
+          con.execute("SET memory_limit='22GB'; SET threads=4;")
           con.execute("SET temp_directory='/scratch/tmp_588_prox';")
           con.execute("SET preserve_insertion_order=false;")
 
@@ -159,7 +167,7 @@ spec:
                   print(f"defer {stratum} (TIGER not loaded)", flush=True)
                   continue
               for region in REGIONS:
-                  key = f"{stratum}__{region}"
+                  key = f"{stratum}__{region}__{SHARD:03d}"
                   if done(key):
                       print(f"skip {key} (already checkpointed)", flush=True)
                       continue
@@ -183,7 +191,9 @@ spec:
                     CREATE TEMP TABLE i_s AS
                     SELECT _cng_fid, STATE, CATEGORY, rule_affected, ACRES, g, g_pae,
                            ST_Buffer(g, {MAXD}) AS gb
-                    FROM ira WHERE crs_region = '{region}'
+                    FROM ira
+                    WHERE crs_region = '{region}'
+                      AND (hash(_cng_fid) % {NSHARD}) = {SHARD}
                   """)
                   ni = con.execute("SELECT COUNT(*) FROM i_s").fetchone()[0]
                   print(f"\n=== {key}: {ni:,} IRA polygons x {nr:,} roads ===", flush=True)
@@ -214,6 +224,22 @@ spec:
                   nn = con.execute("SELECT COUNT(*) FROM nearr").fetchone()[0]
                   print(f"  {nn:,} IRA polygons have a road within {MAXD:.0f} m", flush=True)
 
+                  # ⚡ Round-trip nearr through Parquet with TINY row groups before the
+                  # buffer ladder. DuckDB assigns pipeline parallelism per row group of the
+                  # driving scan, and an in-memory table of ~10k rows is a SINGLE row group
+                  # — so the ladder ran on one thread (measured: 1.9 of 16 cores busy,
+                  # ~20 min for one stratum). At 128 rows per group the same work spreads
+                  # across all 16 threads. Pure performance change: identical rows, identical
+                  # geometry, no tolerance or approximation introduced.
+                  con.execute(f"""
+                    COPY (SELECT * FROM nearr) TO '{NEARR_PQ}'
+                    (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 128)
+                  """)
+                  con.execute(f"""
+                    COPY (SELECT * FROM i_s) TO '{IRA_PQ}'
+                    (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 128)
+                  """)
+
                   con.execute(f"""
                     COPY (
                       SELECT i._cng_fid, i.STATE, i.CATEGORY, i.rule_affected,
@@ -227,8 +253,8 @@ spec:
                                AS pae_acres_within,
                              ST_Length(ST_Intersection(i.g, n.rg)) / {MI_M}
                                AS road_miles_inside
-                      FROM i_s i
-                      JOIN nearr n ON n.fid = i._cng_fid
+                      FROM read_parquet('{IRA_PQ}') i
+                      JOIN read_parquet('{NEARR_PQ}') n ON n.fid = i._cng_fid
                       CROSS JOIN (VALUES {ladder_vals}) AS dl(d)
                     )
                     TO '{WORK}/prox/{key}.parquet'
@@ -236,47 +262,7 @@ spec:
                   """)
                   print(f"  ✓ wrote {WORK}/prox/{key}.parquet", flush=True)
 
-          # ------------------------------------------------------------ consolidated table
-          con.execute(f"""
-            CREATE TABLE prox AS
-            SELECT regexp_extract(filename, 'prox/([^_]+(?:-[^_]+)*)__', 1) AS road_stratum,
-                   regexp_extract(filename, '__([A-Z]+)\\.parquet', 1)      AS region,
-                   * EXCLUDE (filename)
-            FROM read_parquet('{WORK}/prox/*.parquet', filename := true)
-            WHERE _cng_fid IS NOT NULL
-          """)
-          print("\nconsolidated rows:",
-                con.execute("SELECT COUNT(*) FROM prox").fetchone()[0], flush=True)
-
-          con.execute(f"""
-            COPY (SELECT * FROM prox)
-            TO '{WORK}/proximity-raw.parquet'
-            (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 20000)
-          """)
-
-          # ------------------------------------------------------------------- headline
-          print("\n" + "=" * 78)
-          print("ACRES WITHIN d OF A ROAD  (true geometry, equal-area)")
-          print("=" * 78, flush=True)
-          rows = con.execute(f"""
-            SELECT road_stratum, d_m,
-                   SUM(acres_within)                                    AS all_ira,
-                   SUM(acres_within) FILTER (WHERE rule_affected)       AS rule_affected,
-                   SUM(pae_acres_within) FILTER (WHERE rule_affected)   AS pae
-            FROM prox GROUP BY 1,2 ORDER BY 1,2
-          """).fetchall()
-          print(f"{'stratum':<18}{'d (m)':>10}{'all-IRA':>16}{'rule-affected':>16}{'PAE':>16}")
-          for s, d, a, r, p in rows:
-              print(f"{s:<18}{d:>10.1f}{a:>16,.0f}{r:>16,.0f}{(p or 0):>16,.0f}")
-
-          print("\nRoad miles inside IRAs (rule-affected base; EA reports ~17,000):")
-          for s, m in con.execute("""
-            SELECT road_stratum, SUM(road_miles_inside)
-            FROM (SELECT DISTINCT road_stratum, _cng_fid, rule_affected, road_miles_inside FROM prox)
-            WHERE rule_affected GROUP BY 1 ORDER BY 2 DESC
-          """).fetchall():
-              print(f"  {s:<18}{m:>14,.0f} mi")
-          print("\n✓ proximity ladder complete", flush=True)
+          print(f"\n✓ shard {SHARD}/{NSHARD} complete", flush=True)
           PY
           echo "✓ Complete"
       volumes:

@@ -1,0 +1,204 @@
+# #588 analysis, final step: consolidate the sharded proximity checkpoints into one fact
+# table, print the headline numbers, and solve for the buffer distance implied by the
+# 11.3M-acre claim.
+#
+# Requires: analysis-proximity.yaml (all 60 shards).
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ira-road-consolidate
+  labels:
+    k8s-app: ira-road-consolidate
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ira-road-consolidate
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: consolidate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp_588_cons
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+        volumeMounts:
+        - {name: scratch, mountPath: /scratch}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp_588_cons
+          python3 - <<'PY'
+          import os, duckdb
+
+          WORK = "s3://public-usfs/_work/588"
+          OUT  = "s3://public-usfs/ira-road-proximity.parquet"
+
+          # Agency figures this reproduction is tested against.
+          DEIS_PAE_ACRES = 40049537     # DEIS Vol I p.41 — potentially affected environment
+          RULE_AFFECTED  = 44701002     # #584 — IRA outside ID/CO
+          TARGET_PAE     = 11.3e6       # DEIS: acres within 0.5 mi, PAE base
+          TARGET_RA      = 13.3e6       # Economic Analysis: same buffer, 44.7M base
+          TARGET_RA_1MI  = 22.3e6       # Economic Analysis: within 1 mile
+          HALF_MILE      = 804.672
+          ONE_MILE       = 1609.344
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
+          con.execute("SET memory_limit='26GB'; SET threads=8;")
+          con.execute("SET temp_directory='/scratch/tmp_588_cons';")
+          con.execute("SET preserve_insertion_order=false;")
+
+          con.execute(f"""
+            CREATE TABLE prox AS
+            SELECT regexp_extract(filename, 'prox/(.+?)__[A-Z]+__\\d+\\.parquet$', 1) AS road_stratum,
+                   regexp_extract(filename, '__([A-Z]+)__\\d+\\.parquet$', 1)         AS region,
+                   * EXCLUDE (filename)
+            FROM read_parquet('{WORK}/prox/*.parquet', filename := true)
+            WHERE _cng_fid IS NOT NULL
+          """)
+          n = con.execute("SELECT COUNT(*) FROM prox").fetchone()[0]
+          strata = [r[0] for r in con.execute(
+              "SELECT DISTINCT road_stratum FROM prox ORDER BY 1").fetchall()]
+          print(f"consolidated {n:,} rows | strata: {strata}", flush=True)
+
+          # Sanity: every stratum must cover the same IRA set, or a shard is missing.
+          for s, c in con.execute(
+                  "SELECT road_stratum, COUNT(DISTINCT _cng_fid) FROM prox GROUP BY 1 ORDER BY 1"
+              ).fetchall():
+              print(f"  {s:<18} {c:,} IRA polygons", flush=True)
+
+          con.execute(f"""
+            COPY (
+              SELECT road_stratum, region, _cng_fid, STATE, CATEGORY, rule_affected,
+                     ira_acres, d_m, acres_within, pae_acres_within, road_miles_inside
+              FROM prox
+            ) TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 20000)
+          """)
+          print(f"wrote {OUT}", flush=True)
+
+          # ------------------------------------------------------------------- headline
+          print("\\n" + "=" * 86)
+          print("ACRES WITHIN d OF A ROAD — true geometry, equal-area projection")
+          print("=" * 86)
+          print(f"{'stratum':<18}{'d (m)':>10}{'all-IRA':>15}{'rule-affected':>15}{'PAE':>15}{'% of PAE':>10}")
+          rows = con.execute(f"""
+            SELECT road_stratum, d_m,
+                   SUM(acres_within)                                  AS all_ira,
+                   SUM(acres_within) FILTER (WHERE rule_affected)     AS ra,
+                   SUM(pae_acres_within) FILTER (WHERE rule_affected) AS pae
+            FROM prox GROUP BY 1,2 ORDER BY 1,2
+          """).fetchall()
+          for s, d, a, r, p in rows:
+              pct = 100.0 * (p or 0) / DEIS_PAE_ACRES
+              print(f"{s:<18}{d:>10.1f}{a:>15,.0f}{r:>15,.0f}{(p or 0):>15,.0f}{pct:>9.1f}%")
+
+          # ------------------------------------------------- cross-checks vs the agency
+          def at(stratum, d, col):
+              v = con.execute(f"""
+                SELECT SUM({col}) FROM prox
+                WHERE road_stratum = ? AND abs(d_m - ?) < 0.01 AND rule_affected
+              """, [stratum, d]).fetchone()[0]
+              return v or 0.0
+
+          print("\\n" + "=" * 86)
+          print("CROSS-CHECKS against published agency figures")
+          print("=" * 86)
+          checks = [
+              ("0.5 mi, PAE base (DEIS 11.3M)",  at("union-deis", HALF_MILE, "pae_acres_within"), TARGET_PAE),
+              ("0.5 mi, 44.7M base (EA 13.3M)",  at("union-deis", HALF_MILE, "acres_within"),     TARGET_RA),
+              ("1 mi, 44.7M base (EA 22.3M)",    at("union-deis", ONE_MILE,  "acres_within"),     TARGET_RA_1MI),
+          ]
+          for label, got, want in checks:
+              dev = 100.0 * (got - want) / want if want else 0
+              print(f"  {label:<36} computed {got:>13,.0f}  target {want:>12,.0f}  ({dev:+.1f}%)")
+
+          miles = con.execute("""
+            SELECT road_stratum, SUM(road_miles_inside)
+            FROM (SELECT DISTINCT road_stratum, _cng_fid, rule_affected, road_miles_inside FROM prox)
+            WHERE rule_affected GROUP BY 1 ORDER BY 2 DESC
+          """).fetchall()
+          print("\\n  Road miles inside IRAs outside ID/CO (EA reports ~17,000):")
+          for s, m in miles:
+              print(f"    {s:<18}{m:>12,.0f} mi")
+
+          # ------------------------------------- solve for the implied "near" distance
+          print("\\n" + "=" * 86)
+          print("SOLVING for the buffer distance d implied by each published acreage")
+          print("=" * 86)
+
+          def solve(stratum, col, target):
+              lad = con.execute(f"""
+                SELECT d_m, SUM({col}) FROM prox
+                WHERE road_stratum = ? AND rule_affected
+                GROUP BY 1 ORDER BY 1
+              """, [stratum]).fetchall()
+              lad = [(d, v or 0.0) for d, v in lad]
+              if not lad or lad[-1][1] < target:
+                  return None, lad
+              for (d0, v0), (d1, v1) in zip(lad, lad[1:]):
+                  if v0 <= target <= v1:
+                      # Linear interpolation on the ladder. Area grows smoothly and
+                      # monotonically in d, so this is accurate to well inside the spacing.
+                      if v1 == v0:
+                          return d0, lad
+                      return d0 + (target - v0) * (d1 - d0) / (v1 - v0), lad
+              return lad[0][0], lad
+
+          for stratum in strata:
+              for col, target, label in (
+                      ("pae_acres_within", TARGET_PAE, "11.3M vs PAE"),
+                      ("acres_within",     TARGET_RA,  "13.3M vs 44.7M")):
+                  d, lad = solve(stratum, col, target)
+                  if d is None:
+                      cap = lad[-1][1] if lad else 0
+                      print(f"  {stratum:<18} {label:<16} NOT REACHED — "
+                            f"max {cap:,.0f} ac at {lad[-1][0]:.0f} m" if lad else "no data")
+                  else:
+                      print(f"  {stratum:<18} {label:<16} d = {d:>8.1f} m "
+                            f"({d/1609.344:.3f} mi)  [agency states 0.5 mi = 804.7 m]")
+
+          print("\\n✓ consolidation complete", flush=True)
+          PY
+          echo "✓ Complete"
+      volumes:
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      - {name: rclone-config, secret: {secretName: rclone-config}}
