@@ -6,7 +6,14 @@ metadata:
   labels: {k8s-app: landfire-2024-hex}
 spec:
   completions: 48            # 2 reducers x 4 layers x 6 populated CONUS h0 cells
-  parallelism: 48
+  # parallelism is deliberately BELOW completions. A nominal 48 is fiction at
+  # 192Gi/pod -- the scheduler queues them anyway -- and it competes for placement
+  # with whatever else the namespace is running. Probe first: read `kubectl top pod`
+  # on the first slices (cpu is $2, memory is $3), then raise in place with
+  #   kubectl -n geo-workflows patch job landfire-2024-hex -p '{"spec":{"parallelism":N}}'
+  # Memory is the non-elastic dimension: the request decides how many placement slots
+  # exist for your own work, so being tight on it directly buys concurrency.
+  parallelism: 16          # start conservative and MEASURE, then raise (see below)
   completionMode: Indexed
   backoffLimitPerIndex: 3
   maxFailedIndexes: 8        # absorb preemption without aborting the siblings

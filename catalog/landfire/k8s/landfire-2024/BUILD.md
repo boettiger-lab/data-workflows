@@ -211,6 +211,28 @@ re-run after this failure into 8 seconds for the three finished layers instead o
 17 minutes of redundant warping. The upload is the last step and runs under `set -e`, so a present
 object is always a complete one.
 
+## Sizing, and what to do about an OOM
+
+The 8 cpu / 192Gi / 40Gi request is **inherited** from the NLCD and MTBS res-10 CONUS runs at this
+exact reducer and resolution, not measured for LANDFIRE. Treat it as a starting point: probe, read
+`kubectl top pod` (cpu is `$2`, memory is `$3` — reading `$1` gives the pod name and every number
+comes out zero), then size the fleet.
+
+⛔ **If a slice exits 137, do not reach for more memory first.** Measured on the concurrent
+`ira-road-proximity` run (#588, 2026-08-26): GEOS allocations inside DuckDB spatial are invisible
+to DuckDB's own `memory_limit`, so it cannot spill its way out of them and a bigger request just
+moves the ceiling. The lever that worked there was reducing how many large geometries are in
+flight at once. The equivalent knob here is **`CNG_HEX_WORKERS`** (set to 8), which controls how
+many H3 slices a pod processes concurrently — halve it before touching `memory`.
+
+`parallelism` is deliberately below `completions`. A nominal 48 at 192Gi per pod is fiction — the
+scheduler queues them regardless — and it competes for placement with everything else in the
+namespace. Raise it in place once neighbours drain:
+
+```bash
+kubectl -n geo-workflows patch job landfire-2024-hex -p '{"spec":{"parallelism":24}}'
+```
+
 ## Validation
 
 Run after the hex job reports `Complete=True` with empty `failedIndexes` — a preempted indexed job
