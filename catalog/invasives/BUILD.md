@@ -240,9 +240,43 @@ Native **10**, parents **9, 8, 0**. Pixel area 98.4693338923368² = **9 696 m²*
 cell of **15 047 m²** = **1.55 px/cell** — the same correspondence WHP (270 m) has at res 9 in #594.
 Carries `h8`, so it joins #584 / #585 / #586 directly (`AGENTS.md:735`).
 
-CONUS spans **4 h0 cells** — indices `12, 20, 50, 71` per the RAP CONUS res-10 precedent
-(`catalog/rap/k8s/rap-pfg-cover/rap-pfg-cover-conus-hex.yaml`). Confirm against
-`s3://public-grids/hex/h0-valid.parquet` before fanning out.
+### ⛔ CONUS h0 set: `12, 14, 20, 50, 71, 78` — do NOT copy the RAP precedent
+
+`catalog/rap/k8s/rap-pfg-cover/rap-pfg-cover-conus-hex.yaml` hardcodes `CHUNK_MAP=(12 20 50 71)`
+with the comment "CONUS-bounding h0 indices; tool skips ones the raster doesn't cover". **That list
+is missing two of the h0 cells CONUS actually occupies**, and the comment is what makes it look
+safe: the tool skips *supplied* indices that have no coverage, but it can never process an index
+that was never supplied. Under-supplying is silent.
+
+Resolved against `s3://public-grids/hex/h0-valid.parquet` by locating known cities (index = row
+order in that file):
+
+| h0 index | h0 | covers |
+|---:|---:|---|
+| 14 | 577692205326532607 | Nashville, Houston, Miami, Key West — **the Southeast** |
+| 20 | 577164439745200127 | Denver, Chicago, Bismarck, Duluth — the northern plains |
+| 50 | 577199624117288959 | Seattle, Los Angeles, San Diego, Salt Lake — the West |
+| 71 | 577762574070710271 | Tucson, El Paso, Yuma, Brownsville — the Southwest border |
+| 78 | 577234808489377791 | Boston, Detroit, Pittsburgh, Norfolk, northern Maine — **the Northeast** |
+| 12 | 576812596024311807 | far northern border strip; included as a cheap no-op |
+
+**14 and 78 are absent from the RAP list.** Six indices are passed here; an index with no data is a
+fast no-op, so over-supplying costs a pod and under-supplying loses a third of the country.
+
+### The same gap is present in the published `public-rap` hex
+
+Not a hypothetical. Verified against the catalog, 2026-08-26:
+
+- `s3://public-rap/rap-pfg-cover/hex/` contains **exactly 4 h0 partitions** — `12, 20, 50, 71` —
+  matching its `CHUNK_MAP` and missing `14` and `78`.
+- Its own source COG `s3://public-rap/rap-pfg-cover-cog.tif` spans the **full CONUS**:
+  −124.77 .. **−66.87** lon, 24.52 .. 49.39 lat.
+- The hexed cells stop at **−82.12** lon (2 M-row sample).
+
+So ~15° of longitude present in the COG — Florida, Georgia, the Carolinas, Virginia, and the entire
+Northeast — is missing from the published res-10 hex. The COG is fine; the hex is not. This is a
+`public-rap` defect, not an INHABIT one, and is raised separately; it is recorded here because it is
+the reason this build does not inherit that index list.
 
 ## ⚠️ Road-bias check — COMPLETE, and it fires on all 12
 
@@ -329,6 +363,11 @@ Carry `sci:doi` = `10.5066/P14HNEJF` (data release) and the *NeoBiota* method DO
 2. `k8s/inhabit-v4/stage-raw.yaml` — 12 indexed pods, 132 files, 26.0 GB → `raw/inhabit-v4-2024/`. **Done 2026-08-26: 12/12 in 23 min, 264 objects, 26.54 GB.**
 3. Value census (bincount per source raster) → declared value sets for STAC. **Done 2026-08-26, 108/108.**
 4. COG: warp to EPSG:4326, **`near` for the class rasters**, bilinear for the continuous.
+   **Phase-1 subset running 2026-08-26** (`k8s/inhabit-v4/cog.yaml`, hand-authored — see the
+   resampling trap above). Output grid, identical for every layer: **57745 x 25711 @
+   0.001096100359 deg**, origin (−128.386308874497, 51.268044444672). Two gates run per layer and
+   both pass so far: the warped class set is exactly `{-1, 0, 1, 2, 3}` (nearest-neighbour held),
+   and the grid matches the pinned constant.
 5. Hex res 10 / parents 9,8,0, reducer per product class, 4 CONUS h0 indices.
 6. STAC collection `inhabit-v4-2024`, one item per (species × product); `scripts/verify-stac.py`.
 
