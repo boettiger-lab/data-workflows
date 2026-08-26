@@ -1,0 +1,89 @@
+# Pull the 35 native-10m tiles from the (temporarily public) GCS bucket
+# kpdavis-fdap-cocoa, mosaic them into one WGS84 COG with the EE internal mask
+# baked into an explicit nodata (-9999, outside the 0..1 probability range), and
+# stage it at s3://public-commodities/raw/fdap-2025b-cocoa-peru-2024.tif for the
+# hex job. Uses the shared rechunk-scratch PVC (86 GB > the 50Gi ephemeral cap).
+# Downloads are resumable + size-verified so a retry resumes instead of restarting.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fdap-2025b-cocoa-peru-2024-stage-mosaic
+  labels:
+    k8s-app: fdap-2025b-cocoa-peru-2024-stage-mosaic
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: fdap-2025b-cocoa-peru-2024-stage-mosaic
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 7200
+      containers:
+      - name: stage-mosaic
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: TMPDIR, value: /scratch/tmp}
+        - {name: CPL_TMPDIR, value: /scratch/tmp}
+        - {name: GDAL_CACHEMAX, value: '2048'}
+        - {name: GCS_BUCKET, value: kpdavis-fdap-cocoa}
+        - {name: GCS_PREFIX, value: fdap-2025b/}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scratch, mountPath: /scratch, subPath: fdap-cocoa-peru-2024}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          trap 'echo "ERR at line $LINENO"; df -h /scratch; ls -l /scratch/tiles 2>/dev/null | tail' ERR
+          mkdir -p /scratch/tiles /scratch/tmp
+          echo "== listing tiles (name<TAB>size) from gs://${GCS_BUCKET}/${GCS_PREFIX} =="
+          curl -s "https://storage.googleapis.com/storage/v1/b/${GCS_BUCKET}/o?prefix=${GCS_PREFIX}&maxResults=1000" \
+            | python3 -c "import sys,json;[print(o['name']+'\t'+o['size']) for o in json.load(sys.stdin).get('items',[])]" > /scratch/list.txt
+          n=$(wc -l < /scratch/list.txt); echo "found $n objects"; test "$n" -gt 0
+          echo "== downloading (resume + size-verify) =="
+          while IFS=$'\t' read -r name want; do
+            out="/scratch/tiles/$(basename "$name")"
+            have=$(stat -c '%s' "$out" 2>/dev/null || echo 0)
+            if [ "$have" = "$want" ]; then echo "  skip $(basename "$name") (have $have)"; continue; fi
+            echo "  fetch $(basename "$name") (want $want, have $have)"
+            curl -sf --retry 8 --retry-delay 5 --retry-all-errors -C - -o "$out" "https://storage.googleapis.com/${GCS_BUCKET}/${name}"
+            got=$(stat -c '%s' "$out"); [ "$got" = "$want" ] || { echo "SIZE MISMATCH $name: got $got want $want"; exit 1; }
+          done < /scratch/list.txt
+          echo "== all tiles present: $(ls /scratch/tiles/*.tif | wc -l); disk: =="; df -h /scratch
+          echo "== mosaicking -> COG (mask -> nodata -9999) =="
+          gdalwarp -of COG -dstnodata -9999 -ovr NONE \
+            -co COMPRESS=DEFLATE -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+            -multi -wo NUM_THREADS=ALL_CPUS \
+            /scratch/tiles/*.tif /scratch/cocoa-peru-2024.tif
+          echo "== output summary =="
+          gdalinfo -stats /scratch/cocoa-peru-2024.tif | grep -E 'Size is|Pixel Size|NoData|STATISTICS_MIN|STATISTICS_MAX' | head
+          echo "== uploading to s3://public-commodities/raw/ =="
+          rclone copyto /scratch/cocoa-peru-2024.tif \
+            nrp:public-commodities/raw/fdap-2025b-cocoa-peru-2024.tif \
+            --s3-no-check-bucket --stats-one-line --stats 30s
+          echo "== STAGING COMPLETE =="
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}

@@ -1,0 +1,60 @@
+# Pre-localize the 64.7 GB COG ONCE to a shared PVC dir and verify it reads
+# end-to-end (gdalinfo -checksum touches every tile → errors on a truncated
+# tile). The hex pods then point --local-cache-dir at this verified copy, so a
+# single clean localize is shared read-only by all 4 cells — avoiding the
+# per-pod re-localize that produced a size-correct-but-corrupt cache tile
+# (cell 91 / tile 78665). Purges the old per-index caches first.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fdap-2025b-cocoa-peru-2024-prep-cache
+  labels: {k8s-app: fdap-2025b-cocoa-peru-2024-prep-cache}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: fdap-2025b-cocoa-peru-2024-prep-cache}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 5400
+      containers:
+      - name: prep-cache
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scratch, mountPath: /scratch, subPath: fdap-cocoa-peru-2024-hex}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "== purge stale per-index caches =="
+          rm -rf /scratch/cache-* /scratch/shared
+          mkdir -p /scratch/shared
+          echo "== fresh localize to /scratch/shared =="
+          rclone copyto nrp:public-commodities/raw/fdap-2025b-cocoa-peru-2024.tif \
+            /scratch/shared/fdap-2025b-cocoa-peru-2024.tif \
+            --s3-no-check-bucket --transfers 8 --stats-one-line --stats 30s
+          have=$(stat -c '%s' /scratch/shared/fdap-2025b-cocoa-peru-2024.tif)
+          echo "localized size: $have (expect 64666078575)"
+          test "$have" = "64666078575"
+          echo "== verify every tile reads (gdalinfo -checksum) =="
+          gdalinfo -checksum /scratch/shared/fdap-2025b-cocoa-peru-2024.tif | grep -E 'Checksum|Size is'
+          echo "== VERIFIED clean shared cache =="
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '4', memory: 32Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}

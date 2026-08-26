@@ -1,0 +1,81 @@
+# H3 hex for the Peru cocoa-probability COG.
+#
+# The 64.7 GB native-10m COG exceeds the 50Gi per-pod ephemeral cap, so it is
+# localized to the shared rechunk-scratch PVC (per-pod cache subdir), and only
+# the 4 H3 base cells (res-0) that cover Peru are processed — the tool's own
+# --h0-index values (from s3://public-grids/hex/h0-valid.parquet): 37,91,96,112.
+# (NOT the raw h3.get_res0_cells() ordering.)
+#
+# Native res 9 / parents 8,0 (res 10 OOMed at 96Gi over Peru-sized base cells).
+# Reducer mean (probability is an intensity). --nodata nan: outside-Peru pixels
+# are NaN with no nodata tag, so they must be declared to be excluded.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fdap-2025b-cocoa-peru-2024-hex
+  labels: {k8s-app: fdap-2025b-cocoa-peru-2024-hex}
+spec:
+  completions: 4
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: fdap-2025b-cocoa-peru-2024-hex}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 21600
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        - {name: TMPDIR, value: /scratch/tmp}
+        - {name: CPL_TMPDIR, value: /scratch/tmp}
+        # Pin exact_extract worker processes: the tool otherwise sizes to the
+        # NODE core count (misdetects the pod CPU limit) → 256 procs → OOM.
+        - {name: CNG_HEX_WORKERS, value: '32'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scratch, mountPath: /scratch, subPath: fdap-cocoa-peru-2024-hex}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp
+          CHUNK_MAP=(37 91 96 112)
+          H0=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
+          echo "== hex: h0-index $H0, res 9, mean, nodata nan =="
+          cng-datasets raster \
+            --input s3://public-commodities/raw/fdap-2025b-cocoa-peru-2024.tif \
+            --output-parquet s3://public-commodities/fdap-2025b/cocoa-peru-2024/hex/ \
+            --h0-index $H0 \
+            --resolution 9 --parent-resolutions 8,0 \
+            --value-column probability --hex-resampling mean \
+            --nodata nan \
+            --local-cache-dir /scratch/shared
+          echo "== hex done for h0-index $H0 =="
+        resources:
+          requests: {cpu: '16', memory: 96Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '16', memory: 96Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
