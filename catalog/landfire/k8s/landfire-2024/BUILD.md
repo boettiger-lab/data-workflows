@@ -116,8 +116,51 @@ and not from upstream docs.
 
 The COG step declares the single primary `-9999` (a GDAL band carries only one NoData value, and a
 space-separated `-srcnodata` list means *per-band*, not "any of these"). The secondary codes remain
-real pixel values in the COG, documented in `classification:classes`, and are excluded at the hex
-step, which accepts a comma list (`_parse_nodata_values`, `cng_datasets/raster/cog.py:292`).
+real pixel values in the COG and are excluded at the hex step, which accepts a comma list
+(`_parse_nodata_values`, `cng_datasets/raster/cog.py:292`).
+
+### ⛔ Fill codes are NOT `classification:classes` (#628)
+
+The first published VCC and EVT collections listed all three fill codes as renderable classes, on
+the reasoning that the list should cover everything a consumer can meet in the COG. That is the
+wrong list to put them on. `classification:classes` is what a client turns into a **render
+colormap** — geo-agent's raster branch takes it verbatim, with no config override — so every entry
+in it is *painted*:
+
+| code | in VCC's colormap | rendered |
+|---:|---|---|
+| `-9999` | `FFFFFF` | transparent — it equals the band nodata, so it is masked first |
+| `-1111` | `6F6F6F` | **solid grey over real ground** |
+| `32767` | `FFFFFF` | **solid white over real ground** |
+
+Measured over four z4 tiles across CONUS, **8–37% of every painted pixel was fill**, and the
+six-step departure scale the layer exists to show was a minority of the rendered surface. Dropping
+the three entries fixes it with no change to the COG: a value absent from the colormap maps to
+nothing and rio-tiler leaves it fully transparent — re-measured on the same four tiles, exactly the
+fill share disappears and nothing else changes.
+
+```
+z4/3/5 painted 40363 -> 32449   z4/4/5 painted 25461 -> 16132
+z4/3/6 painted 44165 -> 40675   z4/4/6 painted 27397 -> 24603
+```
+
+So `make-stac.py` builds `classification:classes` from `present` alone. The fill codes stay
+documented in the collection description and in both hex asset descriptions, which is where a
+consumer needs them (`WHERE vcc NOT IN (…)`), and nowhere that a renderer reads.
+
+⚠️ **`/cog/statistics` cannot tell you whether the declared nodata is doing anything.** It reports
+VCC as `min -1111, max 32767` with no `-9999` in sight, which reads like a nodata that masks
+nothing. It is the opposite: the endpoint *applies* the band nodata before computing, so `-9999`
+is missing from the summary **because** it is being masked. Override it to see the truth —
+
+```
+?url=…landfire-2024-vcc-cog.tif              -> min -1111  max 32767  valid 52.52%
+?url=…landfire-2024-vcc-cog.tif&nodata=32767 -> min -9999  max   180  valid 95.62%
+```
+
+`-9999` is 33.03% of the raster (the out-of-CONUS Albers corners) and is by far the largest fill
+region, so it is the right choice for the single GDAL nodata slot. Re-declaring `32767` as the
+nodata instead would unmask those corners and paint them white — measured, not assumed.
 
 ### Real class codes, confirmed against the shipped legends
 
@@ -125,8 +168,9 @@ step, which accepts a comma list (`_parse_nodata_values`, `cng_datasets/raster/c
   Snow/Ice, `120` Developed, `132` Barren, `180` Agriculture. Class 3 (Moderate-to-Low departure,
   9.00%) and class 5 (High, 9.84%) are the most common condition classes.
 - **EVT** — **832 codes present in CONUS**, fewer than the ~1,068 in the shipped CSV: the legend is
-  the national vocabulary, the ingest is what actually occurs. STAC `values` comes from the ingest;
-  `classification:classes` comes from the authoritative CSV.
+  the national vocabulary, the ingest is what actually occurs. Both STAC `values` and
+  `classification:classes` come from the ingest (830 real codes); names, descriptions and colours
+  for them come from the authoritative CSV.
 - **EVC** — `11`–`399`, consistent with the lifeform+percent encoding (see *Reducers* below).
 - **FBFM40** — `91`–`99` non-burnable plus `101`–`204` Scott & Burgan fuel models.
 

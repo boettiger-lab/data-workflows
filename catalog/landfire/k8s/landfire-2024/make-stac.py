@@ -149,19 +149,15 @@ def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
                  f"legend: {missing_from_legend[:20]} -- resolve before publishing")
 
     ds = f"landfire-2024-{layer}"
-    # classification:classes covers everything a consumer can meet in the COG:
-    # the real classes plus every fill code that survives as a pixel value. 32767
-    # is NOT in the shipped CSV, so it is declared explicitly here.
+    # classification:classes carries the real classes ONLY -- never a fill code (#628).
+    # A consumer builds its TiTiler colormap from this list, so a fill code here is
+    # painted as an ordinary class: on VCC that was -1111 grey and 32767 white over
+    # 6% of CONUS. Left out of the list a fill value maps to nothing and renders
+    # transparent, which is what fill should do. The codes stay documented in the
+    # collection description and in the hex asset descriptions.
     classes = []
-    for v in sorted(set(present) | fill):
-        if v in legend:
-            n, d, c = legend[v]
-        elif v == 32767:
-            n, d, c = ("Fill - NoData (band sentinel)",
-                       "Unmapped fill carried in the source raster and declared as the source "
-                       "band NoData value. Excluded from the H3 hex.", "FFFFFF")
-        else:
-            n, d, c = (f"Class {v}", f"Class {v}", "808080")
+    for v in present:
+        n, d, c = legend.get(v, (f"Class {v}", f"Class {v}", "808080"))
         classes.append({"value": v, "name": n, "color_hint": c, "description": d})
 
     fill_note = (
@@ -223,7 +219,12 @@ def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
             f"landfire.gov on {ACCESSED}; the size and SHA-256 of that staged copy are recorded in "
             f"the build notes. Fill codes were measured from the full source raster rather than "
             f"read from its metadata, because the shipped metadata understates them: every layer "
-            f"carries {', '.join(str(f) for f in sorted(fill))} as fill.\n\n"
+            f"carries {', '.join(str(f) for f in sorted(fill))} as fill. They are deliberately "
+            f"absent from the COG's classification:classes, which lists real classes only: that "
+            f"list is what a client turns into a render colormap, so a fill code in it gets "
+            f"painted rather than left transparent. {PRIMARY_NODATA} is the declared band "
+            f"NoData; the others remain pixel values in the COG and render transparent because "
+            f"no class maps them.\n\n"
             f"Available as a cloud-optimized GeoTIFF and as two H3 hex tables at resolution 10: a "
             f"dominant-class table and a per-class fractional-coverage table. Use the fractional "
             f"table for any question about how much area a class holds."),
