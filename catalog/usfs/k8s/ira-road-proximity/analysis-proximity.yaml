@@ -73,11 +73,11 @@ spec:
         resources:
           requests:
             cpu: '4'
-            memory: 28Gi
+            memory: 36Gi
             ephemeral-storage: 20Gi
           limits:
             cpu: '4'
-            memory: 28Gi
+            memory: 36Gi
             ephemeral-storage: 20Gi
         volumeMounts:
         - name: scratch
@@ -137,7 +137,7 @@ spec:
           con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
           con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
           con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
-          con.execute("SET memory_limit='22GB'; SET threads=4;")
+          con.execute("SET memory_limit='24GB'; SET threads=2;")
           con.execute("SET temp_directory='/scratch/tmp_588_prox';")
           con.execute("SET preserve_insertion_order=false;")
 
@@ -240,24 +240,37 @@ spec:
                     (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 128)
                   """)
 
+                  # ⛔ One distance at a time, NOT a CROSS JOIN over the ladder.
+                  # ST_Buffer of a road union is a large geometry, and a cross join keeps
+                  # nine of them alive per row-vector — which OOM-killed a 28Gi pod
+                  # (exit 137) on shard 14. GEOS allocations are invisible to DuckDB's
+                  # memory_limit, so spilling cannot save it and only the number of
+                  # simultaneous geometries can. Looping cuts peak memory ~9x; the
+                  # accumulator holds numbers, not geometry.
+                  con.execute("DROP TABLE IF EXISTS acc")
+                  con.execute("""
+                    CREATE TEMP TABLE acc (
+                      _cng_fid BIGINT, STATE VARCHAR, CATEGORY VARCHAR,
+                      rule_affected BOOLEAN, ira_acres DOUBLE, d_m DOUBLE,
+                      acres_within DOUBLE, pae_acres_within DOUBLE,
+                      road_miles_inside DOUBLE)
+                  """)
+                  for d in LADDER:
+                      con.execute(f"""
+                        INSERT INTO acc
+                        SELECT i._cng_fid, i.STATE, i.CATEGORY, i.rule_affected,
+                               i.ACRES AS ira_acres,
+                               {d} AS d_m,
+                               ST_Area(ST_Intersection(i.g, ST_Buffer(n.rg, {d}))) / {M2_AC},
+                               CASE WHEN i.g_pae IS NULL THEN NULL
+                                    ELSE ST_Area(ST_Intersection(i.g_pae,
+                                                 ST_Buffer(n.rg, {d}))) / {M2_AC} END,
+                               ST_Length(ST_Intersection(i.g, n.rg)) / {MI_M}
+                        FROM read_parquet('{IRA_PQ}') i
+                        JOIN read_parquet('{NEARR_PQ}') n ON n.fid = i._cng_fid
+                      """)
                   con.execute(f"""
-                    COPY (
-                      SELECT i._cng_fid, i.STATE, i.CATEGORY, i.rule_affected,
-                             i.ACRES AS ira_acres,
-                             dl.d    AS d_m,
-                             ST_Area(ST_Intersection(i.g, ST_Buffer(n.rg, dl.d))) / {M2_AC}
-                               AS acres_within,
-                             CASE WHEN i.g_pae IS NULL THEN NULL
-                                  ELSE ST_Area(ST_Intersection(i.g_pae, ST_Buffer(n.rg, dl.d)))
-                                       / {M2_AC} END
-                               AS pae_acres_within,
-                             ST_Length(ST_Intersection(i.g, n.rg)) / {MI_M}
-                               AS road_miles_inside
-                      FROM read_parquet('{IRA_PQ}') i
-                      JOIN read_parquet('{NEARR_PQ}') n ON n.fid = i._cng_fid
-                      CROSS JOIN (VALUES {ladder_vals}) AS dl(d)
-                    )
-                    TO '{WORK}/prox/{key}.parquet'
+                    COPY (SELECT * FROM acc) TO '{WORK}/prox/{key}.parquet'
                     (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 20000)
                   """)
                   print(f"  ✓ wrote {WORK}/prox/{key}.parquet", flush=True)
