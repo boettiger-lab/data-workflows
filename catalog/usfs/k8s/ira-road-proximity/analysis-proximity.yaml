@@ -22,7 +22,7 @@ metadata:
     k8s-app: ira-road-proximity
 spec:
   completions: 60
-  parallelism: 60
+  parallelism: 30
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 0
