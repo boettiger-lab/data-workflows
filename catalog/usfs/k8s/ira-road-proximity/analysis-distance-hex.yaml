@@ -174,6 +174,30 @@ spec:
           nc = con.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
           print(f"IRA res-10 cells: {nc:,}", flush=True)
 
+          # ⛔ CELL-SET GATE. The join above is an INNER join onto ira, so an IRA missing
+          # from the working set silently drops all of its cells — and a hex that is short
+          # by a few hundred thousand cells looks exactly like a hex that is complete: it
+          # has rows, it partitions, its STAC validates. AGENTS.md records the same class of
+          # failure from the hex --chunk-size default, which dropped 99% of TIGER while the
+          # job still reported Complete. Measured independently against the published #584
+          # hex: 16,309,549 rows, 16,309,454 distinct h10 (95 cells are shared by two
+          # adjacent roadless areas, so rows exceed distinct cells), 11,391 roadless areas,
+          # 9 h0 partitions. This layer is a straight per-cell join onto that one, so it
+          # must reproduce the cell set exactly — no more, no less.
+          src = con.execute(f"""
+            SELECT COUNT(*) FROM (SELECT DISTINCT h10, h9, h8, h0, _cng_fid
+                                  FROM read_parquet('{IRAHEX}'))
+          """).fetchone()[0]
+          if nc != src:
+              raise SystemExit(
+                  f"ABORT: the published #584 hex has {src:,} distinct (h10, roadless-area) "
+                  f"pairs but only {nc:,} survived the join onto the working set — "
+                  f"{src - nc:,} cells would be missing from this layer, which would shrink "
+                  f"every band count in #587 without leaving a visible hole. Check that "
+                  f"analysis-workingset.yaml carried every _cng_fid.")
+          print(f"  cell-set gate: matches the published #584 hex exactly ({src:,})",
+                flush=True)
+
           con.execute(f"""
             COPY (
               SELECT c.h10, c.h9, c.h8, c.h0, c._cng_fid, c.STATE, c.rule_affected,
@@ -211,6 +235,22 @@ spec:
           """).fetchone()
           print(f"rows={chk[0]:,} iras={chk[1]:,} h0={chk[2]} "
                 f"pct of IRA cells within 0.5 mi of a road = {chk[3]}%", flush=True)
+
+          # Read-back gate: a partial COPY (preemption mid-write, a partition that failed to
+          # land) leaves a queryable, plausible-looking layer. Compare what came back off S3
+          # against what went in, and against the #584 partition count.
+          if chk[0] != nc:
+              raise SystemExit(
+                  f"ABORT: wrote {nc:,} cells but only {chk[0]:,} read back from {OUT} — "
+                  f"the write is incomplete. Do not publish; re-run.")
+          if chk[1] != 11391:
+              raise SystemExit(
+                  f"ABORT: {chk[1]:,} roadless areas in the output, expected 11,391.")
+          if chk[2] != 9:
+              raise SystemExit(
+                  f"ABORT: {chk[2]} h0 partitions, expected 9 — a partition is missing.")
+          print(f"  read-back gate: {chk[0]:,} rows, 11,391 roadless areas, 9 h0 partitions",
+                flush=True)
           PY
           echo "✓ Complete"
       volumes:
