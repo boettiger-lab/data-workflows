@@ -224,6 +224,19 @@ spec:
                   nn = con.execute("SELECT COUNT(*) FROM nearr").fetchone()[0]
                   print(f"  {nn:,} IRA polygons have a road within {MAXD:.0f} m", flush=True)
 
+                  if nn == 0:
+                      con.execute(f"""
+                        COPY (SELECT NULL::BIGINT _cng_fid, ''::VARCHAR STATE,
+                                     ''::VARCHAR CATEGORY, FALSE rule_affected,
+                                     0.0::DOUBLE ira_acres, 0.0::DOUBLE d_m,
+                                     0.0::DOUBLE acres_within, 0.0::DOUBLE pae_acres_within,
+                                     0.0::DOUBLE road_miles_inside
+                              WHERE FALSE)
+                        TO '{WORK}/prox/{key}.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)
+                      """)
+                      print("  no polygon in range -> wrote sentinel", flush=True)
+                      continue
+
                   # ⚡ Round-trip nearr through Parquet with TINY row groups before the
                   # buffer ladder. DuckDB assigns pipeline parallelism per row group of the
                   # driving scan, and an in-memory table of ~10k rows is a SINGLE row group
@@ -260,12 +273,12 @@ spec:
                         INSERT INTO acc
                         SELECT i._cng_fid, i.STATE, i.CATEGORY, i.rule_affected,
                                i.ACRES AS ira_acres,
-                               {d} AS d_m,
-                               ST_Area(ST_Intersection(i.g, ST_Buffer(n.rg, {d}))) / {M2_AC},
+                               {d}::DOUBLE AS d_m,
+                               ST_Area(ST_Intersection(i.g, ST_Buffer(n.rg::GEOMETRY, {d}::DOUBLE))) / {M2_AC},
                                CASE WHEN i.g_pae IS NULL THEN NULL
                                     ELSE ST_Area(ST_Intersection(i.g_pae,
-                                                 ST_Buffer(n.rg, {d}))) / {M2_AC} END,
-                               ST_Length(ST_Intersection(i.g, n.rg)) / {MI_M}
+                                                 ST_Buffer(n.rg::GEOMETRY, {d}::DOUBLE))) / {M2_AC} END,
+                               ST_Length(ST_Intersection(i.g, n.rg::GEOMETRY)) / {MI_M}
                         FROM read_parquet('{IRA_PQ}') i
                         JOIN read_parquet('{NEARR_PQ}') n ON n.fid = i._cng_fid
                       """)

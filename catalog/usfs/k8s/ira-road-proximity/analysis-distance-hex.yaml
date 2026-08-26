@@ -104,8 +104,12 @@ spec:
           ML = "substr(OPER_MAINT_LEVEL, 1, 1)"
 
           con = duckdb.connect()
-          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs; "
-                      "INSTALL h3 FROM community; LOAD h3;")
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          try:
+              con.execute("LOAD h3;")
+          except Exception:
+              con.execute("INSTALL h3 FROM community; LOAD h3;")
+          con.execute("SELECT h3_cell_to_lat(621712678913867775::UBIGINT)")  # fail fast
           con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
           con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
           con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
@@ -155,7 +159,8 @@ spec:
 
           # Cell centres from the PUBLISHED #584 hex — no new polyfill.
           case_crs = " ".join(
-              f"WHEN i.crs_region='{r}' THEN ST_Transform(ST_Point(c.lng, c.lat),"
+              f"WHEN i.crs_region='{r}' THEN ST_Transform("
+              f"ST_Point(h3_cell_to_lng(h.h10), h3_cell_to_lat(h.h10)),"
               f"'EPSG:4326','{c}', always_xy := true)" for r, c in CRS.items())
           con.execute(f"""
             CREATE TABLE cells AS
@@ -165,9 +170,6 @@ spec:
             FROM (SELECT DISTINCT h10, h9, h8, h0, _cng_fid
                   FROM read_parquet('{IRAHEX}')) h
             JOIN ira i USING (_cng_fid)
-            CROSS JOIN LATERAL (
-              SELECT h3_cell_to_lat(h.h10) AS lat, h3_cell_to_lng(h.h10) AS lng
-            ) c
           """)
           nc = con.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
           print(f"IRA res-10 cells: {nc:,}", flush=True)
