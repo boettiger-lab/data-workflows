@@ -113,17 +113,41 @@ spec:
             FROM read_parquet('{WORK}/prox/*.parquet', filename := true)
             GROUP BY 1 ORDER BY 1
           """).fetchall()
-          bad = [(st, k) for st, k in files if k != EXPECTED_FILES]
+          # REQUIRED strata gate every published figure. tiger-all is deliberately NOT
+          # required: it includes the four pedestrian MTFCC classes (S1710 walkway, S1720
+          # stairway, S1820 bike path, S1830 bridle path), which 36 CFR 294.11 excludes by
+          # definition — a road is "a motor vehicle travelway over 50 inches wide". It is a
+          # sensitivity check, not an input to any acceptance criterion, so the run does not
+          # wait on it. An INCOMPLETE required stratum still aborts.
+          REQUIRED = {"roadcore-all", "roadcore-ml2to5", "roadcore-ml1only",
+                      "tiger-drivable", "union-deis"}
+          have = dict(files)
           print(f"\ncompleteness: expecting {EXPECTED_FILES} checkpoints per stratum "
                 f"({NSHARDS} shards x {len(REGIONS)} regions)")
           for st, k in files:
-              print(f"  {st:<18} {k:>4} {'OK' if k == EXPECTED_FILES else '<-- INCOMPLETE'}")
-          if bad:
+              tag = "OK" if k == EXPECTED_FILES else (
+                  "<-- INCOMPLETE (REQUIRED)" if st in REQUIRED else "<-- partial, excluded")
+              print(f"  {st:<18} {k:>4} {tag}")
+          missing = sorted(REQUIRED - set(have))
+          bad = [(st, k) for st, k in files if st in REQUIRED and k != EXPECTED_FILES]
+          if missing or bad:
               raise SystemExit(
-                  "ABORT: incomplete strata " + ", ".join(f"{st} ({k}/{EXPECTED_FILES})"
-                                                          for st, k in bad) +
-                  ". Re-run the missing shards before consolidating — publishing a partial "
-                  "ladder produces a plausible, undetectably wrong national figure.")
+                  "ABORT: required strata incomplete — "
+                  + ", ".join([f"{st} (absent)" for st in missing]
+                              + [f"{st} ({k}/{EXPECTED_FILES})" for st, k in bad])
+                  + ". Re-run the missing shards before consolidating: publishing a partial "
+                    "ladder produces a plausible, undetectably wrong national figure.")
+
+          # Drop any non-required stratum that is not fully computed, so a half-finished
+          # sensitivity check can never leak into a reported total.
+          partial = [st for st, k in files if st not in REQUIRED and k != EXPECTED_FILES]
+          if partial:
+              print(f"\nEXCLUDING partial optional strata from all outputs: {partial}",
+                    flush=True)
+              con.execute("DELETE FROM prox WHERE road_stratum IN ("
+                          + ",".join(f"'{st}'" for st in partial) + ")")
+              strata = [r[0] for r in con.execute(
+                  "SELECT DISTINCT road_stratum FROM prox ORDER BY 1").fetchall()]
 
           # Every stratum must also cover the SAME polygons. Equal file counts do not imply
           # equal coverage: a shard could write a sentinel where it should have written data.
@@ -132,11 +156,25 @@ spec:
           ).fetchall()
           for st, c in cover:
               print(f"  {st:<18} {c:,} IRA polygons", flush=True)
-          # roadcore-ml1only legitimately covers fewer polygons (not every roadless area has
-          # a closed road near it), so compare only the strata that should be co-extensive.
-          coext = {st: c for st, c in cover if st in ("roadcore-all", "tiger-all")}
-          if len(set(coext.values())) > 1:
-              raise SystemExit(f"ABORT: co-extensive strata disagree on coverage: {coext}")
+          # No two strata are co-extensive: a roadless area can have a TIGER road in range
+          # and no NFS road, or only closed ML1 roads, so differing polygon counts are
+          # expected and are NOT evidence of a missing shard. The relation that IS true by
+          # construction is containment — union-deis is roadcore-all together with
+          # tiger-drivable, so it must reach at least as many polygons as either alone, and
+          # roadcore-all must reach at least as many as the ML subsets it contains.
+          cov = dict(cover)
+          for parent, child in (("union-deis", "roadcore-all"),
+                                ("union-deis", "tiger-drivable"),
+                                ("roadcore-all", "roadcore-ml2to5"),
+                                ("roadcore-all", "roadcore-ml1only")):
+              if parent in cov and child in cov and cov[parent] < cov[child]:
+                  raise SystemExit(
+                      f"ABORT: {parent} covers {cov[parent]:,} polygons but contains "
+                      f"{child} which covers {cov[child]:,} — a shard of {parent} is "
+                      f"missing or wrote a sentinel where it owed data.")
+          print("  containment checks passed "
+                "(union-deis >= roadcore-all, tiger-drivable; roadcore-all >= ML subsets)",
+                flush=True)
 
           con.execute(f"""
             COPY (
