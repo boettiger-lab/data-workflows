@@ -122,12 +122,22 @@ spec:
               "roadcore-all":     ("rc", "TRUE"),
               "roadcore-ml2to5":  ("rc", f"{ML} IN ('2','3','4','5')"),
               "roadcore-ml1only": ("rc", f"{ML} = '1'"),
-              "tiger-drivable":   ("tg", f"MTFCC NOT IN {PED}"),
-              # union-deis is the DEIS-equivalent road set and the one every acceptance
-              # criterion depends on, so it runs BEFORE tiger-all, which is informational
-              # only (all MTFCC classes including the four pedestrian ones). If the run has
-              # to be cut short, tiger-all is the stratum to lose.
+              # union-deis is the DEIS-equivalent road set — NFS roads plus other authorized
+              # public roads (DEIS Vol I fn. 10) — and every acceptance criterion on #588
+              # depends on it. It therefore runs immediately after the roadcore strata and
+              # BEFORE both tiger-only strata, which are informational.
+              #
+              # Ordering is load-bearing here, not cosmetic. With 60 shards at parallelism
+              # 30, k8s does not start shards 30-59 until the first 30 finish EVERY stratum,
+              # so anything ahead of union-deis in this dict delays it for half the fleet.
+              # tiger-drivable was originally ahead of it and had produced 63/180 while
+              # union-deis sat at 0/180.
               "union-deis":       ("both", "TRUE"),    # roadcore-all + tiger-drivable
+              # Informational, and both are droppable: tiger-all includes the four pedestrian
+              # MTFCC classes that 36 CFR 294.11 excludes by definition, and tiger-drivable
+              # alone answers "what do non-NFS roads reach", which union-deis vs roadcore-all
+              # already answers in the form the issue actually asks.
+              "tiger-drivable":   ("tg", f"MTFCC NOT IN {PED}"),
               "tiger-all":        ("tg", "TRUE"),
           }
           REGIONS = ["CONUS", "AK", "PR"]

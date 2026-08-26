@@ -120,7 +120,7 @@ spec:
           # sensitivity check, not an input to any acceptance criterion, so the run does not
           # wait on it. An INCOMPLETE required stratum still aborts.
           REQUIRED = {"roadcore-all", "roadcore-ml2to5", "roadcore-ml1only",
-                      "tiger-drivable", "union-deis"}
+                      "union-deis"}
           have = dict(files)
           print(f"\ncompleteness: expecting {EXPECTED_FILES} checkpoints per stratum "
                 f"({NSHARDS} shards x {len(REGIONS)} regions)")
@@ -164,7 +164,6 @@ spec:
           # roadcore-all must reach at least as many as the ML subsets it contains.
           cov = dict(cover)
           for parent, child in (("union-deis", "roadcore-all"),
-                                ("union-deis", "tiger-drivable"),
                                 ("roadcore-all", "roadcore-ml2to5"),
                                 ("roadcore-all", "roadcore-ml1only")):
               if parent in cov and child in cov and cov[parent] < cov[child]:

@@ -164,6 +164,30 @@ same 25 at ~13Gi; the exact arm only completed at all once restructured to one p
 time. This is not a speed optimisation that was taken for convenience — buffering the raw
 centreline union at national scale is not tractable in reasonable memory.
 
+### Silence that looks like success — the failure mode this build kept producing
+
+Three separate defects here shared one shape: **the broken state was indistinguishable from
+the healthy state.** None announced itself; each would have produced a clean-looking result.
+
+1. **The hex `--chunk-size` default.** 1000 × 200 completions caps at 200,000 features. On
+   TIGER's 16.5M that silently drops 99% of the layer — and the job still reports `Complete`,
+   the hex still has rows, the STAC still validates. Only comparing hex `COUNT(DISTINCT
+   _cng_fid)` against the flat row count catches it.
+2. **Consolidation without a completeness gate.** It globbed whatever checkpoints existed, so a
+   missing shard would have shrunk a national acreage into a plausible number. No gap, no error,
+   nothing downstream able to notice. Now gated (see the job).
+3. **A failure monitor keyed on the pod STATUS column.** Grepping
+   `Error|CrashLoop|OOMKilled|ImagePullBackOff|Evicted` is a sensible list, and it is blind to
+   `ContainerStatusUnknown` — which is what kubelet reports when it loses a pod whose container
+   exited **137**. The monitor reports a clean board while pods die of memory. Classify on
+   `state.terminated.exitCode`, never on the STATUS column.
+
+Point 3 carries a corollary that applies to any long fan-out: **pods are reaped.** By the time a
+failure count prompts the question, `failed=N` may be all that survives, with no cause attached.
+The classification has to be in the monitor from the beginning; it cannot be reconstructed
+afterwards. (Established jointly with the concurrent LANDFIRE run, #590, which found the same
+`ContainerStatusUnknown` → exit 137 masking independently — 22 of 22 of its terminations.)
+
 ### Two performance findings worth keeping
 
 - **The ladder must not be a `CROSS JOIN` over the nine distances.** Doing so keeps nine
