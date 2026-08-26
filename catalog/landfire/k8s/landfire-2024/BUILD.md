@@ -307,6 +307,30 @@ These pods run `priorityClassName: opportunistic`, so preemption is *normal* and
 `backoffLimitPerIndex` exists to absorb. Index 12's failure was `ContainerStatusUnknown`, not an
 OOM — folding it into a memory-pressure rate would be reading the wrong signal entirely.
 
+**`maxFailedIndexes: 8` is not permission to publish 8 holes.** It controls only whether the
+siblings get aborted early; any permanently-failed index still makes the Job report **`Failed`**,
+and per #409 a build is never treated as done without `Complete=True` *and* an empty
+`failedIndexes`. The setting buys "let the other 47 finish before telling me", not tolerance.
+
+⚠️ **But do not mistake this data for the kind that fails visibly.** A missing h0 partition is
+sometimes described as "a hole in a raster" — obvious on a map. That is not how anyone consumes
+these tables. An area share over `hex-fractions` reads
+
+```sql
+SELECT vcc, SUM(frac) / SUM(SUM(frac)) OVER () FROM … WHERE vcc BETWEEN 1 AND 6 GROUP BY vcc
+```
+
+and a missing h0 quietly drops out of **both** the numerator and the denominator, returning a
+perfectly plausible national distribution computed over five-sixths of CONUS. Nobody looks at a map
+before running that query.
+
+So what makes a tolerant setting safe here is **not** the nature of the data — it is that it is
+paired with an explicit completeness gate that runs *before* publication
+(`check-hex-coverage.sh --expect-h0` against the six known cells, byte-thresholded so an empty
+footer cannot pass as a partition). Choose the tolerance from **detectability downstream × whether
+a pre-publication gate exists**, never from how the data looks. Where no such gate exists, zero
+tolerance plus checkpoint-resume is the correct opposite setting.
+
 **The rule, fixed in advance:**
 
 - Trigger on `failedIndexes` (permanent), never on `status.failed` (pods).
