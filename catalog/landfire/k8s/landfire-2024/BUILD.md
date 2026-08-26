@@ -281,6 +281,42 @@ high-water observation available — `container_memory_max_usage_in_bytes` from 
 a real high-water mark, but `nodes/proxy` is forbidden for this user at cluster scope, so it is
 not readable from here.
 
+### The failure budget — decide the rule before you need it
+
+Because peak is uniform, a slice exceeding 192 Gi is **not a property of that slice**: there is
+nothing special about the one that died, it is just the one whose transient landed high. So
+failures arrive **randomly across the 48 indexes** rather than clustering on identifiable bad ones,
+and the response has to be a written-down threshold rather than a judgement call made at hour ten.
+
+⚠️ **Count the right thing. `status.failed` is POD failures; `maxFailedIndexes` counts INDEX
+failures**, and an index only fails after it exhausts `backoffLimitPerIndex: 3`. Observed at
+76 minutes: `failed=2` pods (indexes 12 and 15), `failedIndexes=[]` — **zero** budget spent, both
+indexes retried and running. Reading `failed=2` as "2 of 8 spent" overstates the risk by a wide
+margin: with independent attempts, permanent loss of an index needs three consecutive failures, so
+a per-attempt failure rate of even 0.2 gives roughly 0.4 permanently-failed indexes across all 48,
+not 4–5.
+
+⚠️ **Separate the two failure modes before reacting — they call for opposite responses.**
+
+| Symptom | Meaning | Response |
+|---|---|---|
+| exit **137** | OOM — genuine memory pressure | counts toward the workers decision |
+| **`ContainerStatusUnknown`** / exit 143 | preemption | expected background noise, ignore |
+
+These pods run `priorityClassName: opportunistic`, so preemption is *normal* and is exactly what
+`backoffLimitPerIndex` exists to absorb. Index 12's failure was `ContainerStatusUnknown`, not an
+OOM — folding it into a memory-pressure rate would be reading the wrong signal entirely.
+
+**The rule, fixed in advance:**
+
+- Trigger on `failedIndexes` (permanent), never on `status.failed` (pods).
+- Ignore preemptions; count only exit 137.
+- **At 3 permanently-failed indexes out of the budget of 8**, halve `CNG_HEX_WORKERS` from 8 to 4
+  on every not-yet-started index. That trades throughput on CPU-bound work for a lower peak, which
+  is only worth it once failures are actually recurring.
+- Do **not** raise `memory` above 192 Gi: the pods already contend for scarce large-RAM nodes, and
+  a larger request converts a retryable OOM into an unschedulable pod.
+
 **Consequence for a rerun:** do not split EVC into its own job — that treats a fleet-wide margin
 as a layer-specific defect. If failures accumulate against `maxFailedIndexes`, the targeted fix is
 to lower `CNG_HEX_WORKERS` for the affected indexes (fewer chunks in flight → lower peak). That
