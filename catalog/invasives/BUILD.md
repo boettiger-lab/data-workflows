@@ -363,12 +363,17 @@ Carry `sci:doi` = `10.5066/P14HNEJF` (data release) and the *NeoBiota* method DO
 2. `k8s/inhabit-v4/stage-raw.yaml` — 12 indexed pods, 132 files, 26.0 GB → `raw/inhabit-v4-2024/`. **Done 2026-08-26: 12/12 in 23 min, 264 objects, 26.54 GB.**
 3. Value census (bincount per source raster) → declared value sets for STAC. **Done 2026-08-26, 108/108.**
 4. COG: warp to EPSG:4326, **`near` for the class rasters**, bilinear for the continuous.
-   **Phase-1 subset running 2026-08-26** (`k8s/inhabit-v4/cog.yaml`, hand-authored — see the
+   **Phase-1 subset DONE 2026-08-26 — 48/48 in 12 min.** (`k8s/inhabit-v4/cog.yaml`, hand-authored — see the
    resampling trap above). Output grid, identical for every layer: **57745 x 25711 @
    0.001096100359 deg**, origin (−128.386308874497, 51.268044444672). Two gates run per layer and
    both pass so far: the warped class set is exactly `{-1, 0, 1, 2, 3}` (nearest-neighbour held),
-   and the grid matches the pinned constant.
-5. Hex res 10 / parents 9,8,0, reducer per product class, 4 CONUS h0 indices.
+   and the grid matches the pinned constant. Independently re-verified across all 48 COGs afterwards
+   (5 were built before the pinned check existed): **one distinct grid, 48/48**, with correct dtype
+   (uint8 / int8), nodata (255 / −128) and overviews present on every layer.
+5. Hex res 10 / parents 9,8,0, reducer per product class, **6** CONUS h0 indices.
+   `k8s/inhabit-v4/hex.yaml` is written and validated but **NOT APPLIED** — 72 completions
+   (12 species x 6 h0), each pod hexing that species' 4 phase-1 products for one h0 so the COG
+   localize amortizes 4x. Fires when the hex lock frees.
 6. STAC collection `inhabit-v4-2024`, one item per (species × product); `scripts/verify-stac.py`.
 
 **Hex queue: #610 yields to #588 (`ira-road-proximity`) and #590 (`landfire-2024-hex`)** by the
