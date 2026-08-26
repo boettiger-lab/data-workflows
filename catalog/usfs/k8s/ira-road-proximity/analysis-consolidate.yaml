@@ -162,17 +162,46 @@ spec:
           # construction is containment — union-deis is roadcore-all together with
           # tiger-drivable, so it must reach at least as many polygons as either alone, and
           # roadcore-all must reach at least as many as the ML subsets it contains.
-          cov = dict(cover)
-          for parent, child in (("union-deis", "roadcore-all"),
-                                ("roadcore-all", "roadcore-ml2to5"),
-                                ("roadcore-all", "roadcore-ml1only")):
-              if parent in cov and child in cov and cov[parent] < cov[child]:
+          #
+          # ⚠️ Containment holds AT A GIVEN DISTANCE, and only there. Comparing total distinct
+          # polygons across the whole table is NOT a valid form of it, because the strata do
+          # not share a ladder: the TIGER-bearing strata run LADDER_WIDE, which stops at
+          # 1609.344 m, while the roadcore strata run out to 3218.688 m. So a roadless area
+          # whose nearest NFS road sits between 1609 and 3219 m gets rows under roadcore-all
+          # and none at all under union-deis — even though union-deis contains every road
+          # roadcore-all has. A whole-table comparison reads that as
+          # "union-deis covers fewer polygons than roadcore-all" and aborts, blaming a
+          # missing shard for what is really just the shorter ladder. Compare per distance,
+          # over the distances the two strata actually share.
+          pairs = (("union-deis", "roadcore-all"),
+                   ("union-deis", "tiger-drivable"),
+                   ("roadcore-all", "roadcore-ml2to5"),
+                   ("roadcore-all", "roadcore-ml1only"))
+          bycov = {}
+          for st, d, c in con.execute("""
+                SELECT road_stratum, d_m, COUNT(DISTINCT _cng_fid)
+                FROM prox GROUP BY 1, 2
+              """).fetchall():
+              bycov.setdefault(st, {})[round(d, 3)] = c
+          checked = 0
+          for parent, child in pairs:
+              if parent not in bycov or child not in bycov:
+                  continue
+              shared = sorted(set(bycov[parent]) & set(bycov[child]))
+              if not shared:
                   raise SystemExit(
-                      f"ABORT: {parent} covers {cov[parent]:,} polygons but contains "
-                      f"{child} which covers {cov[child]:,} — a shard of {parent} is "
-                      f"missing or wrote a sentinel where it owed data.")
-          print("  containment checks passed "
-                "(union-deis >= roadcore-all, tiger-drivable; roadcore-all >= ML subsets)",
+                      f"ABORT: {parent} and {child} share no distance — one of them wrote "
+                      f"an unexpected ladder, so containment cannot be checked at all.")
+              for d in shared:
+                  if bycov[parent][d] < bycov[child][d]:
+                      raise SystemExit(
+                          f"ABORT: at d={d} m, {parent} covers {bycov[parent][d]:,} polygons "
+                          f"but contains {child}, which covers {bycov[child][d]:,} — a shard "
+                          f"of {parent} is missing or wrote a sentinel where it owed data.")
+              checked += len(shared)
+              print(f"  {parent:<18} >= {child:<18} at all {len(shared)} shared distances",
+                    flush=True)
+          print(f"  containment checks passed ({checked} stratum-distance comparisons)",
                 flush=True)
 
           con.execute(f"""
