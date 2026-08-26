@@ -73,11 +73,11 @@ spec:
         resources:
           requests:
             cpu: '4'
-            memory: 48Gi
+            memory: 64Gi
             ephemeral-storage: 20Gi
           limits:
             cpu: '4'
-            memory: 48Gi
+            memory: 64Gi
             ephemeral-storage: 20Gi
         volumeMounts:
         - name: scratch
@@ -101,7 +101,6 @@ spec:
           SHARD  = int(os.environ["JOB_COMPLETION_INDEX"])
           NSHARD = int(os.environ["NSHARDS"])
           SIMPLIFY_M = 5.0   # see the note at the union below
-          NEARR_PQ = f"/scratch/tmp_588_prox/nearr_{SHARD}.parquet"
           IRA_PQ   = f"/scratch/tmp_588_prox/ira_stratum_{SHARD}.parquet"
 
           # The ladder. 804.672 m = 0.5 mi is the agency's stated definition of "near"
@@ -109,6 +108,20 @@ spec:
           # published figure. The rest bracket them so the result does not hinge on one
           # reverse-engineered number, and double as the #587 distance bands.
           LADDER = [50.0, 100.0, 200.0, 400.0, 804.672, 1000.0, 1609.344, 2414.016, 3218.688]
+
+          # The TIGER-bearing strata carry ~4.4M roads against RoadCore's 357k, and buffering
+          # their per-polygon unions at the widest distances OOM-killed 48Gi pods (exit 137,
+          # shards 24 and 26, union-deis CONUS) even with 5 m simplification and batches of
+          # 12. Those strata therefore use a shorter ladder. What is dropped is chosen so
+          # nothing reported is lost:
+          #   50 m      - kept for RoadCore; the #587 fine bands come from the res-10
+          #               distance hex, which is cheap, not from this table
+          #   2414.016  - no published figure, and not needed to bracket the solve
+          #   3218.688  - likewise, and by far the most expensive buffer in the ladder
+          # Both published distances (804.672 = 0.5 mi, 1609.344 = 1 mi) are retained, and
+          # 100-400 m are retained because the solve for the implied "near" distance may
+          # bracket BELOW half a mile.
+          LADDER_WIDE = [100.0, 200.0, 400.0, 804.672, 1000.0, 1609.344]
 
           # ML values arrive as '1 - BASIC CUSTODIAL CARE (CLOSED)' etc, so key on the
           # leading digit. ML1 = closed/stored, often impassable: counting it as an
@@ -148,7 +161,7 @@ spec:
           con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
           con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
           con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
-          con.execute("SET memory_limit='32GB'; SET threads=2;")
+          con.execute("SET memory_limit='44GB'; SET threads=2;")
           con.execute("SET temp_directory='/scratch/tmp_588_prox';")
           con.execute("SET preserve_insertion_order=false;")
 
@@ -177,6 +190,7 @@ spec:
               if src in ("tg", "both") and not tiger_loaded:
                   print(f"defer {stratum} (TIGER not loaded)", flush=True)
                   continue
+              ladder = LADDER_WIDE if src in ("tg", "both") else LADDER
               for region in REGIONS:
                   key = f"{stratum}__{region}__{SHARD:03d}"
                   if done(key):
@@ -241,14 +255,14 @@ spec:
                   # headline turns on, so its effect on any reported acreage is far smaller
                   # than the inputs' own uncertainty. Applied UNIFORMLY to every stratum and
                   # region so no two figures are computed by different methods.
-                  con.execute(f"""
-                    CREATE TEMP TABLE nearr AS
-                    SELECT i._cng_fid AS fid,
-                           ST_Union_Agg(ST_Simplify(r.g, {SIMPLIFY_M})) AS rg
+                  # Only a COUNT is needed here, not a union. The road set is now rebuilt
+                  # per distance below, so the old MAXD-wide union served purely to count
+                  # polygons-with-a-road — and it was the single most expensive union in the
+                  # job, at the widest band. Counting the join directly drops it entirely.
+                  nn = con.execute(f"""
+                    SELECT COUNT(DISTINCT i._cng_fid)
                     FROM i_s i JOIN r_s r ON ST_Intersects(i.gb, r.g)
-                    GROUP BY i._cng_fid
-                  """)
-                  nn = con.execute("SELECT COUNT(*) FROM nearr").fetchone()[0]
+                  """).fetchone()[0]
                   print(f"  {nn:,} IRA polygons have a road within {MAXD:.0f} m", flush=True)
 
                   if nn == 0:
@@ -264,17 +278,12 @@ spec:
                       print("  no polygon in range -> wrote sentinel", flush=True)
                       continue
 
-                  # ⚡ Round-trip nearr through Parquet with TINY row groups before the
+                  # ⚡ Spill the polygon set to Parquet with TINY row groups before the
                   # buffer ladder. DuckDB assigns pipeline parallelism per row group of the
-                  # driving scan, and an in-memory table of ~10k rows is a SINGLE row group
-                  # — so the ladder ran on one thread (measured: 1.9 of 16 cores busy,
-                  # ~20 min for one stratum). At 128 rows per group the same work spreads
-                  # across all 16 threads. Pure performance change: identical rows, identical
-                  # geometry, no tolerance or approximation introduced.
-                  con.execute(f"""
-                    COPY (SELECT * FROM nearr) TO '{NEARR_PQ}'
-                    (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 128)
-                  """)
+                  # driving scan, and an in-memory temp table is a SINGLE row group — so the
+                  # ladder ran on one thread (measured: 1.9 of 16 cores busy). At 128 rows per
+                  # group the same work spreads across every thread. Pure performance change:
+                  # identical rows, identical geometry, no approximation introduced.
                   con.execute(f"""
                     COPY (SELECT * FROM i_s) TO '{IRA_PQ}'
                     (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 128)
@@ -304,7 +313,24 @@ spec:
                   # large enough that per-statement overhead stays negligible.
                   BATCH = 12
                   nbatch = max(1, (nn + BATCH - 1) // BATCH)
-                  for d in LADDER:
+                  for d in ladder:
+                      con.execute("DROP TABLE IF EXISTS nearr_d")
+                      con.execute(f"""
+                        CREATE TEMP TABLE nearr_d AS
+                        SELECT i._cng_fid AS fid,
+                               ST_Union_Agg(ST_Simplify(r.g, {SIMPLIFY_M})) AS rg
+                        FROM i_s i JOIN r_s r
+                          ON ST_Intersects(ST_Buffer(i.g, {d}::DOUBLE), r.g)
+                        GROUP BY i._cng_fid
+                      """)
+                      npq = f"/scratch/tmp_588_prox/nearr_{SHARD}_{int(d*1000)}.parquet"
+                      con.execute(f"""
+                        COPY (SELECT * FROM nearr_d) TO '{npq}'
+                        (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 128)
+                      """)
+                      nd = con.execute(f"SELECT COUNT(*) FROM read_parquet('{npq}')").fetchone()[0]
+                      print(f"    d={d:>8.1f} m: {nd:,} polygons with a road in range",
+                            flush=True)
                       for b in range(nbatch):
                           con.execute(f"""
                             INSERT INTO acc
@@ -317,7 +343,7 @@ spec:
                                                      ST_Buffer(n.rg::GEOMETRY, {d}::DOUBLE))) / {M2_AC} END,
                                    ST_Length(ST_Intersection(i.g, n.rg::GEOMETRY)) / {MI_M}
                             FROM read_parquet('{IRA_PQ}') i
-                            JOIN read_parquet('{NEARR_PQ}') n ON n.fid = i._cng_fid
+                            JOIN read_parquet('{npq}') n ON n.fid = i._cng_fid
                             WHERE (hash(i._cng_fid) % {nbatch}) = {b}
                           """)
                   con.execute(f"""
@@ -325,6 +351,11 @@ spec:
                     (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 20000)
                   """)
                   print(f"  ✓ wrote {WORK}/prox/{key}.parquet", flush=True)
+                  for d in ladder:
+                      try:
+                          os.remove(f"/scratch/tmp_588_prox/nearr_{SHARD}_{int(d*1000)}.parquet")
+                      except OSError:
+                          pass
 
           print(f"\n✓ shard {SHARD}/{NSHARD} complete", flush=True)
           PY
