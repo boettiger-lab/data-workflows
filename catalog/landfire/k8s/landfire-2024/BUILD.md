@@ -88,6 +88,19 @@ the declared NoData is `32767`, not the `-9999` the LANDFIRE documentation names
 | EVC | 267 | 33.0294% | — | 5.2628% | 11 … 399 | `-9999,32767` |
 | FBFM40 | 46 | 33.0294% | — | 5.2628% | 91 … 204 | `-9999,32767` |
 
+**No published description of these products mentions `32767` — verified, not assumed.** The
+value appears in exactly one place: the source TIFF's band NoData tag. It is absent from all four
+shipped `CSV_Data/LF2024_*.csv` legends (0 rows), absent from all four `General_Metadata/*.xml`
+FGDC records (0 mentions), and absent from `README_LF.txt`. Conversely the band tag declares
+*only* `32767` and never mentions `-9999` or `-1111`, which the CSV legends do carry
+(`-9999,Fill-NoData` and, for VCC, `-1111,Fill-Not Mapped`).
+
+So there are four candidate authorities — documentation, FGDC metadata, the CSV legend, and the
+band tag — and **not one of them is complete.** A legend-driven fill list misses `32767`; a
+band-metadata-driven one misses `-9999` and `-1111`. Only a value census over the raster itself
+gets the whole set, which is why `--nodata` is set from the `bincount` pass and why `make-stac.py`
+carries an explicit branch for `32767` rather than deriving classification purely from the CSV.
+
 `-9999` and `32767` occur at **identical pixel counts in all four layers** (5,243,100,438 and
 835,414,002), so they mask the same regions — the out-of-CONUS Albers corners and an interior
 unmapped class. `-1111` (Fill / Not Mapped) occurs in **VCC only**.
