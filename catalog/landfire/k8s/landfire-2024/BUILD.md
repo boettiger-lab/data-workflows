@@ -311,11 +311,73 @@ then crossed 192 Gi between samples — exactly the sampling blindness noted abo
 one layer where it mattered. Reading a *low* sample as evidence of a low peak is the same error as
 reading a high one as evidence of the ceiling: a 30-second sample is evidence about neither.
 
-**The real driver is COG entropy, not class count and not cell density.** EVC's COG is **8.5 GB**
-against 1.9–4.1 GB for the other three, on identical dimensions — its class mix compresses poorly,
-so each in-flight `exact_extract` chunk carries a larger decompressed working set. Class
-*cardinality* still does not drive peak (EVT's 830 classes run fine at 112 Gi against EVC's 265) —
-the correct predictor is compressed size per pixel.
+**The real driver is LOCAL HETEROGENEITY — distinct values per cell.** Measured on a 1,200 × 1,200
+window over dense CONUS forest, counting distinct values in each 4 × 4 block (≈ the 17 source
+pixels a resolution-10 cell holds):
+
+| layer | COG GB | global classes | **distinct per cell** |
+|---|---:|---:|---:|
+| VCC | 1.96 | 11 | **1.82** (max 6) |
+| FBFM40 | 3.61 | 44 | **2.14** (max 9) |
+| EVT | 4.14 | **830** | **2.77** (max 11) |
+| **EVC** | 8.50 | 265 | **7.34 (max 16 of 16)** |
+
+`exact_extract`'s `mode` builds a per-cell map of *value → coverage weight*, so memory scales with
+**entries per cell × 282 M cells**. EVC needs ~4× VCC's map. Halving `CNG_HEX_WORKERS` halves the
+chunks in flight but cannot fix a per-cell footprint that is 4× too large — which is exactly what
+was observed.
+
+**Why EVC is heterogeneous and EVT is not, despite EVT having 3× the vocabulary:** EVT codes are
+ecological system types that form coherent stands. EVC codes are **canopy cover percent**, binned
+per lifeform (`110`–`199` = tree cover 10–99%). Adjacent pixels differing by one or two percent of
+cover land in *different codes*. EVC is a quasi-continuous surface wearing categorical clothing.
+
+⛔ **CORRECTION.** An earlier revision of this file said the predictor was *compressed size per
+pixel*. **That is mechanically wrong** — decompressed size is identical across all four layers
+(same pixel count, same `Int16`), and compression affects disk footprint and read time, not the
+in-memory working set. EVC's 8.5 GB COG is a **symptom** of the same local variation that drives
+the memory: high local entropy compresses poorly *and* produces large per-cell maps. Correlated,
+not causal.
+
+### The deeper consequence: `mode` on EVC is close to meaningless
+
+If a cell holds 7 distinct near-identical cover percentages — 45%, 46%, 47%, 48% — the "dominant"
+one is selected by coverage noise, not by anything about the landscape. **EVC is the one layer of
+the four that should not be hexed this way at all.**
+
+Both positions in the reducer debate on this issue were incomplete. `mean` over raw codes is wrong
+because it mixes lifeforms (`mean(115, 215) = 165` decodes as "tree cover 65%"). But `mode` being
+*better* does not make it *right*. The correct treatment is to **decode into (lifeform, percent)
+first, then average percent within lifeform** — a derived product, not a reducer flag. EVC's
+repeated failure is the pipeline reporting a semantic problem as a resource one.
+
+### FBFM40 — two failures that remain UNEXPLAINED
+
+FBFM40 lost h0-index 71 and 78 to exit 137. It is not the EVC mechanism: FBFM40 sits at 2.14
+distinct values per cell, second-lowest of the four. Two hypotheses were tested and **both are
+refuted** by measuring the valid (non-fill) pixel load per h0 envelope:
+
+| h0-index | valid % | outcome |
+|---:|---:|---|
+| 12 | 35.5% | ok |
+| 14 | 45.2% | ok |
+| 20 | 84.8% | never ran |
+| 50 | 59.1% | never ran |
+| 71 | 46.3% | **failed 137** |
+| 78 | 38.5% | **failed 137** |
+
+The failures carry *lower* data load than the slices that merely never ran, and h0-14 (45.2%,
+succeeded) against h0-71 (46.3%, failed) is nearly identical load with opposite outcomes. So it is
+neither the layer nor the cell's own workload.
+
+**The most likely remaining explanation is node-level co-tenancy** — those slices ran late in the
+first job, concurrently with EVC pods ballooning toward 192 Gi, and a node under memory pressure
+lets the kernel OOM-killer take a victim that is within its own cgroup limit. **This is not
+verified**: the pods were reaped, and `nodes/proxy` is forbidden for this user, so node metrics are
+unreadable. It is a hypothesis, recorded as one.
+
+The practical implication is testable and cheap: **run FBFM40 without EVC alongside.** Four of its
+six slices behaved normally, and nothing intrinsic to the layer suggests it should fail.
 
 **Fix applied:** `CNG_HEX_WORKERS=4` for EVC only, 8 elsewhere, via a per-layer `WORKERS` array —
 halving chunks in flight halves the working set. Memory was *not* raised: 192 Gi already competes
