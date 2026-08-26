@@ -135,6 +135,78 @@ So: before hexing, run an exact `bincount` over each *source* raster (cheap here
 bins) and declare the measured value set in STAC. `verify-stac.py`'s `values-vs-distinct` check is
 hard against that declared set, so an invented or leaked code fails the gate rather than shipping.
 
+## Value census — all 108 rasters, exact `bincount` (2026-08-26)
+
+Job `k8s/inhabit-v4/value-census.yaml`, 12 indexed pods, 9m30s wall. Records land at
+`s3://public-invasives/raw/inhabit-v4-2024/_census/<species>/<product>.json`.
+
+**No undeclared sentinel anywhere in the 108.** The declared NoData is present in every raster and
+nothing outside the FGDC domain appears. The #590 failure shape does not occur here — but that is
+now a measurement rather than an assumption, and it is what STAC declares.
+
+### The 36 class rasters are uniform
+
+Every `integrated-binary-*`, all 12 species, all three thresholds: dtype int8, NoData −128, data
+values **exactly `{-1, 0, 1, 2, 3}`**. No species carries a code the others do not. The hexed class
+set must be a subset of this; nearest-neighbour warping is what preserves it.
+
+### The continuous index runs 0–100, not the FGDC's 0–98
+
+`rdommax` = 98 is a **per-file** figure and understates the product family. Measured maxima:
+
+| max | species |
+|---:|---|
+| 100 | *A. cristatum*, *B. arvensis*, *B. japonicus*, *B. rubens*, *B. tectorum*, *E. angustifolia*, *S. tragus*, *V. dubia* |
+| 99 | *A. cylindrica* |
+| 98 | *C. ciliaris* |
+| 96 | *T. caput-medusae* |
+| 95 | *Tamarix* |
+
+32 of the 72 continuous rasters reach 100. So the scale is **relative suitability 0–100**, and STAC
+carries the *measured* per-item min/max, never the FGDC domain.
+
+18 rasters have a gap in their value set (e.g. *A. cristatum* `occurrence` runs 0–88 then a single
+pixel at 94; *B. arvensis* skips 99 and has 497 px at 100). Every isolated value sits in the far
+tail with counts of 1–65 272 against ~787 M data pixels — sparse extremes and integer-rounding
+artifacts of the ensemble scaling, **not sentinels**. Recorded so a later reader does not
+re-litigate them.
+
+## ⚠️ The training-envelope restriction is not a light touch, and it varies 3× by species
+
+`-masked` is the stated IRA default, for a good reason (roadless country is high-elevation,
+undersampled terrain outside the training envelope). But the census shows how much surface that
+choice actually removes, and it is species-dependent to a degree the issue does not anticipate —
+data pixels retained by `-masked` against the plain product:
+
+| species | occurrence | abundance | high-abundance |
+|---|---:|---:|---:|
+| *Cenchrus ciliaris* | **56.5%** | **33.6%** | **33.6%** |
+| *Bromus rubens* | **51.5%** | 79.6% | 79.6% |
+| *Taeniatherum caput-medusae* | 64.9% | 69.2% | 69.2% |
+| *Ventenata dubia* | 78.3% | 78.6% | 78.6% |
+| *Agropyron cristatum* | 87.1% | 87.7% | 87.4% |
+| *Salsola tragus* | 93.9% | 90.6% | 92.0% |
+| *Aegilops cylindrica* | 92.4% | **100.0%** | 96.4% |
+| *Tamarix chinensis_ramosissima* | 92.8% | 93.9% | 93.9% |
+| *Bromus arvensis* | 94.3% | 97.3% | 97.3% |
+| *Bromus tectorum* | 95.1% | 95.1% | 95.1% |
+| *Elaeagnus angustifolia* | 96.1% | 95.7% | 95.8% |
+| *Bromus japonicus* | 97.2% | 98.2% | 98.2% |
+
+Two consequences the collection description must carry:
+
+1. **For buffelgrass, `-masked` discards two thirds of CONUS** (33.6% retained on abundance and
+   high-abundance). A masked IRA tabulation for that species is a statement about a third of the
+   country, and the masked-vs-plain choice changes the answer more than any threshold choice does.
+   Red brome (51.5% on occurrence) and medusahead (64.9%) are the next most affected. Cheatgrass —
+   the species most of the fire argument rests on — is barely touched at 95.1%.
+2. **For *Aegilops cylindrica* `abundance`, the masked file is not a restriction at all**: its value
+   histogram is byte-for-byte identical to the plain product (file sizes differ by 476 bytes of TIFF
+   metadata), i.e. 100.0% retained. Its `high-abundance` counterpart *is* genuinely masked (96.4%),
+   so this is specific to one species × product. It may be legitimate — a model whose predictors
+   never extrapolate — but "`-masked` = restricted to the training envelope" implies a safeguard
+   that, for this one product, did nothing. Record it; do not present it as protection.
+
 ## ⚠️ Reprojection resampling — the generator hardcodes bilinear
 
 `cng_datasets/k8s/workflows.py:865` appends **`--resampling bilinear`** to the generated
@@ -254,8 +326,8 @@ Carry `sci:doi` = `10.5066/P14HNEJF` (data release) and the *NeoBiota* method DO
 ## Build order
 
 1. `k8s/inhabit-v4/setup-bucket.yaml` — create `public-invasives`. **Done 2026-08-26.**
-2. `k8s/inhabit-v4/stage-raw.yaml` — 12 indexed pods, 132 files, 26.0 GB → `raw/inhabit-v4-2024/`.
-3. Value census (bincount per source raster) → declared value sets for STAC.
+2. `k8s/inhabit-v4/stage-raw.yaml` — 12 indexed pods, 132 files, 26.0 GB → `raw/inhabit-v4-2024/`. **Done 2026-08-26: 12/12 in 23 min, 264 objects, 26.54 GB.**
+3. Value census (bincount per source raster) → declared value sets for STAC. **Done 2026-08-26, 108/108.**
 4. COG: warp to EPSG:4326, **`near` for the class rasters**, bilinear for the continuous.
 5. Hex res 10 / parents 9,8,0, reducer per product class, 4 CONUS h0 indices.
 6. STAC collection `inhabit-v4-2024`, one item per (species × product); `scripts/verify-stac.py`.
