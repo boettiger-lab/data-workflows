@@ -285,20 +285,31 @@ spec:
                       acres_within DOUBLE, pae_acres_within DOUBLE,
                       road_miles_inside DOUBLE)
                   """)
+                  # Batch the polygons as well as the distances. Even simplified, a single
+                  # roadless area beside a dense network can produce a buffer large enough to
+                  # blow a 48Gi pod (observed on shard 31, roadcore-all CONUS), and DuckDB
+                  # vectorises — so without batching several such buffers are alive at once.
+                  # BATCH bounds how many large geometries can coexist, which is the only
+                  # lever that has worked on any of these OOMs. Small enough to be safe,
+                  # large enough that per-statement overhead stays negligible.
+                  BATCH = 12
+                  nbatch = max(1, (nn + BATCH - 1) // BATCH)
                   for d in LADDER:
-                      con.execute(f"""
-                        INSERT INTO acc
-                        SELECT i._cng_fid, i.STATE, i.CATEGORY, i.rule_affected,
-                               i.ACRES AS ira_acres,
-                               {d}::DOUBLE AS d_m,
-                               ST_Area(ST_Intersection(i.g, ST_Buffer(n.rg::GEOMETRY, {d}::DOUBLE))) / {M2_AC},
-                               CASE WHEN i.g_pae IS NULL THEN NULL
-                                    ELSE ST_Area(ST_Intersection(i.g_pae,
-                                                 ST_Buffer(n.rg::GEOMETRY, {d}::DOUBLE))) / {M2_AC} END,
-                               ST_Length(ST_Intersection(i.g, n.rg::GEOMETRY)) / {MI_M}
-                        FROM read_parquet('{IRA_PQ}') i
-                        JOIN read_parquet('{NEARR_PQ}') n ON n.fid = i._cng_fid
-                      """)
+                      for b in range(nbatch):
+                          con.execute(f"""
+                            INSERT INTO acc
+                            SELECT i._cng_fid, i.STATE, i.CATEGORY, i.rule_affected,
+                                   i.ACRES AS ira_acres,
+                                   {d}::DOUBLE AS d_m,
+                                   ST_Area(ST_Intersection(i.g, ST_Buffer(n.rg::GEOMETRY, {d}::DOUBLE))) / {M2_AC},
+                                   CASE WHEN i.g_pae IS NULL THEN NULL
+                                        ELSE ST_Area(ST_Intersection(i.g_pae,
+                                                     ST_Buffer(n.rg::GEOMETRY, {d}::DOUBLE))) / {M2_AC} END,
+                                   ST_Length(ST_Intersection(i.g, n.rg::GEOMETRY)) / {MI_M}
+                            FROM read_parquet('{IRA_PQ}') i
+                            JOIN read_parquet('{NEARR_PQ}') n ON n.fid = i._cng_fid
+                            WHERE (hash(i._cng_fid) % {nbatch}) = {b}
+                          """)
                   con.execute(f"""
                     COPY (SELECT * FROM acc) TO '{WORK}/prox/{key}.parquet'
                     (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 20000)
