@@ -107,6 +107,31 @@ kubectl apply -n geo-workflows -f analysis-distance-hex.yaml  # res-10 hex for #
 Sharded on `hash(_cng_fid)` and checkpointed per (stratum, region, shard), so a failure or
 preemption resumes rather than restarting.
 
+### Geometry simplification, and why it does not change the answer
+
+Road centrelines are digitised far finer than this analysis can use, and `ST_Buffer`'s output
+complexity follows its input's. A single roadless area's road union can carry millions of
+vertices, and buffering one OOM-killed a 48Gi-class pod on **RoadCore alone** even after the
+per-distance loop had cut peak memory ~9x. Centrelines are therefore simplified with
+`ST_Simplify(geom, 5.0)` — in metres, in the equal-area projection — before the union.
+
+**5 m is below the positional accuracy of both inputs**, so it cannot be the limiting error:
+
+| | Accuracy | vs 5 m |
+|---|---|---|
+| RoadCore (EDW, ~1:24,000 source scales) | ~12 m | 2.4x coarser |
+| TIGER/Line rural centrelines | tens of metres | far coarser |
+| Finest ladder band | 50 m | 10x coarser |
+| The 0.5-mile headline distance | 804.672 m | 160x coarser |
+
+It is applied **uniformly to every stratum, region and distance**, so no two reported figures
+are computed by different methods. When the simplification was introduced mid-run, the 27
+checkpoints already computed without it were discarded rather than merged.
+
+**Validation.** Re-run one shard with `SIMPLIFY_M = 0.0` and compare acreages against the
+simplified run; the deviation is recorded in the Results section. If it were ever to exceed a
+small fraction of a percent, the tolerance is wrong and the figures should not be published.
+
 ### Two performance findings worth keeping
 
 - **The ladder must not be a `CROSS JOIN` over the nine distances.** Doing so keeps nine

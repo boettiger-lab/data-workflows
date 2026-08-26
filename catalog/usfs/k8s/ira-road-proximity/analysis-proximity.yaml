@@ -73,11 +73,11 @@ spec:
         resources:
           requests:
             cpu: '4'
-            memory: 36Gi
+            memory: 48Gi
             ephemeral-storage: 20Gi
           limits:
             cpu: '4'
-            memory: 36Gi
+            memory: 48Gi
             ephemeral-storage: 20Gi
         volumeMounts:
         - name: scratch
@@ -100,6 +100,7 @@ spec:
           MAXD  = 3218.688 * 1.05
           SHARD  = int(os.environ["JOB_COMPLETION_INDEX"])
           NSHARD = int(os.environ["NSHARDS"])
+          SIMPLIFY_M = 5.0   # see the note at the union below
           NEARR_PQ = f"/scratch/tmp_588_prox/nearr_{SHARD}.parquet"
           IRA_PQ   = f"/scratch/tmp_588_prox/ira_stratum_{SHARD}.parquet"
 
@@ -137,7 +138,7 @@ spec:
           con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
           con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
           con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
-          con.execute("SET memory_limit='24GB'; SET threads=2;")
+          con.execute("SET memory_limit='32GB'; SET threads=2;")
           con.execute("SET temp_directory='/scratch/tmp_588_prox';")
           con.execute("SET preserve_insertion_order=false;")
 
@@ -215,9 +216,25 @@ spec:
                   # predicate; ST_DWithin is not, and at 20M roads that difference decides
                   # whether this finishes.
                   con.execute("DROP TABLE IF EXISTS nearr")
+                  # ⚠️ SIMPLIFY_M: road centrelines are digitised far finer than this
+                  # analysis can use. A single IRA's road union can carry millions of
+                  # vertices, and ST_Buffer's output complexity follows the input's — which
+                  # OOM-killed a 36Gi pod on RoadCore alone (shard 51, 148 polygons), after
+                  # the per-distance loop had already cut peak memory ~9x. Simplifying the
+                  # centrelines before the union attacks the cause rather than the symptom.
+                  #
+                  # 5 m is deliberately below the positional accuracy of BOTH inputs: EDW
+                  # road data is compiled at source scales around 1:24,000 (~12 m), and the
+                  # STAC for census-2025/roads records that TIGER centrelines can sit tens of
+                  # metres off the true roadway in rural areas. It is also 1/10th of the
+                  # finest band in the ladder (50 m) and 1/160th of the 0.5-mile distance the
+                  # headline turns on, so its effect on any reported acreage is far smaller
+                  # than the inputs' own uncertainty. Applied UNIFORMLY to every stratum and
+                  # region so no two figures are computed by different methods.
                   con.execute(f"""
                     CREATE TEMP TABLE nearr AS
-                    SELECT i._cng_fid AS fid, ST_Union_Agg(r.g) AS rg
+                    SELECT i._cng_fid AS fid,
+                           ST_Union_Agg(ST_Simplify(r.g, {SIMPLIFY_M})) AS rg
                     FROM i_s i JOIN r_s r ON ST_Intersects(i.gb, r.g)
                     GROUP BY i._cng_fid
                   """)
