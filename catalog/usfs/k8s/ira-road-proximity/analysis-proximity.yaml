@@ -26,6 +26,44 @@ spec:
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 0
+  # Preemption must not spend the retry budget that exists to catch REAL failures.
+  #
+  # The first run of this job aborted on MaxFailedIndexesExceeded with
+  # succeeded=21 failed=49 failedIndexes=32 — 48 pod deaths for a single genuinely
+  # failed index, which is the signature the pod-preemption skill describes. Index 32
+  # burned all three of its attempts inside 90 seconds during a cluster-wide preemption
+  # storm: one pod ran 54 minutes and was preempted, its replacement was preempted 13
+  # seconds after starting, and the next was preempted in the same second it was
+  # scheduled. Nothing exited 137; nothing was wrong with the shard.
+  #
+  # `Ignore` means a failure carrying the DisruptionTarget condition — preemption, node
+  # drain, node-pressure eviction, graceful shutdown — does not increment the index's
+  # failure counter, so the index is simply retried. It does NOT weaken the guarantee
+  # maxFailedIndexes: 0 exists for: an OOM or a script error still counts, still exhausts
+  # backoffLimitPerIndex, and still aborts the whole job rather than letting a lost shard
+  # silently shrink a national acreage. It only stops the cluster evicting us from being
+  # counted as our code failing.
+  #
+  # This is deliberately NOT the pod-preemption skill's first-choice fix, which is to drop
+  # priorityClassName (default priority 0, two billion points higher) and halve parallelism
+  # to keep the node claim flat. That trade is unavailable here: #590 is holding the hex
+  # lock with 192Gi pods and has had pods Pending for over an hour, and parallelism is
+  # pinned at 30 by agreement with that session. Raising our priority while keeping 30 pods
+  # would take nodes from exactly the run we agreed not to crowd. This fix costs #590
+  # nothing — it changes only how OUR failures are counted, not what we ask of the cluster.
+  #
+  # podReplacementPolicy must be stated explicitly: setting podFailurePolicy makes the
+  # default TerminatingOrFailed invalid, and the API rejects the Job rather than defaulting
+  # it. podFailurePolicy is also IMMUTABLE, so this manifest cannot be applied over a
+  # running Job — delete the Job first and re-create it. That is safe here precisely
+  # because every (stratum, region, shard) is checkpointed to S3 and re-run shards skip
+  # what already exists.
+  podReplacementPolicy: Failed
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
   ttlSecondsAfterFinished: 172800
   template:
     metadata:
