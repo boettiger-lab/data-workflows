@@ -100,11 +100,43 @@ spec:
               "SELECT DISTINCT road_stratum FROM prox ORDER BY 1").fetchall()]
           print(f"consolidated {n:,} rows | strata: {strata}", flush=True)
 
-          # Sanity: every stratum must cover the same IRA set, or a shard is missing.
-          for s, c in con.execute(
-                  "SELECT road_stratum, COUNT(DISTINCT _cng_fid) FROM prox GROUP BY 1 ORDER BY 1"
-              ).fetchall():
-              print(f"  {s:<18} {c:,} IRA polygons", flush=True)
+          # ⛔ COMPLETENESS GATE — must run BEFORE anything is published.
+          # This table globs whatever checkpoints exist, so a missing shard does not leave
+          # a visible hole: it silently shrinks a national acreage and returns a perfectly
+          # plausible number. There is no downstream check that would catch it, which is
+          # exactly why the gate has to be here rather than in review.
+          NSHARDS, REGIONS = 60, ("CONUS", "AK", "PR")
+          EXPECTED_FILES = NSHARDS * len(REGIONS)
+          files = con.execute(f"""
+            SELECT regexp_extract(filename, 'prox/(.+?)__[A-Z]+__\\d+\\.parquet$', 1) AS stratum,
+                   COUNT(DISTINCT filename) AS n_files
+            FROM read_parquet('{WORK}/prox/*.parquet', filename := true)
+            GROUP BY 1 ORDER BY 1
+          """).fetchall()
+          bad = [(st, k) for st, k in files if k != EXPECTED_FILES]
+          print(f"\ncompleteness: expecting {EXPECTED_FILES} checkpoints per stratum "
+                f"({NSHARDS} shards x {len(REGIONS)} regions)")
+          for st, k in files:
+              print(f"  {st:<18} {k:>4} {'OK' if k == EXPECTED_FILES else '<-- INCOMPLETE'}")
+          if bad:
+              raise SystemExit(
+                  "ABORT: incomplete strata " + ", ".join(f"{st} ({k}/{EXPECTED_FILES})"
+                                                          for st, k in bad) +
+                  ". Re-run the missing shards before consolidating — publishing a partial "
+                  "ladder produces a plausible, undetectably wrong national figure.")
+
+          # Every stratum must also cover the SAME polygons. Equal file counts do not imply
+          # equal coverage: a shard could write a sentinel where it should have written data.
+          cover = con.execute(
+              "SELECT road_stratum, COUNT(DISTINCT _cng_fid) FROM prox GROUP BY 1 ORDER BY 1"
+          ).fetchall()
+          for st, c in cover:
+              print(f"  {st:<18} {c:,} IRA polygons", flush=True)
+          # roadcore-ml1only legitimately covers fewer polygons (not every roadless area has
+          # a closed road near it), so compare only the strata that should be co-extensive.
+          coext = {st: c for st, c in cover if st in ("roadcore-all", "tiger-all")}
+          if len(set(coext.values())) > 1:
+              raise SystemExit(f"ABORT: co-extensive strata disagree on coverage: {coext}")
 
           con.execute(f"""
             COPY (

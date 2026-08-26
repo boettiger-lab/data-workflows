@@ -1,0 +1,166 @@
+# #588 validation: does the 5 m centreline simplification move the answer?
+#
+# analysis-proximity.yaml applies ST_Simplify(geom, 5.0) before unioning roads, because
+# buffering an unsimplified union OOM-killed a 36Gi pod on RoadCore alone. 5 m is below the
+# positional accuracy of both inputs (EDW ~1:24,000 ≈ 12 m; TIGER rural centrelines tens of
+# metres), a tenth of the finest ladder band and 1/160th of the 0.5-mile headline distance —
+# but "should be negligible" is an argument, not evidence. This job measures it.
+#
+# Recomputes ONE shard's CONUS acreage ladder at SIMPLIFY_M = 5.0 and again at 0.0 (no
+# simplification) and reports the per-distance deviation. Standard: if any deviation at or
+# beyond the 0.5-mile distance exceeds a small fraction of a percent, the tolerance is wrong
+# and the published figures should be recomputed.
+#
+# Runs on ONE shard, so it is cheap and concurrent with the main ladder. Memory is generous
+# because the unsimplified arm is the one that OOMs — and if it OOMs here, that is itself a
+# reportable result rather than a failure.
+#
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ira-road-simplify-check
+  labels:
+    k8s-app: ira-road-simplify-check
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ira-road-simplify-check
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: simplify-check
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp_588_simp
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+        volumeMounts:
+        - {name: scratch, mountPath: /scratch}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp_588_simp
+          python3 - <<'PY'
+          import os, duckdb
+
+          WORK  = "s3://public-usfs/_work/588"
+          M2_AC = 4046.8564224
+          MAXD  = 3218.688 * 1.05
+          SHARD, NSHARD = 0, 60
+          LADDER = [50.0, 100.0, 200.0, 400.0, 804.672, 1000.0, 1609.344, 2414.016, 3218.688]
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
+          con.execute("SET memory_limit='26GB'; SET threads=8;")
+          con.execute("SET temp_directory='/scratch/tmp_588_simp';")
+          con.execute("SET preserve_insertion_order=false;")
+
+          con.execute(f"CREATE TABLE ira AS SELECT * FROM read_parquet('{WORK}/ira.parquet')")
+          con.execute(f"CREATE TABLE rc  AS SELECT * FROM read_parquet('{WORK}/roads_rc.parquet')")
+          # Worst case first: simplification can only distort a buffer where the road
+          # network is complex, so rank this shard's polygons by how many road segments
+          # fall in range and validate on the densest N. If the tolerance is harmless
+          # there it is harmless everywhere, and N polygons fit in 32Gi unsimplified.
+          NSAMPLE = 25
+          con.execute(f"""
+            CREATE TABLE i_all AS
+            SELECT _cng_fid, g, ST_Buffer(g, {MAXD}) AS gb
+            FROM ira
+            WHERE crs_region = 'CONUS' AND (hash(_cng_fid) % {NSHARD}) = {SHARD}
+          """)
+          con.execute(f"""
+            CREATE TABLE i_s AS
+            SELECT i.* FROM i_all i
+            JOIN (
+              SELECT i2._cng_fid, COUNT(*) AS nr
+              FROM i_all i2 JOIN rc r ON r.crs_region = 'CONUS'
+                                     AND ST_Intersects(i2.gb, r.g)
+              GROUP BY 1 ORDER BY nr DESC LIMIT {NSAMPLE}
+            ) t USING (_cng_fid)
+          """)
+          n = con.execute("SELECT COUNT(*) FROM i_s").fetchone()[0]
+          tot = con.execute("SELECT COUNT(*) FROM i_all").fetchone()[0]
+          print(f"validating on the {n} road-densest of shard {SHARD}'s {tot} CONUS "
+                f"polygons — the worst case for simplification error\n", flush=True)
+
+          results = {}
+          for tol in (5.0, 0.0):
+              simp = f"ST_Simplify(r.g, {tol})" if tol > 0 else "r.g"
+              con.execute("DROP TABLE IF EXISTS nearr")
+              con.execute(f"""
+                CREATE TEMP TABLE nearr AS
+                SELECT i._cng_fid AS fid, ST_Union_Agg({simp}) AS rg
+                FROM i_s i JOIN rc r ON r.crs_region = 'CONUS'
+                                    AND ST_Intersects(i.gb, r.g)
+                GROUP BY i._cng_fid
+              """)
+              vtx = con.execute("SELECT SUM(ST_NPoints(rg)) FROM nearr").fetchone()[0]
+              acres = {}
+              for d in LADDER:
+                  acres[d] = con.execute(f"""
+                    SELECT SUM(ST_Area(ST_Intersection(i.g,
+                             ST_Buffer(n.rg, {d}::DOUBLE))) / {M2_AC})
+                    FROM i_s i JOIN nearr n ON n.fid = i._cng_fid
+                  """).fetchone()[0] or 0.0
+              results[tol] = (vtx, acres)
+              label = f"{tol:.0f} m" if tol else "NONE (exact)"
+              print(f"simplification {label}: union carries {vtx:,} vertices", flush=True)
+
+          v5, a5 = results[5.0]
+          v0, a0 = results[0.0]
+          print(f"\nvertex reduction: {v0:,} -> {v5:,} "
+                f"({100.0*(v0-v5)/v0:.1f}% fewer)\n", flush=True)
+          print(f"{'d (m)':>10}{'exact acres':>16}{'simplified':>16}{'deviation':>12}")
+          worst = 0.0
+          for d in LADDER:
+              dev = 100.0 * (a5[d] - a0[d]) / a0[d] if a0[d] else 0.0
+              if d >= 804.672:
+                  worst = max(worst, abs(dev))
+              print(f"{d:>10.1f}{a0[d]:>16,.1f}{a5[d]:>16,.1f}{dev:>11.4f}%")
+          print(f"\nworst absolute deviation at or beyond 0.5 mi: {worst:.4f}%")
+          print("VERDICT:", "PASS — simplification does not move the answer"
+                if worst < 0.1 else
+                "FAIL — tolerance too coarse, recompute without simplification", flush=True)
+          PY
+          echo "✓ Complete"
+      volumes:
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      - {name: rclone-config, secret: {secretName: rclone-config}}
