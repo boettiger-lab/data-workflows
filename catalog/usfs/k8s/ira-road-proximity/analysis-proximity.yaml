@@ -69,11 +69,7 @@ spec:
         - name: TMPDIR
           value: /scratch/tmp_588_prox
         - name: NSHARDS
-          value: '60'
-        # '1' re-enables the two informational tiger-only strata. Off while the required
-        # ladder is still filling — see the gate in the script for why.
-        - name: INCLUDE_OPTIONAL
-          value: '0'
+          value: '60' 
         resources:
           requests:
             cpu: '4'
@@ -158,32 +154,6 @@ spec:
               "tiger-all":        ("tg", "TRUE"),
           }
           REGIONS = ["CONUS", "AK", "PR"]
-
-          # The two tiger-only strata are informational — the notes above say why neither
-          # feeds an acceptance criterion — and they are also the two most expensive strata
-          # in the job by roughly an order of magnitude. Measured from the checkpoint
-          # timestamps of the runs that produced the existing 63: tiger-drivable CONUS takes
-          # 31-104 min per shard (median ~60) against ~20 min for union-deis CONUS, and
-          # tiger-all is larger still. Two consequences make computing them here a bad trade:
-          #
-          #   1. They sit AFTER union-deis in the dict, so every shard that computes them
-          #      holds its slot for hours before k8s can start one of shards 30-59 — and the
-          #      REQUIRED strata only reach 180/180 once all 60 shards have run. They delay
-          #      the deliverable by roughly a factor of three.
-          #   2. maxFailedIndexes is 0 by design (a lost shard would silently shrink a
-          #      national acreage rather than leave a visible hole). tiger-all is the stratum
-          #      that OOM-killed the 48Gi pods, so a single OOM in it aborts the whole job
-          #      and discards the in-flight REQUIRED work of the other 29 shards.
-          #
-          # Consolidation already excludes any optional stratum that is not fully computed,
-          # so a partial tiger-drivable cannot leak into a reported total either way. Gated
-          # rather than deleted: set INCLUDE_OPTIONAL='1' to compute them once the required
-          # ladder is banked.
-          OPTIONAL = {"tiger-drivable", "tiger-all"}
-          if os.environ.get("INCLUDE_OPTIONAL", "0") != "1":
-              STRATA = {k: v for k, v in STRATA.items() if k not in OPTIONAL}
-              print(f"optional strata gated off: {sorted(OPTIONAL)} "
-                    f"(set INCLUDE_OPTIONAL=1 in the manifest to compute them)", flush=True)
 
           con = duckdb.connect()
           con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
