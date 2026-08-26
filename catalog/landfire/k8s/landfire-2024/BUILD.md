@@ -225,6 +225,20 @@ moves the ceiling. The lever that worked there was reducing how many large geome
 flight at once. The equivalent knob here is **`CNG_HEX_WORKERS`** (set to 8), which controls how
 many H3 slices a pod processes concurrently — halve it before touching `memory`.
 
+That job's numbers show the shape: after replacing a 9-way `CROSS JOIN` with a per-distance loop,
+peak memory across 60 pods fell to **2–8 Gi against a 36 Gi limit** — work that had been
+OOM-killed at 28 Gi. It was not ~30% short of enough RAM, it was over-allocating by roughly an
+order of magnitude, and no memory number would have fixed it.
+
+**Two diagnostics, so the lever is chosen on evidence rather than reflex:**
+
+- **CPU is the tell.** The OOM-ing configuration sat at ~1.9 of 16 cores while allocating enormous
+  geometries. *High memory with idle CPU* means a few huge objects — the concurrency lever applies.
+  *Exit 137 with pods near their CPU limit* is a different failure and halving workers will not
+  help.
+- **The response should be a step change, not a marginal one.** If halving `CNG_HEX_WORKERS` only
+  helps a little, the requirement is probably real and 192Gi is the right ask.
+
 `parallelism` is deliberately below `completions`. A nominal 48 at 192Gi per pod is fiction — the
 scheduler queues them regardless — and it competes for placement with everything else in the
 namespace. Raise it in place once neighbours drain:
