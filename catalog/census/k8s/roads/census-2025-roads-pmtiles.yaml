@@ -7,7 +7,22 @@ metadata:
 spec:
   completions: 1
   parallelism: 1
-  backoffLimit: 1
+  # backoffLimit was 1, which gives a 14-20 hour uncheckpointed job exactly two chances.
+  # Both were spent on the previous run — attempt 1 died near hour 14, attempt 2 got to
+  # 99.9% — leaving the job one preemption away from failing outright with nothing to show.
+  # 4 is not generosity: at this runtime a retry budget of 2 is thinner than the background
+  # pod mortality rate the pod-preemption skill documents (~28% on a much shorter job).
+  backoffLimit: 4
+  # And preemption must not spend that budget. Ignore a failure carrying DisruptionTarget
+  # (preemption, node drain, node-pressure eviction, graceful shutdown) so only a genuine
+  # tippecanoe failure counts against backoffLimit. podReplacementPolicy must be explicit
+  # once podFailurePolicy is set. Same treatment as the #588 analysis jobs.
+  podReplacementPolicy: Failed
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
@@ -93,7 +108,18 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      priorityClassName: opportunistic
+      # ⚠️ priorityClassName deliberately OMITTED — default priority 0 rather than
+      # `opportunistic` (-2000000000). This is the single worst preemption profile in the
+      # repo: tippecanoe over 16.5M TIGER road lines runs 14-20 hours, holds no checkpoint
+      # of any kind, and cannot resume — a preemption at hour 13 costs all 13 hours. The
+      # pod-preemption skill's rule is that exposure scales with runtime, and this is by far
+      # the longest-running pod here.
+      #
+      # Measured on the run this replaces: attempt 1 died around hour 14, attempt 2 reached
+      # 99.9% of zoom 14 at 6h15m. Resource limits are NOT the constraint and raising them
+      # will not help — tippecanoe at that stage was using 61% of ONE core of the 4 it has
+      # and 1.7% of its 32Gi. It is single-threaded and I/O-bound; the only thing that
+      # decides the outcome is whether the pod survives.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
