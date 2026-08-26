@@ -573,3 +573,50 @@ Both dimensions are over-requested — the warp is not CPU-bound and peaks near 
 memory ask. Size the next LANDFIRE COG run at ~4 cpu / 16Gi and re-measure; per `hex-tuning`, an
 over-request throttles your own throughput because the request decides how many pods the cluster
 can hold.
+
+## Result — the question this ingest was built to answer
+
+**"Are Inventoried Roadless Areas more departed than roaded NFS land?" — No. They are the least
+departed land on the National Forest System, alongside wilderness.**
+
+All strata joined at **h8** and made **mutually exclusive** (precedence: wilderness → IRA → roaded →
+other). Denominator is VCC 1–6 only; 111 water, 112 snow/ice, 120 developed, 132 barren and 180
+agriculture carry no departure rating and are excluded.
+
+| stratum | cells | VCC 1–2 low | VCC 3–4 moderate | **VCC 5–6 high** | mean |
+|---|---:|---:|---:|---:|---:|
+| Wilderness (PAD-US `WA`) | 7,585,958 | 33.8% | 53.7% | **12.5%** | 3.11 |
+| Inventoried Roadless Area | 13,615,027 | 32.6% | 55.0% | **12.4%** | 3.07 |
+| Roaded NFS | 17,789,837 | 21.8% | 56.1% | **22.1%** | 3.45 |
+| Other NFS (unroaded) | 13,021,583 | 23.2% | 50.8% | **26.0%** | 3.52 |
+
+Roaded NFS land is **1.79×** as likely to be in high or very-high departure as IRA land, and
+**1.77×** as likely as designated wilderness.
+
+**Internal consistency check:** wilderness (12.48%) and IRA (12.38%) are two independently derived
+protected strata — different source datasets, different legal designations — and they land within
+**0.1 percentage points** of each other. That agreement is not built in anywhere and is good
+evidence the signal is real.
+
+### What this does and does not establish
+
+- ✅ **It refutes the announcement's premise.** The claim is that roadless designation produced
+  overgrown, departed stands. The most-protected land is the *least* departed, so whatever produced
+  high departure on the National Forest System, roadless designation is not it.
+- ⛔ **It does not establish that roads cause departure.** This is observational. Wilderness and IRA
+  land is systematically higher, steeper, less productive and less historically logged than roaded
+  land, and any of those could drive the gap. Note that *Other NFS (unroaded)* is the **most**
+  departed stratum at 26.0% — if roads themselves were the driver, that stratum should look like
+  the protected ones, and it does not.
+
+### Caveats that must travel with the number
+
+1. **Dominant class, not area.** These are `mode` cell counts, because `hex-fractions` did not
+   finish. At resolution 10 a cell is ~16 source pixels, so the proxy is good, but it is not the
+   area-weighted accounting the issue asked for.
+2. **"Roaded" is an h8 containment test**, not a distance. `roadcore-fs` is a line hex at native
+   resolution 8, so the finest available question is "does this ~0.7 km² cell contain a road".
+3. **`Des_Tp = 'WA'`, not `'WILD'`.** The PAD-US STAC column description for `Des_Tp` gives
+   *"'WILD' for Wilderness"* — a code that **does not exist in the data**. Filtering on it returns
+   zero rows silently. The real code is `WA` (644,198 rows); `WSA` is Wilderness Study Area. This is
+   the #294 class of defect in a dependency's metadata and is worth reporting upstream.

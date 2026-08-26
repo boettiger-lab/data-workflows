@@ -136,7 +136,7 @@ def read_hist(path):
     return out
 
 
-def build(layer, cfg, legends_dir, hist_dir):
+def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
     prod = cfg["prod"]
     legend = read_legend(pathlib.Path(legends_dir) / prod / cfg["csv"],
                          cfg["name_col"], cfg["desc_col"])
@@ -272,6 +272,24 @@ def build(layer, cfg, legends_dir, hist_dir):
                 "description": hex_desc,
                 "table:columns": cols(False),
             },
+        },
+    }
+    if not fractions_published:
+        coll["assets"].pop(f"{layer}-hex-fractions", None)
+        coll["description"] = coll["description"].replace(
+            "Available as a cloud-optimized GeoTIFF and as two H3 hex tables at "
+            "resolution 10: a dominant-class table and a per-class fractional-coverage "
+            "table. Use the fractional table for any question about how much area a class "
+            "holds.",
+            "Available as a cloud-optimized GeoTIFF and as an H3 hex table at resolution 10 "
+            "giving the dominant class in each cell. A companion per-class "
+            "fractional-coverage table, which is what area accounting needs, is not yet "
+            "published for this layer.")
+    return coll, len(present), len(classes)
+
+
+def _unused(layer, cfg, ds, BASE, cols, frac_desc):
+    return {
             f"{layer}-hex-fractions": {
                 "href": f"{BASE}/{ds}/hex-fractions/h0=*/data_0.parquet",
                 "type": "application/x-parquet",
@@ -282,9 +300,7 @@ def build(layer, cfg, legends_dir, hist_dir):
                 "description": frac_desc,
                 "table:columns": cols(True),
             },
-        },
     }
-    return coll, len(present), len(classes)
 
 
 def bucket_collection():

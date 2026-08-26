@@ -1,0 +1,117 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landfire-2024-hex-rest
+  namespace: geo-workflows
+  labels: {k8s-app: landfire-2024-hex-rest}
+spec:
+  completions: 36            # 2 reducers x 3 layers x 6 h0 — EVC DEFERRED, see BUILD.md
+  # parallelism is deliberately BELOW completions. A nominal 48 is fiction at
+  # 192Gi/pod -- the scheduler queues them anyway -- and it competes for placement
+  # with whatever else the namespace is running. Probe first: read `kubectl top pod`
+  # on the first slices (cpu is $2, memory is $3), then raise in place with
+  #   kubectl -n geo-workflows patch job landfire-2024-hex -p '{"spec":{"parallelism":N}}'
+  # Memory is the non-elastic dimension: the request decides how many placement slots
+  # exist for your own work, so being tight on it directly buys concurrency.
+  parallelism: 16          # start conservative and MEASURE, then raise (see below)
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 8        # absorb preemption without aborting the siblings
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata: {labels: {k8s-app: landfire-2024-hex-rest}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # LANDFIRE 2024 CONUS res-10 hex. BOTH reducers ride in this one indexed Job:
+          # mode and fractions are independent per (layer, h0, reducer), and the namespace
+          # rule is one hex WORKFLOW at a time -- so folding the reducer into the index
+          # fans both out in a single wave instead of two serialized passes.
+          #
+          # Index maps to (reducer, layer, h0):
+          #   R = IDX/24,  L = (IDX%24)/6,  H0 = H0S[IDX%6]
+          #
+          # H0S is the six h0 cells that actually carry CONUS at res 10 -- derived from
+          # s3://public-grids/hex/h0-valid.parquet against the LANDFIRE bbox and confirmed
+          # identical to NLCD 2024's populated partitions and to the MTBS CONUS set. Running
+          # these 6 instead of all 122 avoids 116 pods per layer that each localize a
+          # multi-GB COG only to find no overlap and skip.
+          #
+          # mode  -> hex/           : dominant class per cell. Sparse: cells with no valid
+          #                           pixel are dropped, so a missing partition is expected
+          #                           where a layer has no data, not a defect.
+          # fractions -> hex-fractions/ : one row per (cell, class) with `frac` = the class's
+          #                           coverage-weighted share, nodata kept as an explicit
+          #                           class so frac sums to <=1 and the unclassified share
+          #                           stays recoverable. This is what area accounting needs;
+          #                           mode alone keeps only the plurality and cannot answer
+          #                           "share of forest that is departed".
+          LAYERS=(vcc evt fbfm40)
+          H0S=(12 14 20 50 71 78)
+          # h0 cell id for each index above, so a finished slice can be detected on S3.
+          H0CELLS=(576812596024311807 577692205326532607 577164439745200127 \
+                   577199624117288959 577762574070710271 577234808489377791)
+          NODATA=("-9999,-1111,32767" "-9999,32767" "-9999,32767")
+          # exact_extract workers PER LAYER. EVC gets half, and this is measured, not
+          # cautious: on the first run 3 of the 4 EVC slices that started were OOM-killed
+          # at 192Gi while 0 of 12 non-EVC slices were -- including VCC h0-71, the
+          # heaviest slice sampled anywhere in the fleet at 138.8Gi, which completed.
+          # EVC's COG is 8.5GB against 1.9-4.1GB for the others (high class entropy
+          # compresses poorly), so its working set per in-flight chunk is the outlier.
+          # Halving chunks in flight is the only lever left: 192Gi already competes for
+          # scarce large-RAM nodes, so a larger request would convert a retryable OOM
+          # into an unschedulable pod. (#590)
+          WORKERS=(4 4 4)   # reliability over speed for the final slices
+          IDX=${JOB_COMPLETION_INDEX}
+          R=$(( IDX / 18 )); LI=$(( (IDX % 18) / 6 )); H0I=$(( IDX % 6 ))
+          H0=${H0S[$H0I]}; CELL=${H0CELLS[$H0I]}
+          L=${LAYERS[$LI]}; ND=${NODATA[$LI]}
+          export CNG_HEX_WORKERS=${WORKERS[$LI]}
+          if [ "$R" -eq 0 ]; then
+            RED=mode;      OUT=hex;           EXTRA=""
+          else
+            RED=fractions; OUT=hex-fractions; EXTRA="--resampling near"
+          fi
+          echo "=== LANDFIRE 2024 ${L} res-10 ${RED}, h0-index ${H0} (global idx ${IDX}, nodata ${ND}, workers ${CNG_HEX_WORKERS}) ==="
+          # Idempotent: a slice whose partition is already on S3 is skipped, so a rerun
+          # after an intervention does not redo finished work. cng-datasets writes the
+          # partition once the h0 completes, so a present object is a complete one.
+          DEST="landfire-2024-${L}/${OUT}/h0=${CELL}/data_0.parquet"
+          if rclone lsf "nrp:public-landfire/${DEST}" 2>/dev/null | grep -q .; then
+            echo "slice already present at ${DEST} -- skipping"; exit 0
+          fi
+          cng-datasets raster \
+            --input "s3://public-landfire/landfire-2024-${L}/landfire-2024-${L}-cog.tif" \
+            --output-parquet "s3://public-landfire/landfire-2024-${L}/${OUT}/" \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column ${L} --hex-resampling ${RED} ${EXTRA} --nodata "${ND}"
+        resources:
+          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
