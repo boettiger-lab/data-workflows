@@ -29,6 +29,19 @@ spec:
   backoffLimit: 2
   completions: 1
   parallelism: 1
+  # A single long pod is the worst possible preemption target: there is no other index to
+  # make progress while it retries, and each retry restarts the whole job from nothing —
+  # this one has no checkpointing, unlike the ladder. So preemption must not spend the
+  # backoff budget that exists to catch real failures. Same rule as analysis-proximity.yaml:
+  # Ignore a failure carrying DisruptionTarget (preemption, drain, node-pressure eviction,
+  # graceful shutdown); a genuine failure such as an OOM still counts and still fails the
+  # job. podReplacementPolicy must be explicit once podFailurePolicy is set.
+  podReplacementPolicy: Failed
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
   ttlSecondsAfterFinished: 172800
   template:
     metadata:
@@ -36,7 +49,11 @@ spec:
         k8s-app: ira-road-distance-hex
     spec:
       restartPolicy: Never
-      priorityClassName: opportunistic
+      # priorityClassName deliberately omitted — default priority 0 rather than
+      # `opportunistic` (-2000000000). This pod holds ~11k per-roadless-area road unions in
+      # memory and runs long; losing it to preemption costs the entire run, since nothing
+      # here is checkpointed. See the note in analysis-proximity.yaml — #590 has stood down
+      # off the cluster so these two jobs can finish.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

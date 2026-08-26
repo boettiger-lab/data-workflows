@@ -71,7 +71,23 @@ spec:
         k8s-app: ira-road-proximity
     spec:
       restartPolicy: Never
-      priorityClassName: opportunistic
+      # ⚠️ priorityClassName is deliberately OMITTED, which gives default priority 0 —
+      # two billion points above `opportunistic` (-2000000000). These pods run 50+ minutes
+      # each, and the pod-preemption skill is explicit that preemption exposure scales with
+      # runtime: at `opportunistic` this job lost 49 pods in two hours and one index
+      # exhausted its retries inside a 90-second preemption storm, aborting the whole run.
+      #
+      # The skill pairs this with HALVING parallelism so the total node claim stays flat,
+      # and that pairing is not applied here: parallelism stays at 30. That is a deliberate
+      # exception, not an oversight. It was agreed with the concurrent LANDFIRE run (#590),
+      # which held the hex lock with 192Gi pods and had pods Pending — and which has now
+      # stood down off the cluster specifically so this job can finish. The reason the pin
+      # existed (not crowding #590) no longer applies, so the reason to compensate for the
+      # priority rise no longer applies either.
+      #
+      # ⛔ If another large run comes back onto the cluster before this finishes, this is
+      # the first thing to reconsider: 30 hard-to-evict 64Gi pods is a big claim on shared
+      # nodes, and the fair form of it is priority 0 at parallelism 15.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
