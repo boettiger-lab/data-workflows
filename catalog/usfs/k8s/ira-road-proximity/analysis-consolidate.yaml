@@ -270,28 +270,53 @@ spec:
                 GROUP BY 1 ORDER BY 1
               """, [stratum]).fetchall()
               lad = [(d, v or 0.0) for d, v in lad]
-              if not lad or lad[-1][1] < target:
-                  return None, lad
+              if not lad:
+                  return "no-data", None, lad
+              if lad[-1][1] < target:
+                  # The widest rung still falls short: the ladder does not bracket it.
+                  return "not-reached", None, lad
+              if lad[0][1] > target:
+                  # The SHORTEST rung already exceeds the target, so the implied distance is
+                  # below the finest band and this ladder cannot resolve it. Reporting the
+                  # shortest rung here — which is what falling through the loop used to do —
+                  # would print a bracketed-looking answer that is really just the bottom of
+                  # the ladder, indistinguishable from an interpolated solve. Say so instead.
+                  return "below", lad[0][0], lad
               for (d0, v0), (d1, v1) in zip(lad, lad[1:]):
                   if v0 <= target <= v1:
                       # Linear interpolation on the ladder. Area grows smoothly and
                       # monotonically in d, so this is accurate to well inside the spacing.
                       if v1 == v0:
-                          return d0, lad
-                      return d0 + (target - v0) * (d1 - d0) / (v1 - v0), lad
-              return lad[0][0], lad
+                          return "ok", d0, lad
+                      return "ok", d0 + (target - v0) * (d1 - d0) / (v1 - v0), lad
+              # Monotone coverage plus the two guards above make this unreachable. If it does
+              # happen the ladder is not monotone in d, which is a defect worth failing on
+              # rather than interpolating through.
+              return "non-monotone", None, lad
 
           for stratum in strata:
               for col, target, label in (
                       ("pae_acres_within", TARGET_PAE, "11.3M vs PAE"),
                       ("acres_within",     TARGET_RA,  "13.3M vs 44.7M")):
-                  d, lad = solve(stratum, col, target)
-                  if d is None:
-                      cap = lad[-1][1] if lad else 0
-                      print(f"  {stratum:<18} {label:<16} NOT REACHED — "
-                            f"max {cap:,.0f} ac at {lad[-1][0]:.0f} m" if lad else "no data")
+                  status, d, lad = solve(stratum, col, target)
+                  head = f"  {stratum:<18} {label:<16}"
+                  if status == "no-data":
+                      print(f"{head} no data")
+                  elif status == "not-reached":
+                      print(f"{head} NOT REACHED — max {lad[-1][1]:,.0f} ac "
+                            f"at the widest rung, {lad[-1][0]:.0f} m")
+                  elif status == "below":
+                      print(f"{head} BELOW THE LADDER — the shortest rung, {d:.0f} m, "
+                            f"already gives {lad[0][1]:,.0f} ac against a {target:,.0f} ac "
+                            f"target, so the implied distance is under {d:.0f} m and this "
+                            f"ladder cannot resolve it")
+                  elif status == "non-monotone":
+                      raise SystemExit(
+                          f"ABORT: {stratum} / {label} — acreage is not monotone in d "
+                          f"({lad}); the ladder cannot be interpolated and something is "
+                          f"wrong with the inputs.")
                   else:
-                      print(f"  {stratum:<18} {label:<16} d = {d:>8.1f} m "
+                      print(f"{head} d = {d:>8.1f} m "
                             f"({d/1609.344:.3f} mi)  [agency states 0.5 mi = 804.7 m]")
 
           print("\\n✓ consolidation complete", flush=True)
