@@ -60,6 +60,10 @@ CDFW BIOS biogeographic data. **Verified**: the BIOS-published layers (ACE, SWAP
 - **OK** · `public-domain` — public-cgs/sierra-nevada-atlas  
 - **OK** · `public-domain` — public-cgs  
 
+## public-commodities
+Forest Data Partnership (FDAP) commodity probability models, produced by Google. **Version matters:** the Earth Engine catalog page for `model_2025a` states CC-BY-**NC**-4.0 for non-commercial Earth Engine users plus separate FDAP Commercial Terms of Use, whereas `model_2025b` states plain **CC-BY-4.0**. Verify the version before assigning a license — do not carry 2025a's NC clause onto a 2025b layer. Both require the attribution string "Produced by Google for the Forest Data Partnership".
+- **OK** · `CC-BY-4.0` — public-commodities/fdap-2025b/cocoa-peru-2024  · FDAP `model_2025b` cocoa probability, Peru 2024, from EE `projects/forestdatapartnership/assets/cocoa/model_2025b`. Plain CC-BY-4.0 verified on the [EE catalog page](https://developers.google.com/earth-engine/datasets/catalog/projects_forestdatapartnership_assets_cocoa_model_2025b). Mirror-eligible with attribution. NOTE: the published COG asset lives under this bucket's `raw/` prefix, so `raw/**` must NOT be excluded from the mirror (unlike the `dem` precedent, where `raw/` is a re-pullable upstream tile mirror). Tracked: data-workflows #514.
+
 ## public-cpad
 - **OK** · `CC-BY-4.0` — public-cpad/cced-stac-collection  · GreenInfo CPAD/CCED via CNRA open data = CC-BY
 - **OK** · `CC-BY-4.0` — public-cpad/cpad-holdings-stac-collection  · GreenInfo CPAD/CCED via CNRA open data = CC-BY

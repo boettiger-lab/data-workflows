@@ -17,6 +17,7 @@ data:
     carbon sync */chunks/** */hex-staging/** 
     census sync */chunks/** */hex-staging/** 
     cgs sync */chunks/** */hex-staging/** 
+    commodities sync */chunks/** */hex-staging/** 
     connectivity sync */chunks/** */hex-staging/** 
     cpad sync */chunks/** */hex-staging/** 
     ecoregion sync */chunks/** */hex-staging/** 
