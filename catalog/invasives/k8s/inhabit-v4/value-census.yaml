@@ -73,7 +73,9 @@ spec:
           for PRODUCT in occurrence occurrence-masked abundance abundance-masked \
                          high-abundance high-abundance-masked \
                          integrated-binary-first integrated-binary-fifth integrated-binary-tenth; do
-            if ! rclone lsf "${SRC}/${SP}/${PRODUCT}.tif" >/dev/null 2>&1; then
+            # ⚠️ `rclone lsf` exits 0 on a nonexistent path — test the OUTPUT, not the status,
+            # or an absent product reads as present and the pod goes on to census a stale tif.
+            if [ -z "$(rclone lsf "${SRC}/${SP}/${PRODUCT}.tif" 2>/dev/null)" ]; then
               echo "-> ${PRODUCT}: absent upstream, recorded as missing"; continue
             fi
             rclone copyto "${SRC}/${SP}/${PRODUCT}.tif" /tmp/c/r.tif \
