@@ -24,13 +24,30 @@
 # ⛔ Do NOT node-pin: a 192Gi/8cpu pod fills a node, so pinning serializes the job (#307 turned a
 # CONUS res-10 hex from hours into 30–50 h).
 #
-# NOTE ON THE 116 NEAR-NO-OP PODS. Completions are fixed at 122 (one per h0 base cell) but only 6
-# intersect CONUS, so ~116 pods localize the ~28 GB COG and produce nothing. That is the same
-# waste the `nlcd` build accepts, and it is NOT optimized away here on purpose: the index -> h0
-# cell mapping is `cng-datasets`' own and guessing it risks silently skipping a POPULATED cell.
-# Each pod echoes its index below; once this job has run we can read the real mapping out of the
-# pod logs and use the established explicit `CHUNK_MAP=(...)` pattern (see catalog/rap, catalog/cwhr)
-# for the remaining WRC layers. Upstream two-tier proposal: boettiger-lab/datasets#172.
+# /!\ THE h0 FAN-OUT IS RESTRICTED TO THE 6 POPULATED BASE CELLS, not the 122 the generator emits.
+# At res 10 an h0 index that holds no data is NOT free: the tool prunes only cells whose envelope
+# misses the raster, and every surviving cell enumerates all ~280 M of its res-10 children before
+# discovering they are all nodata (mtbs-severity-conus-hex.yaml:20-24). On top of that THIS COG is
+# ~28 GB, so each skipped pod would rclone-localize it first -- ~116 pods x 28 GB is about 3 TB of
+# reads to produce nothing, and 20 waves of pods claiming 192Gi on a shared cluster.
+#
+# An earlier revision kept 122 on the grounds that the index -> h0 mapping is `cng-datasets`' own
+# and guessing it risks silently skipping a POPULATED cell. That reasoning stands. The map below
+# is simply not a guess: it is recorded twice, independently, and both agree.
+#   - catalog/fire/k8s/mtbs/severity/mtbs-severity-conus-hex.yaml:43-49, in production for the same
+#     CONUS 30 m res-10 footprint, read from the cell CENTROIDS of a completed hex
+#   - the slice table on #623 (LANDFIRE FBFM40), same six indexes, same six cells
+# They are exactly the 6 cells `nlcd/hex/year=2024` populates, which is the footprint this layer
+# shares (same extent, same 30 m pixel, same native resolution). check-hex-coverage.sh --expect-h0
+# fails loudly on a wrong list rather than shipping a hole, so the list is gated, not trusted.
+#
+#   h0 index -> cell
+#      12  ->  576812596024311807
+#      14  ->  577692205326532607
+#      20  ->  577164439745200127
+#      50  ->  577199624117288959
+#      71  ->  577762574070710271
+#      78  ->  577234808489377791
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -38,7 +55,8 @@ metadata:
   namespace: geo-workflows
   labels: {k8s-app: wrc-2-rps-conus-hex}
 spec:
-  completions: 122
+  # 6 populated h0, one wave. See the measured index map above.
+  completions: 6
   parallelism: 6
   completionMode: Indexed
   backoffLimitPerIndex: 3
@@ -82,11 +100,14 @@ spec:
         - -c
         - |-
           set -e
-          echo "=== WRC v2 RPS CONUS res-10 mean, h0-index ${JOB_COMPLETION_INDEX} ==="
+          # Slot -> h0 index. Measured, not guessed; see the header.
+          H0S=(12 14 20 50 71 78)
+          H0=${H0S[${JOB_COMPLETION_INDEX}]}
+          echo "=== WRC v2 RPS CONUS res-10 mean, h0-index ${H0} (slot ${JOB_COMPLETION_INDEX}) ==="
           cng-datasets raster \
             --input "s3://public-fire/wrc-2-rps-conus-cog.tif" \
             --output-parquet "s3://public-fire/wrc-2-rps-conus/hex/" \
-            --h0-index ${JOB_COMPLETION_INDEX} \
+            --h0-index ${H0} \
             --resolution 10 --parent-resolutions 9,8,0 \
             --value-column rps --hex-resampling mean --nodata -9999
         resources:
