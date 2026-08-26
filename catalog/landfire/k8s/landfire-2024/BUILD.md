@@ -406,6 +406,32 @@ footer cannot pass as a partition). Choose the tolerance from **detectability do
 a pre-publication gate exists**, never from how the data looks. Where no such gate exists, zero
 tolerance plus checkpoint-resume is the correct opposite setting.
 
+⛔ **`failedIndexes` uses COMPRESSED RANGE notation — do not comma-count it.** This build's
+automated guard was written to intervene at 6 of 8 and **never fired**, because the field read
+`12-17` and the guard split on commas and scored it as **one**:
+
+| `failedIndexes` value | real count | naive comma-count |
+|---|---|---|
+| `12,13,15` | 3 | 3 ✓ |
+| `12-17` | **6** | **1** ✗ |
+| `12-17,36,38-40` | **10** | **3** ✗ |
+
+The bug is invisible early — while failures are scattered, ranges do not form and the naive count
+is correct. It only breaks once failures become *contiguous*, which is exactly when they are
+clustered on one layer and the guard matters most. Expand ranges before counting:
+
+```bash
+python3 -c "
+import sys
+n=0
+for part in [p for p in sys.argv[1].split(',') if p]:
+    a,_,b = part.partition('-'); n += int(b)-int(a)+1 if b else 1
+print(n)" "$FAILED_INDEXES"
+```
+
+Here the 45-minute backstop deadline caught it instead of the trigger, and no work was lost — but
+that was the fallback saving a broken primary, not the design working.
+
 **The rule, fixed in advance:**
 
 - Trigger on `failedIndexes` (permanent), never on `status.failed` (pods).
