@@ -54,7 +54,12 @@ D_DEF = (
     "Buffer distance in metres, measured either side of the road centreline. The ladder "
     "brackets the two distances the agency published, so a result does not hinge on one "
     "reverse-engineered number, and doubles as the distance bands for the ignition-density "
-    "gradient in #587. Valid values: "
+    "gradient in #587. ⚠️ Road centrelines are simplified with a 5 m tolerance before "
+    "buffering, which biases area slightly LOW, and the bias is distance-dependent: measured "
+    "against an exact recomputation it is -0.078% at 804.672 m and -0.018% at 1609.344 m "
+    "(negligible), but -1.0% at 50 m and -0.8% at 100 m. Treat the two shortest distances as "
+    "marginally conservative; the figures reported against the agency's claim use 804.672 m "
+    "and 1609.344 m, where the effect is immaterial. Valid values: "
     "50=50 m; 100=100 m; 200=200 m; 400=400 m; "
     "804.672=0.5 mile, the agency's own definition of 'near' (DEIS Vol I p. 41 fn. 10); "
     "1000=1 km; "
@@ -278,7 +283,11 @@ def distance_collection():
             "acreage.** A resolution-10 cell is about 0.015 km2, fine enough to integrate area "
             "to roughly 0.25%, but the authoritative acreage lives in the ira-road-proximity "
             "collection and is computed on true geometry. Use dist_m_all for a gradient; use "
-            "the other collection for a number anyone will quote.\n\n" + METHOD,
+            "the other collection for a number anyone will quote.\n\n"
+            "⚠️ Distances derive from road centrelines simplified with a 5 m tolerance, which "
+            "biases them slightly long at short range: buffered area is -1.0% at 50 m and "
+            "-0.8% at 100 m against an exact recomputation, falling to -0.078% at 0.5 mile. "
+            "The two shortest bands are therefore marginally conservative.\n\n" + METHOD,
         "license": "public-domain",
         "stac_extensions": ["https://stac-extensions.github.io/table/v1.2.0/schema.json"],
         "extent": {"spatial": {"bbox": [BBOX]},

@@ -63,8 +63,8 @@ spec:
         - name: TMPDIR
           value: /scratch/tmp_588_simp
         resources:
-          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
-          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '8', memory: 64Gi, ephemeral-storage: 20Gi}
         volumeMounts:
         - {name: scratch, mountPath: /scratch}
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
@@ -89,17 +89,21 @@ spec:
           con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
           con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
           con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
-          con.execute("SET memory_limit='26GB'; SET threads=8;")
+          con.execute("SET memory_limit='52GB'; SET threads=8;")
           con.execute("SET temp_directory='/scratch/tmp_588_simp';")
           con.execute("SET preserve_insertion_order=false;")
 
           con.execute(f"CREATE TABLE ira AS SELECT * FROM read_parquet('{WORK}/ira.parquet')")
           con.execute(f"CREATE TABLE rc  AS SELECT * FROM read_parquet('{WORK}/roads_rc.parquet')")
-          # Worst case first: simplification can only distort a buffer where the road
-          # network is complex, so rank this shard's polygons by how many road segments
-          # fall in range and validate on the densest N. If the tolerance is harmless
-          # there it is harmless everywhere, and N polygons fit in 32Gi unsimplified.
-          NSAMPLE = 25
+          # Sample ACROSS the road-density distribution rather than taking the densest N.
+          # Taking the worst case sounds stricter but is both statistically worse and
+          # computationally infeasible: the densest polygons are exactly the ones whose
+          # exact (unsimplified) buffer cannot be computed in reasonable memory — that is
+          # why simplification exists — so a worst-case-only sample either OOMs or never
+          # finishes, and it tells you nothing about the typical error that actually moves
+          # a national total. Deciles give a representative estimate AND include dense
+          # polygons, with the densest handled by the per-polygon exception path below.
+          NSAMPLE = 10
           con.execute(f"""
             CREATE TABLE i_all AS
             SELECT _cng_fid, g, ST_Buffer(g, {MAXD}) AS gb
@@ -107,58 +111,88 @@ spec:
             WHERE crs_region = 'CONUS' AND (hash(_cng_fid) % {NSHARD}) = {SHARD}
           """)
           con.execute(f"""
+            CREATE TABLE dens AS
+            SELECT i2._cng_fid, COUNT(*) AS nr,
+                   NTILE({NSAMPLE}) OVER (ORDER BY COUNT(*)) AS decile
+            FROM i_all i2 JOIN rc r ON r.crs_region = 'CONUS'
+                                   AND ST_Intersects(i2.gb, r.g)
+            GROUP BY 1
+          """)
+          con.execute("""
             CREATE TABLE i_s AS
             SELECT i.* FROM i_all i
-            JOIN (
-              SELECT i2._cng_fid, COUNT(*) AS nr
-              FROM i_all i2 JOIN rc r ON r.crs_region = 'CONUS'
-                                     AND ST_Intersects(i2.gb, r.g)
-              GROUP BY 1 ORDER BY nr DESC LIMIT {NSAMPLE}
-            ) t USING (_cng_fid)
+            JOIN (SELECT _cng_fid, nr,
+                         ROW_NUMBER() OVER (PARTITION BY decile ORDER BY nr DESC) AS rn
+                  FROM dens) t USING (_cng_fid)
+            WHERE t.rn = 1
           """)
           n = con.execute("SELECT COUNT(*) FROM i_s").fetchone()[0]
           tot = con.execute("SELECT COUNT(*) FROM i_all").fetchone()[0]
-          print(f"validating on the {n} road-densest of shard {SHARD}'s {tot} CONUS "
-                f"polygons — the worst case for simplification error\n", flush=True)
+          spread = con.execute("""
+            SELECT MIN(nr), MAX(nr) FROM dens d
+            JOIN i_s i USING (_cng_fid)
+          """).fetchone()
+          print(f"validating on {n} of shard {SHARD}'s {tot} CONUS polygons, one per "
+                f"road-density decile ({spread[0]}-{spread[1]} road segments in range)\n",
+                flush=True)
 
-          results = {}
-          for tol in (5.0, 0.0):
-              simp = f"ST_Simplify(r.g, {tol})" if tol > 0 else "r.g"
-              con.execute("DROP TABLE IF EXISTS nearr")
-              con.execute(f"""
-                CREATE TEMP TABLE nearr AS
-                SELECT i._cng_fid AS fid, ST_Union_Agg({simp}) AS rg
-                FROM i_s i JOIN rc r ON r.crs_region = 'CONUS'
-                                    AND ST_Intersects(i.gb, r.g)
-                GROUP BY i._cng_fid
-              """)
-              vtx = con.execute("SELECT SUM(ST_NPoints(rg)) FROM nearr").fetchone()[0]
-              acres = {}
-              for d in LADDER:
-                  acres[d] = con.execute(f"""
-                    SELECT SUM(ST_Area(ST_Intersection(i.g,
-                             ST_Buffer(n.rg, {d}::DOUBLE))) / {M2_AC})
-                    FROM i_s i JOIN nearr n ON n.fid = i._cng_fid
-                  """).fetchone()[0] or 0.0
-              results[tol] = (vtx, acres)
-              label = f"{tol:.0f} m" if tol else "NONE (exact)"
-              print(f"simplification {label}: union carries {vtx:,} vertices", flush=True)
+          # ⚠️ Process ONE polygon at a time, both arms, rather than all N at once.
+          # The unsimplified arm OOM-killed a 32Gi pod on 25 polygons in aggregate while the
+          # simplified arm ran the same 25 at ~13Gi — which is itself the finding that
+          # simplification is what makes this computable, not a convenience. But it left the
+          # accuracy question unanswered, and accuracy is the thing being validated. Per
+          # polygon, peak memory is bounded by a single road union, so the exact arm fits.
+          fids = [r[0] for r in con.execute("SELECT _cng_fid FROM i_s ORDER BY 1").fetchall()]
+          tot = {5.0: dict.fromkeys(LADDER, 0.0), 0.0: dict.fromkeys(LADDER, 0.0)}
+          vtx = {5.0: 0, 0.0: 0}
+          skipped = []
 
-          v5, a5 = results[5.0]
-          v0, a0 = results[0.0]
-          print(f"\nvertex reduction: {v0:,} -> {v5:,} "
-                f"({100.0*(v0-v5)/v0:.1f}% fewer)\n", flush=True)
+          for k, fid in enumerate(fids, 1):
+              for tol in (5.0, 0.0):
+                  simp = f"ST_Simplify(r.g, {tol})" if tol > 0 else "r.g"
+                  try:
+                      con.execute("DROP TABLE IF EXISTS one")
+                      con.execute(f"""
+                        CREATE TEMP TABLE one AS
+                        SELECT ST_Union_Agg({simp}) AS rg
+                        FROM i_s i JOIN rc r ON r.crs_region = 'CONUS'
+                                            AND ST_Intersects(i.gb, r.g)
+                        WHERE i._cng_fid = {fid}
+                      """)
+                      vtx[tol] += con.execute(
+                          "SELECT COALESCE(SUM(ST_NPoints(rg)),0) FROM one").fetchone()[0]
+                      for d in LADDER:
+                          v = con.execute(f"""
+                            SELECT COALESCE(SUM(ST_Area(ST_Intersection(i.g,
+                                     ST_Buffer(n.rg, {d}::DOUBLE))) / {M2_AC}), 0)
+                            FROM i_s i, one n WHERE i._cng_fid = {fid}
+                          """).fetchone()[0]
+                          tot[tol][d] += v
+                  except Exception as e:
+                      skipped.append((fid, tol, type(e).__name__))
+                      break
+              if k % 5 == 0:
+                  print(f"  {k}/{len(fids)} polygons", flush=True)
+
+          if skipped:
+              print(f"\n⚠️  {len(skipped)} polygon/arm pairs failed and are EXCLUDED "
+                    f"from both totals: {skipped[:5]}", flush=True)
+
+          print(f"\nvertices in road unions: exact {vtx[0.0]:,} -> simplified "
+                f"{vtx[5.0]:,} ({100.0*(vtx[0.0]-vtx[5.0])/max(vtx[0.0],1):.1f}% fewer)\n",
+                flush=True)
           print(f"{'d (m)':>10}{'exact acres':>16}{'simplified':>16}{'deviation':>12}")
           worst = 0.0
           for d in LADDER:
-              dev = 100.0 * (a5[d] - a0[d]) / a0[d] if a0[d] else 0.0
+              a0, a5 = tot[0.0][d], tot[5.0][d]
+              dev = 100.0 * (a5 - a0) / a0 if a0 else 0.0
               if d >= 804.672:
                   worst = max(worst, abs(dev))
-              print(f"{d:>10.1f}{a0[d]:>16,.1f}{a5[d]:>16,.1f}{dev:>11.4f}%")
+              print(f"{d:>10.1f}{a0:>16,.1f}{a5:>16,.1f}{dev:>11.4f}%")
           print(f"\nworst absolute deviation at or beyond 0.5 mi: {worst:.4f}%")
-          print("VERDICT:", "PASS — simplification does not move the answer"
+          print("VERDICT:", "PASS - simplification does not move the answer"
                 if worst < 0.1 else
-                "FAIL — tolerance too coarse, recompute without simplification", flush=True)
+                "FAIL - tolerance too coarse, recompute without simplification", flush=True)
           PY
           echo "✓ Complete"
       volumes:

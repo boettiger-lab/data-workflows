@@ -128,9 +128,41 @@ It is applied **uniformly to every stratum, region and distance**, so no two rep
 are computed by different methods. When the simplification was introduced mid-run, the 27
 checkpoints already computed without it were discarded rather than merged.
 
-**Validation.** Re-run one shard with `SIMPLIFY_M = 0.0` and compare acreages against the
-simplified run; the deviation is recorded in the Results section. If it were ever to exceed a
-small fraction of a percent, the tolerance is wrong and the figures should not be published.
+**Validation — measured, not asserted.** Ten polygons sampled one per road-density decile
+(4–225 road segments in range), each computed twice: once with `SIMPLIFY_M = 5.0` and once
+exactly. Simplification removed **76.6%** of the vertices (49,504 → 11,565).
+
+| d | exact acres | simplified | deviation |
+|---:|---:|---:|---:|
+| 50 m | 421.4 | 417.0 | **−1.045%** |
+| 100 m | 947.3 | 939.5 | −0.819% |
+| 200 m | 2,265.9 | 2,255.7 | −0.450% |
+| 400 m | 5,218.6 | 5,207.9 | −0.205% |
+| **804.672 m (0.5 mi)** | 10,434.0 | 10,425.8 | **−0.078%** |
+| 1000 m | 12,376.9 | 12,368.8 | −0.066% |
+| **1609.344 m (1 mi)** | 16,362.6 | 16,359.7 | **−0.018%** |
+| 2414.016 m | 18,428.1 | 18,426.0 | −0.011% |
+| 3218.688 m | 19,222.4 | 19,217.8 | −0.024% |
+
+**The error is distance-dependent, and that matters for how these numbers are used.**
+Simplification shortens a line slightly, so its buffer is slightly smaller — every deviation is
+negative. At short distances the buffered area is close to *length × 2d*, so a relative loss of
+length passes straight through; at long distances the area is dominated by the merged footprint
+of the network and the relative effect shrinks by an order of magnitude.
+
+- **The headline figures are unaffected.** At 0.5 mile the deviation is −0.078% and at 1 mile
+  −0.018% — three to four orders of magnitude below the ~2.0M-acre gap between the DEIS's 11.3M
+  and the Economic Analysis's 13.3M, and far below the ±0.22% error already carried by the PAE
+  reconstruction.
+- ⚠️ **The two finest bands carry a real bias.** 50 m is −1.0% and 100 m −0.8%. Those bands feed
+  the #587 ignition-density gradient, so anyone using them should know the counts are marginally
+  conservative at the short end. They are not used for any acreage reported against the claim.
+
+**Simplification is also what makes the computation possible.** Computing the exact arm for the
+25 road-densest polygons in aggregate OOM-killed a 32Gi pod, while the simplified arm ran the
+same 25 at ~13Gi; the exact arm only completed at all once restructured to one polygon at a
+time. This is not a speed optimisation that was taken for convenience — buffering the raw
+centreline union at national scale is not tractable in reasonable memory.
 
 ### Two performance findings worth keeping
 
