@@ -24,8 +24,8 @@ ROOT = "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
 LANDING = "https://landfire.gov/data/FullExtentDownloads"
 EDITION = "LF 2024 (2.5.0)"
 ACCESSED = "2026-08-25"
-# WGS84 footprint of the warped COGs, measured from the gdalwarp output grid.
-BBOX = [-128.0021, 22.6293, -64.6605, 52.4816]
+# WGS84 footprint, measured from the warped COGs (197515x92269, 9 overview levels).
+BBOX = [-128.3873, 22.4283, -64.0541, 52.4816]
 TEMPORAL = ["2024-01-01T00:00:00Z", "2024-12-31T23:59:59Z"]
 
 # Fill codes measured per layer (see BUILD.md). -9999 is the COG's declared

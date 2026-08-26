@@ -196,3 +196,106 @@ rather than merely documented.
 The hex job carries **both reducers in one indexed Job** rather than two serialized ones: they are
 independent per (layer, h0, reducer) and the namespace rule is one hex *workflow* at a time, so
 folding the reducer into the index fans both out in a single wave.
+
+## Build failures worth keeping
+
+**EVC needs `BIGTIFF=YES`.** The first COG run lost index 2 after 25 minutes of warping to
+`TIFFAppendToStrip:Maximum TIFF file size exceeded`. EVC carries 265 classes at high spatial
+entropy, so DEFLATE cannot bring it under the 4 GB ceiling of a classic TIFF. The other three
+layers land under it — but the margin is thin (EVT is 3.85 GiB against a 4 GiB limit), so the flag
+is now unconditional. The failure is expensive and silent until the very end of the warp: nothing
+in `gdalinfo` on the *source* predicts it, only the compressed size of the *output*.
+
+The COG job is also idempotent — it skips a layer whose COG is already on S3. That turned the
+re-run after this failure into 8 seconds for the three finished layers instead of another
+17 minutes of redundant warping. The upload is the last step and runs under `set -e`, so a present
+object is always a complete one.
+
+## Validation
+
+Run after the hex job reports `Complete=True` with empty `failedIndexes` — a preempted indexed job
+can leave a subset of h0 on S3 and read as done (#409). All queries go through the duckdb-geo MCP.
+
+### 1. h0 partition coverage, all four layers, both reducers
+
+```bash
+H0=576812596024311807,577692205326532607,577164439745200127,577199624117288959,577762574070710271,577234808489377791
+for L in vcc evt evc fbfm40; do
+  for R in hex hex-fractions; do
+    scripts/check-hex-coverage.sh nrp:public-landfire/landfire-2024-$L/$R/ --expect-h0 "$H0"
+  done
+done
+```
+
+Compares **populated** partitions (`--min-bytes`, default 4096). A raw directory count across
+reducers reports phantom gaps, because `mode` is sparse while a full-grid reducer writes empty
+partitions.
+
+### 2. No fill code survived into the hex
+
+The whole point of the measured `--nodata`. Must return zero rows for every layer:
+
+```sql
+SELECT DISTINCT vcc FROM read_parquet('s3://public-landfire/landfire-2024-vcc/hex/h0=*/data_0.parquet')
+WHERE vcc IN (-9999, -1111, 32767);
+```
+
+### 3. Ingested values are a subset of the declared legend
+
+`verify-stac.py` automates this (`values-vs-distinct`), but check VCC by hand since it is the
+layer the analysis turns on — it must be exactly `{1,2,3,4,5,6,111,112,120,132,180}`.
+
+### 4. Fractions sum to at most 1 per cell
+
+```sql
+SELECT MAX(s) FROM (
+  SELECT h10, SUM(frac) AS s
+  FROM read_parquet('s3://public-landfire/landfire-2024-vcc/hex-fractions/h0=*/data_0.parquet')
+  GROUP BY h10);
+```
+
+Expect ≤ 1 within floating-point rounding. A value above 1 means fill was double-counted.
+
+### 5. Hex agrees with the COG
+
+`mode` has no global invariant, so spot-check: take a sample of cell centroids, read the COG with
+`gdallocationinfo`, and confirm the hex class matches the COG majority over that cell's footprint.
+
+### 6. The question the ingest exists to answer
+
+VCC distribution for Inventoried Roadless Areas vs roaded NFS land vs wilderness vs NFS-wide,
+area-weighted through `hex-fractions`.
+
+⚠️ **Join at `h8`, not `h10`.** `public-usfs/roadcore-fs` is a line dataset hexed at **native
+resolution 8** (each segment buffered by the H3 circumradius before polyfill) and carries no `h10`.
+The roaded stratum therefore only exists at resolution 8, so every stratum in the comparison must
+be rolled up to `h8` — rolling the coarse layer *down* would invent precision the road data does
+not have.
+
+Strata:
+
+| Stratum | Source |
+|---|---|
+| NFS-wide | `public-usfs/nfs-surface-ownership/hex` |
+| Inventoried Roadless Area | `public-usfs/roadless-areas-2001/hex` |
+| Roaded NFS | NFS `h8` cells that also appear in `public-usfs/roadcore-fs/hex` |
+| Wilderness | PAD-US designation type — not in `public-usfs`; source separately |
+
+State which denominator any percentage uses: exclude VCC `111`, `112`, `120`, `132` and `180`
+(water, snow/ice, developed, barren, agriculture) from a "share of land that is departed" figure,
+and say so alongside the number.
+
+## Measured resource use
+
+`kubectl top pod` during the COG warp (requested 8 cpu / 32Gi):
+
+| Pod | cpu | memory |
+|---|---|---|
+| cog-0 (VCC) | 3.2 | 5.1 Gi |
+| cog-1 (EVT) | 2.6 | 10.5 Gi |
+| cog-3 (FBFM40) | 2.9 | 9.6 Gi |
+
+Both dimensions are over-requested — the warp is not CPU-bound and peaks near a third of the
+memory ask. Size the next LANDFIRE COG run at ~4 cpu / 16Gi and re-measure; per `hex-tuning`, an
+over-request throttles your own throughput because the request decides how many pods the cluster
+can hold.

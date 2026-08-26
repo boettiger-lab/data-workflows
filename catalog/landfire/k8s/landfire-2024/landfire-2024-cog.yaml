@@ -49,6 +49,12 @@ spec:
           # code it stays a real pixel value here (documented in classification:classes) and
           # is excluded at the hex step, which accepts a list. (#590)
           #
+          # BIGTIFF=YES is REQUIRED, not defensive: EVC has 265 classes at high spatial
+          # entropy, so DEFLATE leaves it above the 4 GB classic-TIFF ceiling and the warp
+          # dies with "TIFFAppendToStrip:Maximum TIFF file size exceeded" 25 minutes in.
+          # The other three layers land under 4 GB, but the flag costs nothing and the
+          # margin is thin (EVT is 3.85 GiB).
+          #
           # Do NOT override PROJ_DATA/PROJ_LIB: the image ships 8 proj.db at differing layout
           # versions and a stale pick breaks -t_srs EPSG:4326 non-deterministically. (#453)
           PRODS=(VCC EVT EVC FBFM40)
@@ -61,6 +67,12 @@ spec:
           cd /tmp
 
           echo "=== [$I] COG LANDFIRE 2024 $P  (nodata=$ND) ==="
+          # Idempotent: a completed layer is skipped, so a rerun after one index fails
+          # redoes only that index. The upload is the last step and runs under
+          # `set -e`, so a present object is always a complete one.
+          if rclone lsf nrp:public-landfire/landfire-2024-${L}/landfire-2024-${L}-cog.tif 2>/dev/null | grep -q .; then
+            echo "COG already present -- skipping"; echo "COG COMPLETE $P"; exit 0
+          fi
           rclone copyto nrp:public-landfire/raw/${ZIP} /tmp/${ZIP} -P \
             --retries 10 --low-level-retries 20 --retries-sleep 20s
           unzip -o -j /tmp/${ZIP} "*/Tif/LF2024_${P}_CONUS.tif" -d /tmp/tif/
@@ -72,7 +84,7 @@ spec:
           gdalwarp -t_srs EPSG:4326 -r near -of COG \
             -srcnodata ${ND} -dstnodata ${ND} \
             -multi -wo NUM_THREADS=ALL_CPUS -wm 4096 \
-            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BLOCKSIZE=512 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BLOCKSIZE=512 -co BIGTIFF=YES \
             -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS \
             "$TIF" "$OUT"
           rm -f "$TIF"
