@@ -62,6 +62,18 @@ spec:
             got=$(stat -c '%s' "$out"); [ "$got" = "$want" ] || { echo "SIZE MISMATCH $name: got $got want $want"; exit 1; }
           done < /scratch/list.txt
           echo "== all tiles present: $(ls /scratch/tiles/*.tif | wc -l); disk: =="; df -h /scratch
+          # ⚠️ REPRODUCIBILITY TRAP -- read before re-running this job.
+          # The COG currently published at s3://public-commodities/raw/ was built
+          # BEFORE `-dstnodata -9999` was added here, and `gdalinfo` on the
+          # published artifact shows NO "NoData Value=" line: outside-Peru pixels
+          # are Float32 NaN carried by a mask band, not a tagged nodata value.
+          # That is why the hex jobs must pass `--nodata nan` (the tool honors a
+          # nodata VALUE only, and logged "No NoData value found in raster
+          # metadata... all values will be included" without it, leaking
+          # non-Peru area into the hex).
+          # So: if you re-run this job and -dstnodata IS honored, the resulting
+          # COG's nodata becomes -9999 and the hex flag MUST change to
+          # `--nodata -9999` to match. Do not change one without the other.
           echo "== mosaicking -> COG (mask -> nodata -9999) =="
           gdalwarp -of COG -dstnodata -9999 -ovr NONE \
             -co COMPRESS=DEFLATE -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
