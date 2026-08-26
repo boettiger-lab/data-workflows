@@ -251,7 +251,42 @@ almost no headroom in the 192 Gi request**, which is the important operational f
 cannot be bought off with a bigger number without making pods unplaceable on the large-RAM nodes
 they already compete for.
 
-### The one OOM, and why it is not an EVC problem
+### ⛔ CORRECTION: the OOMs *are* EVC-specific
+
+**An earlier revision of this file concluded the opposite. That conclusion was wrong and is
+retained below only so the reasoning error is visible.** As more slices started, the pattern became
+unambiguous:
+
+| | slices started | OOM-killed |
+|---|---|---|
+| **EVC** | 4 | **4** |
+| VCC, EVT, FBFM40 | 12 | **0** |
+
+And the single heaviest slice sampled anywhere in the fleet — VCC at h0-index 71, 138.8 Gi —
+**completed successfully**. So peak is not uniform after all.
+
+**Why the sampled peaks misled.** The disambiguation below rests on EVC sampling low (41 Gi at
+h0-14, 63 Gi at h0-12) while EVT sampled high. But those EVC pods were sampled *during their ramp*,
+then crossed 192 Gi between samples — exactly the sampling blindness noted above, applied to the
+one layer where it mattered. Reading a *low* sample as evidence of a low peak is the same error as
+reading a high one as evidence of the ceiling: a 30-second sample is evidence about neither.
+
+**The real driver is COG entropy, not class count and not cell density.** EVC's COG is **8.5 GB**
+against 1.9–4.1 GB for the other three, on identical dimensions — its class mix compresses poorly,
+so each in-flight `exact_extract` chunk carries a larger decompressed working set. Class
+*cardinality* still does not drive peak (EVT's 830 classes run fine at 112 Gi against EVC's 265) —
+the correct predictor is compressed size per pixel.
+
+**Fix applied:** `CNG_HEX_WORKERS=4` for EVC only, 8 elsewhere, via a per-layer `WORKERS` array —
+halving chunks in flight halves the working set. Memory was *not* raised: 192 Gi already competes
+for scarce large-RAM nodes, so a bigger request converts a retryable OOM into an unschedulable pod.
+The hex job also gained a per-slice skip guard so a rerun preserves completed partitions.
+
+**The lesson worth keeping:** "it is not layer-specific" was a conclusion drawn from four slices
+when the failing layer had only had four slices *start*. The disambiguation table was sound; the
+sample behind it was not big enough to carry it.
+
+### Superseded: the one OOM, and why it is not an EVC problem
 
 Index 15 (EVC, `mode`, h0-index 50) was killed with exit 137. Two hypotheses looked plausible —
 EVC's COG is 8.5 GB against EVT's 4.1 GB, or h0-index 50 is a denser cell than the others — and
