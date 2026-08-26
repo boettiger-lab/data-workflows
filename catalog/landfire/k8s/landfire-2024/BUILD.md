@@ -224,6 +224,46 @@ re-run after this failure into 8 seconds for the three finished layers instead o
 17 minutes of redundant warping. The upload is the last step and runs under `set -e`, so a present
 object is always a complete one.
 
+## If a categorical raster OOMs, check compressed size first
+
+The least obvious finding of this build, and the one to carry forward. When four rasters share
+**identical dimensions, dtype, grid and cell count**, the one that OOMs is the one whose **COG is
+biggest on disk**:
+
+| layer | COG size | classes | OOM at 192 Gi? |
+|---|---|---|---|
+| VCC | 1.9 GB | 11 | no |
+| FBFM40 | 3.6 GB | 44 | no |
+| EVT | 4.1 GB | **830** | no |
+| **EVC** | **8.5 GB** | 265 | **yes — 4 of 4 slices** |
+
+`exact_extract`'s working set is the **decompressed** chunk in flight, so compression ratio sits
+upstream of everything else one would reason about. A high-entropy class mix compresses poorly and
+therefore carries more bytes per chunk at the same pixel count. **Compressed size per pixel is the
+predictor.**
+
+What it is *not*:
+
+- **Not class cardinality.** EVT carries 830 classes against EVC's 265 and never failed. Class
+  count is output *width*, not working set.
+- **Not cell density.** Every h0 holds the same 282 M cells at resolution 10, and the heaviest
+  slice measured anywhere in the fleet (VCC h0-index 71, 138.8 Gi) completed.
+- **Not the request being 30% short.** Memory could not fix it: at 192 Gi these pods already
+  contend for scarce large-RAM nodes, so a larger request converts a **retryable OOM into an
+  unschedulable pod** — strictly worse, and invisible in every metric that looks like health.
+  Fewer chunks in flight (`CNG_HEX_WORKERS`) was the only lever available.
+
+Nobody's first instinct on identical dimensions is to compare file sizes. Do it anyway.
+
+⚠️ **Classify failures in the monitor, not in the post-mortem.** `kubectl get pods` STATUS shows
+`ContainerStatusUnknown` for many OOM kills — a kubelet reporting artifact, not a failure mode.
+Every one of the 22 terminations in this build was `exit=137`, split 11 `Error` / 11
+`ContainerStatusUnknown`. **A monitor that greps STATUS for `Error|OOMKilled|Evicted` is blind to
+half of them and reports a clean board while pods die of memory.** Read
+`{.status.containerStatuses[0].state.terminated.exitCode}` instead. This has to be in the monitor
+from the start: pods are reaped, and by the time the question occurs to you the evidence is gone
+and all that survives is a `failed=N` count with no cause attached.
+
 ## Sizing, and what to do about an OOM
 
 The 8 cpu / 192Gi / 40Gi request was **inherited** from the NLCD and MTBS res-10 CONUS runs at this
