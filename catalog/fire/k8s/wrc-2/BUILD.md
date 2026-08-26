@@ -346,7 +346,23 @@ the hex reduce introduces. It is left at PROJ's default rather than pinned with
 does not ship. Recorded here so the warning is not mistaken for a defect later. #586 warped the
 same NAD83 Albers grids and had the same warning.
 
-### RPS COGs (in progress)
+### RPS COGs (2026-08-26) — 2/2, 12m22s
+
+Job `wrc-2-make-cogs` applied with `completions: 8` sedded to `2`, so only indexes 0 and 1
+(`RPS_CONUS`, `RPS_AK`) built. Both warp outputs match the sizes predicted above exactly.
+
+| | `wrc-2-rps-conus` | `wrc-2-rps-ak` |
+|---|---|---|
+| Warped size | 197,514 × 92,269 | 150,764 × 67,401 |
+| Pixel (deg) | 0.000325712923102 | 0.000338277042265 |
+| Dtype / nodata | Float32 / −9999 | Float32 / −9999 |
+| Overviews | 9, `BLOCKSIZE=512` | 9, `BLOCKSIZE=512` |
+| Size on S3 | 26,905,265,649 (25.06 GiB) | 7,144,571,115 (6.65 GiB) |
+
+**Budget ~15 minutes for a COG pair, not an hour.** The whole job was 12m22s, essentially at
+parity with `landfire-2024-cog`'s 12m24s on the same CONUS grid — scaling that up for Float32,
+`PREDICTOR=3` and a 27 GB localize predicted 40–90 min and was wrong. The Alaska warp alone was
+2m38s. Useful for #627, which has six more COGs to build.
 
 Warp behaviour worth knowing for the next reader: **the output file sits at 0 bytes for several
 minutes** and that is not a hang. GDAL buffers output blocks in its 8 GB block cache
@@ -354,6 +370,71 @@ minutes** and that is not a hang. GDAL buffers output blocks in its 8 GB block c
 alive is `ps` CPU **time climbing** (a stalled `/vsis3` read shows it flat near zero), not file
 size. Alaska additionally grows slowly at first because the top of its clipped 4326 extent
 (~71.6°N) is Arctic Ocean, and all-nodata tiles compress to almost nothing.
+
+#### ⛔ The publish gate's min/max/mean is APPROXIMATE. Do not publish it.
+
+`make-cogs.yaml`'s gate calls `ComputeStatistics(True)` — `approx_ok` — which GDAL answers from
+the **AVERAGE-resampled overviews**, not the full-resolution band. That is the right trade for
+what the gate is *for* (catch an all-nodata or degenerate COG in seconds rather than reading
+30 GB), but an earlier revision of this file claimed the printed range "IS the validation truth
+the `mean` hex reducer is later checked against." **It is not**, and `gen_stac.py` reads
+`cog_min`/`cog_max`/`cog_mean` from `facts.json` straight into the published `raster:bands`
+statistics, so trusting it would have shipped a wrong value range.
+
+Measured both ways by job `wrc-2-rps-cog-stats` (`ComputeStatistics(False)` vs `(True)` on the
+same band, 4 cpu / 8Gi, a few minutes each):
+
+| | exact | approx (overviews) | bias | source 100th pct |
+|---|---|---|---|---|
+| CONUS max | **13.194137573242188** | 9.466273307800293 | −28% | 13.1249895095825 |
+| CONUS mean | **0.140196598414851** | 0.135843583190117 | −3% | |
+| AK max | **4.163270473480225** | 1.9759924411773682 | −53% | 4.16327047348022 |
+| AK mean | **0.11694088449523347** | 0.10425039861940202 | −11% | |
+
+`min` is 0.0 exactly on both, either way — no −9999 sentinel leak. Exact std: CONUS
+0.4339427007851727, AK 0.28023642286512307. **These exact figures are what go in `facts.json`.**
+
+**The strongest evidence so far that the reprojection is faithful:** the Alaska exact max
+`4.163270473480225` matches the source percentile table's Alaska 100th percentile
+`4.16327047348022` to every published digit. The EPSG:3338 → EPSG:4326 warp at `-r near`
+preserved the source extremum exactly.
+
+CONUS is 0.5% above its table entry (13.194 vs 13.125) rather than an exact match. The source's
+own documented RPS range is **0 – 13.2**, which our measured max satisfies; the likeliest
+explanation is that the CONUS percentile column is computed on a sample of a 15.9 Gpixel grid
+while Alaska's smaller grid was done exhaustively. The exact Alaska agreement rules out a
+systematic warp error, so this is recorded as a note, not a defect.
+
+One implementation trap, since it cost five pod retries: `gdal.Open(path).GetRasterBand(1)`
+chained in one expression lets the dataset be garbage-collected and the band handle goes invalid
+(`TypeError` on the SWIG shadow pointer). Bind the dataset to a name first, as `make-cogs.yaml`
+already does.
+
+#### Source percentile table, extracted
+
+`WRC_V2_DataPercentiles.xlsx` from `RDS-2020-0016-2_Supplements.zip` (730,940 bytes, on the
+stable `/rds/archive/products/` path). Sheets: `RPS_percentiles`, `cRPS_percentiles`,
+`WHP_percentiles`; 101 rows each (0–100). Columns are `RPS_CONUS` plus one per state, so Alaska
+comes from `RPS_Alaska`.
+
+⚠️ **Percentiles are stored as fractions 0–1, not 0–100** — row `0.4` is the 40th percentile.
+
+| percentile | CONUS | Alaska |
+|---|---|---|
+| 1 | 0.000239684 | 0.000124813 |
+| **40** | **0.0188485** | **0.00903468** |
+| **70** | **0.094043** | **0.0767783** |
+| **90** | **0.408197** | **0.442008** |
+| **95** | **0.722298** | **0.790832** |
+| 99 | 2.16437 | 1.51155 |
+
+The bolded rows are the web application's class breaks and the agreement target for the hex.
+The CONUS 1st percentile of 2.397e-4 confirms the `2.4e-4` figure quoted above under "COGs stay
+Float32", which was recorded independently.
+
+Worth noting for the write-up: Alaska's 90th and 95th percentiles are **higher** than CONUS's
+even though its maximum is a third of CONUS's. The Alaska distribution is tighter and higher in
+the middle. Since RPS is on a single national scale, that comparison is meaningful.
 
 _Row counts, populated h0 sets, measured footprints, value ranges, percentile agreement and the
 headline IRA statistics are recorded here as each stage lands._
