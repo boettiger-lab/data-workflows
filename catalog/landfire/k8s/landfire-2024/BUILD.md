@@ -251,6 +251,42 @@ almost no headroom in the 192 Gi request**, which is the important operational f
 cannot be bought off with a bigger number without making pods unplaceable on the large-RAM nodes
 they already compete for.
 
+### The one OOM, and why it is not an EVC problem
+
+Index 15 (EVC, `mode`, h0-index 50) was killed with exit 137. Two hypotheses looked plausible —
+EVC's COG is 8.5 GB against EVT's 4.1 GB, or h0-index 50 is a denser cell than the others — and
+**the sampled peaks refute both.** Restricting to pods that had actually reached `exact_extract`
+(pinned CPU, not still localizing):
+
+| h0-index | 12 | 14 | 20 | 50 | 71 | 78 |
+|---|---|---|---|---|---|---|
+| VCC peak | 121 Gi | 115 Gi | 115 Gi | **117 Gi** | **139 Gi** | 117 Gi |
+
+h0-index 50 is unremarkable — VCC's own maximum is at h0-index **71**, not 50. And EVC is not
+systematically heavier: it sampled 41 Gi at h0-index 14 and 63 Gi at h0-index 12. Class
+cardinality does not drive peak either, which is the tell that the mechanism is elsewhere: EVT
+carries 830 classes against EVC's 265 and runs fine at 112 Gi. **Class count is an output-width
+difference, while `exact_extract` peak is dominated by the cell-weight arrays for the chunk in
+flight** — and every h0 has the same 282 M cells.
+
+So peak is essentially **uniform across layers and cells at 115–144 Gi**, and the OOM was simply a
+slice crossing 192 Gi. Its last sample before death read 92.2 Gi, meaning it went from 92 Gi to
+over 192 Gi **inside a single 30-second sampling interval**.
+
+⚠️ **That makes the "72% of request" figure above misleading, and it is the more important
+finding.** A 30-second sample cannot see a peak that forms between samples, and a chunk boundary is
+exactly the kind of event that lands there. The honest statement is not "192 Gi has 28% headroom"
+but **"192 Gi is marginal, and at least one slice exceeds it."** The OOM is itself the only true
+high-water observation available — `container_memory_max_usage_in_bytes` from cAdvisor would give
+a real high-water mark, but `nodes/proxy` is forbidden for this user at cluster scope, so it is
+not readable from here.
+
+**Consequence for a rerun:** do not split EVC into its own job — that treats a fleet-wide margin
+as a layer-specific defect. If failures accumulate against `maxFailedIndexes`, the targeted fix is
+to lower `CNG_HEX_WORKERS` for the affected indexes (fewer chunks in flight → lower peak). That
+costs throughput on work that is otherwise CPU-bound, which is why it is a response to actual
+failures and not a default.
+
 Work per slice, from the job log: `exact_extract: 282475249 cells in 2825 chunks (size 100000) ×
 8 workers` — 282 million resolution-10 cells per h0.
 
