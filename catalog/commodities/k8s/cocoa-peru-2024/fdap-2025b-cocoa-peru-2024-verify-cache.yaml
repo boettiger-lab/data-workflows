@@ -1,0 +1,60 @@
+# Verify the ALREADY-LOCALIZED shared COG copy without re-downloading it.
+#
+# Split out from -prep-cache deliberately: prep-cache begins with
+# `rm -rf /scratch/shared` and a fresh 64.7 GB localize, so re-applying it to
+# "just check" would destroy a good copy and re-run the slowest step. This job
+# is read-only.
+#
+# Size alone is NOT sufficient evidence of a good copy -- the failure that
+# killed h0-index 91 was a truncated tile in a copy whose total size matched, so
+# the tool's size-based cache-hit check reused it. `gdalinfo -checksum` touches
+# every tile and errors on a short read, which is the actual gate.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fdap-2025b-cocoa-peru-2024-verify-cache
+  labels: {k8s-app: fdap-2025b-cocoa-peru-2024-verify-cache}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: fdap-2025b-cocoa-peru-2024-verify-cache}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 10800
+      containers:
+      - name: verify-cache
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: CPL_TMPDIR, value: /scratch/tmp}
+        volumeMounts:
+        - {name: scratch, mountPath: /scratch, subPath: fdap-cocoa-peru-2024-hex}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          F=/scratch/shared/fdap-2025b-cocoa-peru-2024.tif
+          have=$(stat -c '%s' "$F")
+          echo "cached size: $have (expect 64666078575)"
+          test "$have" = "64666078575"
+          echo "== gdalinfo -checksum: reads every tile, errors on a short read =="
+          gdalinfo -checksum "$F" | grep -E 'Checksum|Size is|Band '
+          echo "== VERIFIED clean shared cache =="
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '4', memory: 16Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}

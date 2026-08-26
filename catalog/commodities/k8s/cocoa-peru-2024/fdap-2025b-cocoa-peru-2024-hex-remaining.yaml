@@ -1,0 +1,86 @@
+# Gap-fill hex for the two Peru base cells the original 4-cell run never landed.
+#
+# State after the 2026-08-13/14 runs (verified against S3 2026-08-24):
+#   h0-index 37  -> h0=578923658349641727  PUBLISHED (27 MB)
+#   h0-index 91  -> h0=578994027093819391  MISSING  (corrupt localized tile)
+#   h0-index 96  -> h0=578290339652042751  PUBLISHED (4 MB, validated: 458,401
+#                                          cells, probability in [0, 0.81])
+#   h0-index 112 -> h0=579627345791418367  MISSING  (never ran -- the job aborted
+#                                          on the index-91 failure)
+#
+# Identical parameters to fdap-2025b-cocoa-peru-2024-hex.yaml (which remains the
+# canonical full-build recipe) -- only CHUNK_MAP and completions differ, so the
+# gap-fill partitions are byte-comparable with the two already published.
+#
+# Requires fdap-2025b-cocoa-peru-2024-prep-cache to have VERIFIED the shared COG
+# copy at /scratch/shared first; these pods read it, they do not localize.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fdap-2025b-cocoa-peru-2024-hex-remaining
+  labels: {k8s-app: fdap-2025b-cocoa-peru-2024-hex-remaining}
+spec:
+  completions: 2
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: fdap-2025b-cocoa-peru-2024-hex-remaining}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 21600
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        - {name: TMPDIR, value: /scratch/tmp}
+        - {name: CPL_TMPDIR, value: /scratch/tmp}
+        # Pin exact_extract worker processes: the tool otherwise sizes to the
+        # NODE core count (misdetects the pod CPU limit) → 256 procs → OOM.
+        - {name: CNG_HEX_WORKERS, value: '32'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scratch, mountPath: /scratch, subPath: fdap-cocoa-peru-2024-hex}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp
+          CHUNK_MAP=(91 112)
+          H0=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
+          echo "== hex: h0-index $H0, res 9, mean, nodata nan =="
+          cng-datasets raster \
+            --input s3://public-commodities/raw/fdap-2025b-cocoa-peru-2024.tif \
+            --output-parquet s3://public-commodities/fdap-2025b/cocoa-peru-2024/hex/ \
+            --h0-index $H0 \
+            --resolution 9 --parent-resolutions 8,0 \
+            --value-column probability --hex-resampling mean \
+            --nodata nan \
+            --local-cache-dir /scratch/shared
+          echo "== hex done for h0-index $H0 =="
+        resources:
+          requests: {cpu: '16', memory: 96Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '16', memory: 96Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
