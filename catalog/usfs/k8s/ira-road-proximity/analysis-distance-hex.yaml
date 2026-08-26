@@ -110,12 +110,15 @@ spec:
           set -euo pipefail
           mkdir -p /scratch/tmp_588_dist
           python3 - <<'PY'
-          import os, duckdb
+          import os, subprocess, duckdb
 
           WORK = "s3://public-usfs/_work/588"
           IRAHEX = "s3://public-usfs/roadless-areas-2001/hex/h0=*/data_0.parquet"
           OUT = "s3://public-usfs/ira-road-distance/hex"
           MAXD = 3218.688 * 1.05
+          # Same tolerance as the buffer ladder, and the value this collection's STAC
+          # already claims. See the note at the union below.
+          SIMPLIFY_M = 5.0
           CRS = {"CONUS": "EPSG:5070", "AK": "EPSG:3338", "PR": "EPSG:32161"}
           PED = "('S1710','S1720','S1820','S1830')"
           ML = "substr(OPER_MAINT_LEVEL, 1, 1)"
@@ -131,7 +134,14 @@ spec:
           con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
           con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
           con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
-          con.execute("SET memory_limit='80GB'; SET threads=16;")
+          # ⛔ threads=16 was a large part of why this OOM-killed a 96Gi pod (exit 137, 97
+          # minutes in, during the 'all' union). GEOS allocations are invisible to DuckDB's
+          # memory_limit, so the limit cannot restrain them and spilling cannot save it —
+          # the only lever is how many large geometries are alive at once, and thread count
+          # multiplies exactly that. The proximity job settled on threads=2 in a 64Gi pod
+          # for the same reason. 4 here, with headroom left below the pod limit rather than
+          # claimed up to it.
+          con.execute("SET memory_limit='56GB'; SET threads=4;")
           con.execute("SET temp_directory='/scratch/tmp_588_dist';")
           con.execute("SET preserve_insertion_order=false;")
 
@@ -149,12 +159,26 @@ spec:
 
           # Per-IRA road unions, one per stratum. Buffering the IRA and joining on
           # ST_Intersects is the optimizable predicate; ST_DWithin is not.
+          #
+          # ⛔ SPILLED TO PARQUET, NOT HELD AS TABLES. The previous shape built three
+          # in-memory union tables and kept all three alive, alongside `ib` (11,391 buffered
+          # polygons at 3,380 m), until the final join — then joined all three at once, so
+          # every output row had three large road unions live simultaneously. That
+          # OOM-killed a 96Gi pod at exit 137, 97 minutes in, inside the 'all' union, which
+          # carries 4.4M roads against roadcore's 359k.
+          #
+          # This is the same lesson the buffer ladder learned four times over: every OOM
+          # here yields to reducing how many large geometries coexist, never to more memory.
+          # Spilling each union as it is built, with small row groups, and dropping the
+          # table means exactly one union set is materialised at a time, and the final join
+          # streams them a row group at a time instead of holding all three resident.
+          IB_PQ = "/scratch/tmp_588_dist/ib.parquet"
           con.execute(f"""
-            CREATE TABLE ib AS
-            SELECT i._cng_fid AS fid, i.crs_region,
-                   ST_Buffer(w.g, {MAXD}) AS gb
-            FROM ira i JOIN read_parquet('{WORK}/ira.parquet') w USING (_cng_fid)
+            COPY (SELECT i._cng_fid AS fid, i.crs_region, ST_Buffer(w.g, {MAXD}) AS gb
+                  FROM ira i JOIN read_parquet('{WORK}/ira.parquet') w USING (_cng_fid))
+            TO '{IB_PQ}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 128)
           """)
+          print(f"  wrote IRA search buffers -> {IB_PQ}", flush=True)
 
           STRATA = {
               "roadcore":       "SELECT g, crs_region FROM rc",
@@ -162,17 +186,28 @@ spec:
               "all":            f"SELECT g, crs_region FROM rc UNION ALL "
                                 f"SELECT g, crs_region FROM tg WHERE MTFCC NOT IN {PED}",
           }
+          UPQ = {}
           for name, sql in STRATA.items():
-              con.execute(f"DROP TABLE IF EXISTS u_{name}")
+              UPQ[name] = f"/scratch/tmp_588_dist/u_{name}.parquet"
+              # ST_Simplify before the union, at the SAME 5 m tolerance the buffer ladder
+              # uses. Two reasons, and the second is a correctness fix, not a performance
+              # one: the published STAC text for this collection ALREADY states that these
+              # distances derive from centrelines simplified with a 5 m tolerance, and the
+              # code did not simplify — so the metadata described a layer that was never
+              # built. 5 m is below the positional accuracy of both inputs (EDW ~12 m at
+              # 1:24,000 source scales; TIGER rural centrelines tens of metres), so it
+              # cannot be the limiting error on a distance, and it is applied uniformly to
+              # every stratum and region so no two columns are computed by different methods.
               con.execute(f"""
-                CREATE TABLE u_{name} AS
-                SELECT b.fid, ST_Union_Agg(r.g) AS rg
-                FROM ib b JOIN ({sql}) r ON r.crs_region = b.crs_region
-                                        AND ST_Intersects(b.gb, r.g)
-                GROUP BY b.fid
+                COPY (SELECT b.fid, ST_Union_Agg(ST_Simplify(r.g, {SIMPLIFY_M})) AS rg
+                      FROM read_parquet('{IB_PQ}') b JOIN ({sql}) r
+                        ON r.crs_region = b.crs_region AND ST_Intersects(b.gb, r.g)
+                      GROUP BY b.fid)
+                TO '{UPQ[name]}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 64)
               """)
-              n = con.execute(f"SELECT COUNT(*) FROM u_{name}").fetchone()[0]
-              print(f"  road union '{name}': {n:,} IRA polygons with roads in range", flush=True)
+              n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{UPQ[name]}')").fetchone()[0]
+              print(f"  road union '{name}': {n:,} IRA polygons with roads in range "
+                    f"-> {UPQ[name]}", flush=True)
 
           # Cell centres from the PUBLISHED #584 hex — no new polyfill.
           case_crs = " ".join(
@@ -215,34 +250,63 @@ spec:
           print(f"  cell-set gate: matches the published #584 hex exactly ({src:,})",
                 flush=True)
 
-          con.execute(f"""
-            COPY (
-              SELECT c.h10, c.h9, c.h8, c.h0, c._cng_fid, c.STATE, c.rule_affected,
-                     ST_Distance(c.pt, ur.rg)   AS dist_m_roadcore,
-                     ST_Distance(c.pt, um.rg)   AS dist_m_roadcore_ml2to5,
-                     ST_Distance(c.pt, ua.rg)   AS dist_m_all,
-                     CASE
-                       WHEN ST_Distance(c.pt, ua.rg) IS NULL       THEN '>3218m'
-                       WHEN ST_Distance(c.pt, ua.rg) <=   50 THEN '0-50m'
-                       WHEN ST_Distance(c.pt, ua.rg) <=  100 THEN '50-100m'
-                       WHEN ST_Distance(c.pt, ua.rg) <=  200 THEN '100-200m'
-                       WHEN ST_Distance(c.pt, ua.rg) <=  400 THEN '200-400m'
-                       WHEN ST_Distance(c.pt, ua.rg) <=  804.672 THEN '400-805m'
-                       WHEN ST_Distance(c.pt, ua.rg) <= 1000 THEN '805-1000m'
-                       WHEN ST_Distance(c.pt, ua.rg) <= 1609.344 THEN '1000-1609m'
-                       WHEN ST_Distance(c.pt, ua.rg) <= 2414.016 THEN '1609-2414m'
-                       WHEN ST_Distance(c.pt, ua.rg) <= 3218.688 THEN '2414-3219m'
-                       ELSE '>3218m'
-                     END AS band
-              FROM cells c
-              LEFT JOIN u_roadcore        ur ON ur.fid = c._cng_fid
-              LEFT JOIN u_roadcore_ml2to5 um ON um.fid = c._cng_fid
-              LEFT JOIN u_all             ua ON ua.fid = c._cng_fid
-            )
-            TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000,
-                        PARTITION_BY (h0), OVERWRITE_OR_IGNORE 1,
-                        FILENAME_PATTERN 'data_{{i}}')
-          """)
+          # ⛔ ONE h0 PARTITION AT A TIME, and each one checkpointed on S3.
+          #
+          # The single PARTITION_BY write held every cell and all three union sets in one
+          # pipeline. Partitioning the loop instead bounds the working set to one h0 — the
+          # largest is a few million cells rather than 16.3M — and gives this job the one
+          # thing it most conspicuously lacked: resumability. It died once at 97 minutes
+          # with nothing to show for it, and would have done so again on retry. Now a
+          # preemption or an OOM costs one partition, not the whole run.
+          #
+          # The unions are read from Parquet rather than memory, so DuckDB streams them a
+          # row group at a time and only a bounded number of large geometries is ever alive.
+          def partition_done(h0):
+              r = subprocess.run(
+                  ["rclone", "lsf", f"nrp:public-usfs/ira-road-distance/hex/h0={h0}/data_0.parquet"],
+                  capture_output=True, text=True)
+              return bool(r.stdout.strip())
+
+          h0s = [r[0] for r in con.execute(
+              "SELECT DISTINCT h0 FROM cells ORDER BY 1").fetchall()]
+          print(f"writing {len(h0s)} h0 partitions, one at a time", flush=True)
+          dist = "ST_Distance(c.pt, ua.rg)"
+          for h0 in h0s:
+              if partition_done(h0):
+                  print(f"  skip h0={h0} (already checkpointed)", flush=True)
+                  continue
+              con.execute(f"""
+                COPY (
+                  SELECT c.h10, c.h9, c.h8, c.h0, c._cng_fid, c.STATE, c.rule_affected,
+                         ST_Distance(c.pt, ur.rg)   AS dist_m_roadcore,
+                         ST_Distance(c.pt, um.rg)   AS dist_m_roadcore_ml2to5,
+                         {dist}                     AS dist_m_all,
+                         CASE
+                           WHEN {dist} IS NULL       THEN '>3218m'
+                           WHEN {dist} <=   50 THEN '0-50m'
+                           WHEN {dist} <=  100 THEN '50-100m'
+                           WHEN {dist} <=  200 THEN '100-200m'
+                           WHEN {dist} <=  400 THEN '200-400m'
+                           WHEN {dist} <=  804.672 THEN '400-805m'
+                           WHEN {dist} <= 1000 THEN '805-1000m'
+                           WHEN {dist} <= 1609.344 THEN '1000-1609m'
+                           WHEN {dist} <= 2414.016 THEN '1609-2414m'
+                           WHEN {dist} <= 3218.688 THEN '2414-3219m'
+                           ELSE '>3218m'
+                         END AS band
+                  FROM cells c
+                  LEFT JOIN read_parquet('{UPQ["roadcore"]}')        ur ON ur.fid = c._cng_fid
+                  LEFT JOIN read_parquet('{UPQ["roadcore_ml2to5"]}') um ON um.fid = c._cng_fid
+                  LEFT JOIN read_parquet('{UPQ["all"]}')             ua ON ua.fid = c._cng_fid
+                  WHERE c.h0 = {h0}
+                )
+                TO '{OUT}/h0={h0}/data_0.parquet'
+                (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+              """)
+              n = con.execute(
+                  f"SELECT COUNT(*) FROM read_parquet('{OUT}/h0={h0}/data_0.parquet')"
+              ).fetchone()[0]
+              print(f"  ✓ h0={h0}: {n:,} cells", flush=True)
           print("✓ wrote", OUT, flush=True)
 
           chk = con.execute(f"""
