@@ -682,3 +682,37 @@ evidence the signal is real.
    *"'WILD' for Wilderness"* — a code that **does not exist in the data**. Filtering on it returns
    zero rows silently. The real code is `WA` (644,198 rows); `WSA` is Wilderness Study Area. This is
    the #294 class of defect in a dependency's metadata and is worth reporting upstream.
+
+
+## Shipped
+
+**Published to `s3://public-landfire`, registered in the root STAC catalog:**
+
+| collection | COG | hex (mode, res 10) | gates |
+|---|---|---|---|
+| `landfire-2024-vcc` | ✅ | **6/6** | coverage PASS, `verify-stac.py --bucket` PASS |
+| `landfire-2024-evt` | ✅ | **6/6** | coverage PASS, `verify-stac.py --bucket` PASS |
+
+**Deliberately not shipped:**
+
+- **`hex-fractions` — dropped for all layers.** Measured against the exact source pixel histogram,
+  `mode` reproduces the true CONUS VCC distribution to within **0.72 percentage points** (worst
+  class; high-departure 5+6 within 0.59 pp). At a 30 m source and resolution 10 a cell holds ~17
+  pixels and VCC stands are far larger than 15,000 m², so most cells are effectively pure. The
+  scoping comment's claim that `mode` is "inadequate for area accounting" is true in general and
+  **overstated for this source at this resolution** — and the headline result is a *ratio between
+  strata*, where a sub-percentage-point bias applies in the same direction to both sides and largely
+  cancels. The two partial `hex-fractions` prefixes (vcc 1/6, evt 2/6, ~9 GB) were purged so they
+  cannot fake coverage. `fractions` remains the right reducer for absolute acreage, rare or
+  interspersed classes, and ecotone work — none of which this issue asks for.
+- **`landfire-2024-fbfm40`** — COG built, hex 2/6. Tracked in #623.
+- **`landfire-2024-evc`** — COG built (8.5 GB, valid, retained), hex 0/6. Dropped on purpose; see
+  the heterogeneity section above and #623.
+
+**Left in place, flagged rather than deleted:**
+
+- `s3://public-landfire/evt-cog.tif` — an LF **2023** COG from an abandoned earlier effort
+  (2026-06-09), predating this build. Unreferenced by any STAC asset. An unversioned `evt-cog.tif`
+  at a bucket root is a "which edition is this?" trap and should be retired or ingested properly.
+- `raw/LF2016_FRG_CONUS.tif`, `raw/LF2020_BPS_CONUS.tif`, `raw/LF2023_EVT_CONUS.tif` — staged raws
+  from the same effort, plausibly useful to a later ingest.
