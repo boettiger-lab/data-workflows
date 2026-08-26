@@ -84,10 +84,24 @@ trap below.
 
 ## Pixel type and value domain — measured, and NOT what the issue assumed
 
-| product class | dtype | NoData | observed values | FGDC domain |
+| product class | dtype | NoData | measured value set | FGDC domain |
 |---|---|---:|---|---|
-| continuous ensembles (6) | **uint8** | **255** | 0 – 96 (decimated full-raster read) | `rdommin` 0, `rdommax` 98 |
-| `integrated-binary-*` (3) | **int8** | **−128** | **−1, 0, 1, 2, 3** | `rdommin` −1, `rdommax` 3 |
+| continuous ensembles (6) | **uint8** | **255** | **0 – 98, all 99 values present** | `rdommin` 0, `rdommax` 98 |
+| `integrated-binary-*` (3) | **int8** | **−128** | **−1, 0, 1, 2, 3 — exactly five** | `rdommin` −1, `rdommax` 3 |
+
+Exact full-raster `bincount` (not decimated), *Cenchrus ciliaris*, 1 359 308 049 px each:
+
+| | `occurrence-masked` (uint8) | `integrated-binary-fifth` (int8) |
+|---|---|---|
+| NoData | 255 → 914 288 271 px (**67.26%**) | −128 → 571 952 903 px (**42.08%**) |
+| data | 0–98, 99 distinct values | −1: 342 322 727 · 0: 407 783 717 · 1: 5 649 165 · 2: 4 905 953 · 3: 26 693 584 |
+
+**No undeclared sentinel in either product** — the declared NoData is present, and nothing outside
+the FGDC domain appears. That is a measurement, and it is why the census runs across all 108 rather
+than being inferred from these two.
+
+The census costs **5–6 s per raster** (uint8/int8, 256 bins, one pass over LZW blocks), so the full
+set is minutes, not hours.
 
 Two consequences:
 
@@ -103,7 +117,8 @@ Two consequences:
 ### ⚠️ `-1` is a VALID class, not fill
 
 The FGDC domain for `integrated-binary-*` is `rdommin` **−1** to `rdommax` 3, and −1 occupies
-~25% of the decimated raster. A sign test ("negatives are fill") would delete a real class. The
+**25.2%** of the *Cenchrus ciliaris* `integrated-binary-fifth` raster — 342 322 727 px, third
+largest bin after NoData and class 0. A sign test ("negatives are fill") would delete it. The
 FGDC gives no `edomvd` label for the codes, so the semantics of −1 must be read out of Jarnevich et
 al. 2024 before the collection description names the classes. **Open item — do not describe the
 class set until this is resolved.**
