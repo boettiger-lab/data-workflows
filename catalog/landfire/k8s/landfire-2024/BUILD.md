@@ -226,10 +226,33 @@ object is always a complete one.
 
 ## Sizing, and what to do about an OOM
 
-The 8 cpu / 192Gi / 40Gi request is **inherited** from the NLCD and MTBS res-10 CONUS runs at this
-exact reducer and resolution, not measured for LANDFIRE. Treat it as a starting point: probe, read
-`kubectl top pod` (cpu is `$2`, memory is `$3` — reading `$1` gives the pod name and every number
-comes out zero), then size the fleet.
+The 8 cpu / 192Gi / 40Gi request was **inherited** from the NLCD and MTBS res-10 CONUS runs at this
+exact reducer and resolution. It has now been **measured for LANDFIRE and is close to right** —
+which was not the expected answer.
+
+Sampled every 30 s for 55 minutes across the running fleet (`kubectl top pod`; cpu is `$2`, memory
+is `$3` — reading `$1` gives the pod name and every number comes out zero):
+
+| | measured | requested |
+|---|---|---|
+| memory, fleet peak | **138.8 Gi** | 192 Gi (72%) |
+| cpu, fleet peak | **~9.0** | 8 (saturated) |
+
+The profile is sharply **bimodal**, so size on the dense slices and never on the mean:
+
+| population | cpu peak | memory peak |
+|---|---|---|
+| dense h0 | 8.5 – 9.0 | 112 – 139 Gi |
+| sparse h0 | ~2.1 | 41 – 63 Gi |
+
+That 138.8 Gi is itself a *sampled* peak on a 30 s interval, so the true peak is higher — and it
+lines up with the ~140 GiB a res-10 CONUS h0 reached in `boettiger-lab/datasets#173`. **There is
+almost no headroom in the 192 Gi request**, which is the important operational fact: an OOM here
+cannot be bought off with a bigger number without making pods unplaceable on the large-RAM nodes
+they already compete for.
+
+Work per slice, from the job log: `exact_extract: 282475249 cells in 2825 chunks (size 100000) ×
+8 workers` — 282 million resolution-10 cells per h0.
 
 ⛔ **If a slice exits 137, do not reach for more memory first.** Measured on the concurrent
 `ira-road-proximity` run (#588, 2026-08-26): GEOS allocations inside DuckDB spatial are invisible
@@ -249,6 +272,11 @@ order of magnitude, and no memory number would have fixed it.
   geometries. *High memory with idle CPU* means a few huge objects — the concurrency lever applies.
   *Exit 137 with pods near their CPU limit* is a different failure and halving workers will not
   help.
+
+  **Applied here, this pointed the opposite way to the flat rule it replaced.** LANDFIRE's dense
+  slices run at 8.5–9.0 cpu against a limit of 8 — pinned, not idle — so this is a genuine memory
+  requirement and `CNG_HEX_WORKERS` is the *wrong* lever. A rule of "exit 137 → halve the workers"
+  would have sent the next reader down a dead end and cost a slice duration per attempt.
 - **The response should be a step change, not a marginal one.** If halving `CNG_HEX_WORKERS` only
   helps a little, the requirement is probably real and 192Gi is the right ask.
 
