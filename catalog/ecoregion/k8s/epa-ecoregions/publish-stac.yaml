@@ -1,0 +1,101 @@
+# Step 5/6: build and publish the public-ecoregion STAC tree (data-workflows #633).
+#
+# Runs catalog/ecoregion/stac/make-epa-stac.py, which derives every `values` enumeration
+# and inline CODE=Definition map FROM the published parquet, so verify-stac.py's
+# data-backed `values == SELECT DISTINCT` check passes by construction.
+#
+# The script is supplied as a ConfigMap so the committed file is the single source:
+#   kubectl create configmap epa-ecoregions-stac-script -n geo-workflows \
+#     --from-file=make-epa-stac.py=catalog/ecoregion/stac/make-epa-stac.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# Restructure performed (data files never move — asset hrefs are absolute):
+#   public-ecoregion/stac-collection.json              -> new PARENT collection (3 children)
+#   public-ecoregion/wwf-ecoregions-2017/...           <- the WWF collection, relocated
+#   public-ecoregion/epa-ecoregions-l{3,4}/...         <- new
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: epa-ecoregions-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: epa-ecoregions-publish-stac
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: epa-ecoregions-publish-stac
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {memory: "8Gi", cpu: "2", ephemeral-storage: "10Gi"}
+          limits:   {memory: "8Gi", cpu: "2", ephemeral-storage: "10Gi"}
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,    value: "rook-ceph-rgw-nautiluss3.rook"}
+        - {name: AWS_PUBLIC_ENDPOINT, value: "s3-west.nrp-nautilus.io"}
+        - {name: AWS_HTTPS,          value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        # Date the three EPA archives were retrieved into s3://public-ecoregion/raw/.
+        - {name: ACCESS_DATE, value: "2026-08-27"}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script,        mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # Measure the published objects + staged raw (size, MD5, mtime) so the STAC's
+          # provenance fields are read from the objects rather than transcribed (#417).
+          rclone lsjson --hash --recursive nrp:public-ecoregion/ \
+            --include 'epa-ecoregions-l3*' --include 'epa-ecoregions-l4*' \
+            --include 'raw/us_eco_l3.zip' --include 'raw/ak_eco_l3.zip' \
+            --include 'raw/us_eco_l4.zip' > /tmp/objects.json
+          python3 -c "import json;d=json.load(open('/tmp/objects.json'));print(f'  manifest: {len(d)} objects')"
+
+          # ACCESS_DATE is the date the archives were pulled from EPA into raw/.
+          python3 /script/make-epa-stac.py /tmp/stac /tmp/objects.json "${ACCESS_DATE}"
+          echo "=== generated ==="
+          find /tmp/stac -type f | sort
+
+          # Sanity-gate before publishing: the relocated WWF collection must still be WWF,
+          # and the parent must carry exactly three children.
+          python3 - <<'PY'
+          import json, sys
+          wwf = json.load(open('/tmp/stac/wwf-ecoregions-2017/stac-collection.json'))
+          assert wwf['id'] == 'wwf-ecoregions-2017', wwf['id']
+          assert wwf['assets'], 'WWF assets lost'
+          par = json.load(open('/tmp/stac/stac-collection.json'))
+          kids = [l for l in par['links'] if l['rel'] == 'child']
+          assert len(kids) == 3, kids
+          print('gate OK:', [k['id'] for k in kids])
+          PY
+
+          # Order matters: publish the children BEFORE overwriting the bucket root, so the
+          # WWF collection is never unreachable at either URL.
+          rclone copyto /tmp/stac/wwf-ecoregions-2017/stac-collection.json \
+            nrp:public-ecoregion/wwf-ecoregions-2017/stac-collection.json
+          for d in epa-ecoregions-l3 epa-ecoregions-l4; do
+            rclone copyto /tmp/stac/$d/stac-collection.json nrp:public-ecoregion/$d/stac-collection.json
+            rclone copyto /tmp/stac/$d/README.md          nrp:public-ecoregion/$d/README.md
+          done
+          rclone copyto /tmp/stac/stac-collection.json nrp:public-ecoregion/stac-collection.json
+
+          echo "=== published ==="
+          rclone lsf nrp:public-ecoregion/ -R --include '*stac-collection.json' --include '*README.md'
+          echo OK
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: epa-ecoregions-stac-script}}

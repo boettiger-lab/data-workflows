@@ -1,0 +1,77 @@
+# Step 1b: stage the three EPA Omernik ecoregion source zips to s3://public-ecoregion/raw/
+# so every downstream job reads from NRP S3 instead of re-hitting the EPA host.
+# data-workflows #633
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: epa-ecoregions-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: epa-ecoregions-stage-raw
+spec:
+  backoffLimit: 3
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: epa-ecoregions-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      # CoreDNS on some NRP nodes intermittently fails to resolve external hosts;
+      # keep ClusterFirst (internal Ceph RGW must still resolve) and add public resolvers.
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {memory: "4Gi", cpu: "2", ephemeral-storage: "10Gi"}
+          limits:   {memory: "4Gi", cpu: "2", ephemeral-storage: "10Gi"}
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,    value: "rook-ceph-rgw-nautiluss3.rook"}
+        - {name: AWS_PUBLIC_ENDPOINT, value: "s3-west.nrp-nautilus.io"}
+        - {name: AWS_HTTPS,          value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          BASE=https://dmap-prod-oms-edc.s3.us-east-1.amazonaws.com/ORD/Ecoregions
+          mkdir -p /tmp/raw && cd /tmp/raw
+
+          # --retry-all-errors is required: plain --retry does NOT retry DNS failures.
+          for f in us/us_eco_l3.zip ak/ak_eco_l3.zip us/us_eco_l4.zip; do
+            out=$(basename "$f")
+            echo "==> $out"
+            curl -sSL --retry 8 --retry-delay 5 --retry-all-errors -o "$out" "$BASE/$f"
+          done
+          ls -l /tmp/raw
+
+          rclone copy /tmp/raw nrp:public-ecoregion/raw/ -P
+          echo "--- staged ---"
+          rclone lsl nrp:public-ecoregion/raw/ | grep -E 'eco_l3|eco_l4'
+          echo "OK"
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
