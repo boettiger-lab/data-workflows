@@ -91,6 +91,11 @@ spec:
             CREATE TABLE prox AS
             SELECT regexp_extract(filename, 'prox/(.+?)__[A-Z]+__\\d+\\.parquet$', 1) AS road_stratum,
                    regexp_extract(filename, '__([A-Z]+)__\\d+\\.parquet$', 1)         AS region,
+                   -- The shard index is carried from the FILENAME, not reconstructed with
+                   -- hash(_cng_fid) % 60. It is only needed by the per-distance coverage
+                   -- gate below, and a gate that re-derives the thing it is checking would
+                   -- agree with a wrong answer. Dropped again before the table is written.
+                   CAST(regexp_extract(filename, '__(\\d+)\\.parquet$', 1) AS INTEGER) AS _shard,
                    * EXCLUDE (filename)
             FROM read_parquet('{WORK}/prox/*.parquet', filename := true)
             WHERE _cng_fid IS NOT NULL
@@ -189,6 +194,53 @@ spec:
                           + ",".join(f"'{st}'" for st in partial) + ")")
               strata = [r[0] for r in con.execute(
                   "SELECT DISTINCT road_stratum FROM prox ORDER BY 1").fetchall()]
+
+          # ⛔ PER-DISTANCE SHARD-COVERAGE GATE — a complete stratum can still contain an
+          # INCOMPLETE DISTANCE, and that is a fabricated national total.
+          #
+          # The file gate above asks "did every shard write its checkpoint for this
+          # stratum?". It cannot ask "did every shard compute this DISTANCE?", because the
+          # ladder is a property of the code that ran, not of the file. LADDER_WIDE was
+          # introduced partway through this build to keep the TIGER-bearing strata off the
+          # three most expensive rungs. Shards that ran before that change computed the full
+          # 9-rung LADDER; shards that ran after computed 6. Every shard wrote its file, so
+          # the stratum looks complete — but three of its rungs were then summed from a
+          # minority of the country.
+          #
+          # Caught here on tiger-drivable: 60 shards at each of the six LADDER_WIDE rungs,
+          # and only 21 shards at 50 m, 2,414 m and 3,219 m. Its acreage consequently FELL
+          # from 28.9M at 1,609 m to 12.7M at 2,414 m, which is impossible — area cannot
+          # decrease with distance — and is the visible symptom of a partial national sum.
+          # Nothing downstream would have questioned a plausible-looking 12.7M.
+          #
+          # Rule: within a stratum, a distance is publishable only if as many shards
+          # contributed to it as contributed to the stratum's best-covered distance. A
+          # distance below that is dropped, loudly, rather than reported. Dropping is the
+          # conservative direction: it removes a partial figure instead of publishing one.
+          shard_cov = con.execute("""
+            SELECT road_stratum, d_m, COUNT(DISTINCT _shard) AS n_shards
+            FROM prox GROUP BY 1, 2 ORDER BY 1, 2
+          """).fetchall()
+          best = {}
+          for st, d, k in shard_cov:
+              best[st] = max(best.get(st, 0), k)
+          thin = [(st, d, k) for st, d, k in shard_cov if k < best[st]]
+          if thin:
+              print("\n⛔ DROPPING distances with partial shard coverage "
+                    "(a partial national sum, not a smaller one):", flush=True)
+              for st, d, k in thin:
+                  print(f"  {st:<18} d={d:>9.3f} m  {k}/{best[st]} shards  <-- dropped",
+                        flush=True)
+              con.execute("DELETE FROM prox WHERE " + " OR ".join(
+                  f"(road_stratum = '{st}' AND abs(d_m - {d}) < 0.001)" for st, d, _ in thin))
+              if any(st in REQUIRED for st, _, _ in thin):
+                  raise SystemExit(
+                      "ABORT: a REQUIRED stratum had a distance with partial shard coverage. "
+                      "Every figure reported against the agency's claim comes from those "
+                      "strata, so this cannot be dropped and reported around — re-run the "
+                      "missing shards at that distance.")
+          else:
+              print("\n  per-distance shard coverage: uniform in every stratum", flush=True)
 
           # Every stratum must also cover the SAME polygons. Equal file counts do not imply
           # equal coverage: a shard could write a sentinel where it should have written data.
