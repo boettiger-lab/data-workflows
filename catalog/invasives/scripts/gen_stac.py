@@ -9,10 +9,14 @@ One collection, `inhabit-v4-2024`, holding one COG asset and one hex asset per
 (species x product) -- the 12 species share a grid, license, method and citation, so they
 do not warrant separate collections.
 
-Phase control: READY_LAYERS is a comma-separated list of "<species>|<product>" keys whose
-hex has actually landed. Only those get a hex asset; COG assets are always emitted (all 48
-COGs are built and verified). With READY_LAYERS unset, every hex asset is emitted -- use
-that only once the hex fan-out is 72/72 and the coverage gate has passed.
+Phase control -- so the collection can be published truthfully while the res-10 hex fan-out is
+still running, instead of advertising hex assets that partly 404. COG assets are ALWAYS emitted
+(all 48 COGs are built and grid-verified); READY_LAYERS gates only the hex assets:
+
+  unset            every hex asset -- use only once the fan-out is 72/72 and the h0 coverage
+                   gate has passed
+  "NONE"           no hex assets (COG-only interim)
+  "a|b,c|d"        hex assets for exactly those "<species>|<product>" keys
 """
 import json
 import os
@@ -407,8 +411,16 @@ def hex_asset(slug, sci, common, product):
 
 
 # ── Assemble ────────────────────────────────────────────────────────────────────────────────
+# READY_LAYERS unset       -> emit every hex asset (use only once the fan-out is 72/72)
+# READY_LAYERS="NONE"      -> emit no hex assets (COG-only interim, fan-out still running)
+# READY_LAYERS="a|b,c|d"   -> emit hex assets for exactly those "<species>|<product>" keys
 _ready_env = os.environ.get("READY_LAYERS", "").strip()
-READY = set(_ready_env.split(",")) if _ready_env else None
+if not _ready_env:
+    READY = None
+elif _ready_env.upper() == "NONE":
+    READY = set()
+else:
+    READY = set(_ready_env.split(","))
 
 assets = {}
 n_hex = 0

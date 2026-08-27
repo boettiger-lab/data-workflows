@@ -553,11 +553,40 @@ Shape: a bucket-level meta-collection `public-invasives` (one `child`) over the 
 bucket that will plausibly hold INHABIT Global V1 and the other 247 v4 species later; collapsing
 the collection onto the bucket root would have to be undone then.
 
-**`READY_LAYERS` gates an interim publish.** Set it to a comma-separated list of
-`<species>|<product>` keys whose hex has actually landed and only those hex assets are emitted;
-the 48 COG assets always are, since they are built and grid-verified. This is how the collection
-gets published truthfully while the fan-out is still running, instead of advertising 48 hex assets
-that partly 404. The description gains a bracketed interim note automatically.
+**`READY_LAYERS` gates an interim publish.** `NONE` emits no hex assets; a comma-separated list of
+`<species>|<product>` keys emits exactly those; unset emits all 48 (use only once the fan-out is
+72/72 and the h0 coverage gate has passed). The 48 COG assets always emit, since they are built and
+grid-verified. This is how the collection gets published truthfully while the fan-out is still
+running, instead of advertising 48 hex assets that partly 404. The description gains a bracketed
+interim note automatically.
+
+### Published 2026-08-27 — COG-only interim, and the bucket is registered
+
+    READY_LAYERS=NONE python3 catalog/invasives/scripts/gen_stac.py   # 48 assets, 48 COG, 0 hex
+    python3 catalog/invasives/scripts/gen_readme.py
+
+- `s3://public-invasives/stac-collection.json` — bucket meta-collection (1740 B)
+- `s3://public-invasives/inhabit-v4-2024/stac-collection.json` — leaf, 48 COG assets (147 949 B)
+- `s3://public-invasives/README.md` (14 718 B)
+- `s3://public-data/stac/catalog.json` — **`public-invasives` added as a new top-level
+  sub-catalog**, 65 → 66 children. This is the one case AGENTS.md Step 6 sanctions touching the
+  root. The edit was diffed against a saved copy of the pre-edit catalog before upload and is
+  exactly one inserted `child` link, nothing else.
+
+`scripts/verify-stac.py` passes with **0 findings on all three** — the leaf, the bucket
+meta-collection, and the whole-bucket sweep — against the live S3 documents, not just the /tmp
+files. The data-backed checks run clean at this stage because there are no hex assets yet to check;
+**re-run the leaf gate after the fan-out completes**, when `values`-vs-`DISTINCT` on
+`suitability_class` becomes a real test rather than a no-op.
+
+Two things the post-hex gate must confirm that the COG-only pass cannot:
+
+1. The hexed `suitability_class` set is exactly `{-1, 0, 1, 2, 3}` — a `mode` reduce cannot invent
+   a code, but the declared `values` array is HARD-checked against the ingested `DISTINCT`, so a
+   surprise there means something upstream moved.
+2. The declared `table:columns` type for `suitability_class` (`int64`) matches what `mode` actually
+   wrote. If cng-datasets emits it as a double, the declaration is wrong and must follow the data —
+   see `scripts/check-hex-encoding.sh`.
 
 **One canonical text per column name, deliberately.** `suitability` appears on 36 hex assets and
 `suitability_class` on 12, and mcp-data-server#303 folds per-column descriptions to the first-seen
