@@ -107,10 +107,25 @@ spec:
           # exactly why the gate has to be here rather than in review.
           NSHARDS, REGIONS = 60, ("CONUS", "AK", "PR")
           EXPECTED_FILES = NSHARDS * len(REGIONS)
+          # ⛔ COUNT THE OBJECTS, NOT THE ROWS THEY YIELDED.
+          #
+          # This counted DISTINCT filename over read_parquet(...), which can only see a file
+          # that produced at least one row. A large minority of these checkpoints are
+          # legitimately EMPTY: the shard writes a zero-row sentinel whenever a
+          # (stratum, region, shard) combination has no IRA polygon or no road in range.
+          # Puerto Rico holds a single roadless area nationally, so 59 of its 60 shards are
+          # correctly empty, and sparse Alaska shards likewise.
+          #
+          # So the old count undercounted every stratum by exactly its sentinel count and
+          # aborted on a COMPLETE ladder — measured: all four required strata had 180/180
+          # objects on S3 while this reported 128, 120, 128 and 131. glob() lists the
+          # objects without reading them, which is what "did every shard write its
+          # checkpoint?" actually asks. The gate keeps its teeth: a shard that never wrote
+          # its file is still missing here, and still aborts.
           files = con.execute(f"""
-            SELECT regexp_extract(filename, 'prox/(.+?)__[A-Z]+__\\d+\\.parquet$', 1) AS stratum,
-                   COUNT(DISTINCT filename) AS n_files
-            FROM read_parquet('{WORK}/prox/*.parquet', filename := true)
+            SELECT regexp_extract(file, 'prox/(.+?)__[A-Z]+__\\d+\\.parquet$', 1) AS stratum,
+                   COUNT(*) AS n_files
+            FROM glob('{WORK}/prox/*.parquet')
             GROUP BY 1 ORDER BY 1
           """).fetchall()
           # REQUIRED strata gate every published figure. tiger-all is deliberately NOT
