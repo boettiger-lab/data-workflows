@@ -28,6 +28,15 @@ Every decision that defines *what* a dataset task delivers — **spatial extent*
 - **Never infer scope** from the bucket name, an existing clipped COG, or a prior build's resolution. Those are artifacts of how an earlier (possibly wrong) pass happened to run, not statements of intent.
 - A reviewer (human or agent) must be able to read the issue alone and know exactly what to build. If you found yourself reconstructing scope from code, S3 layout, or memory, that is the signal the issue needs updating.
 
+## ⛔ HARD BOUNDARY: This repo publishes data, it does not compute analysis
+
+A dataset issue ends at published cloud-native artifacts — GeoParquet / PMTiles / COG / H3 hex — plus their STAC entries and README. Tabulations, comparisons across strata, and testing a published claim are downstream work against the published hex. They are never build steps or acceptance criteria here.
+
+- **The test is whether you know the answer before you run the query.** Reproducing a number the source already published — feature count, `SUM(ACRES)`, hex `SUM` == COG pixel-sum — is **validation**: an expected value exists, and a mismatch is a bug in the build. Producing a number nobody has published, where the value itself is the finding, is **analysis**: there is nothing for it to fail against. Validation is required on every build; analysis belongs downstream.
+- **The deliverable is that the analysis is *possible*, not that it is done.** If a downstream question needs comparison strata, a second denominator, or a dedup key, then the published attributes must let a consumer derive them and the README must say how. Making the question answerable is in scope; answering it is not.
+- **An issue carrying analysis steps is underspecified, not partly out of scope.** Strip the steps and the acceptance criteria they created, record the enabling requirement they imply, and move the question to the consuming project — analysis is not tracked here. Never leave an ingest issue that cannot be closed until someone computes a statistic.
+- Case history: #594 (tracker stating the rule), #625 and #626 (analysis issues closed as out of scope, 2026-08-27).
+
 ## ⛔ HARD BOUNDARY 0: Big-data compute runs on the cluster, NOT your laptop
 
 For ANY query/scan/aggregation over S3 parquet — catalog data **and** large intermediate/build files (e.g. a 24 GB consolidated GeoParquet) — use the **`mcp__duckdb-geo__query` MCP server**. It runs on generously-provisioned cluster metal with the **internal NRP S3 endpoint** and a **100 Gb/s** network, and DuckDB **streams** (larger-than-memory spills to disk) — so it does not hit the RAM limits or the slow public endpoint (~12 MB/s) that bottleneck the laptop.
