@@ -100,6 +100,32 @@ spec:
               "SELECT DISTINCT road_stratum FROM prox ORDER BY 1").fetchall()]
           print(f"consolidated {n:,} rows | strata: {strata}", flush=True)
 
+          # ⛔ NORMALISE AWAY THE ZERO-AREA ROWS — the checkpoints were not all written by
+          # the same code, and without this the table's grain means different things in
+          # different strata.
+          #
+          # Before 026ef8a the shard selected its road set ONCE at MAXD and buffered that
+          # union at each distance. Every polygon with a road within 3,380 m therefore got a
+          # row at EVERY rung, most of them recording zero acres. After 026ef8a the road set
+          # is selected per distance, so a row exists only where a road is genuinely within
+          # d. Both compute identical ACREAGE — a road beyond d contributes nothing to a
+          # d-buffer — but they emit different numbers of rows, and the roadcore strata were
+          # largely computed under the old shape while union-deis and the tiger strata were
+          # computed under the new one. Measured at d=100 m: roadcore-all carried 9,684 rows
+          # of which 3,188 were zero-area, against union-deis's 7,720 rows with 3.
+          #
+          # A zero-area row asserts nothing that the table does not already say by the
+          # polygon's absence at that rung, and it is the reason COUNT(*) per
+          # (stratum, d_m) was not comparable across strata. Dropping it makes every
+          # stratum mean the same thing regardless of which code version wrote it. Sums are
+          # unaffected by construction, since the dropped rows contribute exactly zero.
+          nz = con.execute("SELECT COUNT(*) FROM prox WHERE acres_within <= 0").fetchone()[0]
+          con.execute("DELETE FROM prox WHERE acres_within <= 0")
+          n2 = con.execute("SELECT COUNT(*) FROM prox").fetchone()[0]
+          print(f"normalised: dropped {nz:,} zero-area rows (pre-026ef8a shape), "
+                f"{n2:,} rows remain — one row per (stratum, region, polygon, distance) "
+                f"where the polygon genuinely has area within d", flush=True)
+
           # ⛔ COMPLETENESS GATE — must run BEFORE anything is published.
           # This table globs whatever checkpoints exist, so a missing shard does not leave
           # a visible hole: it silently shrinks a national acreage and returns a perfectly
