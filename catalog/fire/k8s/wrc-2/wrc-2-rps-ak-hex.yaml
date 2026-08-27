@@ -60,8 +60,12 @@ spec:
     metadata: {labels: {k8s-app: wrc-2-rps-ak-hex}}
     spec:
       restartPolicy: Never
-      # Pod-level: bounds a true bad-node hang. A dense res-10 h0 legitimately runs 1.5-2 h.
-      activeDeadlineSeconds: 21600
+      # 18 h, not the 6 h an earlier revision used. Alaska's dateline h0 is ~105.6 M cells, and
+      # the rate fitted from the CONUS run (~65 min fixed + ~2.2 min per million cells) puts it at
+      # ~5.0 h on fast hardware and ~7.4 h on the slow group -- i.e. straddling a 6 h deadline. The
+      # CONUS dense slice already had to be re-run for exactly this reason (#592,
+      # wrc-2-rps-conus-hex-dense.yaml); no reason to repeat it here when the deadline is free.
+      activeDeadlineSeconds: 64800
       # rclone's nrp: remote resolves the INTERNAL endpoint, which only cluster DNS can resolve.
       dnsPolicy: ClusterFirst
       containers:
@@ -95,11 +99,21 @@ spec:
             --resolution 10 --parent-resolutions 9,8,0 \
             --value-column rps --hex-resampling mean --nodata -9999
         resources:
-          # 128Gi: Alaska's densest res-10 h0 is roughly a quarter of CONUS's 227 M cells, so the
-          # 105-141Gi measured CONUS peak (#453) scales well down; 128Gi keeps a wide margin
-          # while fitting more nodes. Ephemeral 50Gi covers the localized COG plus output.
-          requests: {cpu: '8', memory: 128Gi, ephemeral-storage: 50Gi}
-          limits:   {cpu: '8', memory: 128Gi, ephemeral-storage: 50Gi}
+          # ⛔ 192Gi, NOT the 128Gi an earlier revision specified. That figure came from "Alaska's
+          # densest res-10 h0 is roughly a quarter of CONUS's 227 M cells, so the measured CONUS
+          # peak scales down" -- and the premise is wrong twice over. Alaska's densest h0 is ~105.6 M
+          # cells (47% of CONUS's, not 25%), and more importantly MEMORY AT RES 10 DOES NOT SCALE
+          # WITH CELL COUNT AT ALL. Measured live on the CONUS run, four pods sampled together:
+          #     h0-index 14 =  69.4 M cells -> 132,065 Mi
+          #     h0-index 71 =  47.8 M cells -> 133,356 Mi
+          #     h0-index 20 = 226.7 M cells -> 133,593 Mi
+          #     h0-index 50 = 107.0 M cells -> 134,460 Mi
+          # A 4.7x range in cells gives a 1.8% range in memory: the cost is the CONSTANT
+          # 282,475,249-cell res-10 enumeration every surviving h0 performs, not the output. So
+          # 128Gi (131,072 Mi) sits BELOW the observed steady state and would OOM all three Alaska
+          # slices, not merely the dense one. Ephemeral 50Gi covers the localized COG plus output.
+          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
       affinity:
@@ -109,4 +123,6 @@ spec:
             - matchExpressions:
               - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
               # Known-bad egress/S3 hosts: pods schedule but hang on localize.
-              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org,
+                         nautilus-it-cpu05.fullerton.edu, nautilus-it-cpu13.fullerton.edu,
+                         nautilus-it-cpu15.fullerton.edu, nautilus-it-cpu16.fullerton.edu]}
