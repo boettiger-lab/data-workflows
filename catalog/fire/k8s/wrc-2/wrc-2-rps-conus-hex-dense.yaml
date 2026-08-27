@@ -1,0 +1,164 @@
+# WRC v2 RPS CONUS -- the DENSE slice (h0-index 20) on its own, with a deadline that fits it.
+#
+# WHY THIS EXISTS. wrc-2-rps-conus-hex.yaml carries activeDeadlineSeconds: 21600 (6 h) on the pod
+# template, which is right for five of its six slices and impossible for the sixth.
+#
+# Measured per-h0 res-10 cell counts (from nlcd/hex/year=2024, which this layer matches to within
+# 1 cell on h0-index 12 and 13k cells on h0-index 78 -- both verified live during this build):
+#
+#   h0 index 20  ->  577164439745200127  ->  226,732,560 cells   <-- this job
+#   h0 index 50  ->  577199624117288959  ->  107,004,747
+#   h0 index 14  ->  577692205326532607  ->   69,405,063
+#   h0 index 78  ->  577234808489377791  ->   65,260,607   (done, 208 min)
+#   h0 index 71  ->  577762574070710271  ->   47,819,630
+#   h0 index 12  ->  576812596024311807  ->    4,710,166   (done,  75 min)
+#
+# Fitting those two completions gives ~65 min fixed + ~2.2 min per million cells. h0-index 20 is
+# therefore ~9.4 h AT BEST, against a 6 h pod deadline -- it cannot finish in the parent job, and
+# backoffLimitPerIndex: 3 would have retried it three times, each dying identically at 6 h, before
+# maxFailedIndexes: 0 failed the whole job. About 24 h burned for no data. `spec.template` is
+# immutable on a running Job, so the parent's deadline cannot be patched; this job is the fix.
+#
+# THREE DELIBERATE DIFFERENCES from the parent, and nothing else:
+#   1. activeDeadlineSeconds 21600 -> 64800 (18 h). Generous on purpose: the estimate is a 2-point
+#      fit and the penalty for under-shooting is another wasted full run.
+#   2. The four Fullerton nodes are excluded. Node speed, not data, drove the spread: both slices
+#      that finished ran on SDSU and MGHPCC hardware while all four slow ones landed on Fullerton
+#      -- the same heterogeneity mtbs-severity-conus-hex.yaml:72-73 records (a fast group at
+#      76-101 min, a slower group at 140-150 min for identical work).
+#   3. completions/parallelism 6 -> 1, and H0S=(20).
+#
+# ⛔ RESOURCES ARE UNCHANGED AT 8 cpu / 192Gi / CNG_HEX_WORKERS=8, ON PURPOSE. Raising the worker
+# count is the obvious way to go faster and it is the wrong lever here: memory scales with workers,
+# nlcd (#453) and LANDFIRE (#590) both measured 105-144Gi peaks for exactly this h0 at res 10 with
+# 8 workers, and an OOM on the one slice that cannot be cheaply redone is the worst available
+# outcome. Do not "optimize" this without measuring first.
+#
+# WRC v2 Risk to Potential Structures (RPS), CONUS — res-10 `mean` hex.
+#
+# RPS is the "Risk to Homes" layer of the Wildfire Risk to Communities web application: the
+# expected Net Value Change if each pixel held a house as the only highly-valued asset. It is the
+# layer that actually measures risk TO COMMUNITIES, as opposed to WHP (#586), which measures fire
+# hazard and whose own source metadata says it does not account for what is exposed.
+#
+# Reducer `mean`: RPS is a continuous index / intensity, not an amount integrated per pixel, so
+# `sum` would be meaningless (raster-hexing: the density-vs-amount trap). There is no meaningful
+# "total RPS" — consumers compare means across land classes.
+#
+# Resolution 10: the source is 30 m, and `h10` (0.0150 km²) is the catalog's finest, so 30 m is
+# mildly UNDER-sampled — accepted per the raster-hexing anchor table. Parents 9,8,0 match
+# `roadless-areas-2001` (public-usfs) and `silvis-wui-2020` (public-wui) exactly, so this layer
+# joins both cell-for-cell at h10 — which is the whole point of the ingest.
+#
+# Expect ~521 M rows over 6 populated h0 partitions (densest ~227 M cells), from the measured
+# `nlcd` res-10 CONUS build, which is the same footprint at the same resolution.
+#
+# ⚠️ `priorityClassName` is deliberately OMITTED. Default priority 0 is admitted in
+# geo-workflows and is two billion points above `opportunistic` (-2000000000). A full-land res-10
+# h0 runs 1.5–2 h, and per the pod-preemption skill an opportunistic pod that long is near-certain
+# to be preempted; the paired fix is lower parallelism so the claim on shared nodes does not grow.
+# ⛔ Do NOT node-pin: a 192Gi/8cpu pod fills a node, so pinning serializes the job (#307 turned a
+# CONUS res-10 hex from hours into 30–50 h).
+#
+# /!\ THE h0 FAN-OUT IS RESTRICTED TO THE 6 POPULATED BASE CELLS, not the 122 the generator emits.
+# At res 10 an h0 index that holds no data is NOT free: the tool prunes only cells whose envelope
+# misses the raster, and every surviving cell enumerates all ~280 M of its res-10 children before
+# discovering they are all nodata (mtbs-severity-conus-hex.yaml:20-24). On top of that THIS COG is
+# ~28 GB, so each skipped pod would rclone-localize it first -- ~116 pods x 28 GB is about 3 TB of
+# reads to produce nothing, and 20 waves of pods claiming 192Gi on a shared cluster.
+#
+# An earlier revision kept 122 on the grounds that the index -> h0 mapping is `cng-datasets`' own
+# and guessing it risks silently skipping a POPULATED cell. That reasoning stands. The map below
+# is simply not a guess: it is recorded twice, independently, and both agree.
+#   - catalog/fire/k8s/mtbs/severity/mtbs-severity-conus-hex.yaml:43-49, in production for the same
+#     CONUS 30 m res-10 footprint, read from the cell CENTROIDS of a completed hex
+#   - the slice table on #623 (LANDFIRE FBFM40), same six indexes, same six cells
+# They are exactly the 6 cells `nlcd/hex/year=2024` populates, which is the footprint this layer
+# shares (same extent, same 30 m pixel, same native resolution). check-hex-coverage.sh --expect-h0
+# fails loudly on a wrong list rather than shipping a hole, so the list is gated, not trusted.
+#
+#   h0 index -> cell
+#      12  ->  576812596024311807
+#      14  ->  577692205326532607
+#      20  ->  577164439745200127
+#      50  ->  577199624117288959
+#      71  ->  577762574070710271
+#      78  ->  577234808489377791
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-rps-conus-hex-dense
+  namespace: geo-workflows
+  labels: {k8s-app: wrc-2-rps-conus-hex-dense}
+spec:
+  # 6 populated h0, one wave. See the measured index map above.
+  completions: 1
+  parallelism: 1
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  # 0: a partial indexed run must surface as Failed rather than be published as complete (#409).
+  maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    # A preemption/eviction is not a data error; don't spend the index's retry budget on it.
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: wrc-2-rps-conus-hex-dense}}
+    spec:
+      restartPolicy: Never
+      # Pod-level: bounds a true bad-node hang. A dense res-10 h0 legitimately runs 1.5-2 h.
+      activeDeadlineSeconds: 64800
+      # rclone's nrp: remote resolves the INTERNAL endpoint, which only cluster DNS can resolve.
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        volumeMounts:
+        # MANDATORY: cng-datasets rclone-localizes the COG before hexing. Generated YAML omits
+        # this secret and the job then fails on localize.
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Slot -> h0 index. Measured, not guessed; see the header.
+          H0S=(20)
+          H0=${H0S[${JOB_COMPLETION_INDEX}]}
+          echo "=== WRC v2 RPS CONUS res-10 mean, h0-index ${H0} (slot ${JOB_COMPLETION_INDEX}) ==="
+          cng-datasets raster \
+            --input "s3://public-fire/wrc-2-rps-conus-cog.tif" \
+            --output-parquet "s3://public-fire/wrc-2-rps-conus/hex/" \
+            --h0-index ${H0} \
+            --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column rps --hex-resampling mean --nodata -9999
+        resources:
+          # 192Gi, not 256Gi: measured peak on res-10 CONUS is 105-141Gi (#453), and a 256Gi
+          # request barely fits a ~250Gi-allocatable node -> chronic FailedScheduling. 50Gi
+          # ephemeral because this COG is ~28 GB localized (nlcd's is only 1.58 GB at 40Gi).
+          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              # Known-bad egress/S3 hosts: pods schedule but hang on localize.
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org, nautilus-it-cpu05.fullerton.edu, nautilus-it-cpu13.fullerton.edu, nautilus-it-cpu15.fullerton.edu, nautilus-it-cpu16.fullerton.edu]}
