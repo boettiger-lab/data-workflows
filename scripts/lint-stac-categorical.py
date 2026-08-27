@@ -11,6 +11,10 @@ Checks enforced (per AGENTS.md standards):
 2. COG raster:bands classification:classes must have:
    - Each entry with value, name, description, color_hint
    - name must not look like a code/abbreviation (all-caps ≤4 chars, or equals value)
+   - NO fill / no-data sentinel entries: not the band's own `nodata`, and nothing
+     named Fill / NoData / Not Mapped / Background. Consumers build a render
+     colormap from this list, so a fill code in it is painted as an ordinary class
+     instead of left transparent, and clutters the legend (#628)
 
 3. If both a hex asset and a COG asset exist for the same dataset, the set of
    codes in the hex "values" array must be a subset of the COG
@@ -38,6 +42,19 @@ def load_doc(source: str) -> dict:
     return json.loads(Path(source).read_text())
 
 
+FILL_NAME_RE = re.compile(
+    r"(?i)\b(fill|no ?data|not[ -]mapped|background|unmapped)\b")
+
+
+def is_fill_name(name: str) -> bool:
+    """Return True if a class name announces itself as a fill / no-data sentinel.
+
+    Deliberately narrow: only names that say fill outright. "Unclassified",
+    "Barren" and "Sparse" are real classes in several published legends and must
+    not trip this."""
+    return bool(name) and bool(FILL_NAME_RE.search(name))
+
+
 def is_abbrev_name(name: str, value) -> bool:
     """Return True if name looks like a code/abbreviation rather than a human-readable label."""
     if name == str(value):
@@ -46,6 +63,14 @@ def is_abbrev_name(name: str, value) -> bool:
     if re.fullmatch(r"[A-Z]{1,4}([/\-][A-Z]{1,4})*", name):
         return True
     return False
+
+
+def _same_value(a, b) -> bool:
+    """Numeric-tolerant equality — STAC carries nodata as int or float (-9999 vs -9999.0)."""
+    try:
+        return float(a) == float(b)
+    except (TypeError, ValueError):
+        return a == b
 
 
 def values_self_describing(values_arr) -> bool:
@@ -86,6 +111,7 @@ def lint(source: str) -> list[str]:
 
     # Gather classification:classes from all COG assets (value → name)
     cog_classes: dict[str, dict[int, str]] = {}  # asset_key -> {value: name}
+    cog_nodata: dict[str, int] = {}  # asset_key -> band nodata, excluded from the render legend
     for asset_key, asset in doc.get("assets", {}).items():
         bands = asset.get("raster:bands", [])
         for band in bands:
@@ -93,6 +119,12 @@ def lint(source: str) -> list[str]:
             if classes is None:
                 continue
             cog_classes[asset_key] = {}
+            nd = band.get("nodata")
+            if nd is not None:
+                try:
+                    cog_nodata[asset_key] = int(nd)
+                except (TypeError, ValueError):
+                    pass
             for cls in classes:
                 v = cls.get("value")
                 n = cls.get("name", "")
@@ -115,6 +147,28 @@ def lint(source: str) -> list[str]:
                 if not ch:
                     errors.append(
                         f"[{collection_id}] asset '{asset_key}': classification:classes value={v} missing 'color_hint'"
+                    )
+
+                # Fill codes must not be declared as renderable classes (#628).
+                # geo-agent builds both the legend and the titiler colormap from this
+                # list, so a fill entry paints. Values equal to the band nodata render
+                # transparent anyway and only cost a junk legend row; values that are
+                # NOT the nodata (LANDFIRE VCC's -1111 and 32767) paint solid grey and
+                # white over real ground. Document fill in the collection/asset
+                # description instead.
+                nodata = band.get("nodata")
+                if v is not None and nodata is not None and _same_value(v, nodata):
+                    errors.append(
+                        f"[{collection_id}] asset '{asset_key}': classification:classes declares "
+                        f"value={v}, which is the band's own nodata — drop it; a nodata code is "
+                        f"not a class (document it in the description instead)"
+                    )
+                elif is_fill_name(n):
+                    errors.append(
+                        f"[{collection_id}] asset '{asset_key}': classification:classes value={v} "
+                        f"is a fill/no-data sentinel (name='{n}') — drop it; a consumer builds its "
+                        f"render colormap from this list and will paint it as an ordinary class "
+                        f"(document fill codes in the description instead)"
                     )
 
                 # Check name is human-readable
@@ -401,7 +455,9 @@ def lint(source: str) -> list[str]:
             if cog_classes and values_arr:
                 try:
                     vnums = set(int(v) for v in values_arr)
-                    cog_defined = any(vnums <= set(m.keys()) for m in cog_classes.values())
+                    cog_defined = any(
+                        vnums <= set(m.keys()) | ({cog_nodata[k]} if k in cog_nodata else set())
+                        for k, m in cog_classes.items())
                 except (ValueError, TypeError):
                     cog_defined = False
 
@@ -435,7 +491,14 @@ def lint(source: str) -> list[str]:
             if numeric_vals is not None and cog_classes:
                 hex_set = numeric_vals
                 for cog_key, cog_map in cog_classes.items():
+                    # The COG list is a RENDER legend, so the band nodata is deliberately
+                    # absent from it (#628). A fractional-coverage hex still carries that
+                    # code as a real class — "what share of this cell is nodata" is data,
+                    # not a render concern (nlcd, cgls-lc100 `*-hex-fractions`). Allow it
+                    # on the hex side rather than forcing fill back into the legend.
                     cog_set = set(cog_map.keys())
+                    if cog_key in cog_nodata:
+                        cog_set.add(cog_nodata[cog_key])
                     extra = hex_set - cog_set
                     if extra:
                         errors.append(
