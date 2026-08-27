@@ -52,15 +52,41 @@ SPECIES = [
     ("cenchrus_ciliaris",             "Cenchrus ciliaris",             "buffelgrass",         "66a29430d34ec831f2c2d2d7"),
 ]
 
-# ── Phase-1 products. `-masked` = restricted to the MESS training envelope (the stated IRA
-# default); `integrated-binary-fifth` = the stated canonical threshold.
+# ── All nine products. `masked` = restricted to the MESS training envelope (the stated IRA
+# default, because roadless country is disproportionately outside that envelope).
+#
+# Phase 1 is the four products the IRA tabulation actually reads; phase 2 is the other five.
+# The split is a build-order convenience only: same collection, same pinned 4326 grid, additive.
 MODEL_GROUP = {
-    "occurrence-masked":       "occurrence",
-    "abundance-masked":        "abundance (>=5% cover)",
-    "high-abundance-masked":   "high abundance (>=25% cover)",
+    "occurrence":     "occurrence",
+    "abundance":      "abundance (>=5% cover)",
+    "high-abundance": "high abundance (>=25% cover)",
 }
-PRODUCTS = ["occurrence-masked", "abundance-masked", "high-abundance-masked",
-            "integrated-binary-fifth"]
+# threshold key -> (percentile label, where it sits in the inclusive..targeted gradient)
+THRESHOLD = {
+    "first": ("0.01", "the most inclusive (comprehensive) of the three"),
+    "fifth": ("0.05", "**the canonical threshold for this collection**"),
+    "tenth": ("0.10", "the most restrictive (targeted) of the three"),
+}
+CONTINUOUS = ["occurrence", "abundance", "high-abundance"]
+PHASE1 = ["occurrence-masked", "abundance-masked", "high-abundance-masked",
+          "integrated-binary-fifth"]
+PHASE2 = ["occurrence", "abundance", "high-abundance",
+          "integrated-binary-first", "integrated-binary-tenth"]
+ALL_PRODUCTS = PHASE1 + PHASE2
+
+
+def group_of(product):
+    """Model group for a continuous product, masked or not."""
+    return MODEL_GROUP[product[:-len("-masked")] if product.endswith("-masked") else product]
+
+
+def is_masked(product):
+    return product.endswith("-masked")
+
+
+def is_class(product):
+    return product.startswith("integrated-binary")
 
 # ── gHM (Global Human Modification) importance, measured from each species'
 # variableImportance.csv: mean AUCdiff per predictor, negatives clipped to 0, expressed as a
@@ -83,60 +109,121 @@ GHM = {
     "tamarix_chinensis_ramosissima": (16.4,  2, 26, 17.1,  3, 25, "KDE,target"),
     "ventenata_dubia":               ( 5.7,  6, 26,  6.0,  7, 26, "KDE,target"),
 }
-# ── MEASURED source facts (exact full-raster bincount, value-census job, 2026-08-26).
-# Not copied from FGDC: the FGDC rdommax of 98 is a per-file figure and understates the
-# 0-100 family scale the paper specifies. min/max/data_px are over the SOURCE Albers raster;
-# gdalwarp with -srcnodata excludes nodata from interpolation, so the warp cannot move a
-# value outside [min, max]. Keys are "<species>|<product>".
+# -- MEASURED source facts (exact full-raster bincount, value-census job, 2026-08-26;
+# all 108 layers, 12 species x 9 products). Not copied from FGDC: the FGDC rdommax of 98 is a
+# per-file figure and understates the 0-100 family scale the paper specifies ("we rescaled the
+# mapped values for each model between 0 and 100"). min/max/data_px are over the SOURCE Albers
+# raster; gdalwarp with -srcnodata excludes nodata from interpolation, so the warp cannot move
+# a value outside [min, max]. Keys are "<species>|<product>".
 MEASURED = {
+  "aegilops_cylindrica|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 96, "data_px": 786932647, "nodata_px": 572375402},
+  "aegilops_cylindrica|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 787285901, "nodata_px": 572022148},
+  "aegilops_cylindrica|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 99, "data_px": 787324241, "nodata_px": 571983808},
   "aegilops_cylindrica|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 96, "data_px": 727416706, "nodata_px": 631891343},
   "aegilops_cylindrica|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 787285901, "nodata_px": 572022148},
   "aegilops_cylindrica|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 99, "data_px": 758686878, "nodata_px": 600621171},
+  "aegilops_cylindrica|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 52758462, 0: 198766120, 1: 141252797, 2: 147593475, 3: 246984292}},
   "aegilops_cylindrica|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 57930517, 0: 391847400, 1: 197680156, 2: 88100038, 3: 51797035}},
+  "aegilops_cylindrica|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 59665571, 0: 525424175, 1: 163308672, 2: 19806699, 3: 19150029}},
+  "agropyron_cristatum|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 94, "data_px": 786381246, "nodata_px": 572926803},
+  "agropyron_cristatum|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 786041508, "nodata_px": 573266541},
+  "agropyron_cristatum|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 786672515, "nodata_px": 572635534},
   "agropyron_cristatum|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 94, "data_px": 684552911, "nodata_px": 674755138},
   "agropyron_cristatum|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 689660872, "nodata_px": 669647177},
   "agropyron_cristatum|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 687390291, "nodata_px": 671917758},
+  "agropyron_cristatum|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 91517791, 0: 317913435, 1: 53749864, 2: 12182329, 3: 311991727}},
   "agropyron_cristatum|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 96230905, 0: 423953925, 1: 47791502, 2: 12663660, 3: 206715154}},
+  "agropyron_cristatum|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 97592240, 0: 464986343, 1: 46690837, 2: 7808189, 3: 170277537}},
+  "bromus_arvensis|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 97, "data_px": 786803391, "nodata_px": 572504658},
+  "bromus_arvensis|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 787274597, "nodata_px": 572033452},
+  "bromus_arvensis|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 784693775, "nodata_px": 574614274},
   "bromus_arvensis|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 97, "data_px": 742132306, "nodata_px": 617175743},
   "bromus_arvensis|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 766315922, "nodata_px": 592992127},
   "bromus_arvensis|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 763836585, "nodata_px": 595471464},
+  "bromus_arvensis|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 25872331, 0: 85916747, 1: 257904639, 2: 90010151, 3: 327651278}},
   "bromus_arvensis|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 33469349, 0: 252321824, 1: 201569792, 2: 36012431, 3: 263981750}},
+  "bromus_arvensis|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 38627780, 0: 417898847, 1: 108454968, 2: 20077847, 3: 202295704}},
+  "bromus_japonicus|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 787271338, "nodata_px": 572036711},
+  "bromus_japonicus|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 787322271, "nodata_px": 571985778},
+  "bromus_japonicus|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 787263708, "nodata_px": 572044341},
   "bromus_japonicus|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 764981374, "nodata_px": 594326675},
   "bromus_japonicus|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 773137047, "nodata_px": 586171002},
   "bromus_japonicus|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 773078484, "nodata_px": 586229565},
+  "bromus_japonicus|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 17229753, 0: 143772823, 1: 143606461, 2: 32280362, 3: 450465747}},
   "bromus_japonicus|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 20464051, 0: 347793096, 1: 112292409, 2: 37289263, 3: 269516327}},
+  "bromus_japonicus|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 21505760, 0: 465296628, 1: 75072376, 2: 35477322, 3: 190003060}},
+  "bromus_rubens|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 787188817, "nodata_px": 572119232},
+  "bromus_rubens|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 786674582, "nodata_px": 572633467},
+  "bromus_rubens|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 787296231, "nodata_px": 572011818},
   "bromus_rubens|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 405349680, "nodata_px": 953958369},
   "bromus_rubens|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 626258242, "nodata_px": 733049807},
   "bromus_rubens|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 626879891, "nodata_px": 732428158},
+  "bromus_rubens|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 379204213, 0: 212161826, 1: 32780417, 2: 21171702, 3: 142036988}},
   "bromus_rubens|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 381452798, 0: 313995157, 1: 5890663, 2: 4930957, 3: 81085571}},
+  "bromus_rubens|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 381821716, 0: 344355843, 1: 4615836, 2: 1656264, 3: 54905487}},
+  "bromus_tectorum|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 787296518, "nodata_px": 572011531},
+  "bromus_tectorum|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 97, "data_px": 787285900, "nodata_px": 572022149},
+  "bromus_tectorum|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 95, "data_px": 787292530, "nodata_px": 572015519},
   "bromus_tectorum|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 748943939, "nodata_px": 610364110},
   "bromus_tectorum|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 97, "data_px": 748478249, "nodata_px": 610829800},
   "bromus_tectorum|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 95, "data_px": 748484879, "nodata_px": 610823170},
+  "bromus_tectorum|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 38162079, 0: 344705305, 1: 88630388, 2: 38874620, 3: 276982754}},
   "bromus_tectorum|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 38329816, 0: 447915693, 1: 90394262, 2: 17513279, 3: 193202096}},
+  "bromus_tectorum|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 38368578, 0: 542781474, 1: 40955455, 2: 12856456, 3: 152393183}},
+  "cenchrus_ciliaris|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 786932515, "nodata_px": 572375534},
+  "cenchrus_ciliaris|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 787285901, "nodata_px": 572022148},
+  "cenchrus_ciliaris|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 97, "data_px": 786932515, "nodata_px": 572375534},
   "cenchrus_ciliaris|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 444982994, "nodata_px": 914325055},
   "cenchrus_ciliaris|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 264847405, "nodata_px": 1094460644},
   "cenchrus_ciliaris|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 97, "data_px": 264378091, "nodata_px": 1094929958},
+  "cenchrus_ciliaris|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 342124562, 0: 358486945, 1: 27785188, 2: 5951447, 3: 53007004}},
   "cenchrus_ciliaris|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 342322727, 0: 407783717, 1: 5649165, 2: 4905953, 3: 26693584}},
+  "cenchrus_ciliaris|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 342350597, 0: 424367304, 1: 3697548, 2: 2694763, 3: 14244934}},
+  "elaeagnus_angustifolia|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 800171529, "nodata_px": 559136520},
+  "elaeagnus_angustifolia|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 96, "data_px": 786942631, "nodata_px": 572365418},
+  "elaeagnus_angustifolia|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 787285901, "nodata_px": 572022148},
   "elaeagnus_angustifolia|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 768849052, "nodata_px": 590458997},
   "elaeagnus_angustifolia|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 96, "data_px": 753484104, "nodata_px": 605823945},
   "elaeagnus_angustifolia|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 753827374, "nodata_px": 605480675},
+  "elaeagnus_angustifolia|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 28623611, 0: 191150286, 1: 141929360, 2: 48756183, 3: 376895706}},
   "elaeagnus_angustifolia|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 30624791, 0: 387639025, 1: 65382996, 2: 37748932, 3: 265959402}},
+  "elaeagnus_angustifolia|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 30887891, 0: 505164272, 1: 25383600, 2: 60291440, 3: 165627943}},
+  "salsola_tragus|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 786401989, "nodata_px": 572906060},
+  "salsola_tragus|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 786674897, "nodata_px": 572633152},
+  "salsola_tragus|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 787296248, "nodata_px": 572011801},
   "salsola_tragus|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 738506020, "nodata_px": 620802029},
   "salsola_tragus|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 712357485, "nodata_px": 646950564},
   "salsola_tragus|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 724173566, "nodata_px": 635134483},
+  "salsola_tragus|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 47928959, 0: 261892067, 1: 186182389, 2: 10142461, 3: 281209270}},
   "salsola_tragus|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 48071746, 0: 475417747, 1: 64089227, 2: 14042797, 3: 185733629}},
+  "salsola_tragus|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 48237521, 0: 556087727, 1: 38588589, 2: 29372044, 3: 115069265}},
+  "taeniatherum_caput_medusae|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 96, "data_px": 787045561, "nodata_px": 572262488},
+  "taeniatherum_caput_medusae|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 96, "data_px": 787233892, "nodata_px": 572074157},
+  "taeniatherum_caput_medusae|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 96, "data_px": 787158209, "nodata_px": 572149840},
   "taeniatherum_caput_medusae|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 96, "data_px": 510728964, "nodata_px": 848579085},
   "taeniatherum_caput_medusae|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 96, "data_px": 544912771, "nodata_px": 814395278},
   "taeniatherum_caput_medusae|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 96, "data_px": 544837088, "nodata_px": 814470961},
+  "taeniatherum_caput_medusae|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 273231187, 0: 253335365, 1: 111889078, 2: 26082421, 3: 122817095}},
   "taeniatherum_caput_medusae|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 275370039, 0: 414748207, 1: 32490899, 2: 4715140, 3: 60030861}},
+  "taeniatherum_caput_medusae|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 276106026, 0: 458422871, 1: 16155144, 2: 4252486, 3: 32418619}},
+  "tamarix_chinensis_ramosissima|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 95, "data_px": 786942631, "nodata_px": 572365418},
+  "tamarix_chinensis_ramosissima|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 94, "data_px": 786987061, "nodata_px": 572320988},
+  "tamarix_chinensis_ramosissima|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 95, "data_px": 786987061, "nodata_px": 572320988},
   "tamarix_chinensis_ramosissima|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 95, "data_px": 730245926, "nodata_px": 629062123},
   "tamarix_chinensis_ramosissima|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 94, "data_px": 738866863, "nodata_px": 620441186},
   "tamarix_chinensis_ramosissima|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 95, "data_px": 738857399, "nodata_px": 620450650},
+  "tamarix_chinensis_ramosissima|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 56513928, 0: 284935006, 1: 128560337, 2: 15354208, 3: 301991667}},
   "tamarix_chinensis_ramosissima|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 56885483, 0: 463812346, 1: 41950795, 2: 19341806, 3: 205364716}},
+  "tamarix_chinensis_ramosissima|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 56954439, 0: 527659640, 1: 23843267, 2: 24841334, 3: 154056466}},
+  "ventenata_dubia|occurrence": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 787223478, "nodata_px": 572084571},
+  "ventenata_dubia|abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 787296232, "nodata_px": 572011817},
+  "ventenata_dubia|high-abundance": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 784671214, "nodata_px": 574636835},
   "ventenata_dubia|occurrence-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 98, "data_px": 616281430, "nodata_px": 743026619},
   "ventenata_dubia|abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 619000795, "nodata_px": 740307254},
   "ventenata_dubia|high-abundance-masked": {"dtype": "uint8", "nodata": 255, "min": 0, "max": 100, "data_px": 616375777, "nodata_px": 742932272},
+  "ventenata_dubia|integrated-binary-first": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 164454089, 0: 311417696, 1: 28771755, 2: 60495190, 3: 222216416}},
   "ventenata_dubia|integrated-binary-fifth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 170230431, 0: 517134089, 1: 12756265, 2: 33168539, 3: 54065822}},
+  "ventenata_dubia|integrated-binary-tenth": {"dtype": "int8", "nodata": -128, "min": -1, "max": 3, "data_px": 787355146, "nodata_px": 571952903, "class_counts": {-1: 170676706, 0: 552374781, 1: 8571330, 2: 23908563, 3: 31823766}},
 }
 
 # Data pixels retained by the MESS-masked variant as a % of the plain product (measured).
@@ -246,10 +333,17 @@ COL_SUITABILITY = {
         "**Modelled potential habitat, not observed occurrence.** " + SRC),
 }
 COL_CLASS = {
-    "name": "suitability_class", "type": "int64",
+    # `double`, not int64, and that is measured rather than assumed: the cng-datasets raster
+    # `mode` reducer emits its value column as DOUBLE, so the codes read back as -1.0 .. 3.0.
+    # Verified 2026-08-27 with a res-5 probe job against a published integrated-binary COG before
+    # the real class hexes landed. The catalog precedent is the same (ca-climate-zones-hex declares
+    # its mode column float64 with an integer `values` array), and verify-stac.py's
+    # values-vs-DISTINCT gate normalizes the trailing ".0" for exactly this reason.
+    "name": "suitability_class", "type": "double",
     "description": (
         "Dominant (mode) INHABIT integrated-binary class of the source pixels covering the "
-        "cell. Values: " + ", ".join(f"{v}={n}" for v, n, _, _ in CLASSES) + ". " + NESTING +
+        "cell. **Integer codes stored as double** (an artifact of the `mode` reducer), so compare "
+        "with `= 3` or `>= 1` and cast if an exact integer join is needed. Values: " + ", ".join(f"{v}={n}" for v, n, _, _ in CLASSES) + ". " + NESTING +
         " **-1 is a class, not fill** -- it flags novel environmental conditions (MESS "
         "extrapolation, Elith et al. 2010); source NoData is -128 and is excluded. "
         "**Categorical: never SUM or AVG this column** -- count cells per class. The `mode` "
@@ -298,14 +392,15 @@ def ghm_note(slug):
 def cog_asset(slug, sci, common, product):
     m = MEASURED[f"{slug}|{product}"]
     key = f"{slug.replace('_', '-')}-{product}-cog"
-    categorical = product.startswith("integrated-binary")
     pct_data = 100.0 * m["data_px"] / 1359308049
 
-    if categorical:
+    if is_class(product):
+        thr = product.rsplit("-", 1)[1]
+        pct, standing = THRESHOLD[thr]
         band = {
             "name": "suitability_class", "data_type": "int8", "nodata": -128,
             "description": (
-                f"INHABIT integrated-binary class at the fifth-percentile (0.05) threshold for "
+                f"INHABIT integrated-binary class at the {thr}-percentile ({pct}) threshold for "
                 f"{sci} ({common}). {NESTING} Warped nearest-neighbour from the source Albers "
                 f"grid, so the class set is exactly the source's: "
                 f"{sorted(m['class_counts'].keys())}. Source pixel counts per class: "
@@ -316,43 +411,58 @@ def cog_asset(slug, sci, common, product):
                 {"value": v, "name": n, "description": d, "color_hint": c}
                 for v, n, d, c in CLASSES],
         }
-        title = f"{common} ({sci}) — integrated suitability class, fifth percentile (COG)"
+        title = (f"{common} ({sci}) — integrated suitability class, "
+                 f"{thr} percentile ({pct}) (COG)")
         desc = (f"Categorical integrated-binary map for {sci}, combining the thresholded "
-                f"occurrence, abundance and high-abundance ensembles at the 0.05 percentile "
-                f"threshold — the canonical threshold for this collection; `first` (0.01, more "
-                f"inclusive) and `tenth` (0.10, more targeted) land in phase 2 as the "
-                f"sensitivity band. Warped to EPSG:4326 with **nearest-neighbour** resampling "
-                f"(bilinear on class codes invents codes with no upstream referent); overviews "
-                f"NEAREST. Colours are ColorBrewer YlOrRd for ranks 1–3 with a desaturated "
-                f"purple for the extrapolation flag, chosen here — the source ships no palette. "
-                f"{ghm_note(slug)}")
+                f"occurrence, abundance and high-abundance ensembles at the {pct} percentile "
+                f"threshold — {standing}. The three thresholds convey a gradient from inclusive to "
+                f"targeted; `fifth` is canonical and `first`/`tenth` are its sensitivity band, so "
+                f"report the spread rather than choosing the threshold that suits a conclusion. "
+                f"Warped to EPSG:4326 with **nearest-neighbour** resampling (bilinear on class "
+                f"codes invents codes with no upstream referent); overviews NEAREST. Colours are "
+                f"ColorBrewer YlOrRd for ranks 1–3 with a desaturated purple for the extrapolation "
+                f"flag, chosen here — the source ships no palette. {ghm_note(slug)}")
     else:
-        group = MODEL_GROUP[product]
+        group = group_of(product)
+        masked = is_masked(product)
         band = {
             "name": "suitability", "data_type": "uint8", "nodata": 255,
             "unit": "relative suitability index (0–100)",
             "description": (
                 f"Relative habitat suitability for {group} of {sci} ({common}), 0–100. "
                 f"Source-measured range {m['min']}–{m['max']}; {pct_data:.2f}% of the grid is "
-                f"data ({m['nodata_px']:,} px are NoData 255 — outside CONUS, or suppressed "
-                f"outside the MESS training envelope). **Relative index, not a probability and "
-                f"not an amount.** " + SRC),
+                f"data ({m['nodata_px']:,} px are NoData 255). **Relative index, not a "
+                f"probability and not an amount.** " + SRC),
         }
-        title = f"{common} ({sci}) — {group} suitability, MESS-restricted (COG)"
-        retained = MASKED_RETENTION[f"{slug}|{product[:-len('-masked')]}"]
-        desc = (f"Continuous weighted-ensemble relative suitability for {group} of {sci}, "
-                f"**restricted to the MESS training envelope**: pixels where any predictor falls "
-                f"outside its training range are set to NoData rather than extrapolated. This is "
-                f"the collection's default variant for inventoried-roadless-area work, because "
-                f"roadless country is disproportionately the high-elevation, undersampled "
-                f"terrain where unrestricted extrapolation is least trustworthy. "
-                f"**The restriction is not cosmetic here: it retains {retained}% of the plain "
-                f"product's data pixels for this species × model group** — quantified per "
-                f"species in the collection README, and for the most-affected species the "
-                f"masked/plain choice moves an area total more than the threshold choice does. "
-                f"Warped to EPSG:4326 with bilinear resampling (`-srcnodata 255`, so NoData is "
-                f"excluded from interpolation and cannot bleed into data); overviews AVERAGE. "
-                f"{ghm_note(slug)}")
+        retained = MASKED_RETENTION[f"{slug}|{product[:-len('-masked')] if masked else product}"]
+        if masked:
+            title = f"{common} ({sci}) — {group} suitability, MESS-restricted (COG)"
+            desc = (f"Continuous weighted-ensemble relative suitability for {group} of {sci}, "
+                    f"**restricted to the MESS training envelope**: pixels where any predictor "
+                    f"falls outside its training range are set to NoData rather than "
+                    f"extrapolated. This is the collection's default variant for "
+                    f"inventoried-roadless-area work, because roadless country is "
+                    f"disproportionately the high-elevation, undersampled terrain where "
+                    f"unrestricted extrapolation is least trustworthy. "
+                    f"**The restriction is not cosmetic here: it retains {retained}% of the plain "
+                    f"product's data pixels for this species × model group** — quantified per "
+                    f"species in the collection README, and for the most-affected species the "
+                    f"masked/plain choice moves an area total more than the threshold choice "
+                    f"does. ")
+        else:
+            title = f"{common} ({sci}) — {group} suitability, unrestricted (COG)"
+            desc = (f"Continuous weighted-ensemble relative suitability for {group} of {sci}, "
+                    f"**unrestricted** — suitability is predicted everywhere the model can be "
+                    f"evaluated, including where predictors fall outside the range they were "
+                    f"trained on. **Prefer the `-masked` companion for inventoried-roadless-area "
+                    f"work**, which suppresses exactly that extrapolation; the masked variant "
+                    f"retains {retained}% of this product's data pixels for this species × model "
+                    f"group, and the difference is concentrated in the undersampled "
+                    f"high-elevation terrain roadless areas occupy. Published so the "
+                    f"masked/unmasked spread is auditable rather than assumed. ")
+        desc += (f"Warped to EPSG:4326 with bilinear resampling (`-srcnodata 255`, so NoData is "
+                 f"excluded from interpolation and cannot bleed into data); overviews AVERAGE. "
+                 f"{ghm_note(slug)}")
 
     return key, {
         "href": f"{COLL}/{slug}/{product}.tif",
@@ -365,14 +475,16 @@ def cog_asset(slug, sci, common, product):
 def hex_asset(slug, sci, common, product):
     m = MEASURED[f"{slug}|{product}"]
     key = f"{slug.replace('_', '-')}-{product}-hex"
-    categorical = product.startswith("integrated-binary")
-    value_col = COL_CLASS if categorical else COL_SUITABILITY
+    value_col = COL_CLASS if is_class(product) else COL_SUITABILITY
 
-    if categorical:
-        title = f"{common} ({sci}) — integrated suitability class, fifth percentile (H3 res 10)"
-        desc = (f"H3 resolution-10 hex of the integrated-binary fifth-percentile class map for "
-                f"{sci} ({common}), **reducer `mode`** — each cell takes the dominant class of "
-                f"the source pixels it covers. "
+    if is_class(product):
+        thr = product.rsplit("-", 1)[1]
+        pct, standing = THRESHOLD[thr]
+        title = (f"{common} ({sci}) — integrated suitability class, "
+                 f"{thr} percentile ({pct}) (H3 res 10)")
+        desc = (f"H3 resolution-10 hex of the integrated-binary {thr}-percentile ({pct}) class map "
+                f"for {sci} ({common}) — {standing} — **reducer `mode`**, so each cell takes the "
+                f"dominant class of the source pixels it covers. "
                 f"⚠️ **`mode` keeps only the dominant class and discards the mix, so this asset "
                 f"cannot answer \"how much area is high-abundance-suitable\" without "
                 f"undercounting to plurality cells.** At ~1.55 source pixels per res-10 cell the "
@@ -386,19 +498,27 @@ def hex_asset(slug, sci, common, product):
                 + ", ".join(f"{c}={n:,}" for c, n in sorted(m["class_counts"].items()))
                 + f". {ghm_note(slug)}")
     else:
-        group = MODEL_GROUP[product]
-        retained = MASKED_RETENTION[f"{slug}|{product[:-len('-masked')]}"]
-        title = f"{common} ({sci}) — {group} suitability, MESS-restricted (H3 res 10)"
-        desc = (f"H3 resolution-10 hex of MESS-restricted relative suitability for {group} of "
+        group = group_of(product)
+        masked = is_masked(product)
+        retained = MASKED_RETENTION[f"{slug}|{product[:-len('-masked')] if masked else product}"]
+        variant = "MESS-restricted" if masked else "unrestricted"
+        title = f"{common} ({sci}) — {group} suitability, {variant} (H3 res 10)"
+        desc = (f"H3 resolution-10 hex of {variant} relative suitability for {group} of "
                 f"{sci} ({common}), **reducer `mean`** — the area-weighted mean of the source "
                 f"pixels covering each cell. Suitability is a normalized 0–100 index, so `mean` "
                 f"is the correct reducer and **`SUM(suitability)` is meaningless**: aggregate "
                 f"across cells with AVG (or MAX for a hotspot), never SUM. Cells with no valid "
-                f"source pixel are absent rather than zero, so this layer is sparse where the "
-                f"MESS restriction applies — for this species × model group the restricted "
-                f"product retains {retained}% of the plain product's data pixels, and the "
-                f"missing cells are *unknown*, not *unsuitable*. "
-                f"**Modelled potential habitat, not observed occurrence.** {ghm_note(slug)}")
+                f"source pixel are absent rather than zero, and the missing cells are *unknown*, "
+                f"not *unsuitable*. ")
+        if masked:
+            desc += (f"This layer is sparse where the MESS restriction applies — for this "
+                     f"species × model group the restricted product retains {retained}% of the "
+                     f"plain product's data pixels. ")
+        else:
+            desc += (f"**Prefer the `-masked` companion for inventoried-roadless-area work**: it "
+                     f"suppresses extrapolation beyond the training envelope, and retains "
+                     f"{retained}% of this product's data pixels for this species × model group. ")
+        desc += f"**Modelled potential habitat, not observed occurrence.** {ghm_note(slug)}"
 
     return key, {
         "href": f"{COLL}/{slug}/{product}/hex/h0=*/data_0.parquet",
@@ -411,9 +531,15 @@ def hex_asset(slug, sci, common, product):
 
 
 # ── Assemble ────────────────────────────────────────────────────────────────────────────────
-# READY_LAYERS unset       -> emit every hex asset (use only once the fan-out is 72/72)
-# READY_LAYERS="NONE"      -> emit no hex assets (COG-only interim, fan-out still running)
-# READY_LAYERS="a|b,c|d"   -> emit hex assets for exactly those "<species>|<product>" keys
+# PHASE selects which products have a built COG:
+#   "1"    the four phase-1 products    "2"  the five phase-2 products
+#   "all"  all nine (default)
+# READY_LAYERS selects which of those have a landed hex:
+#   unset  every one           "NONE"  none (COG-only interim)
+#   "a|b,c|d"                  exactly those "<species>|<product>" keys
+_phase = os.environ.get("PHASE", "all").strip().lower()
+PRODUCTS = {"1": PHASE1, "2": PHASE2, "all": ALL_PRODUCTS}[_phase]
+
 _ready_env = os.environ.get("READY_LAYERS", "").strip()
 if not _ready_env:
     READY = None
@@ -450,10 +576,8 @@ DESCRIPTION = (
     "**Products.** Three continuous weighted-ensemble surfaces per species — suitability for "
     "occurrence, for abundance (≥5% cover) and for high abundance (≥25% cover) — each a "
     "relative 0–100 index (`mean` reducer; aggregate with AVG, never SUM), plus a categorical "
-    "`integrated-binary` map that thresholds and combines all three (`mode` reducer). Phase 1, "
-    "published here, is the `-masked` continuous variants and the `fifth` (0.05) threshold; "
-    "phase 2 adds the unmasked continuous surfaces and the `first`/`tenth` thresholds as a "
-    "sensitivity band, additively into this same collection.\n\n"
+    "`integrated-binary` map that thresholds and combines all three (`mode` reducer), at three "
+    "percentile thresholds. Nine products per species, 108 layers.\n\n"
     "**`-masked` is the default for inventoried-roadless-area work.** The `-masked` variants "
     "suppress suitability outside the MESS training envelope (multivariate environmental "
     "similarity surface, Elith et al. 2010 — at least one predictor outside its training "
@@ -555,11 +679,12 @@ coll = {
     "assets": assets,
 }
 
+_n_layers = len(SPECIES) * len(PRODUCTS)
 if READY is not None:
     coll["description"] += (
-        f"\n\n[Interim publish: {n_hex} of {len(SPECIES) * len(PRODUCTS)} phase-1 hex layers are "
-        f"live; the remainder land as the res-10 hex fan-out completes. All "
-        f"{len(SPECIES) * len(PRODUCTS)} COGs are published and grid-verified.]")
+        f"\n\n[Interim publish: {n_hex} of {_n_layers} hex layers are live; the remainder land as "
+        f"the res-10 hex fan-out completes. All {_n_layers} COGs are published and "
+        f"grid-verified.]")
 
 bucket = {
     "stac_version": "1.0.0",

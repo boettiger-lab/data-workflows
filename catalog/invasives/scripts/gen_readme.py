@@ -57,22 +57,19 @@ Four more constraints that change answers, not just wording:
 
 ## Products
 
-Phase 1 (published) is four products per species = 48 layers, each as a COG and an H3 res-10 hex:
+Nine products per species = 108 layers, each as a COG and an H3 res-10 hex:
 
 | Product | Reducer | Warp resampling | Value |
 |---|---|---|---|
-| `occurrence-masked` | `mean` | bilinear | relative suitability 0–100 for occurrence |
-| `abundance-masked` | `mean` | bilinear | relative suitability 0–100 for abundance (≥5% cover) |
-| `high-abundance-masked` | `mean` | bilinear | relative suitability 0–100 for high abundance (≥25% cover) |
-| `integrated-binary-fifth` | `mode` | **nearest** | class code, see below |
+@@PRODUCTS@@
 
 `mean` for the continuous surfaces because relative suitability is a normalized index, not a
 per-pixel amount — **`SUM` is meaningless; aggregate with `AVG` or `MAX`**. `mode` for the class
-raster, and **nearest-neighbour** on the warp: bilinear on class codes invents codes with no
+rasters, and **nearest-neighbour** on their warp: bilinear on class codes invents codes with no
 upstream referent.
 
-Phase 2 adds the unmasked continuous surfaces and the `first` / `tenth` thresholds — additively
-into the same collection, same grid, no rebuild.
+The `-masked` variants are the same three continuous ensembles restricted to the MESS training
+envelope. Use them for roadless work; the retention table below is how much surface that removes.
 
 ### `integrated-binary-*` class codes
 
@@ -273,7 +270,35 @@ def ghm_rows():
         for _s, sci, common, h in sorted(rows))
 
 
+# Reading order, not build order: the three unmasked continuous ensembles, the same three
+# restricted, then the three thresholds inclusive -> targeted. ALL_PRODUCTS is phase-ordered
+# because that is how they were built, which is not how they should be read.
+DISPLAY_ORDER = (g.CONTINUOUS
+                 + [f"{c}-masked" for c in g.CONTINUOUS]
+                 + [f"integrated-binary-{k}" for k in ("first", "fifth", "tenth")])
+assert sorted(DISPLAY_ORDER) == sorted(g.ALL_PRODUCTS), "display order must cover every product"
+
+
+def product_rows():
+    rows = []
+    for p in DISPLAY_ORDER:
+        if g.is_class(p):
+            thr = p.rsplit("-", 1)[1]
+            pct, standing = g.THRESHOLD[thr]
+            note = "canonical" if thr == "fifth" else (
+                "inclusive" if thr == "first" else "targeted")
+            rows.append(f"| `{p}` | `mode` | **nearest** | class code ({pct} threshold, "
+                        f"{note}), see below |")
+        else:
+            grp = g.group_of(p).replace(">=5%", "≥5%").replace(">=25%", "≥25%")
+            variant = "MESS-restricted" if g.is_masked(p) else "unrestricted"
+            rows.append(f"| `{p}` | `mean` | bilinear | relative suitability 0–100 for {grp}, "
+                        f"{variant} |")
+    return "\n".join(rows)
+
+
 md = (TEMPLATE
+      .replace("@@PRODUCTS@@", product_rows())
       .replace("@@SPECIES@@", species_rows())
       .replace("@@CLASSES@@", class_rows())
       .replace("@@RETENTION@@", retention_rows())

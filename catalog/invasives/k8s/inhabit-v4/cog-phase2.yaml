@@ -1,0 +1,167 @@
+# Warp the INHABIT v4 sources from Albers to EPSG:4326 COGs (data-workflows #610).
+#
+# HAND-AUTHORED, NOT GENERATED, and that is the point:
+#   `cng-datasets raster-workflow` hardcodes `--resampling bilinear` into its generated
+#   preprocess-cog step (cng_datasets/k8s/workflows.py:865) and exposes no flag to change it — only
+#   the `raster` subcommand has `--resampling`. Bilinear on class codes invents codes with no
+#   upstream referent. The generator DOES switch overview resampling to `mode` for a categorical
+#   `--hex-resampling` (datasets #108), which makes the step read as class-aware while the main
+#   warp is not. #590 (LANDFIRE) dodged the same trap only by hand-authoring its warp.
+#
+# So the resampling splits by product type, exactly as the reducer does later:
+#   continuous ensembles  -> -r bilinear,  OVERVIEW_RESAMPLING=AVERAGE, nodata 255
+#   integrated-binary-*   -> -r near,      OVERVIEW_RESAMPLING=NEAREST, nodata -128
+#
+# Determinism: all 108 sources share one Albers grid (44319 x 30671, identical bounds), so
+# identical gdalwarp flags produce an identical 4326 grid for every layer without pinning -te/-tr.
+# The job asserts that: every output geotransform is compared against the first one written.
+#
+# PHASE 2 = the remaining 5 products x 12 species = 60 layers: the three UNMASKED continuous
+# ensembles, plus `integrated-binary-{first,tenth}` (the 0.01 / 0.10 sensitivity band around the
+# canonical `fifth`). Additive — same bucket, same collection, same pinned 4326 grid as phase 1,
+# no rebuild of anything already published.
+#
+# Runs CONCURRENTLY with the res-10 hex fan-out and that is safe: different product keys, reads
+# from raw/ and writes to keys phase 1 never touches, and 3 pods x 4cpu/16Gi is noise beside the
+# hex job's 24 x 192Gi. It does NOT take the hex lock.
+#
+# The unmasked continuous products cover MORE of CONUS than their `-masked` counterparts (that is
+# the whole difference), so they are the largest files in the release. Measured: the biggest single
+# in-scope product is 451 MB, so 20Gi ephemeral still holds one source + one output with room.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inhabit-v4-cog-phase2
+  namespace: geo-workflows
+  labels: {k8s-app: inhabit-v4-cog-phase2}
+spec:
+  completions: 12          # one per species, 5 products each
+  parallelism: 3           # inhabit-v4-hex holds 24 x 192Gi for ~18 h; stay small and let the
+                           # hex have the cluster. 60 layers at ~15 s each is minutes, not hours.
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 12
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: inhabit-v4-cog-phase2}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: GDAL_CACHEMAX,       value: '2048'}
+        - {name: SRC,                 value: 'nrp:public-invasives/raw/inhabit-v4-2024'}
+        - {name: DST,                 value: 'nrp:public-invasives/inhabit-v4-2024'}
+        # The 4326 grid every layer must land on. All 108 sources share one Albers grid, so
+        # identical gdalwarp flags give an identical output grid — measured on the first layer
+        # built (bromus_tectorum/occurrence-masked, 2026-08-26) and pinned here so the check is
+        # ACROSS species, not just within a pod. A source that ever fails this has changed shape
+        # upstream and must not be silently hexed onto a different grid.
+        - name: EXPECTED_GRID
+          value: '{"width": 57745, "height": 25711, "transform": [0.001096100359, 0.0, -128.386308874497, 0.0, -0.001096100359, 51.268044444672]}'
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          IDX=${JOB_COMPLETION_INDEX}
+          SPECIES=(bromus_tectorum bromus_rubens bromus_japonicus bromus_arvensis
+                   taeniatherum_caput_medusae ventenata_dubia aegilops_cylindrica
+                   agropyron_cristatum salsola_tragus tamarix_chinensis_ramosissima
+                   elaeagnus_angustifolia cenchrus_ciliaris)
+          SP=${SPECIES[$IDX]}
+          echo "=== COG: ${SP} ==="
+          mkdir -p /tmp/w && cd /tmp/w
+
+          for PRODUCT in occurrence abundance high-abundance \
+                         integrated-binary-first integrated-binary-tenth; do
+            # ⚠️ `rclone lsf` EXITS 0 ON A PATH THAT DOES NOT EXIST (it prints nothing). Testing
+            # the exit code makes every layer look already-built and the job "succeeds" in 42 s
+            # having written nothing — observed on the first run of this job, 2026-08-26. Test the
+            # OUTPUT, never the status. Same shape as the `rclone copyto` note in
+            # catalog/bioclimate/k8s/chelsa/stage-raw.yaml.
+            if [ -n "$(rclone lsf "${DST}/${SP}/${PRODUCT}.tif" 2>/dev/null)" ]; then
+              echo "-> ${PRODUCT}: already built, skip"; continue
+            fi
+            case "$PRODUCT" in
+              integrated-binary-*) R=near;     OVR=NEAREST; ND=-128 ;;
+              *)                   R=bilinear; OVR=AVERAGE; ND=255  ;;
+            esac
+            echo "-> ${PRODUCT}: -r ${R}, overviews ${OVR}, nodata ${ND}"
+            rclone copyto "${SRC}/${SP}/${PRODUCT}.tif" /tmp/w/src.tif \
+              --retries 5 --low-level-retries 20 --retries-sleep 10s
+            gdalwarp -t_srs EPSG:4326 -r "$R" \
+              -srcnodata "$ND" -dstnodata "$ND" \
+              -of COG -co COMPRESS=LZW -co "OVERVIEW_RESAMPLING=${OVR}" \
+              -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+              -multi -wo NUM_THREADS=ALL_CPUS \
+              /tmp/w/src.tif /tmp/w/out.tif
+
+            # ── Acceptance gate: class rasters must gain NO new codes in the warp. This is the
+            # check the hardcoded-bilinear trap would fail, so it runs on the COG, before hexing,
+            # where a failure is cheap to fix.
+            if [ "$ND" = "-128" ]; then
+              python3 - <<'PY'
+          import sys
+          import numpy as np, rasterio
+          SRC_SET = {-1, 0, 1, 2, 3}          # value-census: identical across all 36 class rasters
+                                    # (12 species x first/fifth/tenth), no species differs
+          r = rasterio.open('/tmp/w/out.tif')
+          seen = set()
+          for _, win in r.block_windows(1):
+              seen.update(np.unique(r.read(1, window=win)).tolist())
+          data = {int(v) for v in seen} - {int(r.nodata)}
+          extra = data - SRC_SET
+          print(f"   class set after warp: {sorted(data)}")
+          if extra:
+              print(f"   ✗ WARP INVENTED CLASSES {sorted(extra)} — nearest-neighbour did not hold", file=sys.stderr)
+              sys.exit(1)
+          print("   ✓ class set is a subset of the source set")
+          PY
+            fi
+
+            # ── Grid determinism: every layer must land on the same 4326 grid so the hexes
+            # align and the species are comparable pixel-for-pixel.
+            python3 - "$SP" "$PRODUCT" <<'PY'
+          import json, os, sys
+          import rasterio
+          r = rasterio.open('/tmp/w/out.tif')
+          grid = {"width": r.width, "height": r.height,
+                  "transform": [round(v, 12) for v in r.transform[:6]]}
+          expected = json.loads(os.environ["EXPECTED_GRID"])
+          if grid != expected:
+              print(f"   \u2717 GRID MISMATCH for {sys.argv[1]}/{sys.argv[2]}", file=sys.stderr)
+              print(f"     got      {grid}", file=sys.stderr)
+              print(f"     expected {expected}", file=sys.stderr)
+              sys.exit(1)
+          print(f"   \u2713 grid matches: {r.width}x{r.height} @ {r.transform[0]:.12f} deg")
+          PY
+
+            rclone copyto /tmp/w/out.tif "${DST}/${SP}/${PRODUCT}.tif" \
+              -P --retries 5 --low-level-retries 20 --retries-sleep 10s
+            rm -f /tmp/w/src.tif /tmp/w/out.tif
+          done
+          echo "COGs for ${SP} complete"
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

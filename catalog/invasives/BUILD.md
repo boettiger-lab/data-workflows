@@ -536,6 +536,72 @@ Carry `sci:doi` = `10.5066/P14HNEJF` (data release) and the *NeoBiota* method DO
 user's instruction on 2026-08-26; both had cleared by 2026-08-27, which is when the hex was
 applied. Steps 1–4 are staging/COG/metadata only and never took the hex lock.
 
+## The `mode` reducer writes DOUBLE, not an integer — measured before it mattered
+
+`cng-datasets raster --hex-resampling mode` emits its value column as **DOUBLE**, so the class
+codes read back as `-1.0 .. 3.0`. The STAC initially declared `suitability_class` as `int64`.
+
+This would only have surfaced at the end of the ~18 h hex fan-out, because the class raster is each
+pod's *fourth* product. A res-5 probe job against an already-published `integrated-binary-fifth`
+COG answered it in **50 seconds** instead:
+
+    cng-datasets raster --input s3://…/bromus_tectorum/integrated-binary-fifth.tif \
+      --output-parquet s3://public-invasives/_probe/mode-dtype/hex/ --h0-index 12 \
+      --resolution 5 --parent-resolutions 0 --value-column suitability_class \
+      --hex-resampling mode --nodata -128
+
+    column_name        column_type
+    suitability_class  DOUBLE          <- not int64
+    h5                 UBIGINT
+    h0                 BIGINT
+
+Resolution 5 was deliberate: the question is the column *type*, which does not depend on
+resolution, so the probe should be as cheap as possible. Output purged after reading.
+
+**Resolution: declare `double` and say so in the column description.** Two independent
+confirmations that this is right rather than a defect to fix:
+
+- **Catalog precedent.** `ca-climate-zones-hex` (also a `mode` reduce) declares its `zone` column
+  `float64` with an *integer* `values` array. Same shape.
+- **`verify-stac.py` already anticipates it.** Its `values`-vs-`DISTINCT` gate carries the comment
+  *"the cng-datasets raster `mode` reducer emits the value column as DOUBLE, so code 11 reads back
+  as 11.0"* and normalises the trailing `.0` before comparing. So integer `values` are correct and
+  the declared type is documentary.
+
+The column description now states the codes are integers stored as double, so a consumer writes
+`= 3` / `>= 1` and casts for an exact integer join rather than being surprised.
+
+## First hex partition validated at 68 min, not at hour 18
+
+`bromus_japonicus/occurrence-masked` h0-index 12 landed first (43 MB — h0=12 is the far-northern
+border strip, against 1.9 GB for h0=20). Checked immediately rather than trusting the fan-out:
+
+| check | result |
+|---|---|
+| rows / `COUNT(DISTINCT h10)` | 4 616 113 / 4 616 113 — **one row per cell**, no duplicates |
+| `suitability` range | 0 – 90, none outside 0–100 |
+| NULLs in `suitability`, `h9`, `h8` | 0 |
+| distinct `h0` in the partition | 1 |
+| declared vs actual types | `suitability` DOUBLE, `h10`/`h9`/`h8` UBIGINT, `h0` BIGINT — all match STAC |
+
+**`min` is 0, so the `mean` reducer emits zero-suitability cells rather than dropping them.** Worth
+recording because the one pre-existing partition (`bromus_tectorum` h0=20) has `min` 1, which looks
+like zeros being filtered until you check a second partition. They are not; that partition simply
+has no all-zero cell.
+
+## Phase-2 COGs — the other 60 layers
+
+`k8s/inhabit-v4/cog-phase2.yaml`, applied 2026-08-27, **concurrent with the hex fan-out**. Safe:
+different product keys, reads `raw/` and writes keys phase 1 never touches, and 3 pods x 4cpu/16Gi
+is noise beside the hex job's 24 x 192Gi. It does not take the hex lock.
+
+Generated from `cog.yaml` so the two are structurally identical — the only non-comment differences
+are the job name, the labels, and the product list (`occurrence`, `abundance`, `high-abundance`,
+`integrated-binary-first`, `integrated-binary-tenth`). Both the grid assertion and the class-set
+gate carry over unchanged; the value census confirms the class set is `{-1,0,1,2,3}` for all 36
+class rasters (12 species x first/fifth/tenth), so `first` and `tenth` gate against the same
+constant `fifth` did.
+
 ## STAC
 
 `scripts/gen_stac.py` writes both documents to /tmp; nothing STAC-shaped is committed to this repo
@@ -548,15 +614,22 @@ applied. Steps 1–4 are staging/COG/metadata only and never took the hex lock.
     scripts/verify-stac.py --bucket public-invasives --dataset inhabit-v4-2024
 
 Shape: a bucket-level meta-collection `public-invasives` (one `child`) over the leaf collection
-`inhabit-v4-2024`, which carries **96 assets** — one COG and one hex per (species × product), keyed
-`<species>-<product>-{cog,hex}`. Two levels rather than one because `public-invasives` is a domain
+`inhabit-v4-2024`, which carries one COG and one hex asset per (species × product), keyed
+`<species>-<product>-{cog,hex}` — **216 assets at full extent** (12 species x 9 products x 2), or
+96 for phase 1 alone. `MEASURED` covers all 108 layers, so no re-measurement is needed for phase 2. Two levels rather than one because `public-invasives` is a domain
 bucket that will plausibly hold INHABIT Global V1 and the other 247 v4 species later; collapsing
 the collection onto the bucket root would have to be undone then.
 
-**`READY_LAYERS` gates an interim publish.** `NONE` emits no hex assets; a comma-separated list of
-`<species>|<product>` keys emits exactly those; unset emits all 48 (use only once the fan-out is
-72/72 and the h0 coverage gate has passed). The 48 COG assets always emit, since they are built and
-grid-verified. This is how the collection gets published truthfully while the fan-out is still
+**Two env gates gate a truthful interim publish**, so the collection never advertises an asset
+that 404s:
+
+- `PHASE` — which products have a built COG. `1` the four phase-1 products, `2` the five phase-2
+  products, `all` (default) all nine.
+- `READY_LAYERS` — which of those have a landed hex. `NONE` for none, a comma-separated list of
+  `<species>|<product>` keys for some, unset for all (use only once the fan-out is 72/72 and the
+  h0 coverage gate has passed).
+
+COG assets always emit for the selected phase, since they are built and grid-verified. This is how the collection gets published truthfully while the fan-out is still
 running, instead of advertising 48 hex assets that partly 404. The description gains a bracketed
 interim note automatically.
 
