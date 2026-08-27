@@ -114,14 +114,84 @@ Two consequences:
 2. **NoData differs by product class** — 255 for the continuous ensembles, −128 for the class
    rasters. A single batch-wide `--nodata` would corrupt one or the other. Pass it per product.
 
-### ⚠️ `-1` is a VALID class, not fill
+### `-1` is a VALID class — RESOLVED 2026-08-27: it is the MESS extrapolation flag
 
 The FGDC domain for `integrated-binary-*` is `rdommin` **−1** to `rdommax` 3, and −1 occupies
 **25.2%** of the *Cenchrus ciliaris* `integrated-binary-fifth` raster — 342 322 727 px, third
-largest bin after NoData and class 0. A sign test ("negatives are fill") would delete it. The
-FGDC gives no `edomvd` label for the codes, so the semantics of −1 must be read out of Jarnevich et
-al. 2024 before the collection description names the classes. **Open item — do not describe the
-class set until this is resolved.**
+largest bin after NoData and class 0. It reaches **48.5%** on *Bromus rubens*. A sign test
+("negatives are fill") would delete up to half a raster. The FGDC gives **no `edomvd` label** for
+any of the five codes, which is why this was carried as an open item rather than guessed.
+
+**Resolved from the release's own documentation, then independently confirmed against the data.**
+
+Two documentary statements, neither in the child-item FGDC:
+
+1. `INHABIT_VersionHistory.txt` (parent item `663926f0d34e2537768ce951`), listing the v4 changes:
+   *"addition of categorical map combining **unsuitable, occurrence suitable, abundance suitable,
+   and high abundance suitable**"* → four named categories for codes 0, 1, 2, 3.
+2. Jarnevich et al. 2024, Methods → *Spatial outputs*: *"Finally, we combined the binary maps to
+   display information across all three model groups (occurrence, abundance, high abundance) for
+   each of the three thresholds, **while highlighting any areas of environmental
+   extrapolation**."* → the fifth code is that highlight.
+
+The extrapolation surface is named in the same section: a **MESS** (multivariate environmental
+similarity surface, Elith et al. 2010) whose negative values mark *novel environmental
+conditions* — at least one predictor outside the range of the model training data. That is also
+exactly what the `-masked` continuous variants suppress (*"only display areas where environmental
+characteristics are inside the range of the values used to develop the model"*, FGDC `supplinf`).
+
+**Data-backed confirmation.** If −1 is the MESS flag, its pixel count must match the area the
+`-masked` occurrence product suppresses. Measured from the value census:
+
+| species | −1 px in `integrated-binary-fifth` | px suppressed by `occurrence-masked` | agreement |
+|---|---:|---:|---:|
+| *Bromus rubens* | 381 452 798 | 381 839 137 | **0.10%** |
+| *Cenchrus ciliaris* | 342 322 727 | 341 949 521 | **0.11%** |
+| *Taeniatherum caput-medusae* | 275 370 039 | 276 316 597 | 0.34% |
+| *Ventenata dubia* | 170 230 431 | 170 942 048 | 0.42% |
+| *Bromus tectorum* | 38 329 816 | 38 352 579 | **0.06%** |
+
+Agreement to 0.06–0.42% on the five species where −1 is largest. The residual is expected and not
+a discrepancy: the MESS mask is computed per predictor set, and the integrated map highlights
+extrapolation across all three model groups while `occurrence-masked` is masked on the occurrence
+predictors alone, so the two areas are near-identical rather than identical.
+
+**Consequences for STAC and for use.**
+
+- Codes are `-1` novel environmental conditions · `0` unsuitable · `1` occurrence suitable ·
+  `2` abundance suitable · `3` high abundance suitable. NoData is `-128`.
+- **`-1` must be excluded from suitability accounting explicitly** — a `>= 0` predicate. Folding
+  it into class 0 would count "we don't know" as "unsuitable", which for red brome is half the map.
+- **The `integrated-binary-*` products already carry the restriction information**, as class −1
+  rather than as NoData. So the "use `-masked` inside an IRA" rule maps onto the class raster as
+  "filter `-1`", not "fetch a different file". There is no `integrated-binary-*-masked` variant
+  and none is needed.
+
+### ⚠️ The ranks are EXCLUSIVE in the raster and NESTED in the source's tabulations
+
+Found while resolving the class set, and it is the kind of thing that silently halves an answer.
+Jarnevich et al. 2024, on the management-area summaries: *"Values were nested such that summaries
+of occurrence models included locations defined as suitable by any of the three model groups."*
+
+In the **raster**, a pixel suitable for high abundance is coded `3` **only** — it does not also
+appear as `1`. In the paper's **tables**, "occurrence suitable" area includes everything suitable
+at any level. So:
+
+    occurrence-suitable   = suitability_class >= 1     (classes 1 + 2 + 3)
+    abundance-suitable    = suitability_class >= 2
+    high-abundance        = suitability_class  = 3
+
+`COUNT(*) WHERE suitability_class = 1` is **not** occurrence-suitable ground — it undercounts by
+every cell that also clears a higher threshold. For cheatgrass that is 90 394 262 px counted
+against 301 109 637 actually occurrence-suitable: a **3.3× undercount**. This must be in the STAC
+column description, not only here.
+
+### The 0–100 scale is the design, confirmed by the paper
+
+The census measured continuous maxima of 95–100 across species against an FGDC `rdommax` of 98
+(see below), and the paper settles which is right: *"we rescaled the mapped values for each model
+between **0 and 100** to make the maps more comparable."* So `rdommax` 98 is a per-file artifact
+and the family scale is 0–100. STAC carries the measured per-layer range.
 
 ### ⚠️ Run a full value histogram before trusting the declared NoData
 
@@ -302,13 +372,83 @@ as `global-human-modification`) is a predictor in all 12 models.**
 
 Method: mean `AUCdiff` per predictor from `variableImportance.csv`, pooled over the five algorithms
 and all four model types (`occurrence_KDE`, `occurrence_target`, `abundance`, `high_abundance`),
-normalised to the per-species total. **A per-model-type breakdown (occurrence-only) is still owed**
-before the road gradient is reported — the gradient leans on the occurrence models specifically.
+normalised to the per-species total.
 
-Consequence for #588's distance-to-road gradient: **cheatgrass is the cleanest of the 12 (1.2%) and
-the gradient is defensible there; tamarisk is the second-most gHM-dependent (16.4%) and its
-gradient is substantially the model reproducing its own predictor.** Report tamarisk, Russian
-olive, jointed goatgrass and buffelgrass as suitability-only, with the circularity stated.
+### Per-model-group breakdown — DONE 2026-08-27, and pooling was flattering the numbers
+
+The owed breakdown is complete. **12.6–22.9% of `AUCdiff` rows are negative** (removing the
+predictor *improves* AUC), which makes a raw share-of-total ill-conditioned, so the figures below
+clip negative means to zero and take a share of the positive total. That changes the numbers by
+≤0.1pp against the raw share — the metric is robust — and rank is unaffected either way.
+
+**The occurrence models are where gHM concentrates, and the occurrence models are what the road
+gradient leans on.** gHM's share RISES when the pooled average is dropped, for 10 of 12 species:
+
+| species | pooled (4 groups) | **occurrence only** | occurrence backgrounds |
+|---|---:|---:|---|
+| *Aegilops cylindrica* (jointed goatgrass) | 22.0% (r1/25) | **25.0% (r1/24)** | KDE, target |
+| *Cenchrus ciliaris* (buffelgrass) | 13.9% (r3/24) | **22.4% (r1/23)** | KDE, target |
+| *Elaeagnus angustifolia* (Russian olive) | 11.3% (r3/28) | **17.6% (r3/27)** | KDE, target |
+| *Tamarix chinensis_ramosissima* (tamarisk) | 16.4% (r2/26) | **17.1% (r3/25)** | KDE, target |
+| *Salsola tragus* (Russian thistle) | 6.1% (r3/25) | **12.9% (r2/22)** | KDE, target |
+| *Bromus arvensis* (field brome) | 5.0% (r7/29) | 8.0% (r4/27) | KDE, target |
+| *Agropyron cristatum* (crested wheatgrass) | 5.0% (r7/28) | 7.2% (r3/26) | KDE, target |
+| *Bromus japonicus* (Japanese brome) | 3.5% (r8/26) | 6.3% (r6/26) | KDE, target |
+| *Ventenata dubia* (ventenata) | 5.7% (r6/26) | 6.0% (r7/26) | KDE, target |
+| *Bromus rubens* (red brome) | 2.2% (r8/24) | 4.0% (r8/22) | KDE, target |
+| *Taeniatherum caput-medusae* (medusahead) | 3.4% (r7/26) | 3.1% (**r10/26**) | KDE, target |
+| *Bromus tectorum* (cheatgrass) | 1.2% (r12/25) | **2.0% (r6/23)** | **target only** |
+
+Split further, by the two occurrence background designs and the two abundance groups — this is
+where the mechanism shows:
+
+| species | `occurrence_KDE` | `occurrence_target` | `abundance` | `high_abundance` |
+|---|---:|---:|---:|---:|
+| *A. cylindrica* | 27.0% (r1) | 24.0% (r1) | 25.2% (r1) | 23.1% (r1) |
+| *C. ciliaris* | **38.4% (r1)** | 2.4% (r8) | 1.3% (r10) | 2.1% (r8) |
+| *E. angustifolia* | **36.6% (r1)** | 2.4% (r4) | 6.0% (r4) | 2.7% (r6) |
+| *S. tragus* | **23.9% (r1)** | 1.3% (r10) | 2.9% (r7) | 0.7% (r13) |
+| *B. japonicus* | 12.2% (r2) | 0.9% (r14) | −0.1% (r23) | 1.0% (r11) |
+| *Tamarix* | 5.4% (r7) | **46.7% (r1)** | 21.3% (r2) | 18.2% (r2) |
+| *B. tectorum* | *(no model)* | 2.0% (r6) | 0.9% (r13) | 0.9% (r15) |
+| *T. caput-medusae* | 2.2% (r9) | 4.6% (r7) | 3.8% (r7) | 3.9% (r7) |
+| *B. rubens* | 6.6% (r6) | 2.3% (r7) | 1.6% (r8) | −0.8% (r23) |
+| *A. cristatum* | 6.8% (r6) | 9.2% (r3) | 3.7% (r7) | 2.4% (r11) |
+| *B. arvensis* | 8.1% (r3) | 9.2% (r5) | 0.4% (r16) | 3.2% (r11) |
+| *V. dubia* | 8.2% (r6) | 4.7% (r6) | 8.6% (r4) | 7.5% (r5) |
+
+Three findings that change the recommendation:
+
+1. **Cheatgrass has NO `occurrence_KDE` model at all** — it carries only `occurrence_target`, the
+   design the paper introduces *specifically* to mitigate sampling bias ("we randomly selected up
+   to 10 000 locations of non-native vascular plant observations … restricted to the same 99%
+   binary KDE"). So the species the fire argument rests on is not merely the lowest-gHM of the 12,
+   its only occurrence model is the bias-mitigated one. That is a stronger clean bill than the
+   pooled 1.2% suggested, and it is the opposite of what its *rank* movement (12/25 → 6/23) looks
+   like in isolation.
+2. **The target-background design demonstrably works — for most species.** For buffelgrass,
+   Russian olive and Russian thistle, gHM is rank 1 at 24–38% under the KDE background and falls
+   to 1–2% under the target background. That is the bias mitigation doing its job, visible in the
+   data.
+3. **It does not work for tamarisk, and tamarisk is one of the two species the issue names for the
+   gradient.** Tamarisk is the one species where gHM is *higher* under the target background
+   (46.7%, rank 1/25) than under KDE (5.4%, rank 7) — and it stays rank 2 at 18–21% in both
+   abundance groups. A tamarisk distance-to-road gradient is substantially the model reproducing
+   its own predictor. Jointed goatgrass is worse in a different way: gHM is rank 1 in **all four**
+   model groups, so no variant of it is clean.
+
+**Recommendation for #588's gradient**, superseding the issue's "cheatgrass and tamarisk at
+minimum":
+
+| verdict | species | occurrence-only gHM |
+|---|---|---|
+| **defensible** | cheatgrass, medusahead, red brome | 2.0%, 3.1%, 4.0% |
+| caution — report with the caveat | ventenata, Japanese brome, crested wheatgrass, field brome | 6.0–8.0% |
+| **circular — suitability-only, do not report as road evidence** | Russian thistle, tamarisk, Russian olive, buffelgrass, jointed goatgrass | 12.9–25.0% |
+
+**Drop tamarisk from the gradient and substitute medusahead** (3.1%, rank 10/26 — the best *rank*
+of the 12). Cheatgrass + medusahead gives one annual grass and one annual grass with independent
+predictor sets, both clean. Report the five circular species as suitability-only.
 
 This does **not** invalidate the suitability surfaces — gHM is a legitimate predictor of invasion.
 It invalidates the specific inference "suitability rises near roads, therefore roads drive
@@ -371,11 +511,72 @@ Carry `sci:doi` = `10.5066/P14HNEJF` (data release) and the *NeoBiota* method DO
    (5 were built before the pinned check existed): **one distinct grid, 48/48**, with correct dtype
    (uint8 / int8), nodata (255 / −128) and overviews present on every layer.
 5. Hex res 10 / parents 9,8,0, reducer per product class, **6** CONUS h0 indices.
-   `k8s/inhabit-v4/hex.yaml` is written and validated but **NOT APPLIED** — 72 completions
-   (12 species x 6 h0), each pod hexing that species' 4 phase-1 products for one h0 so the COG
-   localize amortizes 4x. Fires when the hex lock frees.
-6. STAC collection `inhabit-v4-2024`, one item per (species × product); `scripts/verify-stac.py`.
+   `k8s/inhabit-v4/hex.yaml` — 72 completions (12 species x 6 h0), each pod hexing that species'
+   4 phase-1 products for one h0 so the COG localize amortizes 4x. **APPLIED 2026-08-27**, once
+   the hex lock freed (`ira-road-proximity` 60/60 Complete, `landfire-2024-cog` 4/4 Complete, no
+   Running or Pending pods in the namespace — confirmed with a listing that printed a header row,
+   per the manifest's own warning).
 
-**Hex queue: #610 yields to #588 (`ira-road-proximity`) and #590 (`landfire-2024-hex`)** by the
-user's instruction on 2026-08-26. Steps 1–4 are staging/COG/metadata only and do not take the hex
-lock.
+   **Parallelism raised 12 → 24 after all 12 scheduled instantly.** 24 x 192Gi = 4.5 TiB against
+   367 cluster nodes with ≥200Gi allocatable and 304 TiB total, i.e. ~1.5% of cluster memory and
+   well under the 200-pod norm — the manifest's `parallelism: 12` was sized for a cluster that
+   #588/#590 were still occupying. Halves the wall time to 3 waves.
+
+   **Cost, measured rather than estimated.** The one pre-existing partition set
+   (`bromus_tectorum` h0-index 20, written 2026-08-26 before the run was interrupted) gives the
+   real per-product figures: **~1h27m per (species × product × h0)** and **215 525 636 rows /
+   1.9 GB** for a single continuous product in one h0. So ~6 h per pod, ~12–18 h for the fan-out,
+   and roughly 230 GB across the 48 phase-1 layers. That interrupted run had written 3 of its 4
+   products; the re-run overwrites the same partitions, so it is idempotent, not additive.
+6. STAC. `scripts/gen_stac.py` emits both files; `scripts/verify-stac.py --no-data` passes on both
+   (0 findings). **Not yet published** — the data checks need the hex live, so publish and re-run
+   the full gate after step 5 clears its coverage check.
+
+**Hex queue: #610 yielded to #588 (`ira-road-proximity`) and #590 (`landfire-2024-hex`)** by the
+user's instruction on 2026-08-26; both had cleared by 2026-08-27, which is when the hex was
+applied. Steps 1–4 are staging/COG/metadata only and never took the hex lock.
+
+## STAC
+
+`scripts/gen_stac.py` writes both documents to /tmp; nothing STAC-shaped is committed to this repo
+(AGENTS.md Hard Boundary 1). Publish with:
+
+    python3 catalog/invasives/scripts/gen_stac.py
+    rclone copyto /tmp/invasives-bucket-stac.json nrp:public-invasives/stac-collection.json
+    rclone copyto /tmp/inhabit-v4-2024-stac.json  nrp:public-invasives/inhabit-v4-2024/stac-collection.json
+    rclone copyto /tmp/invasives-README.md        nrp:public-invasives/README.md
+    scripts/verify-stac.py --bucket public-invasives --dataset inhabit-v4-2024
+
+Shape: a bucket-level meta-collection `public-invasives` (one `child`) over the leaf collection
+`inhabit-v4-2024`, which carries **96 assets** — one COG and one hex per (species × product), keyed
+`<species>-<product>-{cog,hex}`. Two levels rather than one because `public-invasives` is a domain
+bucket that will plausibly hold INHABIT Global V1 and the other 247 v4 species later; collapsing
+the collection onto the bucket root would have to be undone then.
+
+**`READY_LAYERS` gates an interim publish.** Set it to a comma-separated list of
+`<species>|<product>` keys whose hex has actually landed and only those hex assets are emitted;
+the 48 COG assets always are, since they are built and grid-verified. This is how the collection
+gets published truthfully while the fan-out is still running, instead of advertising 48 hex assets
+that partly 404. The description gains a bracketed interim note automatically.
+
+**One canonical text per column name, deliberately.** `suitability` appears on 36 hex assets and
+`suitability_class` on 12, and mcp-data-server#303 folds per-column descriptions to the first-seen
+text per column name across a collection — so a per-species or per-product wording would be
+silently dropped for 35 of 36 assets, and `verify-stac.py` HARD-fails the divergence. Everything
+species-specific or product-specific therefore lives in the per-asset `description`, which is
+always rendered: the model group, the measured masked-retention percentage, the class pixel counts
+and that species' gHM road-bias verdict.
+
+### What each asset carries that a reader could not otherwise get
+
+- Measured per-layer value range and data-pixel fraction, from the census — not the FGDC `rdommax`,
+  which is a per-file figure (98) and understates the family scale (0–100).
+- The five class labels with `classification:classes` and `color_hint` (ColorBrewer YlOrRd for
+  ranks 1–3, near-white for unsuitable, desaturated purple for the extrapolation flag so it can
+  never read as "more suitable"). The source ships no palette; the choice is stated in the asset
+  description as AGENTS.md requires.
+- The exclusive-vs-nested rank warning, so `suitability_class = 1` is not mistaken for all
+  occurrence-suitable ground.
+- The `mode`-discards-the-mix caveat on every `integrated-binary-*` hex asset.
+- That species' gHM figure and the resulting road-gradient verdict, so the circularity travels with
+  the data rather than living only in this file.
