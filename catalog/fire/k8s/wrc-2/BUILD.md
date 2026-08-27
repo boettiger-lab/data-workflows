@@ -526,5 +526,112 @@ improvement from 83% at p40 to 96% at p95.
 **This is recorded as explained, not as exact agreement.** The two breaks the web application
 actually classes on, the 90th and 95th, agree to 95–96%.
 
-_Alaska row counts, its populated h0 set, measured footprints and the STAC publication are recorded
-here as each lands._
+### RPS Alaska hex (2026-08-27) — 122/122, 120,349,584 rows, and a footprint surprise
+
+Job `Complete`, `succeeded=122`, `failedIndexes` empty, no OOM at 192Gi.
+
+| h0 index | h0 cell | cells | bytes |
+|---:|---|---:|---:|
+| 105 | `576707042908045311` (dateline) | 107,792,789 | 898,406,383 |
+| 12 | `576812596024311807` | 8,302,827 | 49,238,200 |
+| 104 | `577094071001022463` | 2,396,432 | 11,369,264 |
+| 59 | `576988517884755967` | 1,855,579 | 10,549,022 |
+| 98 | `576882964768489471` | **1,957** | **5,583** |
+| | **total** | **120,349,584** | |
+
+#### ⛔ Alaska populates FIVE h0, not the three this file predicted
+
+The expected set recorded above was borrowed from `whp-2023-classified-ak`, which populates three
+h0 over the same clip box. **RPS Alaska populates five.** `577094071001022463` (2,396,432 cells)
+and `576882964768489471` (1,957 cells) are real data that the borrowed footprint does not contain.
+
+Two products over one clip box are **not** co-extensive, and one's populated set is not a safe gate
+for another's. Had Alaska been trimmed to the borrowed three-cell list — which is exactly what an
+efficiency argument would have recommended, and which this file's own "harvest the map, then trim"
+plan invited — **4.25 M cells across two partitions would have been silently dropped**, and the
+coverage gate would have passed, because it only checks that expected partitions are PRESENT, never
+that unexpected ones are absent.
+
+The 1,957-cell partition is the pointed case: at 5,583 bytes it clears
+`check-hex-coverage.sh`'s 4,096-byte `--min-bytes` threshold by 36%. A slightly smaller sliver
+would be classified as empty by the very gate meant to catch this.
+
+So the 122-completion fan-out was not overhead here; it is what found the footprint. **The measured
+Alaska trim set for #627 is `{12, 59, 98, 104, 105}`**, and it is safe only because every member was
+observed writing, not inferred.
+
+Indexes that ran and produced nothing: 50, 121, and the rest of the 122. Their envelopes intersect
+the Alaska clip box, so they are not pruned and each enumerates all 282,475,249 res-10 children
+before finding no data — the cost `mtbs-severity-conus-hex.yaml:20-24` warns about, ~5 h at 192Gi
+apiece.
+
+#### Verification — all checks pass
+
+```
+scripts/check-hex-coverage.sh nrp:public-fire/wrc-2-rps-ak/hex/ \
+  --expect-h0 576707042908045311,576812596024311807,576882964768489471,576988517884755967,577094071001022463
+  -> PASS, exit 0, 5/5 populated       # NOTE: the MEASURED set, not the borrowed one
+```
+
+| check | CONUS | Alaska |
+|---|---|---|
+| `rows == COUNT(DISTINCT h10)` | 520,962,613 ✅ | 120,349,584 ✅ |
+| duplicate rows | 0 | 0 |
+| NULL `h9`/`h8`/`h0`/`rps` | 0 | 0 |
+| `-9999` leak | **0** | **0** |
+| hex max ≤ COG exact max | 13.056 ≤ 13.194 ✅ | 3.676 ≤ 4.163 ✅ |
+| hex mean vs COG exact mean | 0.13975 vs 0.14020 (0.3%) | 0.11251 vs 0.11694 (3.8%) |
+| exact-zero cells | 11.02% | 18.2% |
+
+Measured footprints (from `h3_cell_to_lng`/`lat` over every populated cell, never the warp clip box
+— that error was 2.4° out on #586):
+
+| | bbox |
+|---|---|
+| CONUS | `[-124.8616429, 24.39506098, -66.88468074, 49.38491788]` |
+| Alaska | `[-179.2283357, 51.15942105, -129.9739204, 71.43962069]` |
+
+**The antimeridian is handled.** Alaska data reaches −179.23, within 0.77° of the dateline on the
+east side, with no westward seam inflation into the +180 hemisphere — the failure mode that would
+have produced a ~360°-wide raster. North edge 71.44°N is Point Barrow; south 51.16°N the Aleutians.
+
+#### Percentile agreement, both domains
+
+Compared like with like — source column against cells with `rps > 0`, per the zero-population
+finding above.
+
+| percentile | CONUS source | CONUS hex>0 | agree | AK source | AK hex>0 | agree |
+|---:|---:|---:|---:|---:|---:|---:|
+| 40 | 0.018848 | 0.015681 | 83% | 0.009035 | 0.008155 | 90% |
+| 70 | 0.094043 | 0.085857 | 91% | 0.076778 | 0.074012 | 96% |
+| 90 | 0.408197 | 0.387262 | 95% | 0.442008 | 0.437378 | **99%** |
+| 95 | 0.722298 | 0.692488 | 96% | 0.790832 | 0.769136 | 97% |
+
+Alaska agrees more closely than CONUS despite having a **higher** zero fraction (18.2% vs 11.02%).
+Two domains with different zero fractions converging on the same 83–99% band, after the same
+correction, is what a population mismatch predicts and what a processing error does not. Treat this
+as the strongest evidence the reduce is faithful.
+
+Also worth stating for the write-up: Alaska's 90th and 95th percentiles are **higher** than CONUS's
+(0.442 vs 0.408, 0.791 vs 0.722) while its maximum is a third of CONUS's. The Alaska distribution is
+tighter and higher in the middle. RPS is on a single national scale, so that comparison is
+meaningful — unlike WHP, whose classified breaks are domain-relative.
+
+### STAC published (2026-08-27)
+
+```
+python3 gen_stac.py wrc-2-rps-conus wrc-2-rps-ak   # facts.json committed alongside
+python3 gen_stac.py --bucket-patch                 # 15 -> 17 child links, 15 assets preserved
+scripts/verify-stac.py --no-data <each>            # PASS pre-publish
+scripts/verify-stac.py --bucket public-fire                        # PASS, 0 hard, 18 advisory
+scripts/verify-stac.py --bucket public-fire --dataset wrc-2-rps-*  # PASS, 0 findings each
+```
+
+All 18 advisories are pre-existing on the CAL FIRE and USGS perimeter assets; none is on a `wrc-2`
+collection. The bucket collection was backed up to `/tmp/public-fire-stac-collection.backup.json`
+before patching.
+
+⚠️ **`raster:bands` statistics carry the EXACT COG values, not the build gate's approximate ones**
+(13.194 for CONUS, not 9.466). See the COG section above for why that distinction matters.
+
+Temporal extent is **2014**, the LANDFIRE landscape date, not the 2024 publication date.
