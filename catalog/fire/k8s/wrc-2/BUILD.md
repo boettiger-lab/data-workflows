@@ -436,5 +436,95 @@ Worth noting for the write-up: Alaska's 90th and 95th percentiles are **higher**
 even though its maximum is a third of CONUS's. The Alaska distribution is tighter and higher in
 the middle. Since RPS is on a single national scale, that comparison is meaningful.
 
-_Row counts, populated h0 sets, measured footprints, value ranges, percentile agreement and the
-headline IRA statistics are recorded here as each stage lands._
+### RPS CONUS hex (2026-08-27) — 6/6, 5h14m, 520,962,613 rows
+
+Ran as six pods in one wave over the measured h0 index map, not the generator's 122. No OOM, no
+failed index, no retry.
+
+| h0 index | h0 cell | RPS cells | `nlcd` res-10 | delta |
+|---:|---|---:|---:|---:|
+| 20 | `577164439745200127` | 226,732,521 | 226,732,560 | −39 |
+| 50 | `577199624117288959` | 107,016,291 | 107,004,747 | +11,544 |
+| 14 | `577692205326532607` | 69,412,850 | 69,405,063 | +7,787 |
+| 78 | `577234808489377791` | 65,273,799 | 65,260,607 | +13,192 |
+| 71 | `577762574070710271` | 47,816,987 | 47,819,630 | −2,643 |
+| 12 | `576812596024311807` | 4,710,165 | 4,710,166 | −1 |
+| | **total** | **520,962,613** | 520,932,773 | +0.006% |
+
+#### ⚠️ Runtime at res 10 is dominated by the ENUMERATION, not the slice size
+
+This is the single most useful operational fact from the build, and it contradicts the intuition
+that a big h0 costs proportionally more.
+
+| h0 index | cells | node | minutes |
+|---:|---:|---|---:|
+| 12 | 4.7 M | SDSU | 75 |
+| 78 | 65.3 M | MGHPCC | 208 |
+| 71 | 47.8 M | Fullerton | 299 |
+| 14 | 69.4 M | Fullerton | 304 |
+| 50 | 107.0 M | Fullerton | 310 |
+| 20 | **226.7 M** | Fullerton | **314** |
+
+A **48× range in cell count spans 75 to 314 minutes**, and the four Fullerton slices — 47.8 M
+through 226.7 M, a 4.7× range — span 299 to 314 minutes, a 5% spread. Every surviving h0
+enumerates the same 282,475,249 res-10 children; the per-cell extraction is the small part. The
+same constant explains why memory is flat (below).
+
+**Do not size a res-10 slice from its cell count.** A two-point linear fit on the first two
+completions predicted 9.4 h for h0-index 20 and drove a whole separate job to rescue it from the
+6 h pod deadline (`wrc-2-rps-conus-hex-dense.yaml`). It finished in 314 minutes, inside the
+deadline, and the rescue was deleted unused. The fit was wrong because both of its points were
+fast-node slices at the extreme ends of the size range.
+
+Memory measured on four pods concurrently, spanning 47.8 M to 226.7 M cells:
+132,065 / 133,356 / 133,593 / 134,460 Mi. **A 4.7× range in cells gives a 1.8% range in memory.**
+192Gi is right and 128Gi would OOM regardless of slice size.
+
+Node speed, by contrast, is real and large: h0-index 71 took 299 minutes on Fullerton against the
+170 minutes the fast-node fit predicts — a **1.76×** penalty, worse than the 1.5× implied by
+`mtbs-severity-conus-hex.yaml:72-73`.
+
+#### Verification — all structural checks pass
+
+```
+scripts/check-hex-coverage.sh nrp:public-fire/wrc-2-rps-conus/hex/ --expect-h0 <the 6 cells>
+  -> PASS, exit 0, 6/6 populated
+```
+
+| check | result |
+|---|---|
+| `rows == COUNT(DISTINCT h10)` | 520,962,613 == 520,962,613, 0 duplicates |
+| NULL `h10`/`h9`/`h8`/`h0` | 0 / 0 / 0 / 0 |
+| NULL `rps` | 0 |
+| `-9999` leak | **0** |
+| hex max vs COG exact max | 13.05575893 ≤ 13.194137573242188 ✅ |
+| hex mean vs COG exact mean | 0.1397544367 vs 0.140196598414851, 0.3% apart ✅ |
+
+The max relation is the right one to check, not equality: a cell carries the area-weighted **mean**
+of roughly 17 pixels, so it cannot reach the pixel maximum.
+
+#### Percentile agreement — consistent, once the zero population is accounted for
+
+| percentile | source | hex, all cells | hex, `rps > 0` | agreement |
+|---:|---:|---:|---:|---:|
+| 40 | 0.018848 | 0.009074 | 0.015681 | 83% |
+| 70 | 0.094043 | 0.067991 | 0.085857 | 91% |
+| 90 | 0.408197 | 0.342712 | 0.387262 | **95%** |
+| 95 | 0.722298 | 0.634640 | 0.692488 | **96%** |
+
+⚠️ **`WRC_V2_DataPercentiles.xlsx` is computed over RPS > 0, not over all pixels.** The tell is in
+the table itself: its CONUS 0th percentile is `1.4554442680560599e-23`, a **positive** number. Any
+population containing zero-valued pixels has a 0th percentile of exactly 0. Comparing our full
+cell population — of which **11.02% (57,408,806 cells) are exactly zero** — against a nonzero
+population is simply the wrong comparison, and it is what produces the alarming 0.48 ratio at p40.
+
+The residual gap after excluding zeros is **area-averaging**, and its shape is the evidence: even a
+nonzero cell mixes zero pixels into its mean, which pulls it below the corresponding pixel value,
+and that bias is largest where cells straddle the nonburnable boundary. Hence the monotone
+improvement from 83% at p40 to 96% at p95.
+
+**This is recorded as explained, not as exact agreement.** The two breaks the web application
+actually classes on, the 90th and 95th, agree to 95–96%.
+
+_Alaska row counts, its populated h0 set, measured footprints and the STAC publication are recorded
+here as each lands._
