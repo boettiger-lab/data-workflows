@@ -1,0 +1,122 @@
+# H3 res-10 hex for the INHABIT v4 PHASE-2 products (data-workflows #610).
+#
+# ⛔ DO NOT APPLY UNTIL `inhabit-v4-hex` (phase 1) IS Complete. One res-10 hex fan-out at a time:
+# each holds 24 x 192Gi, and two concurrently is antisocial on shared nodes even though
+# geo-workflows enforces no quota. Check with a listing that PRINTS A HEADER ROW — `kubectl get
+# jobs | grep hex` printing nothing can mean kubectl failed, not that the lock is free.
+#
+#   kubectl -n geo-workflows get job inhabit-v4-hex    # want Complete 72/72, no failedIndexes
+#
+# 72 completions = 12 species x 6 h0. Each pod hexes that species' 5 phase-2 products for one h0,
+# localizing each COG once. Fewer, longer pods beat 360 short ones: the COG localize is the fixed
+# cost and this amortizes it 5x.
+#
+# Budget from phase-1's measured rate (~1h27m per species x product x h0): ~7.25 h per pod, 3 waves
+# at parallelism 24, so ~22 h. Longer than phase 1 because it is 5 products rather than 4.
+#
+# ⛔ THE h0 SET IS 12,14,20,50,71,78 — NOT the RAP precedent's (12 20 50 71).
+# That list is missing 14 (Nashville/Houston/Miami) and 78 (Boston/Detroit/Pittsburgh/Maine), and
+# its comment "tool skips ones the raster doesn't cover" is what makes it look safe: the tool skips
+# SUPPLIED indices with no coverage, but can never process an index never supplied. The same gap is
+# live in the published public-rap hex — 4 partitions, cells stopping at -82.12 lon against a COG
+# that reaches -66.87. Over-supplying costs a fast no-op pod; under-supplying loses a third of the
+# country. See BUILD.md.
+#
+# ⛔ THE REDUCER SPLITS BY PRODUCT TYPE, exactly as the COG resampling did:
+#   continuous ensembles (uint8 0-100 relative suitability, nodata 255) -> mean
+#   integrated-binary-fifth (int8 class codes {-1,0,1,2,3}, nodata -128) -> mode
+# `sum`/`mean` on class codes is nonsense; `mode` on a normalized index throws away the signal.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inhabit-v4-hex-phase2
+  namespace: geo-workflows
+  labels: {k8s-app: inhabit-v4-hex-phase2}
+spec:
+  completions: 72
+  parallelism: 24          # 24 x 192Gi = 4.5 TiB, ~1.5% of cluster memory (367 nodes
+                           # have >=200Gi, 304 TiB total). Measured on phase 1: all 24
+                           # schedule instantly. Still far under the 200-pod norm.
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 10
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: inhabit-v4-hex-phase2}}
+    spec:
+      restartPolicy: Never
+      # NOT opportunistic: these pods run long, and priority -2000000000 makes them a preemption
+      # target — #564 lost 47 pods that way. Default priority (0), lower parallelism in exchange.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        - {name: BUCKET,              value: public-invasives}
+        - {name: DATASET,             value: inhabit-v4-2024}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          SPECIES=(bromus_tectorum bromus_rubens bromus_japonicus bromus_arvensis
+                   taeniatherum_caput_medusae ventenata_dubia aegilops_cylindrica
+                   agropyron_cristatum salsola_tragus tamarix_chinensis_ramosissima
+                   elaeagnus_angustifolia cenchrus_ciliaris)
+          H0S=(12 14 20 50 71 78)
+          IDX=${JOB_COMPLETION_INDEX}
+          SP=${SPECIES[$(( IDX / 6 ))]}
+          H0=${H0S[$(( IDX % 6 ))]}
+          echo "=== hex idx ${IDX} -> ${SP}, h0-index ${H0}, res 10 parents 9,8,0 ==="
+          mkdir -p /tmp/cache
+
+          # product | reducer | nodata | value column
+          # Same reducer split as phase 1: mean on the uint8 0-100 relative-suitability index,
+          # mode on the int8 class codes {-1,0,1,2,3}. `first` and `tenth` are the 0.01 / 0.10
+          # sensitivity band around the canonical `fifth`; identical value domain, so identical
+          # treatment.
+          PRODUCTS=(
+            "occurrence      mean  255  suitability"
+            "abundance       mean  255  suitability"
+            "high-abundance  mean  255  suitability"
+            "integrated-binary-first mode -128 suitability_class"
+            "integrated-binary-tenth mode -128 suitability_class"
+          )
+          for ROW in "${PRODUCTS[@]}"; do
+            read -r P RED ND COL <<< "$ROW"
+            echo "--- ${P}: --hex-resampling ${RED} --nodata ${ND} --value-column ${COL}"
+            cng-datasets raster \
+              --input "s3://${BUCKET}/${DATASET}/${SP}/${P}.tif" \
+              --output-parquet "s3://${BUCKET}/${DATASET}/${SP}/${P}/hex/" \
+              --h0-index ${H0} \
+              --resolution 10 --parent-resolutions 9,8,0 \
+              --value-column "${COL}" \
+              --hex-resampling "${RED}" \
+              --nodata "${ND}" \
+              --local-cache-dir /tmp/cache
+            rm -f /tmp/cache/*.tif      # 5 CONUS COGs will not co-exist in 40Gi
+          done
+          echo "idx ${IDX} (${SP} h0-index ${H0}) complete"
+        resources:
+          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

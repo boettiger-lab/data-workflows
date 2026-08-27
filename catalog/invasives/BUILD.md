@@ -602,6 +602,40 @@ gate carry over unchanged; the value census confirms the class set is `{-1,0,1,2
 class rasters (12 species x first/fifth/tenth), so `first` and `tenth` gate against the same
 constant `fifth` did.
 
+## Coverage gate — why `--expect-h0` alone is the wrong gate here
+
+`scripts/check-hex-coverage.sh` gates one hex prefix. There are up to 108 here, which is exactly
+where a silently-partial build (#409) gets missed, so `scripts/check-coverage.sh` wraps it across
+every layer.
+
+The subtlety is what to expect. **Demanding all six CONUS h0 partitions for every layer would cry
+wolf.** The continuous products use `mean`, which writes a partition only where valid source pixels
+exist, so a species legitimately has no partition in an h0 it does not reach — buffelgrass is a
+southwest species whose masked product retains 34% of CONUS, so an absent h0=78 (Northeast) is
+correct data, not a dead pod. A gate that fires on every range-limited species trains the reader to
+ignore it.
+
+So each species is gated against **its own class raster**: the `integrated-binary-*` products carry
+a class across all of CONUS (0 unsuitable, or -1 extrapolation), so their h0 set is the maximal
+extent for that species and grid. The class raster itself is gated against the six CONUS h0 cells.
+A continuous product missing an h0 its own class raster has is reported as a GAP to check against
+that species' MESS retention, not asserted as a failure.
+
+**This is the second of two defenses and does not replace the first.** It cannot distinguish "no
+data for this species here" from "this pod died", so the Job check comes first: Complete with an
+empty `failedIndexes`. A build is done only when both are clean.
+
+## Phase-2 hex — written, NOT applied
+
+`k8s/inhabit-v4/hex-phase2.yaml`. Same 72 completions (12 species x 6 h0), 5 products per pod
+instead of 4, same reducer split (`mean` on the 0-100 index, `mode` on the class codes — `first`
+and `tenth` have the identical value domain to `fifth`, so identical treatment).
+
+⛔ **Apply only once `inhabit-v4-hex` reports Complete 72/72.** One res-10 fan-out at a time: each
+holds 24 x 192Gi, and two concurrently is antisocial on shared nodes even though `geo-workflows`
+enforces no quota. Budget from phase 1's measured rate: ~7.25 h per pod, 3 waves, **~22 h** —
+longer than phase 1 only because it is 5 products rather than 4.
+
 ## STAC
 
 `scripts/gen_stac.py` writes both documents to /tmp; nothing STAC-shaped is committed to this repo
