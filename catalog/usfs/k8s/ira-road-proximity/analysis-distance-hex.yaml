@@ -186,25 +186,103 @@ spec:
               "all":            f"SELECT g, crs_region FROM rc UNION ALL "
                                 f"SELECT g, crs_region FROM tg WHERE MTFCC NOT IN {PED}",
           }
+          # ⛔ THE UNION IS BATCHED BY ROADLESS AREA, and each stratum is CACHED on the PVC.
+          #
+          # Spilling the finished unions to Parquet was not enough. Three pods were
+          # OOM-killed at exit 137 (4h05m, 2h27m, and a third) and NOT ONE of them ever
+          # completed the 'all' union — the log never reaches its summary line. The
+          # remaining problem is inside the single GROUP BY: DuckDB keeps an accumulating
+          # geometry alive per group, and with ~10,300 groups over 4.4M roads, the set of
+          # live accumulators alone exceeds the pod however the result is written.
+          #
+          # This is the ladder's BATCH lesson, which was learned the same way: bound how
+          # many large geometries can coexist. There it was 12 polygons per statement; here
+          # it is BATCH roadless areas per statement, each batch written as its own part
+          # file and read back through a glob. Nothing about the result changes — grouping
+          # is by fid and every fid lands in exactly one batch, so the batched union is
+          # row-for-row identical to the single-statement one.
+          #
+          # Each stratum is also cached: a completed stratum is reused rather than rebuilt.
+          # The two cheap unions (roadcore 132 MB, roadcore_ml2to5 101 MB) had already
+          # completed on the PVC and were being recomputed from scratch on every retry,
+          # burning ~60 minutes before each attempt even reached the step that kills it.
+          # BATCH was 250 and two 96Gi pods were still OOM-killed inside the first ten
+          # batches of the 'all' stratum. Calibrate against what is KNOWN to fit instead of
+          # guessing again: the buffer ladder unions the roads within d of ~177 roadless
+          # areas per shard and survives in a 64Gi pod. This job unions at MAXD (3,380 m),
+          # the widest radius in the whole analysis, so each area's road set is
+          # substantially larger than any single rung the ladder handles. 50 areas per
+          # statement sits well inside that envelope.
+          BATCH = 50
+          fids = [r[0] for r in con.execute(
+              f"SELECT fid FROM read_parquet('{IB_PQ}') ORDER BY fid").fetchall()]
+          print(f"  {len(fids):,} roadless areas to union, in batches of {BATCH}", flush=True)
+
           UPQ = {}
           for name, sql in STRATA.items():
-              UPQ[name] = f"/scratch/tmp_588_dist/u_{name}.parquet"
+              single = f"/scratch/tmp_588_dist/u_{name}.parquet"
+              # ⚠️ The batch size is part of the directory name. Batch b covers
+              # fids[b*BATCH:(b+1)*BATCH], so the SAME index means a DIFFERENT set of
+              # roadless areas under a different BATCH. Without this, changing BATCH would
+              # silently reuse part files describing other areas and produce a wrong layer
+              # that still looks complete. Changing BATCH now starts a clean set instead.
+              parts = f"/scratch/tmp_588_dist/u_{name}_parts_b{BATCH}"
+              marker = f"{parts}/_COMPLETE"
+              # A completed single-file union from an earlier attempt is still valid — same
+              # query, same inputs — so reuse it. A ZERO-BYTE file is the debris of a COPY
+              # that was killed mid-write and must NOT be treated as a result.
+              if os.path.exists(single) and os.path.getsize(single) > 0:
+                  UPQ[name] = single
+                  n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{single}')").fetchone()[0]
+                  print(f"  road union '{name}': reusing cached {single} ({n:,} areas)",
+                        flush=True)
+                  continue
+              if os.path.exists(marker):
+                  UPQ[name] = f"{parts}/part_*.parquet"
+                  n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{UPQ[name]}')").fetchone()[0]
+                  print(f"  road union '{name}': reusing cached batches ({n:,} areas)",
+                        flush=True)
+                  continue
+              os.makedirs(parts, exist_ok=True)
               # ST_Simplify before the union, at the SAME 5 m tolerance the buffer ladder
-              # uses. Two reasons, and the second is a correctness fix, not a performance
-              # one: the published STAC text for this collection ALREADY states that these
-              # distances derive from centrelines simplified with a 5 m tolerance, and the
-              # code did not simplify — so the metadata described a layer that was never
-              # built. 5 m is below the positional accuracy of both inputs (EDW ~12 m at
-              # 1:24,000 source scales; TIGER rural centrelines tens of metres), so it
-              # cannot be the limiting error on a distance, and it is applied uniformly to
-              # every stratum and region so no two columns are computed by different methods.
-              con.execute(f"""
-                COPY (SELECT b.fid, ST_Union_Agg(ST_Simplify(r.g, {SIMPLIFY_M})) AS rg
-                      FROM read_parquet('{IB_PQ}') b JOIN ({sql}) r
-                        ON r.crs_region = b.crs_region AND ST_Intersects(b.gb, r.g)
-                      GROUP BY b.fid)
-                TO '{UPQ[name]}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 64)
-              """)
+              # uses. This is also a correctness fix: the published STAC text for this
+              # collection ALREADY states these distances derive from centrelines simplified
+              # with a 5 m tolerance, and the code did not simplify — the metadata described
+              # a layer that was never built. 5 m is below the positional accuracy of both
+              # inputs (EDW ~12 m at 1:24,000 source scales; TIGER rural centrelines tens of
+              # metres), so it cannot be the limiting error on a distance, and it is applied
+              # uniformly to every stratum and region.
+              # ⛔ EVERY BATCH IS ITS OWN CHECKPOINT. Without this an OOM in batch 9 threw
+              # away batches 0-8 and the next attempt started from zero — which is exactly
+              # what happened twice, both pods dying inside the first ten batches and
+              # leaving nothing behind. With it, a failure costs one batch, progress is
+              # monotone across retries, and the job grinds to completion even if some
+              # batches need more than one attempt. A part file is only written by a COPY
+              # that ran to completion, so its presence means that batch is done.
+              nb = (len(fids) + BATCH - 1) // BATCH
+              done_already = 0
+              for b in range(nb):
+                  part = f"{parts}/part_{b:04d}.parquet"
+                  if os.path.exists(part) and os.path.getsize(part) > 0:
+                      done_already += 1
+                      continue
+                  chunk = fids[b * BATCH:(b + 1) * BATCH]
+                  inlist = ",".join(str(f) for f in chunk)
+                  con.execute(f"""
+                    COPY (SELECT b.fid, ST_Union_Agg(ST_Simplify(r.g, {SIMPLIFY_M})) AS rg
+                          FROM read_parquet('{IB_PQ}') b JOIN ({sql}) r
+                            ON r.crs_region = b.crs_region AND ST_Intersects(b.gb, r.g)
+                          WHERE b.fid IN ({inlist})
+                          GROUP BY b.fid)
+                    TO '{part}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 64)
+                  """)
+                  if b % 10 == 0 or b == nb - 1:
+                      print(f"    '{name}' batch {b + 1}/{nb}", flush=True)
+              if done_already:
+                  print(f"    '{name}': {done_already}/{nb} batches were already "
+                        f"checkpointed from an earlier attempt", flush=True)
+              open(marker, "w").close()
+              UPQ[name] = f"{parts}/part_*.parquet"
               n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{UPQ[name]}')").fetchone()[0]
               print(f"  road union '{name}': {n:,} IRA polygons with roads in range "
                     f"-> {UPQ[name]}", flush=True)
