@@ -1,0 +1,201 @@
+# Stage the ICS-209-PLUS wildfire + reference bundles to
+# s3://public-fire/raw/ics-209-plus-1999-2020/ and probe their schemas.
+#
+# Issue #636. Source: St. Denis, L.A. et al. 2023. All-hazards dataset mined from the US
+# National Incident Management System, 1999-2020. figshare v3, CC BY 4.0.
+# DOI 10.6084/m9.figshare.19858927.v3
+#
+# figshare's /ndownloader endpoint 302s to a presigned S3 URL that expires in 10 seconds, so
+# curl must follow the redirect immediately (-L, no separate HEAD). File ids are per-version,
+# so pinning them to v3 means a future v4 cannot silently substitute; the md5s below are
+# figshare's own published computed_md5 for those ids.
+#
+# The probe output is this build's source of truth for three things AGENTS.md requires before
+# a convert: the incident row count that sizes the hex chunk (#494); whether read_csv_auto's
+# default 20480-row sample infers the same types as a full-file scan (a stringified-list
+# column such as FOD_FIRE_LIST misinferred as numeric would abort the convert); and the coded
+# domains, which must be enumerated from the data rather than hand-written (#294).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ics-209-plus-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: ics-209-plus-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ics-209-plus-stage-raw
+    spec:
+      restartPolicy: Never
+      # Default ClusterFirst DNS: resolves both the external figshare host and the internal
+      # rook-ceph-rgw-nautiluss3.rook S3 endpoint the nrp: rclone remote targets.
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          WF_URL='https://ndownloader.figshare.com/files/38766504'   # ics209plus-wildfire.zip,  v3
+          REF_URL='https://ndownloader.figshare.com/files/38766492'  # ics209plus-reference.zip, v3
+
+          echo "=== downloading wildfire + reference bundles (figshare v3) ==="
+          curl -sSL --retry 8 --retry-delay 5 --retry-all-errors --fail -o /tmp/wildfire.zip  "$WF_URL"
+          curl -sSL --retry 8 --retry-delay 5 --retry-all-errors --fail -o /tmp/reference.zip "$REF_URL"
+          ls -la /tmp/wildfire.zip /tmp/reference.zip
+
+          echo "=== verify against figshare's published md5 + size (pinned to v3) ==="
+          cat > /tmp/expected.md5 <<'EOF'
+          564b028f2c724ab7855f95bbaca74683  /tmp/wildfire.zip
+          5fec186428418aa28b4c8b2d5fb0e38d  /tmp/reference.zip
+          EOF
+          md5sum -c /tmp/expected.md5
+          test "$(stat -c %s /tmp/wildfire.zip)"  = 48717736
+          test "$(stat -c %s /tmp/reference.zip)" = 88397
+
+          echo "=== sha256 (provenance fingerprint, recorded in STAC) ==="
+          sha256sum /tmp/wildfire.zip /tmp/reference.zip | tee /tmp/ics209plus.sha256
+
+          echo "=== unzip ==="
+          mkdir -p /tmp/ics && cd /tmp/ics
+          unzip -q -o /tmp/wildfire.zip
+          unzip -q -o /tmp/reference.zip
+          find /tmp/ics -type f | sort
+          # The bundles ship their CSVs one directory deep; flatten so paths are predictable.
+          # -not -name '._*' drops the AppleDouble sidecars in __MACOSX/ — they are named
+          # ._<real>.csv, so a bare *.csv glob stages 9 junk files alongside the data.
+          mkdir -p /tmp/flat && find /tmp/ics -name '*.csv' -not -name '._*' -exec cp {} /tmp/flat/ \;
+          ls -la /tmp/flat/
+
+          test -s /tmp/flat/ics209-plus-wf_incidents_1999to2020.csv
+
+          echo "=== SCHEMA PROBE ==="
+          python3 - <<'PY'
+          import duckdb, glob, os
+          con = duckdb.connect(':memory:')
+          inc = '/tmp/flat/ics209-plus-wf_incidents_1999to2020.csv'
+
+          print('--- row counts (all bundled CSVs) ---')
+          for f in sorted(glob.glob('/tmp/flat/*.csv')):
+              n = con.execute(f"SELECT COUNT(*) FROM read_csv_auto('{f}', sample_size=-1)").fetchone()[0]
+              print(f'{n:>10}  {os.path.basename(f)}  ({os.path.getsize(f)/1e6:.1f} MB)')
+
+          # read_csv_auto's default 20480-row sample is what cng-convert-to-parquet uses. Where a
+          # column's inferred type differs from a full-file scan, the convert casts and fails.
+          print('--- incidents: type inference, default sample vs full scan ---')
+          sampled = {r[0]: r[1] for r in con.execute(
+              f"DESCRIBE SELECT * FROM read_csv_auto('{inc}')").fetchall()}
+          full = {r[0]: r[1] for r in con.execute(
+              f"DESCRIBE SELECT * FROM read_csv_auto('{inc}', sample_size=-1)").fetchall()}
+          diffs = [(k, sampled[k], full[k]) for k in sampled if sampled[k] != full[k]]
+          print(f'{len(sampled)} columns; {len(diffs)} type disagreements')
+          for k, a, b in diffs:
+              print(f'  MISMATCH {k}: sampled={a} full={b}')
+          if not diffs:
+              print('  none - default sampling is safe for the convert')
+
+          print('--- incidents: full column list with full-scan types ---')
+          for k, v in full.items():
+              print(f'  {k}: {v}')
+
+          print('--- incidents: geometry inputs, year range, id cardinality ---')
+          print(con.execute(f"""
+              SELECT COUNT(*) AS rows,
+                     COUNT(*) FILTER (WHERE POO_LATITUDE IS NULL OR POO_LONGITUDE IS NULL) AS null_coord,
+                     COUNT(*) FILTER (WHERE abs(POO_LATITUDE) > 90)   AS bad_lat,
+                     COUNT(*) FILTER (WHERE abs(POO_LONGITUDE) > 180) AS bad_lon,
+                     MIN(POO_LONGITUDE) AS min_lon, MAX(POO_LONGITUDE) AS max_lon,
+                     MIN(POO_LATITUDE)  AS min_lat, MAX(POO_LATITUDE)  AS max_lat,
+                     MIN(START_YEAR)    AS min_year, MAX(START_YEAR)   AS max_year,
+                     COUNT(DISTINCT INCIDENT_ID) AS distinct_incident_id
+              FROM read_csv_auto('{inc}', sample_size=-1)
+          """).fetchdf().T.to_string())
+
+          # An antimeridian-crossing extent needs the STAC bbox convention (west edge carries
+          # the larger longitude); print the eastern-hemisphere tail to see whether it applies.
+          print('--- incidents: eastern-hemisphere points (antimeridian check) ---')
+          print(con.execute(f"""
+              SELECT POO_STATE, COUNT(*) AS n, MIN(POO_LONGITUDE) AS min_lon, MAX(POO_LONGITUDE) AS max_lon
+              FROM read_csv_auto('{inc}', sample_size=-1)
+              WHERE POO_LONGITUDE > 0 GROUP BY 1 ORDER BY n DESC
+          """).fetchdf().to_string())
+
+          # #294: enumerate coded domains from the ingested data, never from memory.
+          print('--- incidents: coded domains (from data) ---')
+          for col in ('CAUSE', 'INCTYP_ABBREVIATION', 'SUPPRESSION_METHOD',
+                      'SPATIAL_DATA_ORIGIN', 'LL_CONFIDENCE', 'POO_STATE'):
+              try:
+                  rows = con.execute(f"""
+                      SELECT "{col}" AS v, COUNT(*) AS n
+                      FROM read_csv_auto('{inc}', sample_size=-1)
+                      GROUP BY 1 ORDER BY n DESC
+                  """).fetchall()
+                  print(f'  {col} ({len(rows)} values): ' +
+                        ', '.join(f'{v!r}={n}' for v, n in rows[:80]))
+              except Exception as e:
+                  print(f'  {col}: {e}')
+
+          # Columns the issue flags as 2014+ only: first year with a non-null value, so the
+          # STAC states "not collected" rather than implying zero.
+          print('--- incidents: first year with data, for partial-coverage columns ---')
+          for col in ('SUPPRESSION_METHOD', 'LL_CONFIDENCE', 'PEAK_EVACUATIONS',
+                      'FATALITIES_PUBLIC', 'FATALITIES_RESPONDER', 'POO_CITY'):
+              try:
+                  r = con.execute(f"""
+                      SELECT MIN(START_YEAR) AS first_year, COUNT(*) AS non_null
+                      FROM read_csv_auto('{inc}', sample_size=-1) WHERE "{col}" IS NOT NULL
+                  """).fetchone()
+                  print(f'  {col}: first_year={r[0]} non_null={r[1]}')
+              except Exception as e:
+                  print(f'  {col}: {e}')
+
+          print('--- reference bundle: lookup code definitions ---')
+          for f in sorted(set(glob.glob('/tmp/flat/*lookup*')) | set(glob.glob('/tmp/flat/*definition*'))):
+              print(f'== {os.path.basename(f)}')
+              print(con.execute(f"SELECT * FROM read_csv_auto('{f}', sample_size=-1)").fetchdf().to_string())
+          PY
+
+          echo "=== uploading raw to s3://public-fire/raw/ics-209-plus-1999-2020/ ==="
+          rclone copy /tmp/flat/ nrp:public-fire/raw/ics-209-plus-1999-2020/ -P --transfers 8 --checkers 8
+          rclone copyto /tmp/ics209plus.sha256 nrp:public-fire/raw/ics-209-plus-1999-2020/ics209plus.sha256
+
+          echo "=== verify upload ==="
+          rclone ls nrp:public-fire/raw/ics-209-plus-1999-2020/
+          echo "DONE"
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic

@@ -1,0 +1,98 @@
+# Generate the STAC collection + README for ICS-209-PLUS wildfire 1999-2020 (#636) and stage them.
+#
+# Runs gen_stac.py on the cluster so column names and types come from the LIVE published parquet
+# schemas over the internal S3 endpoint, not from a schema transcribed by hand. Column prose comes
+# from the reference bundle's *_field-definitions.csv (rclone-copied out of raw/ first); coded
+# domains come from _codes.json, whose value lists were enumerated from the ingested data (#294).
+#
+# This job writes to a STAGING prefix only. Publishing to the canonical paths happens after
+# scripts/verify-stac.py --no-data passes, then again in full once the STAC is live:
+#
+#   rclone copy nrp:public-fire/raw/ics-209-plus-1999-2020/staging/ /tmp/ics-stac/
+#   scripts/verify-stac.py --no-data /tmp/ics-stac/stac-collection.json
+#   rclone copyto /tmp/ics-stac/stac-collection.json \
+#       nrp:public-fire/ics-209-plus-1999-2020/wf-incidents/stac-collection.json
+#
+# gen_stac.py and _codes.json are mounted from a ConfigMap built from this directory:
+#   kubectl -n geo-workflows create configmap ics-209-plus-stac-src \
+#     --from-file=gen_stac.py --from-file=_codes.json --dry-run=client -o yaml | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ics-209-plus-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: ics-209-plus-publish-stac
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ics-209-plus-publish-stac
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: gen-stac
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: DEFS_DIR
+          value: /tmp/defs
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          mkdir -p /tmp/defs /tmp/src
+          cp /src/gen_stac.py /src/_codes.json /tmp/src/
+
+          echo "=== fetching upstream field definitions from raw/ ==="
+          rclone copy nrp:public-fire/raw/ics-209-plus-1999-2020/ /tmp/defs/ \
+            --include '*field-definitions.csv'
+          ls -la /tmp/defs/
+
+          echo "=== generating STAC + README from live schemas ==="
+          python3 /tmp/src/gen_stac.py
+
+          echo "=== staging to S3 (NOT the canonical path) ==="
+          rclone copyto /tmp/stac-collection.json \
+            nrp:public-fire/raw/ics-209-plus-1999-2020/staging/stac-collection.json
+          rclone copyto /tmp/README.md \
+            nrp:public-fire/raw/ics-209-plus-1999-2020/staging/README.md
+          rclone ls nrp:public-fire/raw/ics-209-plus-1999-2020/staging/
+          echo DONE
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: src
+          mountPath: /src
+          readOnly: true
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: src
+        configMap:
+          name: ics-209-plus-stac-src
+      priorityClassName: opportunistic

@@ -1,0 +1,229 @@
+# Preprocess the staged ICS-209-PLUS CSVs into typed parquet (issue #636).
+#
+# Two jobs in one pod, both cheap (largest input is the 308 MB sitreps CSV):
+#
+#   1. wf-incidents-typed.parquet -> raw/, an INTERMEDIATE for the convert step. It carries a
+#      WKB point geom built from POO_LONGITUDE/POO_LATITUDE; cng-convert-to-parquet then reads
+#      it via its documented BLOB-geometry branch, synthesizes _cng_fid, and writes the
+#      canonical GeoParquet. The published dataset is the tool's output, not this file.
+#   2. The five non-spatial sidecar tables, written straight to their published paths at the
+#      bucket root as <dataset>-<name>.parquet, matching fpa-fod-1992-2024-nwcg-units.parquet.
+#      Plus the reference bundle's sit209 lookup-code table, which carries the official
+#      definitions for the coded domains the STAC has to enumerate.
+#
+# WHY NOT point cng-convert-to-parquet straight at the incidents CSV: its CSV path calls
+# read_csv_auto with DuckDB's default 20480-row sample. The file is ordered by year and
+# INC_IDENTIFIER, FATALITIES_PUBLIC, FATALITIES_RESPONDER and PEAK_EVACUATIONS are 2013+ only,
+# so all four are entirely NULL in that head sample and DuckDB types them VARCHAR — while a
+# full scan types them DOUBLE and the columns are cleanly numeric throughout (0 non-castable
+# values in 34,622 rows). Publishing fatality and evacuation counts as strings would make
+# SUM() a cast-first operation and misdescribe them in STAC, so this job reads with
+# sample_size=-1 and hands the tool an already-typed parquet. Filed upstream as
+# boettiger-lab/datasets#TBD; remove this step once the tool exposes the CSV sample size.
+#
+# All three main tables lead with an UNNAMED pandas index column, which DuckDB names column00 /
+# column000 by width. It is dropped from the incidents table (INCIDENT_ID is unique there and
+# cng-convert-to-parquet adds _cng_fid), but KEPT — renamed SOURCE_ROW — on sitreps and
+# complex-assoc, because measurement showed neither table has a unique natural key: sitreps is
+# 182,826 rows against 181,144 distinct (INCIDENT_ID, REPORT_FROM_DATE, REPORT_TO_DATE) and only
+# 68,139 non-null INC209R_IDENTIFIER (2014+); complex-assoc is 4,764 rows against 4,754 distinct
+# (CPLX_INCIDENT_ID, MEMBER_INCIDENT_ID, FIRE_NAME). Dropping it would leave those tables with no
+# row-addressable key at all. It is deliberately NOT called _cng_fid: it is upstream's row order,
+# not a cng-datasets synthetic id, and it must not be joined across tables.
+#
+# Values are published as upstream supplies them. 439 records (1999-2002) carry
+# POO_LONGITUDE = -POO_LATITUDE, an upstream field error that places them in the Atlantic, and
+# 4 more (2015) are otherwise off-US; the true longitude is not recoverable, so this job
+# quantifies them for the STAC caveat rather than mutating them.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ics-209-plus-preprocess
+  namespace: geo-workflows
+  labels:
+    k8s-app: ics-209-plus-preprocess
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ics-209-plus-preprocess
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          python3 - <<'PY'
+          import duckdb, os
+
+          RAW = 's3://public-fire/raw/ics-209-plus-1999-2020'
+          DS  = 'ics-209-plus-1999-2020'
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial;")
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute(f"""
+              CREATE SECRET s (TYPE S3, KEY_ID '{os.environ['AWS_ACCESS_KEY_ID']}',
+                  SECRET '{os.environ['AWS_SECRET_ACCESS_KEY']}',
+                  ENDPOINT '{os.environ['AWS_S3_ENDPOINT']}', URL_STYLE 'path', USE_SSL false)
+          """)
+
+          INC = f'{RAW}/ics209-plus-wf_incidents_1999to2020.csv'
+          OUT = f'{RAW}/wf-incidents-typed.parquet'
+
+          # sample_size=-1: type every column against the whole file, not the first 20480 rows.
+          # geom as WKB BLOB named 'geom' is the encoding cng-convert-to-parquet ingests via
+          # ST_GeomFromWKB; NULL coordinates yield NULL geometry and are kept.
+          print(f'=== writing {OUT} ===')
+          con.execute(f"""
+              COPY (
+                  SELECT * EXCLUDE (column00),
+                         CASE WHEN POO_LONGITUDE IS NOT NULL AND POO_LATITUDE IS NOT NULL
+                              THEN ST_AsWKB(ST_Point(POO_LONGITUDE, POO_LATITUDE))
+                              ELSE NULL END AS geom
+                  FROM read_csv('{INC}', sample_size=-1)
+              ) TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+          """)
+
+          print('=== incidents: verify the four sampling-sensitive columns are numeric ===')
+          for r in con.execute(f"""
+              SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('{OUT}'))
+              WHERE column_name IN ('INC_IDENTIFIER','FATALITIES_PUBLIC','FATALITIES_RESPONDER',
+                                    'PEAK_EVACUATIONS','geom')
+          """).fetchall():
+              print('   ', r[0], r[1])
+
+          print('=== incidents: row count, geometry coverage, coordinate defects ===')
+          print(con.execute(f"""
+              SELECT COUNT(*) AS rows,
+                     COUNT(DISTINCT INCIDENT_ID) AS distinct_incident_id,
+                     COUNT(geom) AS non_null_geom,
+                     COUNT(*) - COUNT(geom) AS null_geom,
+                     COUNT(*) FILTER (WHERE POO_LONGITUDE = -POO_LATITUDE) AS lon_eq_neg_lat,
+                     MIN(START_YEAR) AS min_year, MAX(START_YEAR) AS max_year
+              FROM read_parquet('{OUT}')
+          """).fetchdf().T.to_string())
+
+          # STAC bbox, computed over the geographically plausible records only. The 443
+          # defective coordinates would otherwise stretch it to the mid-Atlantic and 88.9N.
+          print('=== incidents: bbox over plausible records (for STAC) ===')
+          print(con.execute(f"""
+              SELECT MIN(POO_LONGITUDE) AS xmin, MIN(POO_LATITUDE) AS ymin,
+                     MAX(POO_LONGITUDE) AS xmax, MAX(POO_LATITUDE) AS ymax, COUNT(*) AS n
+              FROM read_parquet('{OUT}')
+              WHERE POO_LATITUDE IS NOT NULL AND POO_LONGITUDE IS NOT NULL
+                AND POO_LONGITUDE <> -POO_LATITUDE
+                AND (   (POO_LATITUDE BETWEEN 24 AND 50 AND POO_LONGITUDE BETWEEN -125 AND -66)
+                     OR (POO_LATITUDE BETWEEN 51 AND 72 AND POO_LONGITUDE BETWEEN -180 AND -129)
+                     OR (POO_LATITUDE BETWEEN 18 AND 23 AND POO_LONGITUDE BETWEEN -161 AND -154)
+                     OR (POO_LATITUDE BETWEEN 17 AND 19 AND POO_LONGITUDE BETWEEN -68 AND -64))
+          """).fetchdf().T.to_string())
+
+          # Non-spatial sidecars. INCIDENT_ID is the join key back to the incidents layer; no
+          # _cng_fid is synthesized here on purpose — an independently numbered row id would
+          # not correspond to the incidents' _cng_fid and would invite a wrong join.
+          SIDECARS = [
+              ('sitreps',        f'{RAW}/ics209-plus-wf_sitreps_1999to2020.csv'),
+              ('complex-assoc',  f'{RAW}/ics209-plus-wf_complex_associations_1999to2020.csv'),
+              ('by-tract',       f'{RAW}/ics209-plus-wf_incidents_by_tract_1999to2020.csv'),
+              ('by-county',      f'{RAW}/ics209-plus-wf_incidents_by_county_1999to2020.csv'),
+              ('by-cbg',         f'{RAW}/ics209-plus-wf_incidents_by_cbg_1999to2020.csv'),
+              ('lookup-codes',   f'{RAW}/sit209_lookup_codes_definitions.csv'),
+          ]
+          # DuckDB names the unnamed leading index column by width, so resolve it per file
+          # rather than hardcoding column00 vs column000.
+          IDX_RENAMED = {'sitreps', 'complex-assoc'}
+          for name, src in SIDECARS:
+              dst = f's3://public-fire/{DS}-{name}.parquet'
+              print(f'=== writing {dst} ===')
+              if name == 'lookup-codes':
+                  # This file carries a one-line banner above the real header row.
+                  read = (f"read_csv('{src}', sample_size=-1, skip=1, header=true, "
+                          f"names=['CODE_TYPE','CODE_NAME','ABBREVIATION','DESCRIPTION'])")
+                  select = '*'
+              else:
+                  read = f"read_csv('{src}', sample_size=-1)"
+                  cols = [r[0] for r in con.execute(f'DESCRIBE SELECT * FROM {read}').fetchall()]
+                  idx = [c for c in cols if c.startswith('column')]
+                  if not idx:
+                      select = '*'
+                  elif name in IDX_RENAMED:
+                      select = f'* EXCLUDE ({idx[0]}), {idx[0]} AS SOURCE_ROW'
+                      print(f'    {idx[0]} -> SOURCE_ROW (only row-unique key on this table)')
+                  else:
+                      select = f'* EXCLUDE ({idx[0]})'
+                      print(f'    dropping unnamed index column {idx[0]}')
+              con.execute(f"COPY (SELECT {select} FROM {read}) TO '{dst}' "
+                          f"(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)")
+              n, c = con.execute(f"""
+                  SELECT COUNT(*), (SELECT COUNT(*) FROM (DESCRIBE SELECT * FROM read_parquet('{dst}')))
+                  FROM read_parquet('{dst}')
+              """).fetchone()
+              print(f'    {n} rows, {c} columns')
+              for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{dst}')").fetchall():
+                  print('      ', r[0], r[1])
+
+          print('=== sitreps: INCIDENT_ID is NOT unique per row (issue #636 caveat) ===')
+          print(con.execute(f"""
+              SELECT COUNT(*) AS rows, COUNT(DISTINCT INCIDENT_ID) AS distinct_incidents,
+                     ROUND(COUNT(*)::DOUBLE / COUNT(DISTINCT INCIDENT_ID), 2) AS rows_per_incident
+              FROM read_parquet('s3://public-fire/{DS}-sitreps.parquet')
+          """).fetchdf().T.to_string())
+
+          print('=== gate: no unnamed index column survives in any published table ===')
+          bad = []
+          for name, _ in SIDECARS:
+              dst = f's3://public-fire/{DS}-{name}.parquet'
+              cols = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{dst}')").fetchall()]
+              bad += [f'{name}.{c}' for c in cols if c.startswith('column')]
+          cols = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{OUT}')").fetchall()]
+          bad += [f'wf-incidents.{c}' for c in cols if c.startswith('column')]
+          if bad:
+              raise SystemExit(f'FATAL: unnamed index column(s) survived: {bad}')
+          print('    clean')
+
+          print('=== lookup-codes: code types available for STAC domains ===')
+          print(con.execute(f"""
+              SELECT CODE_TYPE, COUNT(*) AS n
+              FROM read_parquet('s3://public-fire/{DS}-lookup-codes.parquet')
+              GROUP BY 1 ORDER BY 1
+          """).fetchdf().to_string())
+          print('=== lookup-codes: the domains this dataset uses ===')
+          print(con.execute(f"""
+              SELECT CODE_TYPE, ABBREVIATION, CODE_NAME
+              FROM read_parquet('s3://public-fire/{DS}-lookup-codes.parquet')
+              WHERE CODE_TYPE IN ('CAUSE','FIRE_SUPPRESSION_STRATEGY','INCIDENT_TYPE','FUEL_MODEL')
+              ORDER BY CODE_TYPE, ABBREVIATION
+          """).fetchdf().to_string())
+          PY
+          echo DONE
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 40Gi}
+      priorityClassName: opportunistic
