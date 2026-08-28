@@ -563,6 +563,7 @@ else:
 
 assets = {}
 n_hex = 0
+hexed_species = []          # order-preserving; drives the honest "what ships" paragraph
 for slug, sci, common, _sb in SPECIES:
     for product in PRODUCTS:
         k, a = cog_asset(slug, sci, common, product)
@@ -571,6 +572,35 @@ for slug, sci, common, _sb in SPECIES:
             k, a = hex_asset(slug, sci, common, product)
             assets[k] = a
             n_hex += 1
+            if common not in hexed_species:
+                hexed_species.append(common)
+
+# The hex can legitimately cover fewer species than the COGs (the fan-out was scoped down to the
+# five the road-bias audit clears -- see #610). Say which, by name: a consumer whose species has a
+# COG but no hex must be able to tell "not built" from "build broken" without reading the issue.
+_n_sp = len(SPECIES)
+if n_hex == 0:
+    HEX_COVERAGE = ("**No H3 hex assets are published yet** -- the COGs are final and the res-10 "
+                    "fan-out has not landed. Read the COGs.\n\n")
+elif len(hexed_species) == _n_sp:
+    HEX_COVERAGE = (f"**All {_n_sp} species are hexed to H3** ({n_hex} hex assets), so an `h8` "
+                    f"join resolves for every species in this collection.\n\n")
+else:
+    HEX_COVERAGE = (
+        f"⚠️ **The H3 hex covers {len(hexed_species)} of the {_n_sp} species, not all of them** "
+        f"({n_hex} hex assets). Hexed: {', '.join(hexed_species)}. For every other species the "
+        f"COGs are complete and final, but there is **no hex**, so an `h8` join returns nothing "
+        f"for them -- read the COG instead. This is scope, not breakage: the fan-out was stopped "
+        f"deliberately after the species the road-bias audit clears for distance-to-road work, "
+        f"and the rest is tracked as separate work.\n\n"
+        f"⚠️ **Some un-hexed species have partial hex prefixes left under the bucket by the "
+        f"stopped fan-out. That is build residue, not data, and is deliberately not declared "
+        f"here.** A residue prefix can even look finished — one species has all six `h0` "
+        f"partitions for a product whose sibling products never ran — so a directory listing is "
+        f"not evidence of a published layer. **The assets declared in this collection are the "
+        f"published data; anything else under the bucket is intermediate.** Re-running a species "
+        f"overwrites its residue in place (the writes are idempotent, verified against the "
+        f"interrupted first run), so it is left rather than deleted.\n\n")
 
 SPECIES_TABLE = "; ".join(
     f"{sci} ({common}, ScienceBase {sb})" for _s, sci, common, sb in SPECIES)
@@ -591,16 +621,16 @@ DESCRIPTION = (
     "relative 0–100 index (`mean` reducer; aggregate with AVG, never SUM), plus a categorical "
     "`integrated-binary` map that thresholds and combines all three (`mode` reducer), at three "
     "percentile thresholds. Nine products per species, 108 layers.\n\n"
-    # What ships, stated plainly. Without this a consumer counting 108 COGs against 48 hex assets
-    # reads the collection as a half-finished build rather than a deliberate scope.
-    "**All 108 layers ship as COGs; 48 of them are also hexed to H3.** The hexed set is the "
-    "canonical one — the three `-masked` continuous surfaces plus `integrated-binary-fifth`, "
-    "per species — because those are the defaults every tabulation below is meant to read. The "
-    "other 60 (unmasked continuous, `first`/`tenth`) are COG-only **by design, not by "
-    "omission**: they exist so the masking and threshold choices stay inspectable at full "
-    "resolution, and hexing them would only serve a sensitivity analysis no current work "
-    "reports. An `h8` join therefore resolves for the canonical 48; for the other 60, read the "
-    "COG. Adding their hex later is additive and needs no rebuild.\n\n"
+    # What ships, stated plainly -- on two axes, because the hex is narrower than the COGs on
+    # BOTH. Without this a consumer reads a deliberate scope as a half-finished build.
+    "**Every product ships as a COG for every species.** Where a layer is also hexed, the hexed "
+    "product set is the canonical one — the three `-masked` continuous surfaces plus "
+    "`integrated-binary-fifth` — because those are the defaults every tabulation is meant to "
+    "read. The unmasked continuous surfaces and the `first`/`tenth` thresholds are COG-only "
+    "**by design, not by omission**: they exist so the masking and threshold choices stay "
+    "inspectable at full resolution, and hexing them would only serve a sensitivity analysis no "
+    "current work reports. Adding any missing hex later is additive and needs no rebuild.\n\n"
+    + HEX_COVERAGE +
     "**`-masked` is the default for inventoried-roadless-area work.** The `-masked` variants "
     "suppress suitability outside the MESS training envelope (multivariate environmental "
     "similarity surface, Elith et al. 2010 — at least one predictor outside its training "

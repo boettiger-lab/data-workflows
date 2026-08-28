@@ -699,6 +699,54 @@ that species' MESS retention, not asserted as a failure.
 data for this species here" from "this pod died", so the Job check comes first: Complete with an
 empty `failedIndexes`. A build is done only when both are clean.
 
+## ⛔ Species scope cut to 5 (2026-08-28) — the other 7 are #639
+
+The res-10 fan-out was stopped at 32/72 rather than run to completion. **#610 ships the hex for
+five species; the other seven moved to #639.** All 108 COGs stay — this is hex-only, like the
+phase-2 cut below.
+
+**Shipped (hexed):** cheatgrass, red brome, Japanese brome, field brome, medusahead — 5 species x
+4 canonical products = **20 hex layers**. These are exactly the species the gHM road-bias audit
+clears for distance-to-road work (occurrence-model gHM share 2.0-4.0%, all under the 5% bar).
+
+**Moved to #639:** ventenata (5.7%), crested wheatgrass (5.1%), Russian thistle (6.1%), Russian
+olive (11.3%), buffelgrass (13.9%), tamarisk (16.4%), jointed goatgrass (25.0%). Four of the seven
+are substantially gHM-circular and can only ever be suitability surfaces, so their hex was never
+on the critical path.
+
+**How it was stopped, and why that mattered.** `spec.template` is immutable on a Job, so a
+priority class cannot be retrofitted onto a running fan-out — `parallelism` is the only patchable
+field. Patching `parallelism: 24 -> 1` did the whole job: the Job controller deletes active pods
+down to the new cap, so 23 pods drained immediately (~4.3 TiB released) while the one pod that
+still mattered (idx 25, medusahead's last h0) kept running to completion. **Do not patch
+parallelism to 0 while a pod you want is active** — the same mechanism would kill it.
+
+For the record, `opportunistic` IS a valid PriorityClass in `geo-workflows` (`nice` is blocked by
+a `low-priority-ban` quota; `preemptible` / `low-priority` do not exist). It is still the wrong
+tool for this job: pods run ~14 h with no resume, so a preemption at hour 13 loses 13 hours.
+
+### ⚠️ Build residue left in the bucket — 11.8 GB, undeclared, deliberate
+
+Stopping mid-flight left partial hex prefixes for four of the seven moved species (partitions of 6
+`h0`, measured 2026-08-28):
+
+| species | `occurrence-masked` | `abundance-masked` | `high-abundance-masked` | `integrated-binary-fifth` | size |
+|---|---:|---:|---:|---:|---:|
+| *Ventenata dubia* | **6** | **6** | 3 | 1 | 8.0 GB |
+| *Aegilops cylindrica* | 4 | 2 | 2 | 1 | 2.4 GB |
+| *Salsola tragus* | 2 | — | — | — | 1.0 GB |
+| *Agropyron cristatum* | 1 | — | — | — | 0.3 GB |
+
+**Two of those prefixes are complete-looking** — *Ventenata dubia* `occurrence-masked` and
+`abundance-masked` have all six `h0`. Nothing declares them, but a directory listing would suggest
+a finished layer, so the collection description now says outright that the declared assets are the
+published data and anything else under the bucket is intermediate.
+
+Left rather than deleted because the writes are idempotent (verified against the interrupted
+2026-08-26 run: no surviving object predated the re-run's first write), so #639 overwrites in
+place. A build that wants to reuse it must gate on *(species x product x h0)* completeness, never
+on prefix existence.
+
 ## ⛔ Phase-2 hex — OUT OF SCOPE (decided 2026-08-28). Do NOT apply.
 
 `k8s/inhabit-v4/hex-phase2.yaml` stays in the repo, tested and applied-ready, but **it is not a
