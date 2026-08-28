@@ -1,0 +1,174 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ship-density-preprocess-cog
+  labels:
+    k8s-app: ship-density-preprocess-cog
+spec:
+  completions: 6
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 6
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ship-density-preprocess-cog
+    spec:
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
+      restartPolicy: Never
+      containers:
+      - name: preprocess-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # index | layer | zip | inner tif   (global LAST, issue #641)
+          LAYERS=(
+            "leisure|ShipDensity_Leisure.zip|ShipDensity_Leisure1.tif"
+            "oil-gas|ShipDensity_OilGas.zip|ShipDensity_OilGas1.tif"
+            "fishing|ShipDensity_Fishing.zip|ShipDensity_Fishing1.tif"
+            "passenger|ShipDensity_Passenger.zip|ShipDensity_Passenger1.tif"
+            "commercial|shipdensity_commercial_.zip|ShipDensity_Commercial1.tif"
+            "global|shipdensity_global.zip|shipdensity_global.tif"
+          )
+          IFS='|' read -r LAYER ZIP TIF <<< "${LAYERS[$JOB_COMPLETION_INDEX]}"
+
+          RAW="nrp:public-high-seas/raw/ship-density/${ZIP}"
+          COG="nrp:public-high-seas/ship-density/${LAYER}-cog.tif"
+          WORK=/tmp/work
+          mkdir -p "${WORK}"
+
+          echo "=== layer ${LAYER} (index ${JOB_COMPLETION_INDEX}) ==="
+
+          if [ -n "$(rclone lsf "${COG}" 2>/dev/null || true)" ]; then
+            echo "SKIP: ${COG} already exists"
+            exit 0
+          fi
+
+          echo "--- localize + extract (only the .tif, never the 3.3 GB .ovr) ---"
+          rclone copyto "${RAW}" "${WORK}/${ZIP}"
+          unzip -o -j "${WORK}/${ZIP}" "${TIF}" -d "${WORK}"
+          rm -f "${WORK}/${ZIP}"
+          # Upstream ships an ESRI-computed .tif.aux.xml. We never extract it, but belt and
+          # braces: a stale sidecar would make gdalinfo report inherited stats instead of
+          # measuring them (issue #641 pre-flight).
+          rm -f "${WORK}"/*.aux.xml
+
+          SRC="${WORK}/${TIF}"
+          ls -l "${SRC}"
+
+          echo "--- assert the source grid matches the documented one ---"
+          python3 - "${SRC}" <<'PY'
+          import sys
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open(sys.argv[1])
+          gt = ds.GetGeoTransform()
+          b = ds.GetRasterBand(1)
+          got = (ds.RasterXSize, ds.RasterYSize, round(gt[0], 9), round(gt[3], 9),
+                 round(gt[1], 9), round(gt[5], 9), b.GetNoDataValue())
+          want = (72006, 33998, -180.015311275, 85.002647937, 0.005, -0.005, 2147483647.0)
+          if got != want:
+              sys.exit(f"GRID MISMATCH\n  got  {got}\n  want {want}")
+          print("grid OK:", got)
+          PY
+
+          echo "--- build trimmed COG ---"
+          # Source spans 360.03 deg, overshooting BOTH sides of the antimeridian by ~3 columns.
+          # Trim 3 columns per side -> exactly 72000 x 33998 spanning exactly 360.0 deg.
+          # Pixel-aligned, so no resampling. -a_srs normalizes the ESRI GCS_WGS_1984 PE string
+          # to EPSG:4326 (same datum, tag rewrite only, no reprojection).
+          gdal_translate -of COG \
+            -projwin -180.000311275 85.002647937 179.999688725 -84.987352063 \
+            -a_srs EPSG:4326 \
+            -a_nodata 2147483647 \
+            -co COMPRESS=ZSTD -co LEVEL=9 -co PREDICTOR=2 \
+            -co BLOCKSIZE=512 -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+            "${SRC}" "${WORK}/${LAYER}-cog.tif"
+          rm -f "${SRC}"
+
+          echo "--- measure (this is the acceptance truth for the hex SUM check) ---"
+          python3 - "${WORK}/${LAYER}-cog.tif" "${LAYER}" <<'PY'
+          import sys
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          path, layer = sys.argv[1], sys.argv[2]
+          ds = gdal.Open(path)
+          b = ds.GetRasterBand(1)
+          nod = b.GetNoDataValue()
+          xs, ys = ds.RasterXSize, ds.RasterYSize
+          _, by = b.GetBlockSize()
+          total = 0
+          valid = 0
+          nodata_n = 0
+          vmin = None
+          vmax = None
+          for yo in range(0, ys, by):
+              a = b.ReadAsArray(0, yo, xs, min(by, ys - yo))
+              m = a != nod
+              nodata_n += int((~m).sum())
+              v = a[m]
+              if v.size:
+                  valid += int(v.size)
+                  total += int(v.astype(np.int64).sum())
+                  lo, hi = int(v.min()), int(v.max())
+                  vmin = lo if vmin is None else min(vmin, lo)
+                  vmax = hi if vmax is None else max(vmax, hi)
+          gt = ds.GetGeoTransform()
+          print("COG_STATS layer=%s size=%dx%d extent_x=%.9f..%.9f nodata=%d "
+                "valid_px=%d nodata_px=%d min=%s max=%s SUM=%d"
+                % (layer, xs, ys, gt[0], gt[0] + xs * gt[1], int(nod),
+                   valid, nodata_n, vmin, vmax, total))
+          PY
+
+          echo "--- publish ---"
+          rclone copyto "${WORK}/${LAYER}-cog.tif" "${COG}"
+          rclone lsl "${COG}"
+          echo "DONE ${LAYER}"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 16Gi
+            ephemeral-storage: 40Gi
+          limits:
+            cpu: '8'
+            memory: 16Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

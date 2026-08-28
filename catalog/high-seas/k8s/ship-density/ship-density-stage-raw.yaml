@@ -1,0 +1,110 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ship-density-stage-raw
+  labels:
+    k8s-app: ship-density-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ship-density-stage-raw
+    spec:
+      priorityClassName: opportunistic
+      # External DNS on this cluster is flaky per-node: keep ClusterFirst so the internal
+      # rook S3 endpoint still resolves, and append public resolvers as fallback.
+      dnsConfig:
+        nameservers: ['8.8.8.8', '1.1.1.1']
+        options:
+        - {name: timeout, value: '2'}
+        - {name: attempts, value: '3'}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
+      restartPolicy: Never
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          BASE="https://datacatalogfiles.worldbank.org/ddh-published/0037580/5"
+          DEST="nrp:public-high-seas/raw/ship-density"
+
+          # "<subdir>/<file>|<expected bytes>" processed in order, global LAST (issue #641).
+          # Expected sizes were verified upstream with curl -I; a mismatch fails the job rather
+          # than staging a truncated zip that would surface much later as a broken COG.
+          ITEMS=(
+            "DR0045401/ShipDensity_Leisure.zip|29425517"
+            "DR0045402/ShipDensity_OilGas.zip|21450048"
+            "DR0045403/ShipDensity_Fishing.zip|101738134"
+            "DR0045404/ShipDensity_Passenger.zip|22849854"
+            "DR0045405/shipdensity_commercial_.zip|480353369"
+            "DR0045406/shipdensity_global.zip|534907276"
+            "DR0084213/readme.txt|1035"
+            "DR0045407/readme_ddh.txt|1129"
+          )
+
+          mkdir -p /tmp/sd
+          for item in "${ITEMS[@]}"; do
+            path="${item%%|*}"; want="${item##*|}"; file="${path##*/}"
+
+            # rclone lsf exits 0 with empty output for a missing file: test the output, not $?.
+            if [ -n "$(rclone lsf "${DEST}/${file}" 2>/dev/null || true)" ]; then
+              have=$(rclone size --json "${DEST}/${file}" | sed -E 's/.*"bytes":([0-9]+).*/\1/')
+              if [ -z "${want}" ] || [ "${have}" = "${want}" ]; then
+                echo "SKIP  ${file} already staged (${have} bytes)"
+                continue
+              fi
+              echo "RESTAGE ${file}: S3 has ${have} bytes, expected ${want}"
+            fi
+
+            echo "GET   ${file}"
+            # --retry-all-errors is required: plain --retry does NOT retry DNS failures.
+            curl -sSL --retry 8 --retry-delay 5 --retry-all-errors \
+                 -o "/tmp/sd/${file}" "${BASE}/${path}"
+
+            got=$(stat -c%s "/tmp/sd/${file}")
+            if [ -n "${want}" ] && [ "${got}" != "${want}" ]; then
+              echo "FAIL  ${file}: got ${got} bytes, expected ${want}" >&2
+              exit 1
+            fi
+            echo "OK    ${file} ${got} bytes"
+
+            rclone copyto "/tmp/sd/${file}" "${DEST}/${file}"
+            rm -f "/tmp/sd/${file}"   # keep ephemeral bounded to the largest single file
+          done
+
+          echo "=== staged ==="
+          rclone lsl "${DEST}/"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
