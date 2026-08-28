@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""Bio-ORACLE v3.0 NetCDF -> WGS84 float32 COG (data-workflows #53).
+
+One task per output COG. The two circular layers (current direction `swd_mean`,
+terrain `aspect`) are compass bearings in 0-360 degrees; an arithmetic mean over
+them is wrong across the 0/360 wrap, so each is emitted as a sin and a cos
+component. 16 source layers therefore produce 18 COGs.
+
+Orientation matters and is NOT assumed: Bio-ORACLE stores latitude ascending
+(south to north) while a north-up GeoTIFF needs row 0 at the maximum latitude.
+The array is flipped based on the actual latitude coordinate, then asserted
+against a land/ocean probe before anything is written.
+"""
+import argparse
+import json
+import os
+import sys
+
+import numpy as np
+from osgeo import gdal, osr
+
+gdal.UseExceptions()
+
+# NaN, not -9999: bathymetry_mean reaches roughly -10 900 m, so a -9999 sentinel
+# sits inside the physically plausible range of that layer and could be read back
+# as a real depth. NaN cannot collide with a real value in any of these layers.
+NODATA = float("nan")
+
+# (output_name, raw_file, netcdf_variable, transform, s3_prefix)
+TASKS = [
+    ("thetao-mean", "thetao_mean_baseline_2000_2019_depthmean.nc", "thetao_mean", None,  "depthmean"),
+    ("so-mean",     "so_mean_baseline_2000_2019_depthmean.nc",     "so_mean",     None,  "depthmean"),
+    ("sws-mean",    "sws_mean_baseline_2000_2019_depthmean.nc",    "sws_mean",    None,  "depthmean"),
+    ("swd-mean-sin", "swd_mean_baseline_2000_2019_depthmean.nc",   "swd_mean",    "sin", "depthmean"),
+    ("swd-mean-cos", "swd_mean_baseline_2000_2019_depthmean.nc",   "swd_mean",    "cos", "depthmean"),
+    ("no3-mean",    "no3_mean_baseline_2000_2018_depthmean.nc",    "no3_mean",    None,  "depthmean"),
+    ("po4-mean",    "po4_mean_baseline_2000_2018_depthmean.nc",    "po4_mean",    None,  "depthmean"),
+    ("si-mean",     "si_mean_baseline_2000_2018_depthmean.nc",     "si_mean",     None,  "depthmean"),
+    ("o2-mean",     "o2_mean_baseline_2000_2018_depthmean.nc",     "o2_mean",     None,  "depthmean"),
+    ("dfe-mean",    "dfe_mean_baseline_2000_2018_depthmean.nc",    "dfe_mean",    None,  "depthmean"),
+    ("phyc-mean",   "phyc_mean_baseline_2000_2020_depthmean.nc",   "phyc_mean",   None,  "depthmean"),
+    ("ph-mean",     "ph_mean_baseline_2000_2018_depthmean.nc",     "ph_mean",     None,  "depthmean"),
+    ("bathymetry-mean", "terrain_bathymetry_mean.nc",              "bathymetry_mean", None, "terrain"),
+    ("slope",       "terrain_slope.nc",                            "slope",       None,  "terrain"),
+    ("aspect-sin",  "terrain_aspect.nc",                           "aspect",      "sin", "terrain"),
+    ("aspect-cos",  "terrain_aspect.nc",                           "aspect",      "cos", "terrain"),
+    ("tpi",         "terrain_topographic_position_index.nc",       "topographic_position_index", None, "terrain"),
+    ("tri",         "terrain_terrain_ruggedness_index.nc",         "terrain_ruggedness_index",   None, "terrain"),
+]
+
+# Orientation probe: 100 degE / 40 degN is inland Asia (no marine value), while
+# 100 degE / 40 degS is open Indian Ocean (valid value). A vertically flipped
+# grid swaps the two, which no symmetric check (pole-vs-pole, row means) can see.
+PROBE_LON, PROBE_LAT_LAND, PROBE_LAT_SEA = 100.0, 40.0, -40.0
+
+
+def build(task, raw_dir, out_dir):
+    name, raw_file, varname, transform, _prefix = task
+    src = os.path.join(raw_dir, raw_file)
+    print(f"[{name}] reading {varname} from {src}", flush=True)
+
+    # Read through GDAL's netCDF driver rather than netCDF4: GDAL is guaranteed in
+    # the datasets image, and it already resolves the south-to-north storage order
+    # into a north-up geotransform. The probe below verifies that it actually did.
+    nc = gdal.Open(f'NETCDF:"{src}":{varname}')
+    if nc is None:
+        sys.exit(f"[{name}] could not open {varname} in {src}")
+    gt = nc.GetGeoTransform()
+    band_in = nc.GetRasterBand(1)
+    fill = band_in.GetNoDataValue()
+    data = band_in.ReadAsArray().astype("float64")
+    print(f"[{name}] gdal read {nc.RasterXSize}x{nc.RasterYSize} gt={gt} fill={fill}", flush=True)
+
+    if gt[5] > 0:
+        sys.exit(f"[{name}] geotransform is bottom-up (gt[5]={gt[5]}); expected north-up")
+
+    # Source fill is -9999.9; fold it into NaN so one sentinel carries through.
+    if fill is not None:
+        data[np.isclose(data, fill, rtol=0, atol=1e-3)] = np.nan
+
+    # Assert orientation before writing: land probe must be nodata, sea probe must not.
+    def sample(lon_deg, lat_deg):
+        col = int((lon_deg - gt[0]) / gt[1])
+        row = int((lat_deg - gt[3]) / gt[5])
+        return data[row, col]
+
+    land, sea = sample(PROBE_LON, PROBE_LAT_LAND), sample(PROBE_LON, PROBE_LAT_SEA)
+    print(f"[{name}] orientation probe: land(100E,40N)={land} sea(100E,40S)={sea}", flush=True)
+    if not np.isnan(land) or np.isnan(sea):
+        sys.exit(f"[{name}] ORIENTATION CHECK FAILED: expected land=nan and sea=value, "
+                 f"got land={land} sea={sea}. Refusing to write a flipped raster.")
+
+    valid = ~np.isnan(data)
+    print(f"[{name}] source {varname}: valid={valid.sum()} "
+          f"({100.0 * valid.sum() / data.size:.1f}%) "
+          f"min={np.nanmin(data):.6g} max={np.nanmax(data):.6g} mean={np.nanmean(data):.6g}",
+          flush=True)
+
+    if transform == "sin":
+        data = np.sin(np.radians(data))
+    elif transform == "cos":
+        data = np.cos(np.radians(data))
+    if transform:
+        print(f"[{name}] applied {transform}: min={np.nanmin(data):.6g} "
+              f"max={np.nanmax(data):.6g} mean={np.nanmean(data):.6g}", flush=True)
+
+    out = data.astype("float32")
+    rows, cols = out.shape
+
+    mem = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Float32)
+    mem.SetGeoTransform(gt)
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    mem.SetProjection(srs.ExportToWkt())
+    band = mem.GetRasterBand(1)
+    band.SetNoDataValue(NODATA)
+    band.SetDescription(varname)
+    band.WriteArray(out)
+
+    os.makedirs(out_dir, exist_ok=True)
+    dst = os.path.join(out_dir, f"{name}-cog.tif")
+    gdal.GetDriverByName("COG").CreateCopy(
+        dst, mem,
+        options=["COMPRESS=DEFLATE", "PREDICTOR=3", "BLOCKSIZE=512",
+                 "OVERVIEWS=IGNORE_EXISTING", "BIGTIFF=IF_SAFER"],
+    )
+    mem = None
+
+    chk = gdal.Open(dst)
+    cb = chk.GetRasterBand(1)
+    mn, mx, mean, sd = cb.ComputeStatistics(False)
+    print(f"[{name}] wrote {dst} {os.path.getsize(dst)} bytes "
+          f"size={chk.RasterXSize}x{chk.RasterYSize} nodata={cb.GetNoDataValue()} "
+          f"min={mn:.6g} max={mx:.6g} mean={mean:.6g} sd={sd:.6g}", flush=True)
+    return dst
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--index", type=int)
+    ap.add_argument("--name")
+    ap.add_argument("--raw-dir", default="/tmp/raw")
+    ap.add_argument("--out-dir", default="/tmp/cog")
+    ap.add_argument("--list", action="store_true")
+    a = ap.parse_args()
+
+    if a.list:
+        print(json.dumps([{"index": i, "name": t[0], "raw": t[1], "var": t[2],
+                           "transform": t[3], "prefix": t[4]}
+                          for i, t in enumerate(TASKS)], indent=2))
+        return
+
+    if a.name:
+        matches = [t for t in TASKS if t[0] == a.name]
+        if not matches:
+            sys.exit(f"unknown task name {a.name}")
+        task = matches[0]
+    elif a.index is not None:
+        if not 0 <= a.index < len(TASKS):
+            sys.exit(f"index {a.index} out of range (0..{len(TASKS) - 1})")
+        task = TASKS[a.index]
+    else:
+        sys.exit("need --index, --name, or --list")
+
+    build(task, a.raw_dir, a.out_dir)
+
+
+if __name__ == "__main__":
+    main()

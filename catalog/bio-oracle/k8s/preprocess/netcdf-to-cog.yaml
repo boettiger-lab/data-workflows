@@ -1,0 +1,74 @@
+# Bio-ORACLE v3.0: 16 raw NetCDF layers -> 18 WGS84 float32 COGs (data-workflows #53).
+# 18 not 16: current direction (swd_mean) and terrain aspect are compass bearings, each
+# emitted as a sin and a cos component so the h6 `mean` reduce is valid across the 0/360 wrap.
+# Set COMPLETION_OFFSET/completions to run a subset; index N maps to TASKS[N] in the script.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bio-oracle-netcdf-to-cog
+  namespace: geo-workflows
+  labels: {k8s-app: bio-oracle-netcdf-to-cog}
+spec:
+  completions: 18
+  parallelism: 6
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: bio-oracle-netcdf-to-cog}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: netcdf-to-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: BUCKET,              value: public-bio-oracle}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /opt/scripts, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          export IDX=${JOB_COMPLETION_INDEX}
+          rm -rf /tmp/raw /tmp/cog && mkdir -p /tmp/raw /tmp/cog
+
+          # Resolve this index to its task so only the one source file is localized.
+          META=$(python3 /opt/scripts/netcdf_to_cog.py --list)
+          NAME=$(echo "$META" | python3 -c "import json,sys,os; print(json.load(sys.stdin)[int(os.environ['IDX'])]['name'])")
+          RAW=$(echo  "$META" | python3 -c "import json,sys,os; print(json.load(sys.stdin)[int(os.environ['IDX'])]['raw'])")
+          PREFIX=$(echo "$META" | python3 -c "import json,sys,os; print(json.load(sys.stdin)[int(os.environ['IDX'])]['prefix'])")
+          echo "index ${IDX} -> ${NAME} (from ${RAW}, prefix ${PREFIX})"
+
+          rclone copyto "nrp:${BUCKET}/raw/${RAW}" "/tmp/raw/${RAW}" \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+          test -s "/tmp/raw/${RAW}"
+
+          python3 /opt/scripts/netcdf_to_cog.py --index "${IDX}" --raw-dir /tmp/raw --out-dir /tmp/cog
+
+          rclone copyto "/tmp/cog/${NAME}-cog.tif" \
+            "nrp:${BUCKET}/${PREFIX}/${NAME}/${NAME}-cog.tif" \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+          echo "published ${PREFIX}/${NAME}/${NAME}-cog.tif"
+        resources:
+          requests: {cpu: '2', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '2', memory: 16Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: bio-oracle-scripts}}
