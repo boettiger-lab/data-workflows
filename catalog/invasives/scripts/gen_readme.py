@@ -12,6 +12,12 @@ import os
 from importlib import util
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+# Capture the shipped set BEFORE popping it. The README's prose documents the full phase-1 set,
+# but its runnable SQL must only ever cite hex that is actually PUBLISHED: the un-hexed species
+# leave complete-looking residue prefixes under the bucket (one has three of four products at all
+# six h0), so a hardcoded example silently keeps working against undeclared residue instead of
+# 404ing, which is precisely what the collection description warns readers not to do.
+_READY = os.environ.get("READY_LAYERS")
 os.environ.pop("READY_LAYERS", None)          # README documents the full phase-1 set
 _spec = util.spec_from_file_location("inhabit_stac", os.path.join(_HERE, "gen_stac.py"))
 g = util.module_from_spec(_spec)
@@ -169,10 +175,11 @@ WHERE suitability_class >= 1;
 ```
 
 ```sql
--- Join two species at h8 (both are native res 10, so h8 is present in both)
-SELECT a.h8, AVG(a.suitability) AS cheatgrass, AVG(b.suitability) AS medusahead
-FROM read_parquet('https://s3-west.nrp-nautilus.io/public-invasives/inhabit-v4-2024/bromus_tectorum/occurrence-masked/hex/h0=*/data_0.parquet') a
-JOIN read_parquet('https://s3-west.nrp-nautilus.io/public-invasives/inhabit-v4-2024/taeniatherum_caput_medusae/occurrence-masked/hex/h0=*/data_0.parquet') b
+-- Join two species at h8 (both are native res 10, so h8 is present in both).
+-- Both species below have PUBLISHED hex; species with only a COG cannot be joined this way.
+SELECT a.h8, AVG(a.suitability) AS @@JOIN_A_LABEL@@, AVG(b.suitability) AS @@JOIN_B_LABEL@@
+FROM read_parquet('https://s3-west.nrp-nautilus.io/public-invasives/inhabit-v4-2024/@@JOIN_A_SLUG@@/occurrence-masked/hex/h0=*/data_0.parquet') a
+JOIN read_parquet('https://s3-west.nrp-nautilus.io/public-invasives/inhabit-v4-2024/@@JOIN_B_SLUG@@/occurrence-masked/hex/h0=*/data_0.parquet') b
   USING (h10)
 GROUP BY a.h8;
 ```
@@ -297,7 +304,27 @@ def product_rows():
     return "\n".join(rows)
 
 
+def _hexed_slugs():
+    """Species slugs with published hex, in READY_LAYERS order."""
+    if _READY is None or _READY.strip() == "":
+        return [sp[0] for sp in g.SPECIES]          # unset = every species hexed
+    if _READY.strip().upper() == "NONE":
+        return []
+    return list(dict.fromkeys(
+        k.split("|")[0].strip() for k in _READY.split(",") if "|" in k))
+
+
+# Pick the join example's two species from the published set. Falling back to the full species
+# list keeps the README generatable in a COG-only interim, where no pair is joinable anyway.
+_pair = (_hexed_slugs() + [sp[0] for sp in g.SPECIES])[:2]
+_common = {sp[0]: sp[2] for sp in g.SPECIES}
+_label = lambda slug: _common.get(slug, slug).lower().replace(" ", "_").replace("-", "_")
+
 md = (TEMPLATE
+      .replace("@@JOIN_A_SLUG@@", _pair[0])
+      .replace("@@JOIN_B_SLUG@@", _pair[1])
+      .replace("@@JOIN_A_LABEL@@", _label(_pair[0]))
+      .replace("@@JOIN_B_LABEL@@", _label(_pair[1]))
       .replace("@@PRODUCTS@@", product_rows())
       .replace("@@SPECIES@@", species_rows())
       .replace("@@CLASSES@@", class_rows())

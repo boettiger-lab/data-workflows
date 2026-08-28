@@ -699,15 +699,19 @@ that species' MESS retention, not asserted as a failure.
 data for this species here" from "this pod died", so the Job check comes first: Complete with an
 empty `failedIndexes`. A build is done only when both are clean.
 
-## ⛔ Species scope cut to 5 (2026-08-28) — the other 7 are #639
+## ⛔ Species scope cut to 4 (2026-08-28) — the other 8 are #639
 
-The res-10 fan-out was stopped at 32/72 rather than run to completion. **#610 ships the hex for
-five species; the other seven moved to #639.** All 108 COGs stay — this is hex-only, like the
+The res-10 fan-out was stopped at 31/72 rather than run to completion. **#610 ships the hex for
+four species; the other eight moved to #639.** All 108 COGs stay — this is hex-only, like the
 phase-2 cut below.
 
-**Shipped (hexed):** cheatgrass, red brome, Japanese brome, field brome, medusahead — 5 species x
-4 canonical products = **20 hex layers**. These are exactly the species the gHM road-bias audit
-clears for distance-to-road work (occurrence-model gHM share 2.0-4.0%, all under the 5% bar).
+**Shipped (hexed):** cheatgrass, red brome, Japanese brome, field brome — 4 species x
+4 canonical products = **16 hex layers**. The gHM road-bias audit clears five species for
+distance-to-road work (occurrence-model gHM share 2.0-4.0%, all under the 5% bar); the fifth,
+**medusahead, was cut for schedule rather than for bias** when the job was stopped at 21:17:50Z to
+free the cluster, and is the one species in #639 that is not there on gHM grounds. It stopped 23 of
+24 units complete — only `integrated-binary-fifth` at `h0=577692205326532607` is missing — so #639
+can finish it with a single pod, and its residue is verified good rather than merely present.
 
 **Moved to #639:** ventenata (5.7%), crested wheatgrass (5.1%), Russian thistle (6.1%), Russian
 olive (11.3%), buffelgrass (13.9%), tamarisk (16.4%), jointed goatgrass (25.0%). Four of the seven
@@ -790,36 +794,63 @@ against whatever analysis turns out to need it.
 
 Everything before this is done. Pick up here.
 
-**1. Wait for `inhabit-v4-hex` index 25** (medusahead h0-index 14, the last shipped partition).
-Check `completedIndexes` and do the arithmetic — do NOT grep it, `^2[0-9]-` matches `26-29` and
-gives a false completion:
+**1–2. DONE 2026-08-28 21:17:50Z — the job is stopped and medusahead moved to #639.**
 
-    kubectl -n geo-workflows get job inhabit-v4-hex -o jsonpath='{.status.completedIndexes}'
-    # want 25 present. Everything else outstanding belongs to #639.
-
-**2. Stop the job.** ⛔ Only once 25 is done — `parallelism: 0` would kill an active pod:
+The fan-out was stopped deliberately to free the cluster, killing the last running pod
+(index 25 = medusahead, h0-index 14) mid-product with `completedIndexes = 0-24,26-29,31,36`:
 
     kubectl -n geo-workflows patch job inhabit-v4-hex --type=strategic -p '{"spec":{"parallelism":0}}'
 
-**3. Coverage gate** — 5 species x 4 products, six CONUS h0 each:
+So **index 25 never completed, and #610 ships 4 species / 16 hex layers, not 5 / 20.** Medusahead
+was 23 of 24 units complete — all three continuous products at 6/6 `h0`, only
+`integrated-binary-fifth` short `h0=577692205326532607` — and moves whole to #639, which can finish
+it with one pod. Shipping its three complete products was rejected: `check-coverage.sh` references
+each species' continuous products to **its own class raster**, so a 5/6 reference would need a gate
+override plus a documented exception to publish a strictly weaker product. Its 9.9 GB of hex is
+undeclared residue, bringing the bucket's residue to ~21.7 GB across 8 species.
 
-    bash catalog/invasives/scripts/check-coverage.sh
+**3. Coverage gate** — 4 species x 4 products, six CONUS h0 each:
 
-**4. Generate.** `READY_LAYERS` must list exactly the 20 shipped (species|product) keys, or the
+    bash catalog/invasives/scripts/check-coverage.sh --phase 1
+
+⛔ **This script exits 1 on a correct build, and that is not a failure.** It iterates all 12
+species, so the 8 that #639 owns report `FAIL` (their class raster has no hex at all) or `SKIP`.
+Read the 16 shipped layers, not the exit code:
+
+    bash catalog/invasives/scripts/check-coverage.sh --phase 1 2>&1 \
+      | grep -E "^(ok|FAIL|GAP)" \
+      | grep -E "bromus_tectorum|bromus_rubens|bromus_japonicus|bromus_arvensis"
+    # want: 16 lines, all "ok"
+
+Result 2026-08-28: **16/16 ok.** Whole-run tally 25 ok / 8 FAIL / 5 SKIP — every FAIL and SKIP
+belongs to a #639 species. Medusahead reports 3 ok + 1 FAIL, which is the measurement that decided
+it ships nothing here.
+
+**4. Generate.** `READY_LAYERS` must list exactly the 16 shipped (species|product) keys, or the
 collection advertises hex that 404s:
 
-    SHIPPED=(bromus_tectorum bromus_rubens bromus_japonicus bromus_arvensis taeniatherum_caput_medusae)
+    SHIPPED=(bromus_tectorum bromus_rubens bromus_japonicus bromus_arvensis)   # NOT medusahead — #639
     P1=(occurrence-masked abundance-masked high-abundance-masked integrated-binary-fifth)
     RL=""; for s in "${SHIPPED[@]}"; do for p in "${P1[@]}"; do RL="${RL:+$RL,}$s|$p"; done; done
-    READY_LAYERS="$RL" python3 catalog/invasives/scripts/gen_stac.py   # expect 128 assets (108 COG, 20 hex)
-    python3 catalog/invasives/scripts/gen_readme.py
+    READY_LAYERS="$RL" python3 catalog/invasives/scripts/gen_stac.py   # expect 124 assets (108 COG, 16 hex)
+    READY_LAYERS="$RL" python3 catalog/invasives/scripts/gen_readme.py
 
-⛔ **Count the assets on disk — the "wrote ... 128 assets" line is not evidence.** Verify the file,
+**Pass `READY_LAYERS` to `gen_readme.py` too.** Its prose still documents the full phase-1 set (it
+pops the variable before importing `gen_stac`), but its runnable two-species join example now picks
+its pair from the **published** set. Without the variable the example falls back to the first two
+species in `SPECIES` — which, with medusahead un-hexed, cites hex that exists only as **residue**:
+the query silently succeeds against undeclared intermediate data instead of failing, the exact trap
+the collection description warns about. Verify after generating:
+
+    grep -oE "inhabit-v4-2024/[a-z_]+/[a-z-]+/hex" /tmp/invasives-README.md | sort -u
+    # every species named must be one of the 4 shipped
+
+⛔ **Count the assets on disk — the generator's own "wrote ... N assets" line is not evidence.** Verify the file,
 not the stdout:
 
     python3 -c "import json,collections; a=json.load(open('/tmp/inhabit-v4-2024-stac.json'))['assets']; \
     print(len(a), collections.Counter(k.rsplit('-',1)[-1] for k in a))"
-    # want: 128 Counter({'cog': 108, 'hex': 20})
+    # want: 124 Counter({'cog': 108, 'hex': 16})
 
 **Why this check exists (found 2026-08-28, fixed the same day).** `gen_readme.py` imports
 `gen_stac.py` for its measured constants and pops `READY_LAYERS` first, because the README
@@ -827,7 +858,7 @@ documents the full phase-1 set. `gen_stac.py` wrote both JSON files as **module-
 effects**, so that import re-ran the generation ungated and overwrote the already-gated
 `/tmp/inhabit-v4-2024-stac.json` with the **216-asset** document — 108 hex assets, **88 of which
 404**. `contextlib.redirect_stdout` in `gen_readme.py` swallowed the second "wrote" line, so the
-only visible output was the first run's truthful `128 assets`, and every static gate passed
+only visible output was the first run's truthful asset count, and every static gate passed
 (`verify-stac.py --no-data` cannot know which hex prefixes exist). Running the two generators in
 the order documented here was by itself sufficient to publish a collection advertising hex that
 does not exist — the exact failure the `READY_LAYERS` gate was built to prevent.
@@ -851,15 +882,16 @@ and the hexed class set is confirmed a subset. It has never run against live hex
 **6.** Tick the remaining #610 acceptance criteria and merge PR #620.
 
 ⚠️ **The live published leaf is still the 2026-08-27 48-COG interim.** Step 5 is its first update
-since; it moves 48 -> 128 assets in one write. Byte-exact backups of the three live documents were
-taken 2026-08-28 to the session scratchpad, but re-fetch before overwriting if that is gone.
+since; it moves 48 -> 124 assets in one write. Byte-exact backups of the three live documents were
+re-fetched 2026-08-28 20:46Z and match the recorded sizes (1740 / 147949 / 14718 B, plus the
+16295 B root catalog); re-fetch again before overwriting if that scratchpad is gone.
 
 Shape: a bucket-level meta-collection `public-invasives` (one `child`) over the leaf collection
 `inhabit-v4-2024`, which carries one COG and one hex asset per (species × product), keyed
-`<species>-<product>-{cog,hex}`. **The delivered collection is 128 assets** — 108 COGs (all nine
-products x all 12 species) + 20 hex (the canonical four products x the 5 shipped species). 216
+`<species>-<product>-{cog,hex}`. **The delivered collection is 124 assets** — 108 COGs (all nine
+products x all 12 species) + 16 hex (the canonical four products x the 4 shipped species). 216
 would be the full extent if every layer were hexed; that is not what ships, on either axis — see
-the two scope cuts above (products, then species).
+the scope cuts above (products, then species, then medusahead for schedule).
 `MEASURED` covers all 108 layers regardless. Two levels rather than one because `public-invasives` is a domain
 bucket that will plausibly hold INHABIT Global V1 and the other 247 v4 species later; collapsing
 the collection onto the bucket root would have to be undone then.

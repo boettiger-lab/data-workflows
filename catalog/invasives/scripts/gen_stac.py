@@ -576,8 +576,9 @@ for slug, sci, common, _sb in SPECIES:
                 hexed_species.append(common)
 
 # The hex can legitimately cover fewer species than the COGs (the fan-out was scoped down to the
-# five the road-bias audit clears -- see #610). Say which, by name: a consumer whose species has a
-# COG but no hex must be able to tell "not built" from "build broken" without reading the issue.
+# five the road-bias audit clears, then to four when it was stopped for schedule -- see #610).
+# Say which, by name: a consumer whose species has a COG but no hex must be able to tell
+# "not built" from "build broken" without reading the issue.
 _n_sp = len(SPECIES)
 if n_hex == 0:
     HEX_COVERAGE = ("**No H3 hex assets are published yet** -- the COGs are final and the res-10 "
@@ -590,17 +591,19 @@ else:
         f"⚠️ **The H3 hex covers {len(hexed_species)} of the {_n_sp} species, not all of them** "
         f"({n_hex} hex assets). Hexed: {', '.join(hexed_species)}. For every other species the "
         f"COGs are complete and final, but there is **no hex**, so an `h8` join returns nothing "
-        f"for them -- read the COG instead. This is scope, not breakage: the fan-out was stopped "
-        f"deliberately after the species the road-bias audit clears for distance-to-road work, "
-        f"and the rest is tracked as separate work.\n\n"
+        f"for them -- read the COG instead. This is scope, not breakage: the fan-out was scoped to "
+        f"the species the road-bias audit clears for distance-to-road work, then stopped for "
+        f"schedule one species short of that set, and the rest is tracked as separate work.\n\n"
         f"⚠️ **Some un-hexed species have partial hex prefixes left under the bucket by the "
         f"stopped fan-out. That is build residue, not data, and is deliberately not declared "
-        f"here.** A residue prefix can even look finished — one species has all six `h0` "
-        f"partitions for a product whose sibling products never ran — so a directory listing is "
-        f"not evidence of a published layer. **The assets declared in this collection are the "
-        f"published data; anything else under the bucket is intermediate.** Re-running a species "
-        f"overwrites its residue in place (the writes are idempotent, verified against the "
-        f"interrupted first run), so it is left rather than deleted.\n\n")
+        f"here.** A residue prefix can look substantially or entirely finished: one un-hexed "
+        f"species carries **three of the four canonical products at all six `h0`**, short only "
+        f"one partition of the fourth, and another has two products at all six `h0`. A directory "
+        f"listing is therefore not evidence of a published layer, and neither is a complete-looking "
+        f"set of partitions. **The assets declared in this collection are the published data; "
+        f"anything else under the bucket is intermediate.** Re-running a species overwrites its "
+        f"residue in place (the writes are idempotent, verified against the interrupted first "
+        f"run), so it is left rather than deleted.\n\n")
 
 SPECIES_TABLE = "; ".join(
     f"{sci} ({common}, ScienceBase {sb})" for _s, sci, common, sb in SPECIES)
