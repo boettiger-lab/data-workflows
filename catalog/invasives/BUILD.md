@@ -663,7 +663,7 @@ after start rather than 12–18 h. The original estimate came from a *single* pa
 spread here (5x fastest-to-slowest) is why one sample could not have priced it. **Cost estimates
 for a fan-out need a distribution, not a sample.**
 
-## Phase-2 COGs — the other 60 layers
+## Phase-2 COGs — the other 60 layers (IN scope and done; only their hex was dropped)
 
 `k8s/inhabit-v4/cog-phase2.yaml`, applied 2026-08-27, **concurrent with the hex fan-out**. Safe:
 different product keys, reads `raw/` and writes keys phase 1 never touches, and 3 pods x 4cpu/16Gi
@@ -699,24 +699,39 @@ that species' MESS retention, not asserted as a failure.
 data for this species here" from "this pod died", so the Job check comes first: Complete with an
 empty `failedIndexes`. A build is done only when both are clean.
 
-## Phase-2 hex — written, NOT applied
+## ⛔ Phase-2 hex — OUT OF SCOPE (decided 2026-08-28). Do NOT apply.
 
-`k8s/inhabit-v4/hex-phase2.yaml`. Same 72 completions (12 species x 6 h0), 5 products per pod
-instead of 4, same reducer split (`mean` on the 0-100 index, `mode` on the class codes — `first`
-and `tenth` have the identical value domain to `fifth`, so identical treatment).
+`k8s/inhabit-v4/hex-phase2.yaml` stays in the repo, tested and applied-ready, but **it is not a
+build step for #610 and must not be applied as one.** This section previously read "apply once
+`inhabit-v4-hex` reports Complete 72/72"; that instruction is withdrawn.
 
-⛔ **Apply only once `inhabit-v4-hex` reports Complete 72/72.** One res-10 fan-out at a time: each
-holds 24 x 192Gi, and two concurrently is antisocial on shared nodes even though `geo-workflows`
-enforces no quota.
+**What is dropped:** the res-10 hex of the other 60 layers — the three unmasked continuous surfaces
+and `integrated-binary-first` / `-tenth`, x 12 species. **What is not dropped:** their COGs. All
+108 are built, grid-verified and published, so the unmasked surfaces and the full threshold band
+stay inspectable at full resolution. Only the `h8`-joinable form is dropped.
 
-**Budget, re-priced 2026-08-28 against phase 1's *observed* rate rather than its single-partition
-extrapolation.** The original figure here (~7.25 h per pod, ~22 h) scaled the ~6 h/pod estimate by
-5/4 products. Phase 1's actual median is **14.1 h per pod**, so the same 5/4 scaling gives
-**~17.6 h per pod, 3 waves, ~53 h** — not 22 h. Phase 2 is the `first`/`tenth` sensitivity band
-plus the unmasked continuous set; none of it is the canonical layer, and none of it is on the
-critical path for the IRA tabulation, which reads `-masked` + `fifth`. **Decide whether to spend
-~53 h of 24 x 192Gi on it before applying** — that is a scheduling call for the user, not a
-default.
+**Why.** Phase 2 was entirely sensitivity analysis. Every number the IRA tabulation reports comes
+from the canonical 48 (`-masked` is the stated IRA default, `fifth` the stated canonical threshold).
+The other 60 produce no headline figure — hexing them would only let two analyst choices be shown
+not to drive the result: where the threshold sits, and whether to mask to the training envelope.
+That value is conditional on whether #584/#588 reports a robustness section, which is not knowable
+from this issue. Building it speculatively against that uncertainty is the wrong order.
+
+**Cost if it is ever revived**, measured from per-product write timestamps across the 29 completed
+phase-1 pods rather than extrapolated: **~3.54 h per product per pod**, and a class raster costs the
+**same** as a continuous one (3.56 h vs 3.54 h) despite being 4x smaller on disk — the cost is
+`exact_extract` over the h0 cell count, not output size. So 5 products = **~17.7 h per pod, 3 waves,
+~53 h** of 24 x 192Gi. The earlier ~22 h figure here scaled the wrong base.
+
+**If only half is ever revived, revive the unmasked half.** An earlier draft of this ranked it the
+weaker of the two; the retention census above says the opposite — masked retention runs 33.6%
+(buffelgrass) to 100.0% (jointed goatgrass abundance, where masking did nothing at all), and the
+masked-vs-plain choice moves an area total more than any threshold choice does. And the `mode`
+reducer is **not** an argument against the threshold band: at ~1.55 source pixels per res-10 cell
+the plurality loss is small.
+
+Revival is additive — the COGs are published, no rebuild — and belongs in its own issue raised
+against whatever analysis turns out to need it.
 
 ## STAC
 
@@ -731,8 +746,10 @@ default.
 
 Shape: a bucket-level meta-collection `public-invasives` (one `child`) over the leaf collection
 `inhabit-v4-2024`, which carries one COG and one hex asset per (species × product), keyed
-`<species>-<product>-{cog,hex}` — **216 assets at full extent** (12 species x 9 products x 2), or
-96 for phase 1 alone. `MEASURED` covers all 108 layers, so no re-measurement is needed for phase 2. Two levels rather than one because `public-invasives` is a domain
+`<species>-<product>-{cog,hex}`. **The delivered collection is 156 assets** — 108 COGs (all nine
+products) + 48 hex (the canonical four). 216 would be the full extent if every layer were also
+hexed; that is not what ships, since the other 60 hex layers are out of scope (see above).
+`MEASURED` covers all 108 layers regardless. Two levels rather than one because `public-invasives` is a domain
 bucket that will plausibly hold INHABIT Global V1 and the other 247 v4 species later; collapsing
 the collection onto the bucket root would have to be undone then.
 

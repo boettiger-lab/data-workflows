@@ -591,6 +591,16 @@ DESCRIPTION = (
     "relative 0–100 index (`mean` reducer; aggregate with AVG, never SUM), plus a categorical "
     "`integrated-binary` map that thresholds and combines all three (`mode` reducer), at three "
     "percentile thresholds. Nine products per species, 108 layers.\n\n"
+    # What ships, stated plainly. Without this a consumer counting 108 COGs against 48 hex assets
+    # reads the collection as a half-finished build rather than a deliberate scope.
+    "**All 108 layers ship as COGs; 48 of them are also hexed to H3.** The hexed set is the "
+    "canonical one — the three `-masked` continuous surfaces plus `integrated-binary-fifth`, "
+    "per species — because those are the defaults every tabulation below is meant to read. The "
+    "other 60 (unmasked continuous, `first`/`tenth`) are COG-only **by design, not by "
+    "omission**: they exist so the masking and threshold choices stay inspectable at full "
+    "resolution, and hexing them would only serve a sensitivity analysis no current work "
+    "reports. An `h8` join therefore resolves for the canonical 48; for the other 60, read the "
+    "COG. Adding their hex later is additive and needs no rebuild.\n\n"
     "**`-masked` is the default for inventoried-roadless-area work.** The `-masked` variants "
     "suppress suitability outside the MESS training envelope (multivariate environmental "
     "similarity surface, Elith et al. 2010 — at least one predictor outside its training "

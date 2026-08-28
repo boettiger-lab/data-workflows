@@ -1,9 +1,24 @@
 # H3 res-10 hex for the INHABIT v4 PHASE-2 products (data-workflows #610).
 #
-# ⛔ DO NOT APPLY UNTIL `inhabit-v4-hex` (phase 1) IS Complete. One res-10 hex fan-out at a time:
-# each holds 24 x 192Gi, and two concurrently is antisocial on shared nodes even though
-# geo-workflows enforces no quota. Check with a listing that PRINTS A HEADER ROW — `kubectl get
-# jobs | grep hex` printing nothing can mean kubectl failed, not that the lock is free.
+# ⛔⛔ OUT OF SCOPE — DO NOT APPLY. Decided 2026-08-28 (see #610 scoping note and
+# catalog/invasives/BUILD.md). This manifest is kept because it is written and tested, NOT because
+# it is a pending build step. #610 ships the canonical 48 hex layers only.
+#
+# What it would produce: the res-10 hex of the other 60 layers — the three unmasked continuous
+# surfaces and integrated-binary-first/-tenth. Their COGs ARE built and published; only the
+# h8-joinable form was dropped. So reviving this is additive with no rebuild.
+#
+# Why it was dropped: it is entirely sensitivity analysis. Every number the IRA tabulation reports
+# comes from the canonical 48 (`-masked` default, `fifth` canonical). Its value is conditional on
+# whether #584/#588 reports a robustness section, which #610 cannot know.
+#
+# If revived, raise it as its own issue, and if only half is run, run the UNMASKED half — masked
+# retention runs 33.6%-100.0% by species, so that choice moves an area total more than the
+# threshold choice does.
+#
+# Before applying it in any future issue, the phase-1 hex lock still applies: one res-10 fan-out at
+# a time, each holds 24 x 192Gi. Check with a listing that PRINTS A HEADER ROW — `kubectl get jobs
+# | grep hex` printing nothing can mean kubectl failed, not that the lock is free.
 #
 #   kubectl -n geo-workflows get job inhabit-v4-hex    # want Complete 72/72, no failedIndexes
 #
@@ -11,8 +26,11 @@
 # localizing each COG once. Fewer, longer pods beat 360 short ones: the COG localize is the fixed
 # cost and this amortizes it 5x.
 #
-# Budget from phase-1's measured rate (~1h27m per species x product x h0): ~7.25 h per pod, 3 waves
-# at parallelism 24, so ~22 h. Longer than phase 1 because it is 5 products rather than 4.
+# Budget, re-measured 2026-08-28 from per-product write timestamps across the 29 completed phase-1
+# pods: ~3.54 h per product per pod, and a class raster costs the SAME as a continuous one (3.56 vs
+# 3.54 h) despite being 4x smaller on disk — the cost is exact_extract over the h0 cell count, not
+# output size. So 5 products = ~17.7 h per pod, 3 waves at parallelism 24, ~53 h. The earlier
+# ~22 h figure scaled the wrong base (a single partition set, not a distribution).
 #
 # ⛔ THE h0 SET IS 12,14,20,50,71,78 — NOT the RAP precedent's (12 20 50 71).
 # That list is missing 14 (Nashville/Houston/Miami) and 78 (Boston/Detroit/Pittsburgh/Maine), and
