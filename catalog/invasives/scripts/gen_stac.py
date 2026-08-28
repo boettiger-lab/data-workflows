@@ -767,8 +767,16 @@ bucket = {
     ],
 }
 
-json.dump(coll, open("/tmp/inhabit-v4-2024-stac.json", "w"), indent=2)
-json.dump(bucket, open("/tmp/invasives-bucket-stac.json", "w"), indent=2)
-print(f"wrote /tmp/inhabit-v4-2024-stac.json  — {len(assets)} assets "
-      f"({len(assets) - n_hex} COG, {n_hex} hex)")
-print("wrote /tmp/invasives-bucket-stac.json — bucket collection, 1 child")
+# ⛔ Guarded, and it must stay guarded. `gen_readme.py` imports this module for its measured
+# constants, and pops READY_LAYERS first because the README documents the full phase-1 set. When
+# these writes ran at import time, that import silently overwrote an already-gated
+# /tmp/inhabit-v4-2024-stac.json with the UNGATED 216-asset document — 108 hex assets, 88 of which
+# 404 — and `contextlib.redirect_stdout` in gen_readme swallowed the second "wrote" line, so the
+# only visible output was the first run's truthful "128 assets". Running the two generators in the
+# documented order was enough to publish a collection advertising hex that does not exist.
+if __name__ == "__main__":
+    json.dump(coll, open("/tmp/inhabit-v4-2024-stac.json", "w"), indent=2)
+    json.dump(bucket, open("/tmp/invasives-bucket-stac.json", "w"), indent=2)
+    print(f"wrote /tmp/inhabit-v4-2024-stac.json  — {len(assets)} assets "
+          f"({len(assets) - n_hex} COG, {n_hex} hex)")
+    print("wrote /tmp/invasives-bucket-stac.json — bucket collection, 1 child")

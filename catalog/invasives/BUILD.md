@@ -814,6 +814,29 @@ collection advertises hex that 404s:
     READY_LAYERS="$RL" python3 catalog/invasives/scripts/gen_stac.py   # expect 128 assets (108 COG, 20 hex)
     python3 catalog/invasives/scripts/gen_readme.py
 
+⛔ **Count the assets on disk — the "wrote ... 128 assets" line is not evidence.** Verify the file,
+not the stdout:
+
+    python3 -c "import json,collections; a=json.load(open('/tmp/inhabit-v4-2024-stac.json'))['assets']; \
+    print(len(a), collections.Counter(k.rsplit('-',1)[-1] for k in a))"
+    # want: 128 Counter({'cog': 108, 'hex': 20})
+
+**Why this check exists (found 2026-08-28, fixed the same day).** `gen_readme.py` imports
+`gen_stac.py` for its measured constants and pops `READY_LAYERS` first, because the README
+documents the full phase-1 set. `gen_stac.py` wrote both JSON files as **module-level side
+effects**, so that import re-ran the generation ungated and overwrote the already-gated
+`/tmp/inhabit-v4-2024-stac.json` with the **216-asset** document — 108 hex assets, **88 of which
+404**. `contextlib.redirect_stdout` in `gen_readme.py` swallowed the second "wrote" line, so the
+only visible output was the first run's truthful `128 assets`, and every static gate passed
+(`verify-stac.py --no-data` cannot know which hex prefixes exist). Running the two generators in
+the order documented here was by itself sufficient to publish a collection advertising hex that
+does not exist — the exact failure the `READY_LAYERS` gate was built to prevent.
+
+The writes in `gen_stac.py` are now guarded by `if __name__ == "__main__":`, so the import is
+side-effect-free and the order no longer matters. Keep them guarded. This is the third instance of
+the same class of defect in this build (`suitability_class` DOUBLE, `h0` uint64, and now this):
+**a generator's own report of what it did is not evidence that it did it.** Measure the artifact.
+
 **5. Publish and gate:**
 
     scripts/verify-stac.py --no-data /tmp/inhabit-v4-2024-stac.json     # pre-publish
