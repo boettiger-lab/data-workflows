@@ -784,19 +784,59 @@ against whatever analysis turns out to need it.
 ## STAC
 
 `scripts/gen_stac.py` writes both documents to /tmp; nothing STAC-shaped is committed to this repo
-(AGENTS.md Hard Boundary 1). Publish with:
+(AGENTS.md Hard Boundary 1).
 
-    python3 catalog/invasives/scripts/gen_stac.py
+### CLOSEOUT RUNBOOK — the exact remaining steps for #610
+
+Everything before this is done. Pick up here.
+
+**1. Wait for `inhabit-v4-hex` index 25** (medusahead h0-index 14, the last shipped partition).
+Check `completedIndexes` and do the arithmetic — do NOT grep it, `^2[0-9]-` matches `26-29` and
+gives a false completion:
+
+    kubectl -n geo-workflows get job inhabit-v4-hex -o jsonpath='{.status.completedIndexes}'
+    # want 25 present. Everything else outstanding belongs to #639.
+
+**2. Stop the job.** ⛔ Only once 25 is done — `parallelism: 0` would kill an active pod:
+
+    kubectl -n geo-workflows patch job inhabit-v4-hex --type=strategic -p '{"spec":{"parallelism":0}}'
+
+**3. Coverage gate** — 5 species x 4 products, six CONUS h0 each:
+
+    bash catalog/invasives/scripts/check-coverage.sh
+
+**4. Generate.** `READY_LAYERS` must list exactly the 20 shipped (species|product) keys, or the
+collection advertises hex that 404s:
+
+    SHIPPED=(bromus_tectorum bromus_rubens bromus_japonicus bromus_arvensis taeniatherum_caput_medusae)
+    P1=(occurrence-masked abundance-masked high-abundance-masked integrated-binary-fifth)
+    RL=""; for s in "${SHIPPED[@]}"; do for p in "${P1[@]}"; do RL="${RL:+$RL,}$s|$p"; done; done
+    READY_LAYERS="$RL" python3 catalog/invasives/scripts/gen_stac.py   # expect 128 assets (108 COG, 20 hex)
+    python3 catalog/invasives/scripts/gen_readme.py
+
+**5. Publish and gate:**
+
+    scripts/verify-stac.py --no-data /tmp/inhabit-v4-2024-stac.json     # pre-publish
     rclone copyto /tmp/invasives-bucket-stac.json nrp:public-invasives/stac-collection.json
     rclone copyto /tmp/inhabit-v4-2024-stac.json  nrp:public-invasives/inhabit-v4-2024/stac-collection.json
     rclone copyto /tmp/invasives-README.md        nrp:public-invasives/README.md
-    scripts/verify-stac.py --bucket public-invasives --dataset inhabit-v4-2024
+    scripts/verify-stac.py --bucket public-invasives --dataset inhabit-v4-2024   # data-backed, must exit 0
+
+The data-backed run is where `values`-vs-`DISTINCT` on `suitability_class` stops being a no-op
+and the hexed class set is confirmed a subset. It has never run against live hex.
+
+**6.** Tick the remaining #610 acceptance criteria and merge PR #620.
+
+⚠️ **The live published leaf is still the 2026-08-27 48-COG interim.** Step 5 is its first update
+since; it moves 48 -> 128 assets in one write. Byte-exact backups of the three live documents were
+taken 2026-08-28 to the session scratchpad, but re-fetch before overwriting if that is gone.
 
 Shape: a bucket-level meta-collection `public-invasives` (one `child`) over the leaf collection
 `inhabit-v4-2024`, which carries one COG and one hex asset per (species × product), keyed
-`<species>-<product>-{cog,hex}`. **The delivered collection is 156 assets** — 108 COGs (all nine
-products) + 48 hex (the canonical four). 216 would be the full extent if every layer were also
-hexed; that is not what ships, since the other 60 hex layers are out of scope (see above).
+`<species>-<product>-{cog,hex}`. **The delivered collection is 128 assets** — 108 COGs (all nine
+products x all 12 species) + 20 hex (the canonical four products x the 5 shipped species). 216
+would be the full extent if every layer were hexed; that is not what ships, on either axis — see
+the two scope cuts above (products, then species).
 `MEASURED` covers all 108 layers regardless. Two levels rather than one because `public-invasives` is a domain
 bucket that will plausibly hold INHABIT Global V1 and the other 247 v4 species later; collapsing
 the collection onto the bucket root would have to be undone then.
