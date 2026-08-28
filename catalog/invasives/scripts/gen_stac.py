@@ -364,7 +364,11 @@ def hex_cols(value_col):
              "description": "H3 cell ID at resolution 8 (parent rollup; the catalog's universal "
                             "join key -- roadless areas, wildfire hazard and land cover all "
                             "carry h8)."},
-            {"name": "h0", "type": "int64",
+            # uint64, matching h10/h9/h8 -- measured with pyarrow against a landed phase-1
+            # partition on 2026-08-28, not inherited from the res-5 dtype probe (which reported
+            # BIGINT for h0 and was wrong for the real run). verify-stac.py does NOT gate declared
+            # column types against the data, so this one has to be right by construction.
+            {"name": "h0", "type": "uint64",
              "description": "H3 cell ID at resolution 0; hive partition key."}]
 
 
@@ -431,7 +435,16 @@ def cog_asset(slug, sci, common, product):
             "description": (
                 f"Relative habitat suitability for {group} of {sci} ({common}), 0–100. "
                 f"Source-measured range {m['min']}–{m['max']}; {pct_data:.2f}% of the grid is "
-                f"data ({m['nodata_px']:,} px are NoData 255). **Relative index, not a "
+                # The NoData clause must say WHY, and it differs by variant. On a `-masked`
+                # product much of the 255 is deliberate MESS suppression, not absence of
+                # coverage, and retention varies 3x by species -- so a bare "x% is NoData"
+                # reads as a coverage statement and understates the restriction. Dropping
+                # this when the generator was generalised to all nine products was a
+                # regression against the published 48-asset document; restored 2026-08-28.
+                f"data ({m['nodata_px']:,} px are NoData 255"
+                + (" \u2014 outside CONUS, or suppressed outside the MESS training envelope"
+                   if is_masked(product) else " \u2014 outside CONUS")
+                + f"). **Relative index, not a "
                 f"probability and not an amount.** " + SRC),
         }
         retained = MASKED_RETENTION[f"{slug}|{product[:-len('-masked')] if masked else product}"]

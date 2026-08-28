@@ -528,6 +528,10 @@ Carry `sci:doi` = `10.5066/P14HNEJF` (data release) and the *NeoBiota* method DO
    1.9 GB** for a single continuous product in one h0. So ~6 h per pod, ~12–18 h for the fan-out,
    and roughly 230 GB across the 48 phase-1 layers. That interrupted run had written 3 of its 4
    products; the re-run overwrites the same partitions, so it is idempotent, not additive.
+
+   ⚠️ **That estimate was 2.3x optimistic — see the mid-run audit below.** The real figure across
+   29 completed pods is a **14.1 h median**, not ~6 h. Idempotency, however, held exactly as
+   claimed: no hex object in S3 predates the re-run's start.
 6. STAC. `scripts/gen_stac.py` emits both files; `scripts/verify-stac.py --no-data` passes on both
    (0 findings). **Not yet published** — the data checks need the hex live, so publish and re-run
    the full gate after step 5 clears its coverage check.
@@ -582,12 +586,82 @@ border strip, against 1.9 GB for h0=20). Checked immediately rather than trustin
 | `suitability` range | 0 – 90, none outside 0–100 |
 | NULLs in `suitability`, `h9`, `h8` | 0 |
 | distinct `h0` in the partition | 1 |
-| declared vs actual types | `suitability` DOUBLE, `h10`/`h9`/`h8` UBIGINT, `h0` BIGINT — all match STAC |
+| declared vs actual types | `suitability` DOUBLE, `h10`/`h9`/`h8`/`h0` **all UBIGINT** — see the correction below |
 
 **`min` is 0, so the `mean` reducer emits zero-suitability cells rather than dropping them.** Worth
 recording because the one pre-existing partition (`bromus_tectorum` h0=20) has `min` 1, which looks
 like zeros being filtered until you check a second partition. They are not; that partition simply
 has no all-zero cell.
+
+### ⚠️ Correction 2026-08-28 — `h0` is UBIGINT, and the res-5 probe was wrong about it
+
+The row above originally read `h0 BIGINT`, carried over from the res-5 dtype probe's output
+(line 556). Re-measured with **pyarrow against a landed phase-1 partition**, not duckdb's
+rendering and not the probe:
+
+    bromus_tectorum/integrated-binary-fifth/hex/h0=576812596024311807/data_0.parquet
+      suitability_class  double
+      h10 uint64   h9 uint64   h8 uint64   h0 uint64
+
+So `h0` is `uint64` like the other three. `gen_stac.py` declared it `int64`; **fixed 2026-08-28.**
+
+Why this had to be caught by hand: `verify-stac.py` HARD-checks the `values` array against the
+ingested `DISTINCT`, but it does **not** compare a declared `table:columns` type against the data.
+So a wrong type declaration passes every gate in the build. This is the same failure mode the
+`suitability_class` DOUBLE finding hit, one column over — that one was caught only because the
+probe happened to print the type. The probe printed `h0` too, and printed it wrong, because at
+res 5 with `--parent-resolutions 0` the h0 column takes a different code path than it does as the
+hive partition key of a res-10 write.
+
+**Rule for the rest of this build: type declarations are measured against a landed partition, not
+against a probe.**
+
+## Mid-run audit 2026-08-28 — nothing broke, and the schedule is 2.3x over
+
+Full health check at 29/72, ~21 h into the fan-out. Recorded because "the pods say Running" is not
+evidence: a hung pod reports Running, and `rclone lsf` exits 0 on a path that does not exist.
+
+**Job integrity.** 53 pods, 29 terminated, **all exit 0, zero restarts, zero abnormal events**,
+`failedIndexes` empty. The job's `failed: 1` counter is a pod already garbage-collected; no index
+has a duplicate pod, so nothing was lost.
+
+**Idempotency held.** The claim in step 5 above was that the re-run overwrites the interrupted
+2026-08-26 partitions rather than leaving stale ones beside them. Verified by timestamp: **no hex
+object in the bucket predates 2026-08-27 22:40**, the run's own first write. `bromus_tectorum` —
+the species that interrupted run touched — carries a complete, freshly written 6 x 4 = 24 files.
+
+**Output shape.** 141 parquet objects, 70.5 GB, zero empty, every one named `data_0.parquet`. Every
+incomplete (species x h0) maps to a pod still in flight, and its missing products are always the
+*tail* of the manifest's `PRODUCTS` order — consistent with sequential writes, not dropped output.
+
+**Data quality**, sampled on one class and one continuous partition:
+
+| check | class | continuous |
+|---|---|---|
+| value set / range | exactly `{-1,0,1,2,3}`, all integral | 4 – 87.6, inside 0–100 |
+| NoData leak (255 / −128) | none | none |
+| NULLs, any column | 0 | 0 |
+| rows vs `COUNT(DISTINCT h10)` | equal — no duplicate cells | equal |
+| distinct `h0` in partition | 1 | 1 |
+
+**COGs 108/108** — all 9 products x 12 species, none zero-byte.
+
+**Three phase-2 COG pods (indices 0, 5, 8) had lost their logs to node rotation**, so their
+class-set gate output was unreadable. The gate `sys.exit(1)`s under `set -euo pipefail`, so exit 0
+already proved it passed — but the six COGs were read directly anyway rather than argued about:
+grid `57745x25711 @ 0.001096100359`, `int8`, nodata −128, 7 overviews, class set a subset, 6/6.
+
+**Published STAC** all resolves; root catalog 66 children with `public-invasives` registered;
+`verify-stac.py` clean on both the live leaf and a fresh regeneration.
+
+**The one defect found was a metadata one** — `h0` declared `int64` against `uint64` on disk. See
+the correction above.
+
+**The schedule, measured across the 29 completed pods:** median **14.1 h**, mean 13.8 h, range
+4.1–20.4 h — against a ~6 h budget. Throughput ~1.7 pods/h at 24 slots, so phase 1 lands ~45 h
+after start rather than 12–18 h. The original estimate came from a *single* partition set; the
+spread here (5x fastest-to-slowest) is why one sample could not have priced it. **Cost estimates
+for a fan-out need a distribution, not a sample.**
 
 ## Phase-2 COGs — the other 60 layers
 
@@ -633,8 +707,16 @@ and `tenth` have the identical value domain to `fifth`, so identical treatment).
 
 ⛔ **Apply only once `inhabit-v4-hex` reports Complete 72/72.** One res-10 fan-out at a time: each
 holds 24 x 192Gi, and two concurrently is antisocial on shared nodes even though `geo-workflows`
-enforces no quota. Budget from phase 1's measured rate: ~7.25 h per pod, 3 waves, **~22 h** —
-longer than phase 1 only because it is 5 products rather than 4.
+enforces no quota.
+
+**Budget, re-priced 2026-08-28 against phase 1's *observed* rate rather than its single-partition
+extrapolation.** The original figure here (~7.25 h per pod, ~22 h) scaled the ~6 h/pod estimate by
+5/4 products. Phase 1's actual median is **14.1 h per pod**, so the same 5/4 scaling gives
+**~17.6 h per pod, 3 waves, ~53 h** — not 22 h. Phase 2 is the `first`/`tenth` sensitivity band
+plus the unmasked continuous set; none of it is the canonical layer, and none of it is on the
+critical path for the IRA tabulation, which reads `-masked` + `fifth`. **Decide whether to spend
+~53 h of 24 x 192Gi on it before applying** — that is a scheduling call for the user, not a
+default.
 
 ## STAC
 
