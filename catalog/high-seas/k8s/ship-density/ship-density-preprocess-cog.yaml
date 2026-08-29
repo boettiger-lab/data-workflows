@@ -111,10 +111,15 @@ spec:
           # Trim 3 columns per side -> exactly 72000 x 33998 spanning exactly 360.0 deg.
           # Pixel-aligned, so no resampling. -a_srs normalizes the ESRI GCS_WGS_1984 PE string
           # to EPSG:4326 (same datum, tag rewrite only, no reprojection).
+          # RESAMPLING=AVERAGE is NOT optional. The COG driver defaults to CUBIC,
+          # whose negative side lobes ring below zero on thin bright lanes over
+          # near-zero ocean; the first build shipped negative pixels at every
+          # overview level and had to be rebuilt (issue #641).
           gdal_translate -of COG \
             -projwin -180.000311275 85.002647937 179.999688725 -84.987352063 \
             -a_srs EPSG:4326 \
             -a_nodata 2147483647 \
+            -co RESAMPLING=AVERAGE \
             -co COMPRESS=ZSTD -co LEVEL=9 -co PREDICTOR=2 \
             -co BLOCKSIZE=512 -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
             "${SRC}" "${WORK}/${LAYER}-cog.tif"

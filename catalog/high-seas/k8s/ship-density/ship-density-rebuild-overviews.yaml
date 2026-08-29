@@ -1,0 +1,251 @@
+# Rebuild the overview pyramids on all six ship-density COGs (issue #641).
+#
+# CAUSE (measured, not assumed). `gdal_translate -of COG` defaults to
+# RESAMPLING=CUBIC. The cubic kernel has negative lobes, and this product is
+# thin bright shipping lanes over near-zero ocean — the worst case for ringing —
+# so every overview level undershot below zero around every lane.
+#
+# It is NOT the nodata story: the preprocess job measured nodata_px = 0 on all
+# six layers, so no INT32_MAX pixel was ever averaged into anything. A kernel
+# with all-nonnegative weights cannot produce a negative from nonnegative data;
+# only a kernel with negative lobes can.
+#
+# FIX. Rewrite each COG with RESAMPLING=AVERAGE. Average is the right reducer
+# for a count field viewed zoomed out (mean AIS positions per source pixel), it
+# is what cng-datasets itself uses as its raster default, and its weights are
+# all nonnegative so it cannot ring negative.
+#
+# ⚠️ OVERVIEWS=IGNORE_EXISTING IS LOAD-BEARING. With the default OVERVIEWS=AUTO
+# the COG driver copies the source's existing overviews verbatim and silently
+# ignores RESAMPLING — the job would run green and change nothing. Verified
+# locally against a synthetic stand-in before this manifest was written.
+#
+# Native pixels are untouched: the job re-asserts each layer's measured SUM and
+# MAX (the acceptance truth published on the PR) and refuses to upload on any
+# mismatch. Nothing is published unless every overview level has zero negatives.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ship-density-rebuild-overviews
+  labels:
+    k8s-app: ship-density-rebuild-overviews
+spec:
+  completions: 6
+  parallelism: 3
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 6
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ship-density-rebuild-overviews
+    spec:
+      # No priorityClassName: default priority 0. These pods run minutes, but
+      # `opportunistic` (-2000000000) buys nothing here and only adds eviction
+      # churn (skill pod-preemption).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
+      restartPolicy: Never
+      containers:
+      - name: rebuild-overviews
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_CACHEMAX
+          value: '2048'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # index | layer | measured native SUM | measured native MAX
+          # SUM/MAX are the values the preprocess job measured and the PR
+          # published as the acceptance truth. They must survive untouched.
+          LAYERS=(
+            "leisure|2896072952371|2996838"
+            "oil-gas|561132077068|1359913"
+            "fishing|509901552478|1009771"
+            "passenger|59002510|112280"
+            "commercial|652072966152319|62652999"
+            "global|656040131736746|65468393"
+          )
+          IFS='|' read -r LAYER REF_SUM REF_MAX <<< "${LAYERS[$JOB_COMPLETION_INDEX]}"
+
+          COG="nrp:public-high-seas/ship-density/${LAYER}-cog.tif"
+          VSI="/vsis3/public-high-seas/ship-density/${LAYER}-cog.tif"
+          WORK=/tmp/work
+          mkdir -p "${WORK}"
+
+          echo "=== layer ${LAYER} (index ${JOB_COMPLETION_INDEX}) ==="
+
+          echo "--- inspect the PUBLISHED overviews (idempotency guard + before-evidence) ---"
+          set +e
+          python3 - "${VSI}" <<'PY'
+          import sys
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open(sys.argv[1])   # keep the dataset alive; a bare
+          b = ds.GetRasterBand(1)       # GetRasterBand() off a temporary invalidates the band
+          n = b.GetOverviewCount()
+          worst_neg = 0
+          for i in range(n):
+              ov = b.GetOverview(i)
+              # Only the coarsest few are cheap to pull over the network; they
+              # are also where the damage is most concentrated per pixel.
+              if ov.XSize * ov.YSize > 60_000_000:
+                  continue
+              a = ov.ReadAsArray()
+              neg = int((a < 0).sum())
+              print("  published 1/%-4d %-14s neg=%-9d min=%-14d max=%d"
+                    % (2 ** (i + 1), str(a.shape), neg, int(a.min()), int(a.max())))
+              worst_neg = max(worst_neg, neg)
+          # exit 9 == already clean, nothing to do
+          sys.exit(9 if worst_neg == 0 else 0)
+          PY
+          GUARD=$?
+          set -e
+          if [ "${GUARD}" -eq 9 ]; then
+            echo "SKIP: ${LAYER} overviews already have no negative pixels"
+            exit 0
+          fi
+          [ "${GUARD}" -eq 0 ] || { echo "guard failed with ${GUARD}"; exit "${GUARD}"; }
+
+          echo "--- localize ---"
+          rclone copyto "${COG}" "${WORK}/in.tif"
+          ls -l "${WORK}/in.tif"
+
+          echo "--- rewrite with AVERAGE overviews ---"
+          # OVERVIEWS=IGNORE_EXISTING forces regeneration. Without it the driver
+          # copies the corrupt pyramid and ignores RESAMPLING entirely.
+          # Creation options are byte-for-byte those of the original build, so
+          # only the pyramid changes.
+          gdal_translate -of COG \
+            -co RESAMPLING=AVERAGE \
+            -co OVERVIEWS=IGNORE_EXISTING \
+            -co COMPRESS=ZSTD -co LEVEL=9 -co PREDICTOR=2 \
+            -co BLOCKSIZE=512 -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+            "${WORK}/in.tif" "${WORK}/out.tif"
+          rm -f "${WORK}/in.tif"
+          ls -l "${WORK}/out.tif"
+
+          echo "--- verify (gates the upload) ---"
+          python3 - "${WORK}/out.tif" "${LAYER}" "${REF_SUM}" "${REF_MAX}" <<'PY'
+          import sys
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+
+          path, layer, ref_sum, ref_max = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+          ds = gdal.Open(path)
+          b = ds.GetRasterBand(1)
+          nod = b.GetNoDataValue()
+          xs, ys = ds.RasterXSize, ds.RasterYSize
+          fail = []
+
+          def scan(band, label):
+              """Block-wise scan so a 1/2 overview never lands in RAM whole."""
+              _, by = band.GetBlockSize()
+              by = max(by, 1)
+              total = 0
+              neg = nodata_n = 0
+              vmin = vmax = None
+              for yo in range(0, band.YSize, by):
+                  a = band.ReadAsArray(0, yo, band.XSize, min(by, band.YSize - yo))
+                  neg += int((a < 0).sum())
+                  nodata_n += int((a == nod).sum())
+                  total += int(a.astype(np.int64).sum())
+                  lo, hi = int(a.min()), int(a.max())
+                  vmin = lo if vmin is None else min(vmin, lo)
+                  vmax = hi if vmax is None else max(vmax, hi)
+              print("  %-14s %-16s neg=%-10d nodata=%-10d min=%-14d max=%d"
+                    % (label, "%dx%d" % (band.XSize, band.YSize), neg, nodata_n, vmin, vmax))
+              return total, neg, nodata_n, vmin, vmax
+
+          # 1. Native pixels must be untouched.
+          total, neg, nodata_n, vmin, vmax = scan(b, "native")
+          print("  native SUM=%d (ref %d)  MAX=%d (ref %d)" % (total, ref_sum, vmax, ref_max))
+          if total != ref_sum:
+              fail.append("native SUM %d != published reference %d" % (total, ref_sum))
+          if vmax != ref_max:
+              fail.append("native MAX %d != published reference %d" % (vmax, ref_max))
+          if neg:
+              fail.append("native has %d negative pixels" % neg)
+          native_max = vmax
+
+          # 2. Structure must still be a COG.
+          n_ov = b.GetOverviewCount()
+          bx, by = b.GetBlockSize()
+          print("  overview levels=%d  blocksize=%dx%d  nodata=%s" % (n_ov, bx, by, nod))
+          if nod != 2147483647:
+              fail.append("nodata is %s, expected 2147483647 (the hex job and STAC declare it)" % nod)
+          if n_ov < 6:
+              fail.append("only %d overview levels" % n_ov)
+          if bx != 512 or by != 512:
+              fail.append("block size %dx%d is not 512x512" % (bx, by))
+
+          # 3. Every overview level: no negatives, and no value outside the
+          #    native range (an averaging kernel cannot exceed it; a ringing one can).
+          for i in range(n_ov):
+              _, oneg, onod, omin, omax = scan(b.GetOverview(i), "overview 1/%d" % (2 ** (i + 1)))
+              if oneg:
+                  fail.append("overview 1/%d has %d negative pixels (min %d)"
+                              % (2 ** (i + 1), oneg, omin))
+              if omin < 0:
+                  fail.append("overview 1/%d min %d < 0" % (2 ** (i + 1), omin))
+              if omax > native_max:
+                  fail.append("overview 1/%d max %d exceeds native max %d"
+                              % (2 ** (i + 1), omax, native_max))
+
+          if fail:
+              print("VERIFY FAILED for %s:" % layer)
+              for f in fail:
+                  print("  - " + f)
+              sys.exit(1)
+          print("VERIFY OK %s: native unchanged, %d overview levels, zero negatives"
+                % (layer, n_ov))
+          PY
+
+          echo "--- publish ---"
+          rclone copyto "${WORK}/out.tif" "${COG}"
+          rclone lsl "${COG}"
+          echo "DONE ${LAYER}"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 16Gi
+            ephemeral-storage: 40Gi
+          limits:
+            cpu: '8'
+            memory: 16Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

@@ -171,7 +171,11 @@ def build(rows=None):
                 + "Cloud-optimized GeoTIFF, EPSG:4326, 72000 x 33998 at 0.005 degrees "
                   "(about 500 m at the equator). Trimmed from the 360.03-degree source grid to "
                   "exactly 360.0 degrees; the source overshot both sides of the antimeridian by "
-                  "about 3 columns. Coverage stops at about 85 degrees north and south."
+                  "about 3 columns. Coverage stops at about 85 degrees north and south. "
+                  "Overviews use AVERAGE resampling, rebuilt 2026-08-29: the COG driver's "
+                  "default CUBIC has negative side lobes and rang below zero around every "
+                  "shipping lane on this near-zero-ocean field (issue #641). Do not rebuild "
+                  "them without -co RESAMPLING=AVERAGE -co OVERVIEWS=IGNORE_EXISTING."
                 + extra
             ),
             "roles": ["data"],
