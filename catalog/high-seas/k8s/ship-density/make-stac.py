@@ -48,12 +48,14 @@ LAYERS = {
         title="Passenger ships",
         cog_sum=59002510, max=112280, hex_sum=59002509,
         vessels=["PASSENGER SHIP", "RO-RO/PASSENGER SHIP"],
-        note="WARNING: this layer is anomalously sparse upstream. Its total is four orders of "
-             "magnitude below fishing and seven below commercial, and its maximum cell value is "
-             "likewise far below theirs, so the layer is uniformly small rather than merely "
-             "concentrated. Note also that PASSENGER/CARGO SHIP is classified under commercial, "
-             "not here. Do NOT read this as total passenger traffic and do NOT compare it "
-             "like-for-like against the other categories.",
+        note="SCALE CAVEAT: this layer's magnitudes are far too LOW to be literal AIS position "
+             "counts. Its whole global total is equivalent to 0.61 vessels transmitting at the AIS "
+             "Class A protocol maximum for the full period, where fishing, oil-gas and leisure sit "
+             "at 5,000 to 30,000 vessel-equivalents. Its spatial pattern is nonetheless sound: the "
+             "top cells are the world's busiest ferry hubs (Singapore, Merak-Bakauheni, Piraeus, "
+             "Sydney, Hong Kong, Dover, Istanbul, Bali), correctly ranked. So use it for relative "
+             "geography, not for absolute counts, and note PASSENGER/CARGO SHIP is classified "
+             "under commercial. See the collection description on cross-layer comparison.",
     ),
     "commercial": dict(
         title="Commercial ships",
@@ -70,7 +72,14 @@ LAYERS = {
                  "PASSENGER/CARGO SHIP", "LIVESTOCK CARRIER", "SHUTTLE TANKER",
                  "RO-RO/CONTAINER CARRIER", "WATER TANKER", "ORE/OIL CARRIER", "LIMESTONE CARRIER"],
         note="This layer is 99.4% of the global layer, so commercial and global are very nearly "
-             "the same surface and are not independent signals.",
+             "the same surface and are not independent signals. SCALE CAVEAT: its magnitudes are "
+             "too HIGH to be literal AIS position counts. The total requires 6.7 MILLION vessels "
+             "transmitting at the AIS Class A protocol maximum (one message per 2 seconds), at "
+             "100% duty, for the entire six years. Even a generous 200,000-vessel world fleet "
+             "under those same maximal assumptions is exceeded 33x. The values are reproduced "
+             "faithfully from upstream (they match the upstream ESRI sidecar means to 0.008%, the "
+             "antimeridian trim), so this is a property of the source, not of this conversion. "
+             "See the collection description on cross-layer comparison.",
     ),
     "global": dict(
         title="All vessel types combined",
@@ -78,7 +87,9 @@ LAYERS = {
         vessels=["all ship types combined"],
         note="Verified 2026-08-28: the five category layers sum to this layer EXACTLY at pixel "
              "level (residual 0 across 2.45e9 pixels), so the categories are exhaustive and there "
-             "is no unclassified remainder. Note commercial alone accounts for 99.4%.",
+             "is no unclassified remainder. Note commercial alone accounts for 99.4%, and this "
+             "layer therefore inherits commercial's scale problem: see that asset's note and the "
+             "collection description.",
     ),
 }
 ORDER = ["leisure", "oil-gas", "fishing", "passenger", "commercial", "global"]
@@ -224,8 +235,24 @@ def build(rows=None):
             "- The five category layers sum to the global layer EXACTLY (verified at pixel level, "
             "residual 0). Commercial alone is 99.4% of global, so commercial and global are "
             "nearly the same surface.\n"
-            "- The passenger layer is anomalously sparse upstream, four orders of magnitude below "
-            "fishing. Do not read it as total passenger traffic. See that asset's description.\n"
+            "- DO NOT COMPARE ABSOLUTE MAGNITUDES ACROSS LAYERS, and do not treat values as "
+            "literal AIS message counts. The six layers are not on a mutually consistent scale. "
+            "Expressed as the number of vessels that would have to transmit at the AIS Class A "
+            "protocol maximum (one message per 2 seconds) at 100% duty for the whole period, the "
+            "layers imply: commercial 6,703,480 and global 6,744,263, versus leisure 29,772, "
+            "oil-gas 5,769, fishing 5,242 and passenger 0.61. The middle three are mutually "
+            "coherent and physically plausible. Commercial and global exceed a generous "
+            "200,000-vessel world fleet by 33x under those same maximal assumptions, so they "
+            "cannot be literal position counts; passenger is implausibly low at well under one "
+            "vessel-equivalent. All values are reproduced faithfully from upstream (they match the "
+            "upstream ESRI sidecar means to 0.008%, the antimeridian trim), so these are "
+            "properties of the source rather than of this conversion, and the World Bank metadata "
+            "offers no explanation (its data-quality and lineage fields are empty).\n"
+            "- Spatial patterns ARE sound in every layer, including passenger. Verified top cells: "
+            "fishing peaks on the Barents Sea cod grounds; passenger peaks at Singapore, "
+            "Merak-Bakauheni, Piraeus, Sydney, Hong Kong, Dover, Istanbul and Bali. So each layer "
+            "is usable for RELATIVE geography within itself. Cross-layer ratios and absolute "
+            "counts are not usable.\n"
             "- Coverage stops at about 85 degrees north and south.\n"
             "- 0 means no AIS position recorded and is a real value. The source declares nodata "
             "2147483647 but no such pixel occurs.\n"
