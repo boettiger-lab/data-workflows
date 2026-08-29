@@ -27,12 +27,12 @@ BASE = f"https://s3-west.nrp-nautilus.io/{BUCKET}/{PREFIX}"
 LAYERS = {
     "leisure": dict(
         title="Leisure vessels",
-        sum=2896072952371, max=2996838,
+        cog_sum=2896072952371, max=2996838, hex_sum=2896072871440,
         vessels=["YACHT", "SAILING VESSEL"],
     ),
     "oil-gas": dict(
         title="Oil and gas",
-        sum=561132077068, max=1359913,
+        cog_sum=561132077068, max=1359913, hex_sum=561132069519,
         vessels=["PLATFORM", "FLOATING STORAGE/PRODUCTION", "DRILLING JACK UP",
                  "DRILLING RIG", "WELL STIMULATION VESSEL"],
         note="Platforms, rigs and FPSOs only, not the vessels servicing them. These are "
@@ -41,12 +41,12 @@ LAYERS = {
     ),
     "fishing": dict(
         title="Fishing ships",
-        sum=509901552478, max=1009771,
+        cog_sum=509901552478, max=1009771, hex_sum=509901033115,
         vessels=["FISHING VESSEL", "TRAWLER"],
     ),
     "passenger": dict(
         title="Passenger ships",
-        sum=59002510, max=112280,
+        cog_sum=59002510, max=112280, hex_sum=59002509,
         vessels=["PASSENGER SHIP", "RO-RO/PASSENGER SHIP"],
         note="WARNING: this layer is anomalously sparse upstream. Its total is four orders of "
              "magnitude below fishing and seven below commercial, and its maximum cell value is "
@@ -57,7 +57,7 @@ LAYERS = {
     ),
     "commercial": dict(
         title="Commercial ships",
-        sum=652072966152319, max=62652999,
+        cog_sum=652072966152319, max=62652999, hex_sum=652072874169118,
         vessels=["BULK CARRIER", "GENERAL CARGO", "TUG", "OFFSHORE SUPPLY SHIP", "CONTAINER SHIP",
                  "OIL/CHEMICAL TANKER", "OIL PRODUCTS TANKER", "CRUDE OIL TANKER", "LPG TANKER",
                  "VEHICLES CARRIER", "RESEARCH/SURVEY VESSEL", "REEFER", "CHEMICAL TANKER",
@@ -74,7 +74,7 @@ LAYERS = {
     ),
     "global": dict(
         title="All vessel types combined",
-        sum=656040131736746, max=65468393,
+        cog_sum=656040131736746, max=65468393, hex_sum=656040039145670,
         vessels=["all ship types combined"],
         note="Verified 2026-08-28: the five category layers sum to this layer EXACTLY at pixel "
              "level (residual 0 across 2.45e9 pixels), so the categories are exhaustive and there "
@@ -113,6 +113,27 @@ H3_DESC = {
 }
 
 
+def reference_totals(m):
+    """State both totals honestly.
+
+    The hex SUM does NOT equal the COG pixel sum bit-for-bit: exact_extract area-weights
+    partial pixels at cell boundaries in floating point, so a little mass is lost. Measured
+    relative shortfall ranges from 1.7e-8 (passenger) to 1.0e-6 (fishing). Publishing "matches
+    exactly" would be false, and publishing only one of the two numbers would leave a consumer
+    unable to tell whether their own SUM is correct.
+    """
+    cog = m["cog_sum"]
+    hexs = m.get("hex_sum")
+    if hexs is None:
+        return f"Source COG pixel sum: {cog}."
+    short = cog - hexs
+    rel = short / cog if cog else 0.0
+    return (f"Source COG pixel sum: {cog}. Measured hex SUM(ais_positions): {hexs}, "
+            f"short by {short} ({rel:.1e} relative). The difference is floating-point mass loss "
+            f"from area-weighting partial pixels at H3 cell boundaries, not missing data. Use the "
+            f"hex SUM as the reference when validating your own aggregation.")
+
+
 def hex_columns():
     cols = [{"name": "ais_positions", "type": "double", "description": VALUE_DESC}]
     for name, typ in (("h8", "uint64"), ("h7", "uint64"), ("h6", "uint64"),
@@ -148,7 +169,7 @@ def build(rows=None):
                 "data_type": "int32",
                 "nodata": 2147483647,
                 "unit": "AIS position count",
-                "statistics": {"minimum": 0, "maximum": m["max"], "sum": m["sum"]},
+                "statistics": {"minimum": 0, "maximum": m["max"], "sum": m["cog_sum"]},
             }],
         }
 
@@ -163,9 +184,9 @@ def build(rows=None):
                   "layer and no per-feature dedup is needed (this is a raster reduction, not a "
                   "feature conversion, so there is no _cng_fid). Sum reducers emit a full grid: "
                   "cells with no recorded AIS position are present with value 0. Coverage stops "
-                  "at about 85 degrees north and south, so polar h0 partitions are absent. "
-                  f"Reference total: SUM(ais_positions) = {m['sum']}, matching the source COG "
-                  "pixel sum exactly."
+                  "at about 85 degrees north and south, but a sum reducer still emits those "
+                  "partitions, so all 122 are present and the row count is the full res-8 grid. "
+                  + reference_totals(m)
                 + extra
             ),
             "roles": ["data"],
