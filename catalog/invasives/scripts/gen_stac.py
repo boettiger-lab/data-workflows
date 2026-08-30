@@ -735,12 +735,21 @@ coll = {
     "assets": assets,
 }
 
+# The closing bracket states what IS published, and never what is pending. It used to promise
+# that "the remainder land as the res-10 hex fan-out completes" -- true while the fan-out ran,
+# false the moment it was stopped, and flatly contradicting the Products paragraph above, which
+# says the un-hexed layers are COG-only BY DESIGN. A consumer reading a promise of layers that
+# are not coming waits for them instead of using the COG. Facts only.
 _n_layers = len(SPECIES) * len(PRODUCTS)
+_n_cog = len(assets) - n_hex
 if READY is not None:
+    _tail = ""
+    if n_hex < _n_layers:
+        _tail = (" The remaining layers are published as COGs only; any later hex is additive, "
+                 "needs no rebuild, and is tracked outside this collection.")
     coll["description"] += (
-        f"\n\n[Interim publish: {n_hex} of {_n_layers} hex layers are live; the remainder land as "
-        f"the res-10 hex fan-out completes. All {_n_layers} COGs are published and "
-        f"grid-verified.]")
+        f"\n\n[Published here: {_n_cog} COGs, all grid-verified, and {n_hex} H3 hex layers."
+        f"{_tail}]")
 
 bucket = {
     "stac_version": "1.0.0",

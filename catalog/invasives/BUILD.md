@@ -790,9 +790,10 @@ against whatever analysis turns out to need it.
 `scripts/gen_stac.py` writes both documents to /tmp; nothing STAC-shaped is committed to this repo
 (AGENTS.md Hard Boundary 1).
 
-### CLOSEOUT RUNBOOK — the exact remaining steps for #610
+### CLOSEOUT RUNBOOK — DONE 2026-08-30, all steps executed
 
-Everything before this is done. Pick up here.
+**#610 is closed out.** Every step below ran; the results are recorded inline under each. Kept as
+the record of what was done, and as the procedure to copy for #639.
 
 **1–2. DONE 2026-08-28 21:17:50Z — the job is stopped and medusahead moved to #639.**
 
@@ -877,14 +878,61 @@ the same class of defect in this build (`suitability_class` DOUBLE, `h0` uint64,
     scripts/verify-stac.py --bucket public-invasives --dataset inhabit-v4-2024   # data-backed, must exit 0
 
 The data-backed run is where `values`-vs-`DISTINCT` on `suitability_class` stops being a no-op
-and the hexed class set is confirmed a subset. It has never run against live hex.
+and the hexed class set is confirmed a subset.
 
-**6.** Tick the remaining #610 acceptance criteria and merge PR #620.
+**RAN 2026-08-30 against live hex — the first time it ever has. Exit 0, zero findings**, on all
+three targets: the leaf (124 assets), the bucket meta-collection, and both pre-publish static
+runs. Published sizes moved 147 949 -> 392 440 B (leaf), 14 718 -> 15 439 B (README); the bucket
+meta-collection is byte-identical at 1740 B. The leaf overwrite added 76 assets, **removed none**,
+and changed 12 existing ones — the intended `integrated-binary-fifth` COG threshold wording — plus
+the collection description.
 
-⚠️ **The live published leaf is still the 2026-08-27 48-COG interim.** Step 5 is its first update
-since; it moves 48 -> 124 assets in one write. Byte-exact backups of the three live documents were
-re-fetched 2026-08-28 20:46Z and match the recorded sizes (1740 / 147949 / 14718 B, plus the
-16295 B root catalog); re-fetch again before overwriting if that scratchpad is gone.
+⛔ **A green gate is not by itself evidence the data check ran**, since a failed MCP query
+degrades to an ADVISORY (`data-query-failed`) and cannot turn the gate red. The class set was
+therefore also measured directly through the duckdb-geo MCP, and this is the positive evidence:
+
+| species | -1 | 0 | 1 | 2 | 3 |
+|---|---:|---:|---:|---:|---:|
+| *B. arvensis* | 21 685 284 | 157 370 610 | 130 404 034 | 22 854 323 | 165 077 086 |
+| *B. japonicus* | 13 195 802 | 221 027 247 | 71 724 547 | 23 873 894 | 167 569 847 |
+| *B. rubens* | 248 332 709 | 196 270 139 | 3 722 668 | 2 936 932 | 46 128 889 |
+| *B. tectorum* | 25 834 186 | 286 208 213 | 57 810 711 | 10 965 576 | 116 572 651 |
+
+Exactly `{-1, 0, 1, 2, 3}` on all four — no NoData (`-128`) leak, no invented code, and every
+class populated. *B. rubens* carrying more extrapolation flag (`-1`) than any suitability rank is
+expected, not an error: it is a southwest species, so most of CONUS sits outside its MESS training
+envelope.
+
+**6.** Tick the remaining #610 acceptance criteria and merge PR #620. **Done 2026-08-30.**
+
+#### One defect fixed at closeout: the description promised layers that are not coming
+
+The auto-appended closing bracket read *"Interim publish: N of 108 hex layers are live; the
+remainder land as the res-10 hex fan-out completes."* That was true while the fan-out ran and
+**false the moment it was stopped** — and it contradicted the Products paragraph three screens
+above it in the same description, which says the un-hexed layers are COG-only **by design, not by
+omission**. Published as-is, it would have told a consumer whose species has no hex to wait for
+one, instead of reading the COG that is already there and final.
+
+The bracket now states what is published and nothing about what is pending:
+
+    [Published here: 108 COGs, all grid-verified, and 16 H3 hex layers. The remaining layers are
+    published as COGs only; any later hex is additive, needs no rebuild, and is tracked outside
+    this collection.]
+
+Generalised rather than hardcoded, so #639 gets the same guarantee: the tail sentence appears only
+while `n_hex < _n_layers`, and no branch predicts future work. **A generated status line is
+written against the state of the build on the day it was written; when the build's state changes,
+that line becomes a false claim without anyone editing it.** This is the fourth instance in this
+build of the same underlying class — a report drifting from the thing it reports — after
+`suitability_class` DOUBLE, `h0` uint64, and the `gen_readme` import overwrite.
+
+✅ **The live published leaf is the 124-asset document as of 2026-08-30** (108 COG + 16 hex),
+replacing the 2026-08-27 48-COG interim in one write. Backups of the three live documents were
+re-fetched immediately before the overwrite and matched the recorded sizes (1740 / 147949 /
+14718 B). The root catalog was **not** touched — `public-invasives` has been registered there
+since 2026-08-27 and was re-confirmed present (it has since grown 66 -> 67 children from other
+datasets, which is why its byte size no longer matches the 16295 B recorded here).
 
 Shape: a bucket-level meta-collection `public-invasives` (one `child`) over the leaf collection
 `inhabit-v4-2024`, which carries one COG and one hex asset per (species × product), keyed
