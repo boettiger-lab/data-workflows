@@ -1,0 +1,207 @@
+# H3 res-10 hex for the eight INHABIT v4 species #610 did not ship (data-workflows #639).
+#
+# Generated from hex.yaml. Same h0 set, same reducer split, same resources, same product list.
+# Two differences: SPECIES is narrowed to the eight #639 owns (48 completions = 8 x 6 h0), and a
+# baked SKIP list lets a pod reuse the validated residue #610's stopped fan-out left behind.
+#
+# ⛔ DO NOT APPLY WHILE ANOTHER HEX FAN-OUT HOLDS THE LOCK. One res-10 fan-out at a time. Check
+# with a listing that PRINTS A HEADER ROW: `kubectl get jobs | grep hex` printing nothing can mean
+# kubectl failed, not that the lock is free.
+#
+# ⚠️ The stale `inhabit-v4-hex` Job still reads `Running 31/72`. That is #610's fan-out, patched
+# to `parallelism: 0` on 2026-08-28 with zero active pods. It does NOT hold the lock.
+#
+# ⛔ THE h0 SET IS 12,14,20,50,71,78 — NOT the RAP precedent's (12 20 50 71). That list is missing
+# 14 (Nashville/Houston/Miami) and 78 (Boston/Detroit/Pittsburgh/Maine), and its comment "tool skips
+# ones the raster doesn't cover" is what makes it look safe: the tool skips SUPPLIED indices with no
+# coverage, but can never process an index never supplied. See BUILD.md.
+#
+# ⛔ THE REDUCER SPLITS BY PRODUCT TYPE, exactly as the COG resampling did:
+#   continuous ensembles (uint8 0-100 relative suitability, nodata 255) -> mean
+#   integrated-binary-fifth (int8 class codes {-1,0,1,2,3}, nodata -128) -> mode
+# `sum`/`mean` on class codes is nonsense; `mode` on a normalized index throws away the signal.
+#
+# ─── SKIP: WHY A BAKED LIST AND NOT A RUNTIME S3 LISTING ──────────────────────────────────────
+# A directory listing is not evidence of a published layer, and three of the residue prefixes are
+# complete-looking. So these 51 (species|product|h0-index) keys were gated on completeness, not on
+# prefix existence, and measured 2026-08-30 before this job was written:
+#
+#   * all 147 parquet footers in the bucket read; no truncated object
+#   * grid invariant: the integrated-binary-fifth row count per h0 is a SINGLE CONSTANT across every
+#     species that has one (4624149 / 216161743 / 104319256 / 59745461 / 65196375 / 47344353 for h0
+#     12 / 20 / 50 / 78 / 14 / 71). The class raster covers all of CONUS, so its cell count is
+#     grid-determined, not species-determined; a partial write breaks this.
+#   * class partitions (7 files): rows == COUNT(DISTINCT h10), zero NULLs, one h0 per partition,
+#     class set exactly {-1,0,1,2,3}
+#   * continuous partitions (44 files): zero NULLs across all 15336 row-group column chunks, values
+#     inside [0,100] on every file, no 255 NoData leak
+#   * one uniform schema across all 147: h10/h9/h8/h0 uint64, suitability/suitability_class DOUBLE
+#
+# Baked rather than probed so the gate is that measurement, reviewable in this diff, rather than
+# whatever S3 happens to list at pod time. Re-deriving it after any further partial run is manual
+# and deliberate. 141 of 192 product-units remain; seven pods no-op in seconds.
+#
+# The h0-index-to-h0-value mapping the list depends on is not assumed: "integrated-binary-fifth
+# present" was cross-checked against the stopped Job's completedIndexes (0-24,26-29,31,36) over all
+# 72 indices, with zero mismatches. That product is LAST in PRODUCTS, so its presence for a
+# (species, h0) means that pod ran all four products to the end.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inhabit-v4-hex-639
+  namespace: geo-workflows
+  labels: {k8s-app: inhabit-v4-hex-639}
+spec:
+  completions: 48
+  parallelism: 24
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 10
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: inhabit-v4-hex-639}}
+    spec:
+      restartPolicy: Never
+      # NOT opportunistic: these pods run up to ~14 h with no resume, and priority -2000000000 makes
+      # them a preemption target — #564 lost 47 pods that way, and a preemption at hour 13 loses 13
+      # hours. Default priority (0), lower parallelism in exchange.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        - {name: BUCKET,              value: public-invasives}
+        - {name: DATASET,             value: inhabit-v4-2024}
+        # 51 validated (species|product|h0-index) keys. See the header for what "validated" means.
+        - name: SKIP
+          value: |
+            aegilops_cylindrica|abundance-masked|12
+            aegilops_cylindrica|abundance-masked|14
+            aegilops_cylindrica|high-abundance-masked|12
+            aegilops_cylindrica|high-abundance-masked|14
+            aegilops_cylindrica|integrated-binary-fifth|12
+            aegilops_cylindrica|occurrence-masked|12
+            aegilops_cylindrica|occurrence-masked|14
+            aegilops_cylindrica|occurrence-masked|71
+            aegilops_cylindrica|occurrence-masked|78
+            agropyron_cristatum|occurrence-masked|14
+            salsola_tragus|occurrence-masked|12
+            salsola_tragus|occurrence-masked|50
+            taeniatherum_caput_medusae|abundance-masked|12
+            taeniatherum_caput_medusae|abundance-masked|14
+            taeniatherum_caput_medusae|abundance-masked|20
+            taeniatherum_caput_medusae|abundance-masked|50
+            taeniatherum_caput_medusae|abundance-masked|71
+            taeniatherum_caput_medusae|abundance-masked|78
+            taeniatherum_caput_medusae|high-abundance-masked|12
+            taeniatherum_caput_medusae|high-abundance-masked|14
+            taeniatherum_caput_medusae|high-abundance-masked|20
+            taeniatherum_caput_medusae|high-abundance-masked|50
+            taeniatherum_caput_medusae|high-abundance-masked|71
+            taeniatherum_caput_medusae|high-abundance-masked|78
+            taeniatherum_caput_medusae|integrated-binary-fifth|12
+            taeniatherum_caput_medusae|integrated-binary-fifth|20
+            taeniatherum_caput_medusae|integrated-binary-fifth|50
+            taeniatherum_caput_medusae|integrated-binary-fifth|71
+            taeniatherum_caput_medusae|integrated-binary-fifth|78
+            taeniatherum_caput_medusae|occurrence-masked|12
+            taeniatherum_caput_medusae|occurrence-masked|14
+            taeniatherum_caput_medusae|occurrence-masked|20
+            taeniatherum_caput_medusae|occurrence-masked|50
+            taeniatherum_caput_medusae|occurrence-masked|71
+            taeniatherum_caput_medusae|occurrence-masked|78
+            ventenata_dubia|abundance-masked|12
+            ventenata_dubia|abundance-masked|14
+            ventenata_dubia|abundance-masked|20
+            ventenata_dubia|abundance-masked|50
+            ventenata_dubia|abundance-masked|71
+            ventenata_dubia|abundance-masked|78
+            ventenata_dubia|high-abundance-masked|12
+            ventenata_dubia|high-abundance-masked|14
+            ventenata_dubia|high-abundance-masked|78
+            ventenata_dubia|integrated-binary-fifth|14
+            ventenata_dubia|occurrence-masked|12
+            ventenata_dubia|occurrence-masked|14
+            ventenata_dubia|occurrence-masked|20
+            ventenata_dubia|occurrence-masked|50
+            ventenata_dubia|occurrence-masked|71
+            ventenata_dubia|occurrence-masked|78
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          SPECIES=(taeniatherum_caput_medusae ventenata_dubia aegilops_cylindrica
+                   agropyron_cristatum salsola_tragus tamarix_chinensis_ramosissima
+                   elaeagnus_angustifolia cenchrus_ciliaris)
+          H0S=(12 14 20 50 71 78)
+          IDX=${JOB_COMPLETION_INDEX}
+          SP=${SPECIES[$(( IDX / 6 ))]}
+          H0=${H0S[$(( IDX % 6 ))]}
+          echo "=== hex idx ${IDX} -> ${SP}, h0-index ${H0}, res 10 parents 9,8,0 ==="
+          mkdir -p /tmp/cache
+
+          # product | reducer | nodata | value column
+          PRODUCTS=(
+            "occurrence-masked      mean  255  suitability"
+            "abundance-masked       mean  255  suitability"
+            "high-abundance-masked  mean  255  suitability"
+            "integrated-binary-fifth mode -128 suitability_class"
+          )
+
+          # Announce the plan before doing any work, so a log read alone shows what this pod
+          # reused and what it built. A pod whose four products are all validated residue is a
+          # deliberate no-op, not a pod that failed to do anything.
+          RUN=()
+          for ROW in "${PRODUCTS[@]}"; do
+            read -r P _ _ _ <<< "$ROW"
+            if grep -qxF "${SP}|${P}|${H0}" <<< "$SKIP"; then
+              echo "skip  ${P}: validated residue for (${SP}, h0-index ${H0})"
+            else
+              echo "build ${P}"
+              RUN+=("$ROW")
+            fi
+          done
+          if [ ${#RUN[@]} -eq 0 ]; then
+            echo "idx ${IDX} (${SP} h0-index ${H0}) already complete — nothing to build"
+            exit 0
+          fi
+
+          for ROW in "${RUN[@]}"; do
+            read -r P RED ND COL <<< "$ROW"
+            echo "--- ${P}: --hex-resampling ${RED} --nodata ${ND} --value-column ${COL}"
+            cng-datasets raster \
+              --input "s3://${BUCKET}/${DATASET}/${SP}/${P}.tif" \
+              --output-parquet "s3://${BUCKET}/${DATASET}/${SP}/${P}/hex/" \
+              --h0-index ${H0} \
+              --resolution 10 --parent-resolutions 9,8,0 \
+              --value-column "${COL}" \
+              --hex-resampling "${RED}" \
+              --nodata "${ND}" \
+              --local-cache-dir /tmp/cache
+            rm -f /tmp/cache/*.tif      # 4 CONUS COGs will not co-exist in 40Gi
+          done
+          echo "idx ${IDX} (${SP} h0-index ${H0}) complete"
+        resources:
+          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
