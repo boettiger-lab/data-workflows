@@ -729,27 +729,100 @@ For the record, `opportunistic` IS a valid PriorityClass in `geo-workflows` (`ni
 a `low-priority-ban` quota; `preemptible` / `low-priority` do not exist). It is still the wrong
 tool for this job: pods run ~14 h with no resume, so a preemption at hour 13 loses 13 hours.
 
-### ⚠️ Build residue left in the bucket — 11.8 GB, undeclared, deliberate
+### ⚠️ Build residue left in the bucket — 21.7 GB, undeclared, deliberate
 
-Stopping mid-flight left partial hex prefixes for four of the seven moved species (partitions of 6
-`h0`, measured 2026-08-28):
+Stopping mid-flight left partial hex prefixes for five of the eight moved species (partitions of 6
+`h0`, measured 2026-08-28 and re-measured 2026-08-30):
 
 | species | `occurrence-masked` | `abundance-masked` | `high-abundance-masked` | `integrated-binary-fifth` | size |
 |---|---:|---:|---:|---:|---:|
+| *Taeniatherum caput-medusae* | 6 | 6 | 6 | **5** | 9.9 GB |
 | *Ventenata dubia* | **6** | **6** | 3 | 1 | 8.0 GB |
 | *Aegilops cylindrica* | 4 | 2 | 2 | 1 | 2.4 GB |
 | *Salsola tragus* | 2 | — | — | — | 1.0 GB |
 | *Agropyron cristatum* | 1 | — | — | — | 0.3 GB |
 
-**Two of those prefixes are complete-looking** — *Ventenata dubia* `occurrence-masked` and
-`abundance-masked` have all six `h0`. Nothing declares them, but a directory listing would suggest
+**Three of those prefixes are complete-looking** — *Ventenata dubia* `occurrence-masked` and
+`abundance-masked`, and all three of medusahead's continuous products, have all six `h0`. Nothing declares them, but a directory listing would suggest
 a finished layer, so the collection description now says outright that the declared assets are the
 published data and anything else under the bucket is intermediate.
 
 Left rather than deleted because the writes are idempotent (verified against the interrupted
 2026-08-26 run: no surviving object predated the re-run's first write), so #639 overwrites in
 place. A build that wants to reuse it must gate on *(species x product x h0)* completeness, never
-on prefix existence.
+on prefix existence. **#639 did exactly that and reused all 51 objects** — the gate, and the grid
+invariant that makes it decisive, are in the #639 section below.
+
+## #639 — the remaining 8 species. APPLIED 2026-08-30.
+
+`k8s/inhabit-v4/hex-639.yaml`. The eight species #610 did not ship: medusahead, ventenata, crested
+wheatgrass, Russian thistle, tamarisk, Russian olive, buffelgrass, jointed goatgrass. Same four
+canonical products, same six CONUS h0, same reducer split, same resources. **48 completions**
+(8 x 6), parallelism 24.
+
+Applied once the lock was confirmed free with a listing that printed a header row: no Running or
+Pending pod anywhere in `geo-workflows`. ⚠️ **The stale `inhabit-v4-hex` Job still reads
+`Running 31/72`** — that is #610's fan-out, patched to `parallelism: 0`, with zero active pods. It
+does not hold the lock, and its status line is the misleading kind this file keeps warning about.
+
+### The residue was reused, not rewritten — and what made that safe
+
+The section above left 51 hex objects / 21.7 GB on disk for five of these eight species. Rewriting
+them costs **~180 pod-hours** for output the run would reproduce byte-for-byte. Reusing them needs
+a gate, because the section above also says a directory listing is not evidence of a published
+layer and three of those prefixes are complete-looking.
+
+Gated on *(species x product x h0)* completeness, measured 2026-08-30 **before** the manifest was
+written. All 51 pass:
+
+| check | scope | result |
+|---|---|---|
+| parquet footer reads | all 147 objects in the bucket | no truncated object |
+| **grid invariant** | 6 h0 | `integrated-binary-fifth` row count per h0 is a **single constant across every species that has one** |
+| rows == `COUNT(DISTINCT h10)`, NULLs, one h0/partition, class set | 7 class partitions | exact, 0, 1, `{-1,0,1,2,3}` |
+| NULLs, value range, NoData leak | 44 continuous partitions | 0 across 15 336 row-group chunks, inside `[0,100]`, no 255 |
+| schema | all 147 | one: `h10`/`h9`/`h8`/`h0` uint64, `suitability`/`suitability_class` DOUBLE |
+
+**The grid invariant is the load-bearing one.** Per h0 the class-raster row count is
+4 624 149 / 216 161 743 / 104 319 256 / 59 745 461 / 65 196 375 / 47 344 353 (h0-index
+12 / 20 / 50 / 78 / 14 / 71), identical for every species that has that partition. The class raster
+carries a code across all of CONUS, so its cell count is **grid-determined, not
+species-determined** — which is exactly why a partial or truncated write cannot pass it. The
+continuous products have no such invariant (`mean` writes only where valid pixels exist), which is
+why they are gated on footer + stats instead.
+
+**The list is baked into the manifest, not probed at pod time.** That is the point: the gate is the
+measurement above, reviewable in the PR diff, rather than whatever S3 happens to list when a pod
+starts — which would be gating on prefix existence, the thing the residue section forbids. After
+any further partial run the list must be re-derived by hand, deliberately.
+
+### Pod-completion gate: `integrated-binary-fifth` presence, cross-validated
+
+That product is **last** in the manifest's `PRODUCTS` array, so its presence for a `(species, h0)`
+implies the pod ran all four products to the end. Checked against the stopped Job's
+`completedIndexes` (`0-24,26-29,31,36`) over all 72 indices: **zero mismatches**. That is also what
+validates the h0-index-to-h0-value mapping the skip list is keyed on, which is otherwise the kind
+of hardcoded correspondence that fails silently.
+
+Seven of the 48 pods are therefore complete already and no-op: medusahead h0-index
+`12, 20, 50, 71, 78`; ventenata `14`; jointed goatgrass `12`.
+
+### Dry-run before apply
+
+The pod script was run over all 48 indices against a stubbed `cng-datasets`: **141 product-units
+built, 7 no-op pods**, matching the S3 measurement exactly. Index 1 (medusahead h0-index 14) builds
+`integrated-binary-fifth` alone — the single unit #610 left it short. Confirmed against the live
+job at 20 s: 7 Completed, 24 Running, and pod 0's log shows four skips and an explicit
+`already complete — nothing to build`.
+
+**A no-op pod must say so in its log.** A pod that exits 0 having done nothing is otherwise
+indistinguishable from a pod that failed to do anything, and this build has already been bitten
+four times by a report drifting from the thing it reports.
+
+### Cost
+
+141 units x ~3.54 h = **~500 pod-hours**, against 677 for a full rewrite. At parallelism 24, ~21 h
+wall. The per-unit figure is #610's measurement across 29 completed pods, not an estimate.
 
 ## ⛔ Phase-2 hex — OUT OF SCOPE (decided 2026-08-28). Do NOT apply.
 
