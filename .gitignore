@@ -5,7 +5,9 @@ node_modules/
 # Python
 __pycache__/
 *.py[cod]
-.venv/
+# match the directory AND a stray symlink named .venv (a trailing slash
+# matches only a real directory, which is how a broken .venv symlink got committed)
+.venv
 
 # OS
 .DS_Store
