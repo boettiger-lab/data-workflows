@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: whp-2023-classified-ak-workflow
+  namespace: geo-workflows
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "set -e\n\necho \"Starting whp-2023-classified-ak raster workflow...\"\n\
+          \n# Step 0: Setup bucket\necho \"Step 0: Setting up bucket...\"\nkubectl\
+          \ apply -f /yamls/whp-2023-classified-ak-setup-bucket.yaml -n geo-workflows\n\
+          kubectl wait --for=condition=complete --timeout=600s job/whp-2023-classified-ak-setup-bucket\
+          \ -n geo-workflows\n\n# Step 1: H3 hexagonal tiling\necho \"Step 1: H3 hexagonal\
+          \ tiling...\"\nkubectl apply -f /yamls/whp-2023-classified-ak-hex.yaml -n\
+          \ geo-workflows\nkubectl wait --for=condition=complete --timeout=7200s job/whp-2023-classified-ak-hex\
+          \ -n geo-workflows\n\necho \"\u2713 Workflow complete!\"\necho \"Clean up\
+          \ with:\"\necho \"  kubectl delete jobs whp-2023-classified-ak-setup-bucket\
+          \ whp-2023-classified-ak-hex whp-2023-classified-ak-workflow -n geo-workflows\"\
+          \necho \"  kubectl delete configmap whp-2023-classified-ak-yamls -n geo-workflows\"\
+          \n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: whp-2023-classified-ak-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
