@@ -125,7 +125,8 @@ kubectl -n geo-workflows get jobs | grep <name>
 - Child job pods run as the `default` SA, **hardened to mount no k8s token** (they need only S3).
 - `rechunk-scratch` PVC (2Ti RWX) for >50Gi scratch (binds once Ceph is healthy).
 - **No enforced ResourceQuota** — but keep the good-practice targets anyway:
-  **≤200 simultaneous pods** and **≤50Gi ephemeral per job** (`limits.ephemeral-storage`),
+  **≤200 simultaneous pods** and **~50Gi ephemeral per job** (`limits.ephemeral-storage`;
+  a default, not an enforced max — see below),
   especially on large-completion fan-out jobs. Oversubscribing is antisocial on shared nodes.
 
 **Credentials you have, and the only two you ever need:**
@@ -476,7 +477,7 @@ MapLibre, DuckDB `stoi` — plus how to reprocess failed chunks: **skill `job-tr
 
 - **Do not process data locally.** CLI generates YAML; the cluster does the work.
 - **Do not modify `cng_datasets/` source.** File an issue (see Hard Boundary 2).
-- **Do not request more than 50Gi ephemeral-storage.** The namespace caps it at 50Gi; generated YAMLs default to 250Gi — reduce to 50Gi and add `limits.ephemeral-storage: 50Gi` before applying.
+- **Keep ephemeral-storage modest; generated YAMLs default to 250Gi, so reduce it.** 50Gi is a good default and what most jobs need. It is **not a hard cap** in `geo-workflows`: the LimitRange there sets `default: 50Gi` with `max` empty, so a larger request is legal and passes validation. (The 50Gi *clamp* was the legacy `biodiversity` namespace, which these jobs no longer run in.) Go above 50Gi only with a reason recorded in the manifest — `wrc-2` warps a striped CONUS source at 60Gi (#592) — and keep it courteous on shared nodes.
 - **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
 - **Do not record operational/how-to-work lessons in agent memory (`~/.claude/.../memory`).** This repo is cloned and run by students — and soon by always-on headless agents (Hermes/openclaw). Anything that should shape how tasks run here belongs in **this AGENTS.md or a local skill (`.claude/skills/`)**, so every clone and headless run behaves the same. A lesson saved only to one VM's memory silently diverges your experience from everyone else's. (Memory remains fine for genuinely personal, non-shareable session context.)
 

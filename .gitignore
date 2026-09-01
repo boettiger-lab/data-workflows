@@ -9,6 +9,10 @@ __pycache__/
 # matches only a real directory, which is how a broken .venv symlink got committed)
 .venv
 
+# Reference PDFs belong on S3 (Hard Boundary 1), not in git history: they are large,
+# permanent and unremovable. `git add -f` if a specific one genuinely must be tracked.
+*.pdf
+
 # OS
 .DS_Store
 Thumbs.db
