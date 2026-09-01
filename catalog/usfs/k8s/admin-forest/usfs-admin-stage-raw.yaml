@@ -1,0 +1,189 @@
+# USFS administrative / proclaimed / ownership layers — stage the raw AND settle the open scope
+# decision in #585 in one pass.
+#
+# This job does Step 1b (stage raw under s3://public-usfs/raw/) and, in the same pod, prints the
+# evidence #585 needs before anything is built: the schema of every layer, and — for the two
+# candidate ownership layers — the national acreage each one implies.
+#
+# ⚠️ The decision this feeds is NOT cosmetic. `AdministrativeForest` and `ProclaimedForest` are
+# administrative ENVELOPES: they enclose inholdings, private, state and other-federal parcels that
+# are not National Forest System land. Only a surface-ownership layer is NFS ownership. Reporting
+# an IRA share against a proclaimed denominator would understate it, because the envelope is the
+# larger figure.
+#
+# Already established from `pad-us-4-1/fee` (measured 2026-08-25, recorded on #585): USFS fee is
+# 193,275,732 acres, matching the announcement's "193 million" to 0.15%. So the public numbers are
+# built on SURFACE OWNERSHIP. This job's job is to say which of the two candidate ownership layers
+# reproduces that figure, and how their class vocabularies differ.
+#
+# Not a hex workflow — one small pod, no fan-out — so it is safe to run alongside a hex campaign
+# without breaking the one-concurrent-hex-workflow rule.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: usfs-admin-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: usfs-admin-stage-raw
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: usfs-admin-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        # PROJ_DATA / PROJ_LIB deliberately unset — the image ships several proj.db at differing
+        # layout versions and pinning one broke reprojection on ~10% of pods during #453.
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          BASE=https://data.fs.usda.gov/geodata/edw/edw_resources/shp
+          cd /tmp
+          # Sizes are the ones verified live on 2026-08-19 and recorded in #585. A mismatch means
+          # upstream republished in place, which is itself worth knowing before we cite an edition.
+          declare -A EXPECT=(
+            [S_USA.AdministrativeForest.zip]=45012944
+            [S_USA.RangerDistrict.zip]=58498963
+            [S_USA.ProclaimedForest.zip]=44085531
+            [S_USA.BasicOwnership.zip]=107609121
+            [S_USA.SurfaceOwnership.zip]=130767416
+          )
+          for f in "${!EXPECT[@]}"; do
+            echo "=== fetching $f ==="
+            curl -sSL --retry 5 --retry-delay 3 -o "$f" "$BASE/$f"
+            got=$(stat -c%s "$f"); want=${EXPECT[$f]}
+            if [ "$got" != "$want" ]; then
+              echo "  !! SIZE CHANGED: got $got, issue #585 recorded $want (upstream republished in place)"
+            else
+              echo "  size $got matches the recorded value"
+            fi
+            md5sum "$f"
+            # Stage before inspecting: if the probe below fails we still keep the download.
+            rclone copyto "$f" "nrp:public-usfs/raw/$f" --s3-no-check-bucket
+          done
+
+          echo
+          echo "################ SCHEMA + ACREAGE PROBE ################"
+          python3 - <<'PY'
+          import glob, zipfile, os, sys
+          from osgeo import ogr, osr
+          ogr.UseExceptions()
+
+          # Albers Equal Area CONUS — areas must come from an EQUAL-AREA projection. The sources
+          # are geographic (NAD83); computing area on a lat/lon geometry yields square degrees,
+          # which is not an area at all. Alaska is on a different Albers, so a single CONUS Albers
+          # understates AK; where an upstream acreage FIELD exists it is preferred and the computed
+          # figure is only a cross-check.
+          albers = osr.SpatialReference()
+          albers.ImportFromEPSG(5070)
+
+          for z in sorted(glob.glob("/tmp/S_USA.*.zip")):
+              name = os.path.basename(z)
+              print(f"\n===== {name} =====")
+              try:
+                  ds = ogr.Open(f"/vsizip/{z}")
+                  if ds is None:
+                      print("  could not open"); continue
+                  lyr = ds.GetLayer(0)
+                  defn = lyr.GetLayerDefn()
+                  n = lyr.GetFeatureCount()
+                  srs = lyr.GetSpatialRef()
+                  print(f"  layer   : {lyr.GetName()}")
+                  print(f"  features: {n:,}")
+                  print(f"  srs     : {srs.GetAttrValue('AUTHORITY',1) if srs else '?'} "
+                        f"({srs.GetAttrValue('PROJCS') or srs.GetAttrValue('GEOGCS') if srs else '?'})")
+                  fields = [(defn.GetFieldDefn(i).GetName(),
+                             defn.GetFieldDefn(i).GetTypeName()) for i in range(defn.GetFieldCount())]
+                  print(f"  fields  : {', '.join(f'{a}:{b}' for a,b in fields)}")
+
+                  # An upstream acreage field, if present, is authoritative -- prefer it over a
+                  # recomputed area.
+                  acre_f = [a for a,_ in fields if 'ACRE' in a.upper() or 'GIS_ACRES' == a.upper()]
+                  # The class vocabulary is what distinguishes Basic from Surface ownership.
+                  cls_f  = [a for a,_ in fields
+                            if any(k in a.upper() for k in ('OWNER','OWN_','CLASS','NFSLANDU'))]
+                  print(f"  acre fields : {acre_f or 'none'}")
+                  print(f"  class fields: {cls_f or 'none'}")
+
+                  if acre_f:
+                      col = acre_f[0]
+                      tot = 0.0
+                      byclass = {}
+                      lyr.ResetReading()
+                      for feat in lyr:
+                          v = feat.GetField(col)
+                          if v is None: continue
+                          tot += float(v)
+                          if cls_f:
+                              k = feat.GetField(cls_f[0])
+                              byclass[k] = byclass.get(k, 0.0) + float(v)
+                      print(f"  SUM({col}) = {tot:,.0f}")
+                      if byclass:
+                          print(f"  by {cls_f[0]}:")
+                          for k, v in sorted(byclass.items(), key=lambda x: -x[1])[:12]:
+                              print(f"      {str(k)[:44]:<44} {v:>15,.0f}")
+              except Exception as e:
+                  print(f"  ERROR: {e}")
+          print("\nAnchor for comparison: pad-us-4-1/fee USFS = 193,275,732 acres "
+                "(announcement says '193 million').")
+          PY
+        resources:
+          requests:
+            cpu: '2'
+            memory: 12Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '2'
+            memory: 12Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # GPU exclusion deliberately omitted (AGENTS.md); the two host exclusions are kept
+            # because both have broken egress and this job downloads ~385 MB from an external host.
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

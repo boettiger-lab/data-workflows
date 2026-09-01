@@ -1,0 +1,6387 @@
+queue: geo-workflows
+jobSetId: administrative-forest-hex
+jobs:
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 0 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 1 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 2 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 3 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 4 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 5 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 6 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 7 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 8 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 9 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 10 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 11 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 12 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 13 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 14 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 15 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 16 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 17 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 18 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 19 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 20 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 21 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 22 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 23 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 24 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 25 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 26 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 27 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 28 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 29 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 30 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 31 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 32 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 33 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 34 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 35 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 36 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 37 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 38 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 39 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 40 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 41 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 42 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 43 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 44 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 45 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 46 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 47 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 48 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 49 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 50 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 51 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 52 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 53 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 54 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 55 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 56 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 57 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 58 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 59 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 60 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 61 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 62 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 63 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 64 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 65 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 66 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 67 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 68 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 69 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 70 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 71 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 72 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 73 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 74 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 75 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 76 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 77 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 78 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 79 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 80 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 81 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 82 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 83 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 84 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 85 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 86 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 87 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 88 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 89 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 90 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 91 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 92 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 93 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 94 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 95 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 96 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 97 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 98 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 99 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 100 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 101 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 102 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 103 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 104 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 105 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 106 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 107 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 108 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 109 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 110 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: hex-task
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      - name: TMPDIR
+        value: /tmp
+      - name: BUCKET
+        value: public-usfs
+      - name: DATASET
+        value: administrative-forest
+      command:
+      - bash
+      - -c
+      - |-
+        set -e
+        cng-datasets vector --input s3://public-usfs/administrative-forest.parquet --output s3://public-usfs/administrative-forest/chunks --chunk-id 111 --chunk-size 1 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+      resources:
+        requests:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+        limits:
+          cpu: '4'
+          memory: 8Gi
+          ephemeral-storage: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'
