@@ -1,0 +1,85 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fired-events-preprocess
+  namespace: geo-workflows
+  labels:
+    k8s-app: fired-events-preprocess
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: fired-events-preprocess
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cd /tmp
+          rclone copyto nrp:public-fire/raw/fired_conus-ak_nov2001-march2021.zip /tmp/fired.zip -P
+          # the zip holds four data members; extract only the event product
+          unzip -o -j /tmp/fired.zip fired_conus-ak_events_nov2001-march2021.gpkg -d /tmp/fired
+          rm /tmp/fired.zip
+          GPKG=/tmp/fired/fired_conus-ak_events_nov2001-march2021.gpkg
+          echo "=== source layer summary (MODIS sinusoidal, no EPSG code) ==="
+          ogrinfo -so -al "$GPKG"
+          # cng-convert-to-parquet cannot reproject this source: its CRS carries no EPSG or
+          # authority code, so detect_crs() returns None and the tool silently assumes the
+          # data is already EPSG:4326 (boettiger-lab/datasets#187). Reproject with ogr2ogr first.
+          ogr2ogr -f GPKG -t_srs EPSG:4326 /tmp/fired/events-4326.gpkg "$GPKG"
+          rm "$GPKG"
+          echo "=== reprojected extent (expect CONUS+AK lon/lat) ==="
+          ogrinfo -so -al /tmp/fired/events-4326.gpkg | grep -E 'Feature Count|Extent'
+          cng-convert-to-parquet /tmp/fired/events-4326.gpkg \
+            s3://public-fire/fired-events-2001-2021.parquet
+          echo DONE
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits: {cpu: '4', memory: 32Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

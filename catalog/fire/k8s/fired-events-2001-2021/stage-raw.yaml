@@ -1,0 +1,85 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fired-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: fired-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: fired-stage-raw
+    spec:
+      restartPolicy: Never
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          URL='https://scholar.colorado.edu/downloads/h702q749s'
+          # CU Scholar rejects requests without a browser UA + Referer (403)
+          curl -L --retry 8 --retry-all-errors \
+            -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36' \
+            -H 'Referer: https://scholar.colorado.edu/concern/datasets/d504rm74m' \
+            -o /tmp/fired.zip "$URL"
+          ls -la /tmp/fired.zip
+          echo "=== md5 (expect d8479d190dcfdc4e103bdf5e05b3c065) ==="
+          md5sum /tmp/fired.zip
+          echo "=== zip contents ==="
+          unzip -l /tmp/fired.zip
+          rclone copyto /tmp/fired.zip nrp:public-fire/raw/fired_conus-ak_nov2001-march2021.zip -P
+          rclone size nrp:public-fire/raw/fired_conus-ak_nov2001-march2021.zip
+          echo DONE
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
