@@ -1,0 +1,139 @@
+# NEMO-MEDUSA seafloor organic carbon flux netCDF -> three WGS84 float32 COGs
+# (flux_avg / flux_min / flux_max). data-workflows #642 step 2.
+#
+# The source carries no 1D coordinate variables and no CF grid_mapping, so GDAL
+# reads it as an ungeoreferenced 4320x2160 array (identity geotransform). The
+# grid was measured by the stage-raw job: nav_lon runs -179.958333..179.958333
+# and nav_lat runs 89.958333..-89.958333, both at exactly 1/12 degree, cell
+# centres, latitude already descending. The geotransform below is that grid, and
+# it is re-derived from nav_lon/nav_lat at build time rather than trusted.
+#
+# Land is the netCDF default fill 9.96921e+36, not 0. Folded to NaN so no
+# sentinel can survive into the hex means.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seafloor-carbon-flux-netcdf-to-cog
+  namespace: geo-workflows
+  labels:
+    k8s-app: seafloor-carbon-flux-netcdf-to-cog
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: seafloor-carbon-flux-netcdf-to-cog
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: netcdf-to-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        - {name: BUCKET, value: public-high-seas}
+        resources:
+          requests: {cpu: "2", memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: "2", memory: 16Gi, ephemeral-storage: 20Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command: [bash, -c]
+        args:
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/raw /tmp/cog
+          rclone copyto "nrp:${BUCKET}/raw/nemo-medusa/MEDUSA_ORCA0083_REGRID_2006-2015_flux.nc" \
+            /tmp/raw/flux.nc --retries 5 --low-level-retries 20 --retries-sleep 10s
+          test -s /tmp/raw/flux.nc
+
+          python3 - <<'PY'
+          import numpy as np
+          from osgeo import gdal, osr
+          gdal.UseExceptions()
+
+          SRC = "/tmp/raw/flux.nc"
+          RES = 1.0 / 12.0
+          VARS = [("flux_avg", "seafloor-carbon-flux-avg"),
+                  ("flux_min", "seafloor-carbon-flux-min"),
+                  ("flux_max", "seafloor-carbon-flux-max")]
+
+          # Re-derive the geotransform from the 2D coordinate arrays instead of
+          # hard-coding it: a silently reordered or shifted source would otherwise
+          # be written out with a plausible-looking but wrong geotransform.
+          lon = gdal.Open(f'NETCDF:"{SRC}":nav_lon').ReadAsArray().astype("float64")
+          lat = gdal.Open(f'NETCDF:"{SRC}":nav_lat').ReadAsArray().astype("float64")
+          dlon, dlat = np.diff(lon[0, :]), np.diff(lat[:, 0])
+          assert np.allclose(dlon, RES, atol=1e-9), f"longitude spacing not 1/12 deg: {dlon.min()}..{dlon.max()}"
+          assert np.allclose(dlat, -RES, atol=1e-9), f"latitude spacing not -1/12 deg: {dlat.min()}..{dlat.max()}"
+          assert np.ptp(lon[:, 0]) == 0 and np.ptp(lat[0, :]) == 0, "grid is not a regular lon/lat mesh"
+          gt = (lon[0, 0] - RES / 2, RES, 0.0, lat[0, 0] + RES / 2, 0.0, -RES)
+          print(f"derived geotransform: {gt}", flush=True)
+          assert abs(gt[0] + 180.0) < 1e-6 and abs(gt[3] - 90.0) < 1e-6, f"grid does not cover the globe: {gt}"
+
+          srs = osr.SpatialReference(); srs.ImportFromEPSG(4326)
+
+          def probe(a, lon_deg, lat_deg):
+              j = int(round((lon_deg - gt[0]) / gt[1] - 0.5))
+              i = int(round((lat_deg - gt[3]) / gt[5] - 0.5))
+              return a[i, j]
+
+          for var, name in VARS:
+              b = gdal.Open(f'NETCDF:"{SRC}":{var}')
+              band = b.GetRasterBand(1)
+              fill = band.GetNoDataValue()
+              a = band.ReadAsArray().astype("float64")
+              if fill is not None:
+                  a[np.isclose(a, fill, rtol=1e-9, atol=0)] = np.nan
+              valid = ~np.isnan(a)
+              print(f"[{name}] fill={fill} valid={valid.sum()} ({100.0*valid.sum()/a.size:.1f}%) "
+                    f"min={np.nanmin(a):.6g} max={np.nanmax(a):.6g} mean={np.nanmean(a):.6g}", flush=True)
+
+              # Orientation: inland Asia must be nodata, open Indian Ocean must not.
+              # A vertical flip swaps these two; a symmetric check would not see it.
+              land, sea = probe(a, 100.0, 40.0), probe(a, 100.0, -40.0)
+              print(f"[{name}] orientation probe land(100E,40N)={land} sea(100E,40S)={sea}", flush=True)
+              assert np.isnan(land) and not np.isnan(sea), "ORIENTATION CHECK FAILED, refusing to write"
+
+              # Physical plausibility: a downward organic carbon flux is non-negative
+              # and open-ocean values are order 0.01-10 mmol C/m2/d. A surviving
+              # sentinel or a double transform blows this bound.
+              assert np.nanmin(a) >= 0.0, f"negative flux: {np.nanmin(a)}"
+              assert np.nanmax(a) < 1000.0, f"implausible maximum: {np.nanmax(a)}"
+
+              rows, cols = a.shape
+              mem = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Float32)
+              mem.SetGeoTransform(gt)
+              mem.SetProjection(srs.ExportToWkt())
+              ob = mem.GetRasterBand(1)
+              ob.SetNoDataValue(float("nan"))
+              ob.SetDescription(var)
+              ob.WriteArray(a.astype("float32"))
+              dst = f"/tmp/cog/{name}-cog.tif"
+              gdal.GetDriverByName("COG").CreateCopy(
+                  dst, mem, options=["COMPRESS=DEFLATE", "PREDICTOR=3", "BLOCKSIZE=512",
+                                     "OVERVIEWS=IGNORE_EXISTING", "BIGTIFF=IF_SAFER"])
+              mem = None
+
+              chk = gdal.Open(dst); cb = chk.GetRasterBand(1)
+              mn, mx, mean, sd = cb.ComputeStatistics(False)
+              print(f"[{name}] wrote {dst} size={chk.RasterXSize}x{chk.RasterYSize} "
+                    f"gt={chk.GetGeoTransform()} nodata={cb.GetNoDataValue()} "
+                    f"min={mn:.6g} max={mx:.6g} mean={mean:.6g} sd={sd:.6g}", flush=True)
+          PY
+
+          for n in avg min max; do
+            rclone copyto "/tmp/cog/seafloor-carbon-flux-${n}-cog.tif" \
+              "nrp:${BUCKET}/seafloor-carbon-flux/${n}/seafloor-carbon-flux-${n}-cog.tif" \
+              --retries 5 --low-level-retries 20 --retries-sleep 10s
+            echo "published seafloor-carbon-flux/${n}/seafloor-carbon-flux-${n}-cog.tif"
+          done
+          rclone ls "nrp:${BUCKET}/seafloor-carbon-flux/"
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}

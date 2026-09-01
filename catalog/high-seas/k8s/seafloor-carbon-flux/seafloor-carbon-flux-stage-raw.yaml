@@ -1,0 +1,128 @@
+# Stage the NEMO-MEDUSA seafloor organic carbon flux archive (Zenodo 6513616) to
+# s3://public-high-seas/raw/nemo-medusa/ and report what the netCDF actually
+# contains: georeferencing, longitude convention, row order, and the missing-data
+# encoding. The header dump declares no _FillValue and the file carries only 2D
+# nav_lon/nav_lat, so none of that can be assumed. data-workflows #642 step 1.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seafloor-carbon-flux-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: seafloor-carbon-flux-stage-raw
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: seafloor-carbon-flux-stage-raw
+    spec:
+      restartPolicy: Never
+      # Cluster CoreDNS intermittently fails to resolve external hosts per-node.
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        - {name: BUCKET, value: public-high-seas}
+        - {name: REC, value: "6513616"}
+        resources:
+          requests: {cpu: "2", memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: "2", memory: 16Gi, ephemeral-storage: 20Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command: [bash, -c]
+        args:
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/raw && cd /tmp/raw
+
+          FILES="MEDUSA_ORCA0083_REGRID_2006-2015_flux.nc
+          MEDUSA_ORCA0083_REGRID_2006-2015_bathy_area.nc
+          MEDUSA_ORCA0083_REGRID_2006-2015_flux.nc.txt
+          MEDUSA_ORCA0083_REGRID_2006-2015_bathy_area.nc.txt
+          README.txt"
+
+          for f in $FILES; do
+            echo "=== downloading $f"
+            curl -sSL --retry 8 --retry-delay 5 --retry-all-errors \
+              -o "$f" "https://zenodo.org/api/records/${REC}/files/${f}/content"
+            test -s "$f"
+          done
+
+          echo "=== checksums (compare against the Zenodo record)"
+          md5sum $FILES
+          ls -l $FILES
+
+          echo "=== staging to s3://${BUCKET}/raw/nemo-medusa/"
+          rclone copy /tmp/raw "nrp:${BUCKET}/raw/nemo-medusa/" \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s -v
+          rclone ls "nrp:${BUCKET}/raw/nemo-medusa/"
+
+          echo "=== inspecting the grid"
+          python3 - <<'PY'
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+
+          src = "/tmp/raw/MEDUSA_ORCA0083_REGRID_2006-2015_flux.nc"
+          ds = gdal.Open(src)
+          print("subdatasets:")
+          for k, v in (ds.GetSubDatasets() or []):
+              print("   ", k, "|", v)
+
+          for var in ("flux_avg", "flux_min", "flux_max"):
+              b = gdal.Open(f'NETCDF:"{src}":{var}')
+              band = b.GetRasterBand(1)
+              a = band.ReadAsArray().astype("float64")
+              print(f"\n[{var}] size={b.RasterXSize}x{b.RasterYSize} "
+                    f"gt={b.GetGeoTransform()} proj={(b.GetProjection() or '')[:60]!r} "
+                    f"nodata={band.GetNoDataValue()}")
+              print(f"[{var}] nan={np.isnan(a).sum()} zeros={(a == 0).sum()} "
+                    f"negative={(a < 0).sum()} finite_min={np.nanmin(a):.6g} "
+                    f"finite_max={np.nanmax(a):.6g} finite_mean={np.nanmean(a):.6g}")
+              vals, cnt = np.unique(a[np.isfinite(a)], return_counts=True)
+              order = np.argsort(cnt)[::-1][:5]
+              print(f"[{var}] most repeated finite values: "
+                    + ", ".join(f"{vals[i]:.6g} x{cnt[i]}" for i in order))
+
+          lon = gdal.Open(f'NETCDF:"{src}":nav_lon').ReadAsArray().astype("float64")
+          lat = gdal.Open(f'NETCDF:"{src}":nav_lat').ReadAsArray().astype("float64")
+          print(f"\nnav_lon shape={lon.shape} min={lon.min():.6f} max={lon.max():.6f}")
+          print(f"nav_lat shape={lat.shape} min={lat.min():.6f} max={lat.max():.6f}")
+          print("lon row0 first 3:", lon[0, :3], "last 3:", lon[0, -3:])
+          print("lat col0 first 3:", lat[:3, 0], "last 3:", lat[-3:, 0])
+          dlon = np.diff(lon[0, :]); dlat = np.diff(lat[:, 0])
+          print(f"dlon: min={dlon.min():.8f} max={dlon.max():.8f} (regular if equal)")
+          print(f"dlat: min={dlat.min():.8f} max={dlat.max():.8f} (sign gives row order)")
+          print("lon varies down a column?", np.ptp(lon[:, 0]))
+          print("lat varies across a row?", np.ptp(lat[0, :]))
+
+          # Land/sea probe in array index space, independent of any geotransform.
+          a = gdal.Open(f'NETCDF:"{src}":flux_avg').ReadAsArray().astype("float64")
+          def at(lon_deg, lat_deg):
+              j = int(np.argmin(np.abs(lon[0, :] - lon_deg)))
+              i = int(np.argmin(np.abs(lat[:, 0] - lat_deg)))
+              return i, j, a[i, j]
+          for name, lo, la in [("inland Asia 100E/40N", 100.0, 40.0),
+                               ("Indian Ocean 100E/40S", 100.0, -40.0),
+                               ("Sahara 10E/25N", 10.0, 25.0),
+                               ("N Pacific -150E/30N", -150.0, 30.0)]:
+              print(f"probe {name}: i,j,value = {at(lo, la)}")
+          PY
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
