@@ -383,12 +383,24 @@ Only touch the root when adding a **new** top-level sub-catalog. Procedure: **sk
 ends up over- or under-published.
 
 - Record what upstream actually granted, with evidence.
-- If the terms are genuinely unconfirmed or no licence was granted, say so: a non-committal
-  `license` **and** a description sentence stating it. Never assert an SPDX id upstream did not
-  grant, and never name a provider as `licensor` when no licence was granted. This has gone
-  wrong in both directions — `rivers/american-rivers/*` asserted `CC-BY-4.0` with no `licensor`
-  behind it, and `hazard/mid-century-habitat-climate-exposure` asserts `CC-BY-4.0` while its own
-  description says the terms "require confirmation".
+- **The test is decidability: a reader must be able to tell whether we may redistribute, and
+  under what restrictions.** An accurate SPDX id (`CC-BY-4.0`, `CC-BY-NC-4.0`, `public-domain`)
+  settles it by itself. A placeholder (`other` / `various` / `proprietary`) names no terms, so it
+  settles nothing on its own — it needs either a licence link that IS the terms document (WDPA's
+  `protectedplanet.net/en/legal`) or a description that states the terms. Either satisfies the
+  rule; boilerplate for its own sake does not. `verify-stac.py` reports
+  `license-terms-not-stated` (ADVISORY) when neither is present (#651).
+- If the terms are genuinely unconfirmed or no licence was granted, say so plainly in the
+  description — including "no grant has been located", when that is the honest answer. Never
+  assert an SPDX id upstream did not grant, and never name a provider as `licensor` when no
+  licence was granted. This has gone wrong in both directions — `rivers/american-rivers/*`
+  asserted `CC-BY-4.0` with no `licensor` behind it, and
+  `hazard/mid-century-habitat-climate-exposure` asserts `CC-BY-4.0` while its own description
+  says the terms "require confirmation".
+- **One terms page grants one thing.** Two collections citing the same licence URL must declare
+  the same `license`; `verify-stac.py` reports `license-inconsistent-for-terms` (ADVISORY) when
+  they do not — `wdpa` (`proprietary`) and `wdoecm-may-2026` (`other`) cite the same
+  Protected Planet legal page.
 - Do not invent a terms URL to clear the gate. If no public terms page exists, the finding
   stands; record the facts in the description and say so in the issue.
 - **One sanctioned exception, and only this one: data contributed directly to us, where no terms
