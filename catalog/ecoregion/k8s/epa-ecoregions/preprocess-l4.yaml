@@ -1,0 +1,79 @@
+# Step 1c: Level IV preprocess — single source, single CRS, but ESRI:102039 is a
+# non-EPSG authority code, so reproject to EPSG:4326 with GDAL up front rather than
+# relying on DuckDB/PROJ resolving 'ESRI:102039' inside the convert step.
+# All 16 source attributes are retained (L4 carries the full L1-L4 hierarchy).
+# CONUS only — EPA publishes no Alaska Level IV.  data-workflows #633
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: epa-ecoregions-l4-preprocess
+  namespace: geo-workflows
+  labels:
+    k8s-app: epa-ecoregions-l4-preprocess
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: epa-ecoregions-l4-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {memory: "16Gi", cpu: "4", ephemeral-storage: "20Gi"}
+          limits:   {memory: "16Gi", cpu: "4", ephemeral-storage: "20Gi"}
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,    value: "rook-ceph-rgw-nautiluss3.rook"}
+        - {name: AWS_PUBLIC_ENDPOINT, value: "s3-west.nrp-nautilus.io"}
+        - {name: AWS_HTTPS,          value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          OUT=/tmp/l4.gpkg
+          LAYER=epa_ecoregions_l4
+
+          mkdir -p /tmp/us4
+          rclone copyto nrp:public-ecoregion/raw/us_eco_l4.zip /tmp/us_eco_l4.zip -P
+          unzip -q -o /tmp/us_eco_l4.zip -d /tmp/us4
+          ls /tmp/us4
+
+          echo "=== CONUS L4 -> EPSG:4326 ==="
+          ogr2ogr -f GPKG "$OUT" /tmp/us4/us_eco_l4_no_st.shp \
+            -nln "$LAYER" -nlt PROMOTE_TO_MULTI -t_srs EPSG:4326
+
+          echo "=== layer ==="
+          ogrinfo -so -al "$OUT" "$LAYER"
+          N=$(ogrinfo -so -al "$OUT" "$LAYER" | sed -n 's/^Feature Count: //p')
+          echo "feature count = $N (expect 5896)"
+          [ "$N" = "5896" ] || { echo "FATAL: unexpected feature count"; exit 1; }
+
+          echo "=== convert to GeoParquet ==="
+          cng-convert-to-parquet "$OUT" s3://public-ecoregion/epa-ecoregions-l4.parquet \
+            --layer "$LAYER" --compression ZSTD --compression-level 15 --row-group-size 2000
+          echo "OK"
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
