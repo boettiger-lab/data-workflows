@@ -136,6 +136,35 @@ Also: `gdalinfo -stats` writes a `.tif.aux.xml` sidecar and **reads cached stats
 if you rebuild the COG in the same scratch dir, a stale `.aux.xml` reports the OLD min/max/mean. `rm`
 the `.aux.xml` too, or verify values with a fresh `gdallocationinfo`/`ComputeStatistics`, not the sidecar.
 
+## ⚠️ COG overviews: `gdal_translate -of COG` defaults to CUBIC, which rings NEGATIVE
+
+The COG driver's default `RESAMPLING` is **CUBIC** (verified: output is byte-identical to an
+explicit `RESAMPLING=CUBIC`). The cubic kernel has **negative side lobes**, so on a sparse,
+high-contrast field it undershoots below zero. Every overview level of all six
+`public-high-seas/ship-density` COGs shipped with negative pixels (up to 11% of the coarsest
+level) because the product is thin bright shipping lanes over near-zero ocean, the worst case
+for ringing (data-workflows #641). Zoomed-out renders were garbage; native resolution was fine.
+
+- **Do not accept "the overviews were built with averaging that ignored nodata" as the
+  explanation.** That story is usually wrong. An averaging kernel has all-nonnegative weights
+  and *cannot* produce a negative from nonnegative data. Before theorising, measure whether any
+  pixel actually equals the declared nodata: ship-density declared `nodata = 2147483647` and
+  contained **zero** such pixels, so nodata was never in the arithmetic at all.
+- **Fix / prevention: pass the resampling explicitly** on any non-continuous or sparse raster:
+  `-co RESAMPLING=AVERAGE` (mean per source pixel; matches the cng-datasets raster default) or
+  `-co RESAMPLING=NEAREST` (exact values, but aliases thin features in and out at zoom-out).
+- **⛔ `-co OVERVIEWS=IGNORE_EXISTING` is load-bearing when REBUILDING.** With the default
+  `OVERVIEWS=AUTO` the driver **copies the source's existing overviews verbatim and silently
+  ignores `RESAMPLING`** — a rebuild job runs green and changes nothing. Verified both ways.
+- **Gate the upload on a real check**, per level: `neg == 0`, `min >= 0`, and `max <= native max`
+  (an averaging kernel cannot exceed the native range; a ringing one does). Re-assert the native
+  pixel `SUM` and `MAX` against the published reference so you can prove the rewrite touched only
+  the pyramid. Working job: `catalog/high-seas/k8s/ship-density/ship-density-rebuild-overviews.yaml`.
+- **Overviews do not reach the hex.** `cng-datasets` hexes via `exactextract`, which reads the
+  band at native resolution and never requests an overview, so corrupt overviews do **not** imply
+  a corrupt hex. Confirm rather than assume: all six ship-density hex `SUM(value)` matched the
+  native COG pixel sums to ~1e-7 with `MIN = 0`, so no rebuild was needed.
+
 ## ⚠️ Choosing the aggregation reducer (`--hex-resampling`)
 
 `--hex-resampling` controls how source pixels collapse into each H3 cell. **The right reducer depends entirely on what the pixel value *means*, and the wrong one silently produces nonsense** (summing land-cover class codes, averaging species counts). Decide this per dataset, every time. Supported: `sum`, `mean`, `mode`, `max`, `min` (default `mean`).
