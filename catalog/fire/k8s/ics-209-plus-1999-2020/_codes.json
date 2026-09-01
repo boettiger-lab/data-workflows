@@ -1,0 +1,104 @@
+{
+  "_comment": [
+    "Coded domains for ICS-209-PLUS wildfire 1999-2020 (data-workflows #636).",
+    "Every value list here was ENUMERATED FROM THE INGESTED DATA (#294/#114), then matched",
+    "against the reference bundle's sit209_lookup_codes_definitions.csv for the official",
+    "definition. Where the two disagree the data wins and the gap is stated in the description",
+    "rather than papered over — SUPPRESSION_METHOD=MMS is in the data but not in the upstream",
+    "FIRE_SUPPRESSION_STRATEGY domain.",
+    "SPATIAL_DATA_ORIGIN is the concrete example: the upstream definitions file claims 'MTBS, FIRED or MTBS_AND_FIRED' but the data holds POO (most common), FIRED, MTBS and mixed-case MTBS_and_FIRED. Trusting the upstream doc would have failed the data-backed gate."
+  ],
+  "CAUSE": {
+    "description": "Ignition cause. Values: H=Human, L=Lightning/Natural, O=Other, U=Unknown. 206 of 34,622 incidents are null (cause not reported).",
+    "values": [
+      "H",
+      "L",
+      "O",
+      "U"
+    ]
+  },
+  "INCTYP_ABBREVIATION": {
+    "description": "Incident type abbreviation. Values: WF=Wildfire (33,641), WFU=Wildland Fire Use / managed natural ignition (772), RX=Prescribed fire (144), CX=Complex, an umbrella record for several member fires (65). Filter to WF for a wildfire-only population; RX records are intentional ignitions and CX records double-count their members, whose own rows are also present.",
+    "values": [
+      "WF",
+      "WFU",
+      "RX",
+      "CX"
+    ]
+  },
+  "SUPPRESSION_METHOD": {
+    "description": "Reported suppression strategy for the incident. Values: FS=Full Suppression, C=Confine, M=Monitor, PZP=Point Zone Protection, MMS. 2007+ only; a null means 'not collected' for earlier years, not 'no strategy'. MMS occurs in the data but is NOT defined in the reference bundle's FIRE_SUPPRESSION_STRATEGY lookup, so it is left undefined here rather than guessed.",
+    "values": [
+      "FS",
+      "C",
+      "M",
+      "MMS",
+      "PZP"
+    ]
+  },
+  "LL_CONFIDENCE": {
+    "description": "Confidence in the point-of-origin latitude/longitude, populated only where ICS-209-PLUS revised the reported coordinate (33,349 nulls). Values: H=High, N=None, L=Low, M=Medium.",
+    "values": [
+      "H",
+      "N",
+      "L",
+      "M"
+    ]
+  },
+  "SPATIAL_DATA_ORIGIN": {
+    "description": "Source of the spatial linkage that assigned this incident to this spatial unit. Values: POO=point of origin only (the incident's reported origin falls in this unit; no mapped perimeter was available), FIRED=FIRED event perimeter, MTBS=MTBS burned-area perimeter, MTBS_and_FIRED=both agreed. Present on the by-tract / by-county / by-cbg tables only — it is NOT a column on the incident summary table. Note the upstream field-definitions file documents this domain as 'MTBS, FIRED or MTBS_AND_FIRED', which is wrong on two counts: POO is the single most common value, and the combined code is mixed-case MTBS_and_FIRED. These values were enumerated from the ingested data (#294).",
+    "values": [
+      "POO",
+      "FIRED",
+      "MTBS",
+      "MTBS_and_FIRED"
+    ]
+  },
+  "SUP_METHOD_INITIAL": {
+    "description": "Suppression strategy on the FIRST situation report for the incident. Values: FS=Full Suppression, C=Confine, M=Monitor, PZP=Point Zone Protection, MMS. 2007+ only; a null means 'not collected' for earlier years, not 'no strategy'. MMS occurs in the data but is NOT defined in the reference bundle's FIRE_SUPPRESSION_STRATEGY lookup, so it is left undefined here rather than guessed.",
+    "values": [
+      "FS",
+      "C",
+      "M",
+      "MMS",
+      "PZP"
+    ]
+  },
+  "SUP_METHOD_FINAL": {
+    "description": "Suppression strategy on the LAST situation report for the incident. Values: FS=Full Suppression, C=Confine, M=Monitor, PZP=Point Zone Protection, MMS. 2007+ only; a null means 'not collected' for earlier years, not 'no strategy'. MMS occurs in the data but is NOT defined in the reference bundle's FIRE_SUPPRESSION_STRATEGY lookup, so it is left undefined here rather than guessed.",
+    "values": [
+      "FS",
+      "C",
+      "M",
+      "MMS",
+      "PZP"
+    ]
+  },
+  "GEN_FIRE_BEHAVIOR": {
+    "description": "General fire behaviour reported on the situation report. Values: Minimal, Moderate, Active, Extreme (an ordered severity scale, stored as text rather than a code). Enumerated from the ingested data (#294).",
+    "values": [
+      "Minimal",
+      "Moderate",
+      "Active",
+      "Extreme"
+    ]
+  },
+  "FUEL_MODEL": {
+    "description": "Primary Anderson fuel model, stored as the DESCRIPTIVE LABEL rather than the 1-13 code the reference bundle lists. Values: Short Grass (1 foot), Timber (Grass and Understory), Tall Grass (2.5 feet), Chaparral (6 feet), Brush (2 feet), Dormant Brush, Hardwood Slash, Southern Rough, Closed Timber Litter, Hardwood Litter, Timber (Litter and Understory), Light Logging Slash, Medium Logging Slash, Heavy Logging Slash. Enumerated from the ingested data (#294) — join sit209-lookup-codes on CODE_TYPE='FUEL_MODEL' for the numeric codes.",
+    "values": [
+      "Short Grass (1 foot)",
+      "Timber (Grass and Understory)",
+      "Tall Grass (2.5 feet)",
+      "Chaparral (6 feet)",
+      "Brush (2 feet)",
+      "Dormant Brush, Hardwood Slash",
+      "Southern Rough",
+      "Closed Timber Litter",
+      "Hardwood Litter",
+      "Timber (Litter and Understory)",
+      "Light Logging Slash",
+      "Medium Logging Slash",
+      "Heavy Logging Slash"
+    ]
+  }
+}

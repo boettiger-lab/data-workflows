@@ -1,0 +1,130 @@
+# Diagnostic: explain why 1,961 of FPA-FOD's 35,208 distinct pre-2021
+# ICS_209_PLUS_INCIDENT_JOIN_ID values have no row in the figshare v3 WILDFIRE bundle.
+#
+# Issue #636, acceptance criterion 2, which asks for 35,208/35,208. Measured against the
+# staged wildfire incidents the real match rate is 33,247/35,208 = 94.4%, unmatched spread
+# evenly across 1999-2020 (1.9%-12% per year) rather than concentrated in any year — so it is
+# not the 2021-2024 coverage gap the issue already documents. Case/whitespace normalization
+# recovers none of them, and none appear in the wildfire sitreps table either.
+#
+# Hypothesis under test: FPA-FOD's join id was populated against a broader ICS-209-PLUS scope
+# than the wildfire subset — i.e. the ALL-HAZARDS bundle. If the unmatched ids resolve there,
+# the gap has a documented cause (incidents ICS-209-PLUS classified as non-wildfire) and the
+# STAC can say so rather than leaving 1,961 ids unexplained.
+#
+# The all-hazards bundle ships ONLY sitreps tables — the incident summary table exists only in
+# the wildfire bundle — so the comparison is wildfire incidents vs all-hazards sitreps. That is
+# the right test anyway: the all-hazards sitreps span every incident type, so an id present
+# there but absent from the wildfire subset was classified non-wildfire upstream.
+#
+# Read-only: writes nothing to S3.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ics-209-plus-fod-linkage-probe
+  namespace: geo-workflows
+  labels:
+    k8s-app: ics-209-plus-fod-linkage-probe
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ics-209-plus-fod-linkage-probe
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: probe
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "=== downloading all-hazards bundle (figshare v3, file id 38766528) ==="
+          curl -sSL --retry 8 --retry-delay 5 --retry-all-errors --fail \
+            -o /tmp/allhazards.zip 'https://ndownloader.figshare.com/files/38766528'
+          echo '8bf3b9c8321552e506ccbe23eac01145  /tmp/allhazards.zip' > /tmp/ah.md5
+          md5sum -c /tmp/ah.md5
+          mkdir -p /tmp/ah && cd /tmp/ah && unzip -q -o /tmp/allhazards.zip
+          find /tmp/ah -name '*.csv' -not -name '._*' | sort
+
+          python3 - <<'PY'
+          import duckdb, glob, os
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute(f"""
+              CREATE SECRET s (TYPE S3, KEY_ID '{os.environ['AWS_ACCESS_KEY_ID']}',
+                  SECRET '{os.environ['AWS_SECRET_ACCESS_KEY']}',
+                  ENDPOINT '{os.environ['AWS_S3_ENDPOINT']}', URL_STYLE 'path', USE_SSL false)
+          """)
+
+          ah = [f for f in glob.glob('/tmp/ah/**/*.csv', recursive=True)
+                if 'sitreps' in os.path.basename(f).lower()
+                and 'deleted' not in os.path.basename(f).lower()
+                and not os.path.basename(f).startswith('._')][0]
+          print('all-hazards sitreps table:', ah)
+
+          WF  = 's3://public-fire/raw/ics-209-plus-1999-2020/ics209-plus-wf_incidents_1999to2020.csv'
+          FOD = 's3://public-fire/fpa-fod-1992-2024.parquet'
+
+          con.execute(f"""
+              CREATE VIEW fod AS
+              SELECT DISTINCT ICS_209_PLUS_INCIDENT_JOIN_ID AS jid, FIRE_YEAR
+              FROM read_parquet('{FOD}')
+              WHERE ICS_209_PLUS_INCIDENT_JOIN_ID IS NOT NULL AND FIRE_YEAR <= 2020;
+              CREATE VIEW wf  AS SELECT DISTINCT INCIDENT_ID AS iid FROM read_csv('{WF}', sample_size=-1);
+              CREATE VIEW ahv AS SELECT DISTINCT INCIDENT_ID AS aid FROM read_csv('{ah}', sample_size=-1);
+          """)
+
+          print('--- does the ALL-HAZARDS scope account for the unmatched ids? ---')
+          print(con.execute("""
+              WITH un AS (SELECT jid FROM fod WHERE jid NOT IN (SELECT iid FROM wf))
+              SELECT (SELECT COUNT(*) FROM fod)                                   AS fod_pre2021_ids,
+                     (SELECT COUNT(*) FROM un)                                    AS unmatched_in_wildfire,
+                     (SELECT COUNT(*) FROM un WHERE jid IN (SELECT aid FROM ahv)) AS of_those_in_allhazards,
+                     (SELECT COUNT(*) FROM ahv)                                   AS allhazards_incident_ids,
+                     (SELECT COUNT(*) FROM wf)                                    AS wildfire_incident_ids
+          """).fetchdf().T.to_string())
+
+          print('--- all-hazards incident type of the unmatched ids ---')
+          try:
+              print(con.execute(f"""
+                  WITH un AS (SELECT jid FROM fod WHERE jid NOT IN (SELECT iid FROM wf))
+                  SELECT a.INCTYP_ABBREVIATION, COUNT(DISTINCT a.INCIDENT_ID) AS n_incidents
+                  FROM read_csv('{ah}', sample_size=-1) a JOIN un ON a.INCIDENT_ID = un.jid
+                  GROUP BY 1 ORDER BY n_incidents DESC
+              """).fetchdf().to_string())
+          except Exception as e:
+              print('  (no INCTYP_ABBREVIATION available:', e, ')')
+
+          print('--- residual: unmatched by NEITHER scope ---')
+          print(con.execute("""
+              SELECT COUNT(*) AS unexplained
+              FROM fod WHERE jid NOT IN (SELECT iid FROM wf) AND jid NOT IN (SELECT aid FROM ahv)
+          """).fetchdf().to_string())
+          PY
+          echo DONE
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+      priorityClassName: opportunistic
