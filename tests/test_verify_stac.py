@@ -740,3 +740,141 @@ class DataCheckFailureIsHard(unittest.TestCase):
         finally:
             vs.urllib.request.urlopen = orig
 
+
+
+class LicenceDecidability(unittest.TestCase):
+    """A placeholder licence (other/various/proprietary) names no terms, so it leaves
+    redistribution decidable only if the licence link is itself a terms page or the
+    description says what the terms are. Neither = ADVISORY (data-workflows#651).
+
+    Advisory rather than hard on purpose: the verifier judges the URL by its text and
+    cannot fetch the page, so this prompts human judgement instead of asserting a defect.
+    Blocking would also fail collections like WDPA, whose link genuinely does state terms."""
+
+    NRP = "https://s3-west.nrp-nautilus.io"
+
+    def _doc(self, license_="other", href=None, desc=""):
+        links = [
+            {"rel": "self", "href": f"{self.NRP}/public-x/d/stac-collection.json"},
+            {"rel": "root", "href": f"{self.NRP}/public-data/stac/catalog.json"},
+            {"rel": "parent", "href": f"{self.NRP}/public-x/stac-collection.json"},
+        ]
+        if href:
+            links.append({"rel": "license", "href": href})
+        return {"type": "Collection", "id": "d", "license": license_,
+                "description": desc, "links": links}
+
+    def _codes(self, doc):
+        return [f.code for f in vs.check_license(doc)]
+
+    def test_download_form_link_with_silent_description_is_advisory(self):
+        # bio-oracle: the link is a download form, the description never mentions terms.
+        f = vs.check_license(self._doc(
+            href="https://bio-oracle.org/downloads-to-email.php",
+            desc="Global marine dissolved oxygen aggregated to H3 resolution 6."))
+        self.assertEqual([x.code for x in f], ["license-terms-not-stated"])
+        self.assertEqual(f[0].severity, vs.ADVISORY)
+
+    def test_landing_page_link_is_advisory(self):
+        # ebsa: a programme landing page states no terms.
+        self.assertEqual(
+            self._codes(self._doc(href="https://www.cbd.int/ebsa",
+                                  desc="CBD-recognized marine areas.")),
+            ["license-terms-not-stated"])
+
+    def test_real_terms_page_link_is_silent(self):
+        # wdpa: .../en/legal genuinely is the terms document. No boilerplate demanded.
+        self.assertEqual(
+            self._codes(self._doc("proprietary",
+                                  "https://www.protectedplanet.net/en/legal")), [])
+
+    def test_description_stating_terms_is_silent(self):
+        # imma: link is a download page, but the description says what the terms are.
+        self.assertEqual(
+            self._codes(self._doc(
+                href="https://example.org/imma-spatial-layer-download/",
+                desc="Provided for non-commercial use; redistribution requires "
+                     "written permission from the task force.")), [])
+
+    def test_no_grant_located_wording_is_accepted(self):
+        # The honest bio-oracle fix: say plainly that no grant was found.
+        self.assertEqual(
+            self._codes(self._doc(
+                href="https://bio-oracle.org/downloads-to-email.php",
+                desc="Upstream states 'all rights reserved' and publishes no licence; "
+                     "no grant has been located.")), [])
+
+    def test_missing_link_reports_once_not_twice(self):
+        # The pre-existing HARD is the finding; the advisory must not pile on.
+        f = vs.check_license(self._doc(href=None, desc="Nothing about terms."))
+        self.assertEqual([x.code for x in f], ["license-link-missing"])
+
+    def test_meta_collection_still_exempt(self):
+        doc = self._doc(href=None, desc="")
+        doc["links"].append({"rel": "child", "href": f"{self.NRP}/public-x/d/c/s.json"})
+        self.assertEqual(self._codes(doc), [])
+
+    def test_real_spdx_id_is_never_asked_for_prose(self):
+        # A real SPDX id is decidable by itself.
+        self.assertEqual(self._codes(self._doc("CC-BY-NC-4.0", desc="")), [])
+
+
+class LicenceConsistencyAcrossCollections(unittest.TestCase):
+    """One terms URL cannot grant two different things. wdpa ('proprietary') and
+    wdoecm-may-2026 ('other') both cite protectedplanet.net/en/legal (#651)."""
+
+    def _doc(self, cid, license_, href):
+        return (cid, {"type": "Collection", "id": cid, "license": license_,
+                      "links": [{"rel": "license", "href": href}]})
+
+    def test_same_url_two_licences_flags_both(self):
+        LEGAL = "https://www.protectedplanet.net/en/legal"
+        out = vs.check_license_consistency([
+            self._doc("wdpa", "proprietary", LEGAL),
+            self._doc("wdoecm-may-2026", "other", LEGAL),
+        ])
+        self.assertEqual({cid for cid, _ in out}, {"wdpa", "wdoecm-may-2026"})
+        self.assertTrue(all(f.severity == vs.ADVISORY for _, f in out))
+        self.assertTrue(all(f.code == "license-inconsistent-for-terms" for _, f in out))
+
+    def test_same_url_same_licence_is_silent(self):
+        LEGAL = "https://www.protectedplanet.net/en/legal"
+        self.assertEqual(vs.check_license_consistency([
+            self._doc("wdpa", "proprietary", LEGAL),
+            self._doc("wdoecm-may-2026", "proprietary", LEGAL),
+        ]), [])
+
+    def test_trailing_slash_and_case_do_not_split_a_url(self):
+        out = vs.check_license_consistency([
+            self._doc("a", "proprietary", "https://Example.org/Legal/"),
+            self._doc("b", "other", "https://example.org/legal"),
+        ])
+        self.assertEqual({cid for cid, _ in out}, {"a", "b"})
+
+    def test_different_urls_are_independent(self):
+        self.assertEqual(vs.check_license_consistency([
+            self._doc("a", "proprietary", "https://example.org/one"),
+            self._doc("b", "other", "https://example.org/two"),
+        ]), [])
+
+    def test_catalog_is_skipped(self):
+        docs = [("root", {"type": "Catalog", "id": "root", "license": "various",
+                          "links": [{"rel": "license", "href": "https://example.org/x"}]}),
+                self._doc("a", "other", "https://example.org/x")]
+        self.assertEqual(vs.check_license_consistency(docs), [])
+
+    def test_meta_collection_parent_is_exempt(self):
+        # protected-planet ('other') is the parent of wdpa + wdoecm and cites the same
+        # legal page. A parent's placeholder means "see the children", so it must not be
+        # dragged in as a third voice — consistent with the licence-link exemption.
+        LEGAL = "https://www.protectedplanet.net/en/legal"
+        parent = ("protected-planet", {
+            "type": "Collection", "id": "protected-planet", "license": "other",
+            "links": [{"rel": "license", "href": LEGAL},
+                      {"rel": "child", "href": "https://x/wdpa/stac-collection.json"}]})
+        out = vs.check_license_consistency([
+            parent,
+            self._doc("wdpa", "proprietary", LEGAL),
+            self._doc("wdoecm-may-2026", "other", LEGAL),
+        ])
+        self.assertEqual({cid for cid, _ in out}, {"wdpa", "wdoecm-may-2026"})

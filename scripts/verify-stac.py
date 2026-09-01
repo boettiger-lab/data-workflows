@@ -13,6 +13,10 @@ Static checks (no data; just the STAC JSON):
   - license present + a recognized SPDX id, or other/various/proprietary WITH a
     license link — EXCEPT a meta-collection (has child links) may use various/other
     with no link, since the licenses live on (and are gated per) its children
+  - a placeholder license (other/various/proprietary) must leave redistribution
+    DECIDABLE: the licence link is itself a terms page, or the description says what
+    the terms are. Neither = ADVISORY (#651) — advisory because the verifier judges the
+    URL by its text and cannot read the page
   - nav links: self/root/parent present + well-formed; child (if any) well-formed
   - extent.temporal.interval present, each endpoint RFC 3339 (or null for an open
     end), start not after end — pystac parses these eagerly, so a malformed value
@@ -36,6 +40,11 @@ Static checks (no data; just the STAC JSON):
   - ADVISORY: a title naming one US state whose bbox reaches well outside it, with no
     footprint sentence in the description — a set of whole units is not a state extent
     and a state-shaped title is what a consumer trusts instead of masking (#528)
+
+Cross-collection check (needs the whole run, so it is not in STATIC_CHECKS):
+  - one terms URL, one license value: collections citing the same licence href must
+    agree on `license`. ADVISORY — it can see the disagreement but not which side is
+    wrong, and it only fires when a run covers 2+ collections
 
 Data-backed checks (delegated to the duckdb-geo MCP server, --no-data to skip):
   - every coded column's `values` array == the ingested DISTINCT set (automates the
@@ -230,6 +239,22 @@ NON_SPDX_OK = {"other", "various", "proprietary", "public-domain"}
 NEED_LICENSE_LINK = {"other", "various", "proprietary"}
 SPDX_SHAPE = re.compile(r"^[A-Za-z0-9.+-]+$")
 
+# What licence metadata has to deliver is DECIDABILITY: a reader must be able to work out
+# whether we may redistribute, and under what restrictions. A real SPDX id delivers that by
+# itself. A placeholder (other/various/proprietary) names no terms, so it delivers it only if
+# something else does — the licence link, or the description (data-workflows#651).
+#
+# The verifier cannot fetch the linked page and read it, so it judges the URL text. Deliberately
+# generous: this exists to keep a collection whose link genuinely IS a terms page quiet (WDPA's
+# .../en/legal), not to certify that any page says anything.
+TERMS_URL_RE = re.compile(
+    r"(legal|licen[cs]|terms|rights|policy|government-works|creativecommons\.org"
+    r"|opendatacommons|public[-_]?domain)", re.I)
+# Vocabulary that marks a description as actually addressing the terms situation.
+TERMS_TEXT_RE = re.compile(
+    r"licen[cs]|terms of use|\bterms\b|redistribut|permission|copyright"
+    r"|public domain|all rights reserved|no grant", re.I)
+
 GENERIC_ASSET_KEYS = {"pmtiles", "geoparquet", "hex", "parquet", "cog", "h3-parquet", "h3"}
 
 # Name tokens that mark a hex column as a per-feature magnitude — a value that is
@@ -328,24 +353,48 @@ def check_license(doc: dict) -> list[Finding]:
         return out
 
     if lic in NON_SPDX_OK:
-        if lic in NEED_LICENSE_LINK and not has_license_link:
-            # A meta-collection (one that has child links) may declare 'various' or
-            # 'other' WITHOUT its own license link: the real licenses live on the
-            # child collections — each verified individually — and downstream gating
-            # (source.coop redistribution excludes, per-dataset decisions) keys on
-            # those per-child licenses, not the parent. A single parent-level link
-            # would be misleading for genuinely mixed children. 'proprietary' is NOT
-            # exempted (it asserts specific restrictive terms, not "see children"),
-            # and a LEAF collection (no children) still needs the link — that catches
-            # the lazy-'various'-default case.
-            is_meta = lic in {"various", "other"} and any(
-                l.get("rel") == "child" for l in links)
-            if not is_meta:
+        # A meta-collection (one that has child links) may declare 'various' or
+        # 'other' WITHOUT its own license link: the real licenses live on the
+        # child collections — each verified individually — and downstream gating
+        # (source.coop redistribution excludes, per-dataset decisions) keys on
+        # those per-child licenses, not the parent. A single parent-level link
+        # would be misleading for genuinely mixed children. 'proprietary' is NOT
+        # exempted (it asserts specific restrictive terms, not "see children"),
+        # and a LEAF collection (no children) still needs the link — that catches
+        # the lazy-'various'-default case.
+        is_meta = lic in {"various", "other"} and any(
+            l.get("rel") == "child" for l in links)
+        if lic in NEED_LICENSE_LINK and not is_meta:
+            if not has_license_link:
                 out.append(Finding(HARD, "license-link-missing",
                                     f"license is '{lic}' but there is no "
                                     f"{{'rel':'license'}} link to the canonical terms URL "
                                     f"(exempt only for a meta-collection with child links, "
                                     f"whose per-child licenses govern; this is a leaf)."))
+                # The missing link IS the finding; do not also report that the terms
+                # go unstated. One defect, one finding.
+                return out
+
+            # The link exists. Can a reader actually decide anything from this
+            # collection? Either the link is itself a terms document, or the
+            # description says what the situation is. Neither = undecidable.
+            # ADVISORY, not HARD, on purpose: the verifier judges the URL by its text
+            # and cannot read the page, so this is a prompt for human judgement rather
+            # than a blocking claim. Blocking here would also fail collections whose
+            # link genuinely does state the terms, for want of boilerplate.
+            link_states_terms = any(
+                TERMS_URL_RE.search(l.get("href") or "") for l in license_links)
+            desc_states_terms = bool(TERMS_TEXT_RE.search(doc.get("description") or ""))
+            if not link_states_terms and not desc_states_terms:
+                hrefs = ", ".join(l.get("href") or "?" for l in license_links)
+                out.append(Finding(ADVISORY, "license-terms-not-stated",
+                                    f"license is '{lic}', which names no terms, and neither "
+                                    f"the licence link ({hrefs}) nor the description states "
+                                    f"what they are — so a reader cannot tell whether this may "
+                                    f"be redistributed, or under what restrictions. Either use "
+                                    f"the real SPDX id, link the actual terms page, or say "
+                                    f"plainly in the description what is and is not granted "
+                                    f"(including that no grant has been located, if so)."))
         return out
 
     if lic in KNOWN_SPDX:
@@ -969,6 +1018,58 @@ def run_sibling_linter(mod, doc_source: str, code: str) -> list[Finding]:
     # The sibling linters prefix each message with "[collection_id] " — strip it so
     # render() doesn't print the id twice.
     return [Finding(HARD, code, re.sub(r"^\[[^\]]+\]\s*", "", e)) for e in errs]
+
+
+def check_license_consistency(docs: list[tuple[str, dict]]) -> list[tuple[str, Finding]]:
+    """Cross-collection: one terms URL must yield one `license` value.
+
+    Two collections citing the SAME terms page cannot correctly declare different licences —
+    the terms are the terms. `wdpa` ('proprietary') and `wdoecm-may-2026` ('other') both cite
+    protectedplanet.net/en/legal, same publisher, same page, two answers (data-workflows#651).
+
+    ADVISORY, and deliberately so. The verifier can see that two collections disagree but not
+    which one is right, so it cannot direct a fix. It also only fires when two collections
+    share a single invocation, which in CI depends on how many changed YAMLs happened to
+    resolve to collections — a HARD would make the outcome depend on batching rather than on
+    the catalog. Its real home is the catalog-wide sweep.
+
+    Returns (collection_id, Finding) pairs so the caller can attribute each one.
+    """
+    by_href: dict[str, dict[str, list[str]]] = {}
+    for cid, doc in docs:
+        if doc.get("type") == "Catalog":
+            continue
+        lic = doc.get("license")
+        if not lic:
+            continue
+        # Meta-collections are exempt, as they already are from the licence-link rule:
+        # a parent's placeholder means "see the children", not a claim about the terms
+        # page it happens to cite. `protected-planet` ('other') sits above wdpa and
+        # wdoecm and would otherwise be dragged into their disagreement as a third voice.
+        if any(l.get("rel") == "child" for l in doc.get("links", [])):
+            continue
+        for l in doc.get("links", []):
+            if l.get("rel") != "license":
+                continue
+            href = (l.get("href") or "").strip().rstrip("/").lower()
+            if not href:
+                continue
+            by_href.setdefault(href, {}).setdefault(lic, []).append(cid)
+
+    out: list[tuple[str, Finding]] = []
+    for href, lics in sorted(by_href.items()):
+        if len(lics) < 2:
+            continue
+        summary = "; ".join(
+            f"'{lic}' ({', '.join(sorted(set(cids)))})" for lic, cids in sorted(lics.items()))
+        for lic, cids in sorted(lics.items()):
+            for cid in sorted(set(cids)):
+                out.append((cid, Finding(
+                    ADVISORY, "license-inconsistent-for-terms",
+                    f"this collection declares license '{lic}', but {href} is cited by "
+                    f"collections declaring different licenses: {summary}. One terms page "
+                    f"cannot grant two different things — reconcile them.")))
+    return out
 
 
 STATIC_CHECKS = [
@@ -1941,13 +2042,18 @@ def check_hex_fid_matches_flat(doc: dict, mcp: MCPClient) -> list[Finding]:
 # ---------------------------------------------------------------------------
 
 def verify(source: str, do_data: bool = True, do_recall: bool = True,
-           mcp: MCPClient | None = None) -> tuple[str, list[Finding]]:
+           mcp: MCPClient | None = None,
+           collect: list[tuple[str, dict]] | None = None) -> tuple[str, list[Finding]]:
     try:
         doc = load_doc(source)
     except Exception as e:
         return source, [Finding(HARD, "load-error", f"could not load STAC: {e}")]
 
     collection_id = doc.get("id", source)
+    # Cross-collection checks need every doc in the run; gather them here so the docs are
+    # loaded exactly once. Optional, so the 2-tuple return stays as callers expect.
+    if collect is not None:
+        collect.append((collection_id, doc))
     findings: list[Finding] = []
     for check in STATIC_CHECKS:
         findings.extend(check(doc))
@@ -2048,9 +2154,10 @@ def main():
     sources = list(dict.fromkeys(sources))
 
     total_hard = 0
+    loaded: list[tuple[str, dict]] = []
     for src in sources:
         collection_id, findings = verify(
-            src, do_data=not args.no_data, do_recall=not args.no_recall)
+            src, do_data=not args.no_data, do_recall=not args.no_recall, collect=loaded)
         if args.strict:
             for f in findings:
                 if f.code in ("geoparquet-no-geom-column", "license-unknown-spdx"):
@@ -2067,6 +2174,15 @@ def main():
         else:
             print(f"  {len(hard)} hard, {len(adv)} advisory", file=sys.stderr)
         total_hard += len(hard)
+
+    # Cross-collection pass: needs the whole run, so it cannot live in STATIC_CHECKS.
+    cross = check_license_consistency(loaded)
+    if cross:
+        print("\n=== cross-collection ===", file=sys.stderr)
+        for cid, f in cross:
+            print(f.render(cid), file=sys.stderr)
+            if f.severity == HARD:
+                total_hard += 1
 
     if total_hard:
         print(f"\nFAIL: {total_hard} hard finding(s) across {len(sources)} collection(s).",
