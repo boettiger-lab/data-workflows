@@ -1079,3 +1079,74 @@ and that species' gHM road-bias verdict.
 - The `mode`-discards-the-mix caveat on every `integrated-binary-*` hex asset.
 - That species' gHM figure and the resulting road-gradient verdict, so the circularity travels with
   the data rather than living only in this file.
+
+## CLOSEOUT #639: DONE 2026-09-01, all steps executed
+
+The res-10 fan-out `inhabit-v4-hex-639` reached `Complete` at **2026-09-01T05:18:37Z**, reason
+`CompletionsReached`, after 33 h. Both defenses are clean.
+
+**1. Job check.** `succeeded=48/48`, `failed` empty, `failedIndexes` empty, zero pod restarts across
+the whole run. The 7 residue-skip pods no-opped in seconds as predicted, and the remaining 41 built
+141 product-units.
+
+**2. Coverage gate.** `check-coverage.sh --phase 1` reports **48 layers checked, 0 needing
+attention**: 48 ok, 0 FAIL, 0 GAP, 0 SKIP, exit 0. This is the first run of the gate that exits 0.
+#610's closeout had to read past 8 FAIL and 5 SKIP because 8 species then had no hex at all.
+
+**3. Class set, measured directly through the duckdb-geo MCP.** All 12 species, not just the 8 built
+here, because the reused residue had to be gated on the same evidence as the new writes:
+
+| | measured, all 12 species |
+|---|---|
+| distinct `suitability_class` | 5, exactly `{-1, 0, 1, 2, 3}` |
+| codes outside the declared set | 0 |
+| NULLs | 0 |
+| `h0` partitions per species | 6 |
+| total cells per species | **497 391 337, identical for all 12** |
+
+That last row is the grid invariant closing. The per-`h0` constants recorded above
+(4 624 149 + 216 161 743 + 104 319 256 + 59 745 461 + 65 196 375 + 47 344 353) sum to exactly
+497 391 337, and every species hits it. The class raster carries a code across all of CONUS, so its
+cell count is grid-determined rather than species-determined: a partial or truncated write cannot
+reproduce this number, and 12 of 12 do.
+
+### The continuous products exceed 100 by one ULP, in 4 column chunks of 123 980
+
+Footer statistics over all 36 continuous hex layers (`parquet_metadata`, no data pages read) give
+zero NULLs and `[0, 100]` on 123 976 of 123 980 `suitability` column chunks. Four report a max of
+`100.00000000000001`, an excess of **1.421e-14**, which is one double-precision ULP at 100:
+
+    bromus_arvensis / high-abundance-masked   h0=577692205326532607  row groups 1, 213
+    bromus_arvensis / high-abundance-masked   h0=577762574070710271  row group 140
+    salsola_tragus  / occurrence-masked       h0=577199624117288959  row group 747
+
+This is float accumulation in the `mean` reducer, not a data defect: the source is `uint8` 0-100, so
+a weighted mean is mathematically bounded by 100 and only floating-point rounding puts it over. It
+is left in place rather than clamped, because clamping would rewrite 36 layers to move 4 values by
+1.4e-14. Recorded here so a future strict `<= 100` assertion is recognised as too tight rather than
+read as corruption.
+
+⚠️ **Do not read the raw MCP output for this without a non-numeric prefix on the value.** The result
+renderer re-parses formatted numbers and rounds them, so `printf('%.17g', ...)` displayed the max as
+a flat `100` and the excursion looked like a contradiction against its own `WHERE` clause. Prefixing
+the projection with a literal (`'max=' || printf(...)`) is what made the real value visible.
+
+### Publish
+
+`READY_LAYERS` was the full 48 keys, 12 species by the 4 canonical products, with `PHASE` left at
+`all` so the 108 COGs stay declared. Generator reported and the artifact confirmed **156 assets, 108
+COG and 48 hex**, matching the figure predicted when `hexed_products` was added.
+
+The overwrite is strictly additive, measured against the live document before publishing: **32 assets
+added, 0 removed, 0 existing assets changed**, plus the collection description. The bucket
+meta-collection is byte-identical and was not republished.
+
+`verify-stac.py --no-data` passes on both documents pre-publish, and the data-backed
+`verify-stac.py --bucket public-invasives --dataset inhabit-v4-2024` exits 0 with zero findings
+against the live collection. Per the standing caveat, that run is not on its own evidence the data
+check happened, which is why the class census in step 3 was measured independently.
+
+**Coverage wording.** With 12 species hexed but only 4 of 9 products, the generator takes the
+partial-product branch, so the collection says an `h8` join resolves for every species but only for
+those four products and returns nothing against any other. The all-products branch added in
+`a95560b` still cannot fire, and should not until phase-2 hex is built, which is out of scope.
