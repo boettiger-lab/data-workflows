@@ -1,0 +1,185 @@
+# MTBS annual thematic burn severity -> H3 res-10 hex, CONUS domain, mode reducer.
+#
+# UNIFIED MULTI-YEAR LAYOUT, copied from the `nlcd` Annual build (#453), which is this catalog's
+# precedent for exactly this problem -- many annual years of one categorical raster in ONE
+# hive-partitioned dataset:
+#
+#     mtbs-severity-1984-2024-conus/hex/year=<YEAR>/h0=<CELL>/data_0.parquet
+#
+# `year` and `h0` are both partition columns, so `WHERE year=YYYY` filters one year and reburn is a
+# self-join on the H3 cell across years. No per-year collections.
+#
+# Index maps to (year, h0): YI = IDX / 6, HI = IDX % 6.  39 years x 6 h0 = 234 completions.
+#
+# Reducer is `mode`: a majority vote over the source pixels in each cell. Correct for coded
+# class values -- a mean would fabricate classes the source does not contain. `mode` is SPARSE:
+# a cell with no valid pixel is dropped, so only burned ground appears. It also keeps ONLY the
+# dominant class and discards the mix, which is why the companion `hex-fractions` layer exists --
+# use that one, not this, for any "share burned at high severity" statistic.
+#
+# /!\ THE h0 FAN-OUT IS RESTRICTED TO 6 OF THE 122 BASE CELLS -- a deliberate deviation from the
+# 122 the generator emits, because at res 10 an h0 index that holds no data is NOT free: the tool
+# prunes only h0 cells whose envelope misses the raster, and every surviving cell enumerates all
+# ~280 M of its res-10 children before discovering they are all nodata. Running 122 per year would
+# be 4758 pod slots at 192Gi to do 234 cells' worth of work.
+#
+# The 6 indexes below are MEASURED, not guessed: they are the h0 partitions that
+# `mtbs-perimeters-1984-2024` actually populates inside this domain, read from the cell CENTROIDS
+# (h3_cell_to_lat / h3_cell_to_lng) of its completed res-10 hex rather than from the res-0 partition
+# footprint. Severity pixels exist only inside MTBS perimeters, so the perimeter h0 set is a strict
+# SUPERSET of the severity h0 set for this domain -- and the perimeters cover all 41 years, including
+# the years whose severity mosaic is missing, so it is a superset in time as well.
+#
+# Two wider sets were rejected, both for concrete reasons:
+#   - the populated set of `whp-2023-classified-conus`. WHP maps every land pixel of its domain (it
+#     carries explicit non-burnable and water classes) while MTBS maps only ground that burned. For
+#     Alaska that is three h0 cells against one: MTBS Alaska fires span 56.7-70.2 N, -166.2 to
+#     -140.2, entirely inside a single base cell.
+#   - the domain bounding box, which is wider still. The Alaska clip box reaches about 2.4 degrees
+#     south of any Alaska data, so it pulls in a h0 cell holding nothing but open Pacific.
+# The post-build check-hex-coverage.sh gate verifies per year that every expected partition is
+# populated, so a wrong list fails loudly rather than shipping a hole.
+#
+#   h0 index -> cell
+#      12  ->  576812596024311807
+#      14  ->  577692205326532607
+#      20  ->  577164439745200127
+#      50  ->  577199624117288959
+#      71  ->  577762574070710271
+#      78  ->  577234808489377791
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mtbs-severity-conus-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: mtbs-severity-conus-hex
+spec:
+  completions: 234
+  parallelism: 117
+  # 117, not the tool's default 61, and not the 12 the `nlcd` annual build uses. NLCD runs the full
+  # 122 h0 per year, so most of its indexes are pruned in seconds and 12 slots are ample;
+  # restricting this fan-out to the h0 cells that actually hold data means every index here is real
+  # work, so concurrency sets wall-clock almost entirely.
+  #
+  # 234 = 117 x 2, so this is two clean waves rather than the 3.84 that 61 rounds up to four.
+  # Wall clock for an indexed job of N equal-cost tasks over P slots is ~ N x mean_duration / P, so
+  # halving the wave count roughly halves the layer.
+  #
+  # MEASURED 2026-08-24 on the Alaska fractions run, which is what justifies going wide: its 36
+  # pods were spread over 30 DISTINCT nodes, at most 3 on any one. Pods are not packed, so an extra
+  # pod lands on another idle node rather than contending with a sibling -- the speed-up is close
+  # to linear in P. The stepped completion times (a fast group at 76-101 min on SDSU/Fresno/SDSC
+  # hardware, a slower group at 140-150 min elsewhere) are node-speed HETEROGENEITY across the
+  # federation, not contention, and more slots do not make that worse.
+  #
+  # Risk is asymmetric and small: if the cluster cannot place 117 pods at 192Gi the surplus simply
+  # sits Pending and the job still runs at whatever concurrency it achieves. Nothing fails. And
+  # `Job.spec.parallelism` is mutable, so this is patchable up or down on a running job:
+  #     kubectl -n geo-workflows patch job/<name> -p '{"spec":{"parallelism":61}}'
+  # 117 stays inside the AGENTS.md <=200-pod good-practice target; 234 would not.
+  completionMode: Indexed
+  # Never backoffLimit: 0 -- a partial indexed run must surface as Failed, not publish as complete
+  # (#409). maxFailedIndexes absorbs a transient Ceph RGW blip without aborting the siblings.
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 30
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: mtbs-severity-conus-hex
+    spec:
+      restartPolicy: Never
+      # priorityClassName is deliberately OMITTED: `opportunistic` was preempted within ~20 s on
+      # these nodes during the WHP build (#586), which wastes the whole cell enumeration.
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: CNG_HEX_WORKERS
+          value: '8'
+        volumeMounts:
+        # The tool localizes the COG with rclone before hexing; without this mount the job fails.
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          YEARS=(1984 1985 1986 1987 1988 1989 1990 1991 1992 1993 1994 1995 1996 1997 1998 1999 2000 2001 2002 2003 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2018 2019 2020 2021 2022 2023 2024)
+          H0S=(12 14 20 50 71 78)
+          IDX=${JOB_COMPLETION_INDEX}
+          Y=${YEARS[$(( IDX / ${#H0S[@]} ))]}
+          H0=${H0S[$(( IDX % ${#H0S[@]} ))]}
+          echo "=== MTBS severity conus $Y res-10 mode reducer, h0-index $H0 (global idx $IDX) ==="
+          cng-datasets raster \
+            --input "s3://public-fire/mtbs-severity-1984-2024-conus/mtbs-severity-conus-${Y}-cog.tif" \
+            --output-parquet "s3://public-fire/mtbs-severity-1984-2024-conus/hex/year=${Y}/" \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column severity --hex-resampling mode --nodata "0"
+        resources:
+          # NLCD's res-10 CONUS hex measured a 105-141Gi peak; 192Gi covers it with margin and still
+          # fits every 256Gi node (a 256Gi request barely fits allocatable -> chronic
+          # FailedScheduling). Cell enumeration, not data volume, sets this -- MTBS being sparse
+          # does not make it cheaper.
+          requests:
+            cpu: '8'
+            memory: 192Gi
+            ephemeral-storage: 40Gi
+          limits:
+            cpu: '8'
+            memory: 192Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # The generator's GPU exclusion (feature.node.kubernetes.io/pci-10de.present NotIn
+            # true) is deliberately DROPPED here, per AGENTS.md: "You do NOT need to exclude GPU
+            # nodes for CPU-only jobs ... Dropping the GPU exclusion widens the schedulable pool,
+            # which finishes fan-out jobs faster." This is a CPU-only hex reduce with no reason to
+            # avoid GPU-host contention.
+            #
+            # MEASURED 2026-08-25, which is what motivated removing it: with the exclusion in
+            # place the scheduler rejected pending pods with "158 node(s) didn't match Pod's node
+            # affinity/selector" out of 529, and only 60 of 117 pods could be placed. Those 158 are
+            # overwhelmingly GPU nodes, which on this cluster carry large amounts of spare RAM.
+            #
+            # The two host exclusions below are KEPT. They are not capacity tuning: both have
+            # broken egress/S3 connectivity, where pods schedule and then hang on the rclone
+            # localize with no progress, which a long-running indexed job cannot absorb.
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

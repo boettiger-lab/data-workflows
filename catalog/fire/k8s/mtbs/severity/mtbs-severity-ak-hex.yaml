@@ -1,0 +1,154 @@
+# MTBS annual thematic burn severity -> H3 res-10 hex, Alaska domain, mode reducer.
+#
+# UNIFIED MULTI-YEAR LAYOUT, copied from the `nlcd` Annual build (#453), which is this catalog's
+# precedent for exactly this problem -- many annual years of one categorical raster in ONE
+# hive-partitioned dataset:
+#
+#     mtbs-severity-1984-2024-ak/hex/year=<YEAR>/h0=<CELL>/data_0.parquet
+#
+# `year` and `h0` are both partition columns, so `WHERE year=YYYY` filters one year and reburn is a
+# self-join on the H3 cell across years. No per-year collections.
+#
+# Index maps to (year, h0): YI = IDX / 1, HI = IDX % 1.  36 years x 1 h0 = 36 completions.
+#
+# Reducer is `mode`: a majority vote over the source pixels in each cell. Correct for coded
+# class values -- a mean would fabricate classes the source does not contain. `mode` is SPARSE:
+# a cell with no valid pixel is dropped, so only burned ground appears. It also keeps ONLY the
+# dominant class and discards the mix, which is why the companion `hex-fractions` layer exists --
+# use that one, not this, for any "share burned at high severity" statistic.
+#
+# /!\ THE h0 FAN-OUT IS RESTRICTED TO 1 OF THE 122 BASE CELLS -- a deliberate deviation from the
+# 122 the generator emits, because at res 10 an h0 index that holds no data is NOT free: the tool
+# prunes only h0 cells whose envelope misses the raster, and every surviving cell enumerates all
+# ~280 M of its res-10 children before discovering they are all nodata. Running 122 per year would
+# be 4392 pod slots at 192Gi to do 36 cells' worth of work.
+#
+# The 1 index below is MEASURED, not guessed: it is the h0 partition that
+# `mtbs-perimeters-1984-2024` actually populates inside this domain, read from the cell CENTROIDS
+# (h3_cell_to_lat / h3_cell_to_lng) of its completed res-10 hex rather than from the res-0 partition
+# footprint. Severity pixels exist only inside MTBS perimeters, so the perimeter h0 set is a strict
+# SUPERSET of the severity h0 set for this domain -- and the perimeters cover all 41 years, including
+# the years whose severity mosaic is missing, so it is a superset in time as well.
+#
+# Two wider sets were rejected, both for concrete reasons:
+#   - the populated set of `whp-2023-classified-ak`. WHP maps every land pixel of its domain (it
+#     carries explicit non-burnable and water classes) while MTBS maps only ground that burned. For
+#     Alaska that is three h0 cells against one: MTBS Alaska fires span 56.7-70.2 N, -166.2 to
+#     -140.2, entirely inside a single base cell.
+#   - the domain bounding box, which is wider still. The Alaska clip box reaches about 2.4 degrees
+#     south of any Alaska data, so it pulls in a h0 cell holding nothing but open Pacific.
+# The post-build check-hex-coverage.sh gate verifies per year that every expected partition is
+# populated, so a wrong list fails loudly rather than shipping a hole.
+#
+#   h0 index -> cell
+#     105  ->  576707042908045311
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mtbs-severity-ak-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: mtbs-severity-ak-hex
+spec:
+  completions: 36
+  parallelism: 61
+  # 61, not the 12 the `nlcd` annual build uses. NLCD runs the full 122 h0 per year, so most of its
+  # indexes are pruned in seconds and 12 slots are ample; restricting this fan-out to the h0 cells
+  # that actually hold data means every index here is real work. Measured on the Alaska pilot: a
+  # res-10 index takes a median 2.2 h (max over 3.7 h), so concurrency is what sets wall-clock. 61
+  # is the tool's default for a raster hex workflow and stays inside the <=200 pod target.
+  completionMode: Indexed
+  # Never backoffLimit: 0 -- a partial indexed run must surface as Failed, not publish as complete
+  # (#409). maxFailedIndexes absorbs a transient Ceph RGW blip without aborting the siblings.
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 30
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: mtbs-severity-ak-hex
+    spec:
+      restartPolicy: Never
+      # priorityClassName is deliberately OMITTED: `opportunistic` was preempted within ~20 s on
+      # these nodes during the WHP build (#586), which wastes the whole cell enumeration.
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: CNG_HEX_WORKERS
+          value: '8'
+        volumeMounts:
+        # The tool localizes the COG with rclone before hexing; without this mount the job fails.
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          YEARS=(1984 1985 1986 1988 1989 1990 1991 1992 1993 1994 1996 1997 1998 1999 2000 2002 2003 2004 2005 2006 2007 2008 2009 2010 2011 2012 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023)
+          H0S=(105)
+          IDX=${JOB_COMPLETION_INDEX}
+          Y=${YEARS[$(( IDX / ${#H0S[@]} ))]}
+          H0=${H0S[$(( IDX % ${#H0S[@]} ))]}
+          echo "=== MTBS severity ak $Y res-10 mode reducer, h0-index $H0 (global idx $IDX) ==="
+          cng-datasets raster \
+            --input "s3://public-fire/mtbs-severity-1984-2024-ak/mtbs-severity-ak-${Y}-cog.tif" \
+            --output-parquet "s3://public-fire/mtbs-severity-1984-2024-ak/hex/year=${Y}/" \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column severity --hex-resampling mode --nodata "0"
+        resources:
+          # NLCD's res-10 CONUS hex measured a 105-141Gi peak; 192Gi covers it with margin and still
+          # fits every 256Gi node (a 256Gi request barely fits allocatable -> chronic
+          # FailedScheduling). Cell enumeration, not data volume, sets this -- MTBS being sparse
+          # does not make it cheaper.
+          requests:
+            cpu: '8'
+            memory: 192Gi
+            ephemeral-storage: 40Gi
+          limits:
+            cpu: '8'
+            memory: 192Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

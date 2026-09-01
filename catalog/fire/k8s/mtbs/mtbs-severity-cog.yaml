@@ -1,0 +1,267 @@
+# Reproject every staged MTBS annual thematic-burn-severity mosaic to an EPSG:4326 COG on NRP S3.
+#
+# /!\ THIS STEP IS NOT OPTIONAL AND ITS ABSENCE FAILS SILENTLY. `cng-datasets raster` hands H3 cell
+# polygons in DEGREES to exactextract; against a raster still in Albers metres they land within
+# ~100 m of the projection origin and every cell reads nodata. Measured on WHP (#586): the hex Job
+# wrote ZERO rows and exited 0, reporting `Complete`. Only the h0 coverage gate catches it, because
+# every structural check passes on an empty build.
+#
+# Index maps to (domain, year). Year lists are explicit rather than derived so the fan-out is
+# auditable and a change in upstream availability shows up as a diff here, not as a silently
+# smaller build. Six source objects are broken upstream (see mtbs-stage-raw.yaml header), hence
+# CONUS 39 years and AK 36 rather than 41 and 40:
+#
+#   CONUS  1984-2024 less 2004 and 2017                    39 indexes  (0..38)
+#   AK     1984-2023 less 1987, 1995, 2001 and 2013        36 indexes  (39..74)
+#
+# Resampling is NEAREST. The raster is a coded class raster (0 nodata, 1 unburned/low, 2 low,
+# 3 moderate, 4 high, 5 increased greenness, 6 non-processing-area mask), so anything else invents
+# severity classes that do not exist in the source.
+#
+# Alaska is clipped to -180..-129. Its native grid is Alaska Albers; a naive warp to EPSG:4326
+# yields a 359.9-degree-wide raster sitting on the dateline seam (WHP measured ~148,000 x 30,000 px,
+# almost all nodata). The clip drops the far-western Aleutians (~157E..180), which contain no
+# National Forest System land -- the Alaska units are the Tongass and Chugach, far to the east.
+# Recorded in the STAC.
+#
+# /!\ ONE SOURCE RASTER CARRIES OUT-OF-DOMAIN PIXEL VALUES. mtbs_CONUS_2005.tif holds 23 pixels
+# (out of 12.7 billion) with values in {32, 61, 70, 71, 73, 84, 85, 101, 105, 109, 110, 111, 114,
+# 115, 116, 124} -- codes the published class domain does not define. Nearest-neighbour resampling
+# cannot invent values, so these are an upstream data defect, and the source histogram below is what
+# identifies them. All 74 other rasters are clean.
+#
+# They are clamped to nodata through a VRT lookup table (values above 6 map to 0) rather than being
+# either kept or allowed to fail the build. Keeping them would put undefined severity codes into the
+# hex and break the collection's documented value set; failing the build would stop a national
+# ingest over 23 pixels. An out-of-domain code is not a severity observation, so nodata is the
+# honest destination -- and the clamp is applied to EVERY year, so the path is uniform rather than a
+# branch that only ever runs once. The gate after the warp still hard-fails on any surviving value
+# above 6, which is now a statement that the clamp failed.
+#
+# Each pod also prints the exact class histogram of the SOURCE Albers grid. That grid is equal-area,
+# so those pixel counts are AREA TRUTH and they are the target the res-10 hex class shares get
+# validated against (the WHP precedent: every class within 0.6 pp). Counting pixels on the
+# reprojected geographic COG is NOT an area measurement, so the COG histogram is printed only as a
+# warp-fidelity check (same code set, no invented classes).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mtbs-severity-cog
+  namespace: geo-workflows
+  labels:
+    k8s-app: mtbs-severity-cog
+spec:
+  completions: 75
+  parallelism: 8
+  completionMode: Indexed
+  # Absorb transient NRP Ceph RGW blips: an index retries elsewhere instead of aborting siblings
+  # (#453). Never backoffLimit: 0 -- a partial indexed run must surface as Failed.
+  backoffLimitPerIndex: 4
+  maxFailedIndexes: 8
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: mtbs-severity-cog
+    spec:
+      restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: make-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          CONUS_YEARS=(1984 1985 1986 1987 1988 1989 1990 1991 1992 1993 1994 1995 1996 1997 1998 \
+                       1999 2000 2001 2002 2003 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 \
+                       2015 2016 2018 2019 2020 2021 2022 2023 2024)
+          AK_YEARS=(1984 1985 1986 1988 1989 1990 1991 1992 1993 1994 1996 1997 1998 1999 2000 \
+                    2002 2003 2004 2005 2006 2007 2008 2009 2010 2011 2012 2014 2015 2016 2017 \
+                    2018 2019 2020 2021 2022 2023)
+
+          IDX=${JOB_COMPLETION_INDEX}
+          if [ "$IDX" -lt "${#CONUS_YEARS[@]}" ]; then
+            REGION=CONUS; DOM=conus; Y=${CONUS_YEARS[$IDX]}; TE=""
+          else
+            REGION=AK; DOM=ak; Y=${AK_YEARS[$(( IDX - ${#CONUS_YEARS[@]} ))]}
+            TE="-te -180 48.8 -129.0 71.6"
+          fi
+          SRC="mtbs_${REGION}_${Y}.zip"
+          OUT="mtbs-severity-${DOM}-${Y}-cog.tif"
+          DEST="nrp:public-fire/mtbs-severity-1984-2024-${DOM}/${OUT}"
+          echo "=== [$IDX] ${SRC} -> ${OUT} ${TE:+clip: $TE} ==="
+
+          cd /tmp
+          rclone copyto "nrp:public-fire/raw/mtbs/mosaics/${SRC}" "/tmp/${SRC}" -P \
+            --retries 10 --low-level-retries 20 --retries-sleep 20s
+          unzip -q -o "/tmp/${SRC}" -d /tmp/src
+          TIF=$(find /tmp/src -name "mtbs_${REGION}_${Y}.tif" | head -1)
+          [ -n "$TIF" ] || { echo "FATAL: no mtbs_${REGION}_${Y}.tif inside ${SRC}"; exit 1; }
+          ls -la "$TIF"
+
+          echo "--- source grid ---"
+          gdalinfo "$TIF" | grep -E '^Size is|Pixel Size|NoData|ID\["EPSG|Origin'
+
+          echo "--- SOURCE (Albers, equal-area) class histogram = AREA TRUTH ---"
+          python3 - "$TIF" <<'PY'
+          import sys
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open(sys.argv[1]); b = ds.GetRasterBand(1)
+          nd = b.GetNoDataValue()
+          counts = np.zeros(256, dtype=np.int64)
+          rows = 4096
+          for y in range(0, ds.RasterYSize, rows):
+              h = min(rows, ds.RasterYSize - y)
+              a = b.ReadAsArray(0, y, ds.RasterXSize, h)
+              counts += np.bincount(a.ravel(), minlength=256)
+          nz = np.nonzero(counts)[0]
+          burn = counts[1:5].sum()          # 1-4 are the severity levels
+          print(f'  nodata declared: {nd}   distinct values present: {list(map(int, nz))}')
+          print('  %-6s %16s %10s %10s' % ('code', 'pixels', '%of all', '%of 1-4'))
+          for v in nz:
+              pc = 100.0 * counts[v] / counts.sum()
+              pb = (100.0 * counts[v] / burn) if (1 <= v <= 4 and burn) else float('nan')
+              print('  %-6d %16d %9.4f%% %9.4f%%' % (v, counts[v], pc, pb))
+          print(f'  severity pixels (codes 1-4): {burn}')
+          print(f'  code 5 (increased greenness): {counts[5]}   '
+                f'code 6 (non-processing mask): {counts[6]}   '
+                '# NOT severity levels; excluded from the 1-4 denominator above')
+          bad = [int(v) for v in nz if v > 6]
+          if bad:
+              n = int(counts[7:].sum())
+              print(f'  !! SOURCE carries {n} pixel(s) with values outside the published class '
+                    f'domain: {bad}. These are clamped to nodata by the VRT lookup table below; '
+                    f'an out-of-domain code is not a severity observation.')
+          PY
+
+          # Clamp to the published class domain with a VRT lookup table: 0-6 pass through, anything
+          # above 6 becomes 0 (nodata). A LUT costs no extra pass over the data -- gdalwarp applies
+          # it while reading -- and gdal_translate -of VRT preserves the source colour table, so the
+          # palette still reaches the COG.
+          gdal_translate -of VRT "$TIF" /tmp/clamp.vrt
+          python3 - <<'PY'
+          import pathlib, re
+          p = pathlib.Path('/tmp/clamp.vrt')
+          x = p.read_text()
+          # A LUT is only valid on a ComplexSource; gdal_translate emits SimpleSource.
+          x = x.replace('<SimpleSource>', '<ComplexSource>').replace('</SimpleSource>',
+                                                                    '</ComplexSource>')
+          lut = '<LUT>' + ','.join(f'{v}:{v}' for v in range(7)) + ',7:0,255:0</LUT>'
+          x, n = re.subn(r'</ComplexSource>', lut + '</ComplexSource>', x)
+          assert n == 1, f'expected exactly one source band in the VRT, found {n}'
+          p.write_text(x)
+          print(f'  clamp VRT written, LUT maps values above 6 to 0')
+          PY
+
+          # Warp to COG from the clamped VRT. Let gdalwarp choose the output pixel size -- it
+          # preserves the source ground resolution near the centre of the extent; hardcoding a
+          # degree value silently rescales. Do NOT override PROJ_DATA/PROJ_LIB: the image ships 8
+          # proj.db at differing layout versions and `find | head -1` non-deterministically picks a
+          # stale one, which broke -t_srs on ~10% of pods (#453). GDAL's own default resolves it.
+          gdalwarp \
+            -t_srs EPSG:4326 -r near -of COG \
+            -srcnodata 0 -dstnodata 0 \
+            $TE \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 4096 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BIGTIFF=YES \
+            -co BLOCKSIZE=512 -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS \
+            /tmp/clamp.vrt "/tmp/${OUT}"
+
+          echo "--- final COG ---"
+          gdalinfo "/tmp/${OUT}" | grep -E '^Size is|Pixel Size|NoData|Overviews|Block|Lower Left|Upper Right'
+          ls -la "/tmp/${OUT}"
+
+          # Non-empty gate. A published all-nodata COG is a real failure mode and it is exactly what
+          # hexing the raw Albers source produced on WHP, so fail here rather than downstream.
+          # The code-set gate now verifies the CLAMP: nearest-neighbour cannot invent values, so a
+          # value above 6 here means the VRT lookup table did not take effect.
+          python3 - "/tmp/${OUT}" <<'PY'
+          import sys
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open(sys.argv[1]); b = ds.GetRasterBand(1)
+          counts = np.zeros(256, dtype=np.int64)
+          rows = 4096
+          for y in range(0, ds.RasterYSize, rows):
+              h = min(rows, ds.RasterYSize - y)
+              a = b.ReadAsArray(0, y, ds.RasterXSize, h)
+              counts += np.bincount(a.ravel(), minlength=256)
+          valid = int(counts[1:].sum())
+          nz = [int(v) for v in np.nonzero(counts)[0]]
+          print(f'  COG valid (non-nodata) pixels: {valid:,}')
+          print(f'  COG distinct values: {nz}')
+          for v in nz:
+              print(f'    code {v}: {counts[v]:,}')
+          if valid == 0:
+              print('FATAL: COG is entirely nodata')
+              sys.exit(1)
+          bad = [v for v in nz if v > 6]
+          if bad:
+              print(f'FATAL: class codes outside 0-6 survived into the COG: {bad}. '
+                    'The VRT clamp did not take effect -- do not publish this raster.')
+              sys.exit(1)
+          PY
+
+          echo "--- uploading ---"
+          rclone copyto "/tmp/${OUT}" "$DEST" -P --transfers 4 \
+            --retries 10 --low-level-retries 20 --retries-sleep 20s
+          rclone size "$DEST"
+          rm -rf /tmp/src /tmp/clamp.vrt "/tmp/${SRC}" "/tmp/${OUT}"
+          echo "DONE ${OUT}"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 25Gi
+          limits:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 25Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
