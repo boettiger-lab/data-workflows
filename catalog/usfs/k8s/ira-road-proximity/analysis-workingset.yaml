@@ -1,0 +1,357 @@
+# #588 analysis, stage 1 of 2: build the working set for the IRA road-proximity
+# computation, and GATE the equal-area projections before anything is buffered.
+#
+# Why a separate stage: stage 2 (the buffer ladder) is the expensive part, and it is only
+# trustworthy if the projections reproduce the published IRA acreage. That check runs here
+# and hard-fails, so a bad CRS can never silently propagate into an acreage headline.
+#
+# ⚠️ The distance work runs on FLAT GeoParquet with true geometry distance, in an
+# equal-area projection — never on hex. Res-8 cells are ~0.7 km2, coarser than every
+# buffer distance of interest (issue #588). The res-10 IRA hex is used later only as an
+# independent cross-check and as the #587 join product.
+#
+# Regions (measured from the IRA layer: 9,992 CONUS / 1,387 AK / 12 PR features):
+#   CONUS -> EPSG:5070  (NAD83 / Conus Albers)
+#   AK    -> EPSG:3338  (NAD83 / Alaska Albers)
+#   PR    -> EPSG:32161 (NAD83 / Puerto Rico & Virgin Is.)
+#
+# Outputs (all under s3://public-usfs/_work/588/, transient build artifacts):
+#   ira.parquet        - IRA polygons, region-tagged, projected, with PAE geometry
+#   roads_rc.parquet   - RoadCore clipped to MAXD of any IRA, projected
+#   roads_tg.parquet   - TIGER  clipped to MAXD of any IRA, projected
+#
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ira-road-workingset
+  labels:
+    k8s-app: ira-road-workingset
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ira-road-workingset
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: workingset
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp_588_ws
+        resources:
+          requests:
+            cpu: '8'
+            memory: 64Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '8'
+            memory: 64Gi
+            ephemeral-storage: 20Gi
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp_588_ws
+          python3 - <<'PY'
+          import os, duckdb
+
+          IRA     = "s3://public-usfs/roadless-areas-2001.parquet"
+          RC      = "s3://public-usfs/roadcore-fs.parquet"
+          TG      = "s3://public-census/census-2025/roads.parquet"
+          COUNTY  = "s3://public-census/census-2024/county.parquet"
+          PADUS   = "s3://public-padus/padus-4-1/combined.parquet"
+          NFSOWN  = "s3://public-usfs/nfs-surface-ownership.parquet"
+          WORK    = "s3://public-usfs/_work/588"
+
+          # Widest buffer in the ladder is 2 mi = 3218.688 m; keep 5% headroom so no road
+          # that could matter at the widest distance is clipped away.
+          MAXD = 3218.688 * 1.05
+
+          CRS = {"CONUS": "EPSG:5070", "AK": "EPSG:3338", "PR": "EPSG:32161"}
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
+          con.execute("SET memory_limit='52GB'; SET threads=8;")
+          con.execute("SET temp_directory='/scratch/tmp_588_ws';")
+          con.execute("SET preserve_insertion_order=false;")
+
+          def q(sql, *a):
+              return con.execute(sql, list(a)).fetchall()
+
+          def one(sql, *a):
+              return q(sql, *a)[0][0]
+
+          # ---------------------------------------------------------------- IRA, 4326
+          con.execute(f"""
+            CREATE TABLE ira4326 AS
+            SELECT _cng_fid, STATE, CATEGORY, REGION, FOREST, NAME, ACRES,
+                   CASE WHEN STATE='AK' THEN 'AK'
+                        WHEN STATE='PR' THEN 'PR'
+                        ELSE 'CONUS' END                       AS crs_region,
+                   (STATE NOT IN ('ID','CO'))                  AS rule_affected,
+                   geom
+            FROM read_parquet('{IRA}')
+            WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom)
+          """)
+          n_ira = one("SELECT COUNT(*) FROM ira4326")
+          ac_all = one("SELECT SUM(ACRES) FROM ira4326")
+          ac_ra  = one("SELECT SUM(ACRES) FROM ira4326 WHERE rule_affected")
+          print(f"IRA: {n_ira:,} polygons | all {ac_all:,.0f} ac | rule-affected {ac_ra:,.0f} ac",
+                flush=True)
+          assert n_ira == 11391, f"expected 11391 IRA polygons, got {n_ira}"
+          assert abs(ac_all - 58419694) < 5,  f"all-IRA acres drifted: {ac_all}"
+          assert abs(ac_ra  - 44701002) < 5,  f"rule-affected acres drifted: {ac_ra}"
+
+          # ------------------------------------------------- PROJECTION GATE (hard-fail)
+          # Reproject each polygon into its regional equal-area CRS and compare computed
+          # area against the source ACRES column. If a CRS were wrong (or PROJ data were
+          # missing) this is where it shows, BEFORE any buffering happens.
+          M2_PER_ACRE = 4046.8564224
+          for r, crs in CRS.items():
+              got, src = q(f"""
+                SELECT SUM(ST_Area(ST_Transform(geom,'EPSG:4326','{crs}', always_xy := true)))
+                         / {M2_PER_ACRE},
+                       SUM(ACRES)
+                FROM ira4326 WHERE crs_region = ?
+              """, r)[0]
+              dev = 100.0 * (got - src) / src
+              print(f"  projection gate {r:5s} {crs:10s}: computed {got:14,.0f} ac vs "
+                    f"source {src:14,.0f} ac  ({dev:+.3f}%)", flush=True)
+              # Albers area is exact to well under 1%; anything larger means a wrong CRS.
+              assert abs(dev) < 1.0, f"{r}/{crs} area deviates {dev:+.3f}% — wrong CRS?"
+
+          # ---------------------------------------------------- projected IRA + envelopes
+          case_crs = " ".join(f"WHEN crs_region='{r}' THEN ST_Transform(geom,'EPSG:4326','{c}', always_xy := true)"
+                              for r, c in CRS.items())
+          con.execute(f"""
+            CREATE TABLE ira AS
+            SELECT * EXCLUDE (geom),
+                   (CASE {case_crs} END) AS g,
+                   geom AS g4326
+            FROM ira4326
+          """)
+
+          # A degree of latitude is ~111.32 km; MAXD/111320 deg over-covers in longitude
+          # everywhere outside the tropics, so this envelope pad never under-selects.
+          PAD = MAXD / 111320.0
+          con.execute(f"""
+            CREATE TABLE ira_bbox AS
+            SELECT ST_MakeEnvelope(MIN(ST_XMin(g4326)) - {PAD}, MIN(ST_YMin(g4326)) - {PAD},
+                                   MAX(ST_XMax(g4326)) + {PAD}, MAX(ST_YMax(g4326)) + {PAD}) AS b,
+                   crs_region
+            FROM ira GROUP BY crs_region
+          """)
+
+          # ------------------------------------------------------ counties touching IRAs
+          # TIGER roads carry no FIPS of their own, which is exactly why preprocess injected
+          # GEOID_COUNTY: it turns a 20M-row spatial scan into a cheap key filter.
+          con.execute(f"""
+            CREATE TABLE ira_counties AS
+            SELECT DISTINCT c.GEOID AS geoid
+            FROM read_parquet('{COUNTY}') c
+            JOIN ira i
+              ON ST_Intersects(c.geom,
+                   ST_MakeEnvelope(ST_XMin(i.g4326) - {PAD}, ST_YMin(i.g4326) - {PAD},
+                                   ST_XMax(i.g4326) + {PAD}, ST_YMax(i.g4326) + {PAD}))
+          """)
+          n_cty = one("SELECT COUNT(*) FROM ira_counties")
+          print(f"counties intersecting IRA+{MAXD:.0f}m envelopes: {n_cty}", flush=True)
+          assert n_cty > 0, "no counties matched — county join is broken"
+
+          # ------------------------------------------------------------ RoadCore, clipped
+          # 8,204 of 367,666 source records are attribute-only (NULL geometry, 0 GIS_MILES,
+          # 4,744.9 official SEG_LENGTH miles). They cannot be buffered by anyone, us or the
+          # agency, and are excluded here; the miles they represent are reported in BUILD.md.
+          con.execute(f"""
+            CREATE TABLE rc0 AS
+            SELECT _cng_fid, OPER_MAINT_LEVEL, SYSTEM, SURFACE_TYPE, FUNCTIONAL_CLASS,
+                   OPENFORUSETO, SEG_LENGTH, GIS_MILES, geom
+            FROM read_parquet('{RC}')
+            WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom)
+          """)
+          print(f"RoadCore with geometry: {one('SELECT COUNT(*) FROM rc0'):,}", flush=True)
+
+          con.execute(f"""
+            CREATE TABLE roads_rc AS
+            SELECT r.* EXCLUDE (geom), b.crs_region,
+                   (CASE {' '.join(f"WHEN b.crs_region='{rr}' THEN ST_Transform(r.geom,'EPSG:4326','{cc}', always_xy := true)" for rr, cc in CRS.items())} END) AS g
+            FROM rc0 r JOIN ira_bbox b ON ST_Intersects(r.geom, b.b)
+          """)
+          print(f"RoadCore in IRA envelopes: {one('SELECT COUNT(*) FROM roads_rc'):,}", flush=True)
+
+          # --------------------------------------------------------------- TIGER, clipped
+          import subprocess
+          tiger_ready = bool(subprocess.run(
+              ["rclone", "lsf", "nrp:public-census/census-2025/roads.parquet"],
+              capture_output=True, text=True).stdout.strip())
+          if tiger_ready:
+              con.execute(f"""
+                CREATE TABLE tg0 AS
+                SELECT t.LINEARID, t.FULLNAME, t.RTTYP, t.MTFCC, t.GEOID_COUNTY,
+                       t.geometry AS geom
+                FROM read_parquet('{TG}') t
+                SEMI JOIN ira_counties c ON t.GEOID_COUNTY = c.geoid
+              """)
+              print(f"TIGER in IRA counties: {one('SELECT COUNT(*) FROM tg0'):,}", flush=True)
+          else:
+              # TIGER not merged yet. Build the RoadCore side now; re-run this job once
+              # census-2025/roads.parquet lands to populate the TIGER strata.
+              print("TIGER national parquet not present yet — emitting EMPTY roads_tg. "
+                    "RE-RUN this job after merge-roads.yaml completes.", flush=True)
+              con.execute("""
+                CREATE TABLE tg0 (LINEARID VARCHAR, FULLNAME VARCHAR, RTTYP VARCHAR,
+                                  MTFCC VARCHAR, GEOID_COUNTY VARCHAR, geom GEOMETRY)
+              """)
+
+          con.execute(f"""
+            CREATE TABLE roads_tg AS
+            SELECT r.* EXCLUDE (geom), b.crs_region,
+                   (CASE {' '.join(f"WHEN b.crs_region='{rr}' THEN ST_Transform(r.geom,'EPSG:4326','{cc}', always_xy := true)" for rr, cc in CRS.items())} END) AS g
+            FROM tg0 r JOIN ira_bbox b ON ST_Intersects(r.geom, b.b)
+          """)
+          print(f"TIGER in IRA envelopes: {one('SELECT COUNT(*) FROM roads_tg'):,}", flush=True)
+
+          # ----------------------------------- PAE: potentially affected environment geom
+          # DEIS/#589: PAE = rule-affected IRA - non-NFS - wilderness - WSA - wild rivers,
+          # stated as exactly 40,049,537 ac. Reconstructed here from PAD-US 4.1 designations
+          # and the #585 NFS surface-ownership layer. This is an ESTIMATE with its own error
+          # bar, deliberately NOT asserted: the measured deviation is reported and carried
+          # into the write-up rather than forced to match.
+          con.execute(f"""
+            CREATE TABLE excl AS
+            SELECT p.Des_Tp AS des, ST_MakeValid(p.SHAPE) AS geom
+            FROM read_parquet('{PADUS}') p
+            JOIN ira_bbox b ON ST_Intersects(p.SHAPE, b.b)
+            WHERE p.Des_Tp IN ('WA','WSA','WSR')
+              AND p.SHAPE IS NOT NULL AND NOT ST_IsEmpty(p.SHAPE)
+          """)
+          print(f"PAD-US WA/WSA/WSR features near IRAs: {one('SELECT COUNT(*) FROM excl'):,}",
+                flush=True)
+
+          con.execute(f"""
+            CREATE TABLE nfs AS
+            SELECT ST_MakeValid(o.geom) AS geom FROM read_parquet('{NFSOWN}') o
+            JOIN ira_bbox b ON ST_Intersects(o.geom, b.b)
+            WHERE o.OWNERCLASS = 'USDA FOREST SERVICE'
+              AND o.geom IS NOT NULL AND NOT ST_IsEmpty(o.geom)
+          """)
+          print(f"NFS surface-ownership features near IRAs: {one('SELECT COUNT(*) FROM nfs'):,}",
+                flush=True)
+
+          # Per-IRA: intersect with NFS ownership, then subtract the excluded designations.
+          try:
+            con.execute("""
+            CREATE TABLE ira_pae AS
+            WITH on_nfs AS (
+              SELECT i._cng_fid,
+                     ST_Union_Agg(ST_Intersection(ST_MakeValid(i.g4326), n.geom)) AS g
+              FROM ira i JOIN nfs n ON ST_Intersects(i.g4326, n.geom)
+              GROUP BY i._cng_fid
+            ),
+            cut AS (
+              SELECT i._cng_fid, ST_Union_Agg(e.geom) AS g
+              FROM ira i JOIN excl e ON ST_Intersects(i.g4326, e.geom)
+              GROUP BY i._cng_fid
+            )
+            SELECT i._cng_fid,
+                   CASE
+                     WHEN o.g IS NULL THEN NULL
+                     WHEN c.g IS NULL THEN o.g
+                     ELSE ST_Difference(o.g, c.g)
+                   END AS g_pae_4326
+            FROM ira i
+            LEFT JOIN on_nfs o USING (_cng_fid)
+            LEFT JOIN cut     c USING (_cng_fid)
+            """)
+            pae_ok = True
+          except Exception as e:
+            print(f"\n!! PAE reconstruction FAILED: {type(e).__name__}: {e}", flush=True)
+            print("!! Continuing with g_pae = NULL. The 44.7M rule-affected base is "
+                  "unaffected; the 11.3M PAE figure will be reported as not reproduced.",
+                  flush=True)
+            con.execute("DROP TABLE IF EXISTS ira_pae")
+            con.execute("CREATE TABLE ira_pae AS "
+                        "SELECT _cng_fid, NULL::GEOMETRY AS g_pae_4326 FROM ira")
+            pae_ok = False
+
+          con.execute(f"""
+            CREATE TABLE ira_out AS
+            SELECT i.* ,
+                   p.g_pae_4326,
+                   (CASE {' '.join(f"WHEN i.crs_region='{rr}' THEN ST_Transform(p.g_pae_4326,'EPSG:4326','{cc}', always_xy := true)" for rr, cc in CRS.items())} END) AS g_pae
+            FROM ira i LEFT JOIN ira_pae p USING (_cng_fid)
+          """)
+
+          if pae_ok:
+              pae_ac = one(f"""
+                SELECT SUM(ST_Area(g_pae)) / {M2_PER_ACRE}
+                FROM ira_out WHERE rule_affected AND g_pae IS NOT NULL
+              """) or 0.0
+              print(f"\nPAE reconstruction: {pae_ac:,.0f} ac vs DEIS 40,049,537 ac "
+                    f"({100.0*(pae_ac-40049537)/40049537:+.2f}%)", flush=True)
+          else:
+              print("\nPAE reconstruction: SKIPPED (see failure above)", flush=True)
+
+          # ------------------------------------------------------------------- checkpoint
+          for tbl, key in (("ira_out", "ira"), ("roads_rc", "roads_rc"), ("roads_tg", "roads_tg")):
+              con.execute(f"""
+                COPY (SELECT * FROM {tbl}) TO '{WORK}/{key}.parquet'
+                (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 2000)
+              """)
+              print(f"wrote {WORK}/{key}.parquet", flush=True)
+          print("✓ working set complete", flush=True)
+          PY
+          echo "✓ Complete"
+      volumes:
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

@@ -1,0 +1,420 @@
+# #588 analysis, final step: consolidate the sharded proximity checkpoints into one fact
+# table, print the headline numbers, and solve for the buffer distance implied by the
+# 11.3M-acre claim.
+#
+# Requires: analysis-proximity.yaml (all 60 shards).
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ira-road-consolidate
+  labels:
+    k8s-app: ira-road-consolidate
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ira-road-consolidate
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: consolidate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp_588_cons
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+        volumeMounts:
+        - {name: scratch, mountPath: /scratch}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp_588_cons
+          python3 - <<'PY'
+          import os, duckdb
+
+          WORK = "s3://public-usfs/_work/588"
+          OUT  = "s3://public-usfs/ira-road-proximity.parquet"
+
+          # Agency figures this reproduction is tested against.
+          DEIS_PAE_ACRES = 40049537     # DEIS Vol I p.41 — potentially affected environment
+          RULE_AFFECTED  = 44701002     # #584 — IRA outside ID/CO
+          TARGET_PAE     = 11.3e6       # DEIS: acres within 0.5 mi, PAE base
+          TARGET_RA      = 13.3e6       # Economic Analysis: same buffer, 44.7M base
+          TARGET_RA_1MI  = 22.3e6       # Economic Analysis: within 1 mile
+          HALF_MILE      = 804.672
+          ONE_MILE       = 1609.344
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
+          con.execute("SET memory_limit='26GB'; SET threads=8;")
+          con.execute("SET temp_directory='/scratch/tmp_588_cons';")
+          con.execute("SET preserve_insertion_order=false;")
+
+          con.execute(f"""
+            CREATE TABLE prox AS
+            SELECT regexp_extract(filename, 'prox/(.+?)__[A-Z]+__\\d+\\.parquet$', 1) AS road_stratum,
+                   regexp_extract(filename, '__([A-Z]+)__\\d+\\.parquet$', 1)         AS region,
+                   -- The shard index is carried from the FILENAME, not reconstructed with
+                   -- hash(_cng_fid) % 60. It is only needed by the per-distance coverage
+                   -- gate below, and a gate that re-derives the thing it is checking would
+                   -- agree with a wrong answer. Dropped again before the table is written.
+                   CAST(regexp_extract(filename, '__(\\d+)\\.parquet$', 1) AS INTEGER) AS _shard,
+                   * EXCLUDE (filename)
+            FROM read_parquet('{WORK}/prox/*.parquet', filename := true)
+            WHERE _cng_fid IS NOT NULL
+          """)
+          n = con.execute("SELECT COUNT(*) FROM prox").fetchone()[0]
+          strata = [r[0] for r in con.execute(
+              "SELECT DISTINCT road_stratum FROM prox ORDER BY 1").fetchall()]
+          print(f"consolidated {n:,} rows | strata: {strata}", flush=True)
+
+          # ⛔ NORMALISE AWAY THE ZERO-AREA ROWS — the checkpoints were not all written by
+          # the same code, and without this the table's grain means different things in
+          # different strata.
+          #
+          # Before 026ef8a the shard selected its road set ONCE at MAXD and buffered that
+          # union at each distance. Every polygon with a road within 3,380 m therefore got a
+          # row at EVERY rung, most of them recording zero acres. After 026ef8a the road set
+          # is selected per distance, so a row exists only where a road is genuinely within
+          # d. Both compute identical ACREAGE — a road beyond d contributes nothing to a
+          # d-buffer — but they emit different numbers of rows, and the roadcore strata were
+          # largely computed under the old shape while union-deis and the tiger strata were
+          # computed under the new one. Measured at d=100 m: roadcore-all carried 9,684 rows
+          # of which 3,188 were zero-area, against union-deis's 7,720 rows with 3.
+          #
+          # A zero-area row asserts nothing that the table does not already say by the
+          # polygon's absence at that rung, and it is the reason COUNT(*) per
+          # (stratum, d_m) was not comparable across strata. Dropping it makes every
+          # stratum mean the same thing regardless of which code version wrote it. Sums are
+          # unaffected by construction, since the dropped rows contribute exactly zero.
+          nz = con.execute("SELECT COUNT(*) FROM prox WHERE acres_within <= 0").fetchone()[0]
+          con.execute("DELETE FROM prox WHERE acres_within <= 0")
+          n2 = con.execute("SELECT COUNT(*) FROM prox").fetchone()[0]
+          print(f"normalised: dropped {nz:,} zero-area rows (pre-026ef8a shape), "
+                f"{n2:,} rows remain — one row per (stratum, region, polygon, distance) "
+                f"where the polygon genuinely has area within d", flush=True)
+
+          # ⛔ COMPLETENESS GATE — must run BEFORE anything is published.
+          # This table globs whatever checkpoints exist, so a missing shard does not leave
+          # a visible hole: it silently shrinks a national acreage and returns a perfectly
+          # plausible number. There is no downstream check that would catch it, which is
+          # exactly why the gate has to be here rather than in review.
+          NSHARDS, REGIONS = 60, ("CONUS", "AK", "PR")
+          EXPECTED_FILES = NSHARDS * len(REGIONS)
+          # ⛔ COUNT THE OBJECTS, NOT THE ROWS THEY YIELDED.
+          #
+          # This counted DISTINCT filename over read_parquet(...), which can only see a file
+          # that produced at least one row. A large minority of these checkpoints are
+          # legitimately EMPTY: the shard writes a zero-row sentinel whenever a
+          # (stratum, region, shard) combination has no IRA polygon or no road in range.
+          # Puerto Rico holds a single roadless area nationally, so 59 of its 60 shards are
+          # correctly empty, and sparse Alaska shards likewise.
+          #
+          # So the old count undercounted every stratum by exactly its sentinel count and
+          # aborted on a COMPLETE ladder — measured: all four required strata had 180/180
+          # objects on S3 while this reported 128, 120, 128 and 131. glob() lists the
+          # objects without reading them, which is what "did every shard write its
+          # checkpoint?" actually asks. The gate keeps its teeth: a shard that never wrote
+          # its file is still missing here, and still aborts.
+          files = con.execute(f"""
+            SELECT regexp_extract(file, 'prox/(.+?)__[A-Z]+__\\d+\\.parquet$', 1) AS stratum,
+                   COUNT(*) AS n_files
+            FROM glob('{WORK}/prox/*.parquet')
+            GROUP BY 1 ORDER BY 1
+          """).fetchall()
+          # REQUIRED strata gate every published figure. tiger-all is deliberately NOT
+          # required: it includes the four pedestrian MTFCC classes (S1710 walkway, S1720
+          # stairway, S1820 bike path, S1830 bridle path), which 36 CFR 294.11 excludes by
+          # definition — a road is "a motor vehicle travelway over 50 inches wide". It is a
+          # sensitivity check, not an input to any acceptance criterion, so the run does not
+          # wait on it. An INCOMPLETE required stratum still aborts.
+          REQUIRED = {"roadcore-all", "roadcore-ml2to5", "roadcore-ml1only",
+                      "union-deis"}
+          have = dict(files)
+          print(f"\ncompleteness: expecting {EXPECTED_FILES} checkpoints per stratum "
+                f"({NSHARDS} shards x {len(REGIONS)} regions)")
+          for st, k in files:
+              tag = "OK" if k == EXPECTED_FILES else (
+                  "<-- INCOMPLETE (REQUIRED)" if st in REQUIRED else "<-- partial, excluded")
+              print(f"  {st:<18} {k:>4} {tag}")
+          missing = sorted(REQUIRED - set(have))
+          bad = [(st, k) for st, k in files if st in REQUIRED and k != EXPECTED_FILES]
+          if missing or bad:
+              raise SystemExit(
+                  "ABORT: required strata incomplete — "
+                  + ", ".join([f"{st} (absent)" for st in missing]
+                              + [f"{st} ({k}/{EXPECTED_FILES})" for st, k in bad])
+                  + ". Re-run the missing shards before consolidating: publishing a partial "
+                    "ladder produces a plausible, undetectably wrong national figure.")
+
+          # Drop any non-required stratum that is not fully computed, so a half-finished
+          # sensitivity check can never leak into a reported total.
+          partial = [st for st, k in files if st not in REQUIRED and k != EXPECTED_FILES]
+          if partial:
+              print(f"\nEXCLUDING partial optional strata from all outputs: {partial}",
+                    flush=True)
+              con.execute("DELETE FROM prox WHERE road_stratum IN ("
+                          + ",".join(f"'{st}'" for st in partial) + ")")
+              strata = [r[0] for r in con.execute(
+                  "SELECT DISTINCT road_stratum FROM prox ORDER BY 1").fetchall()]
+
+          # ⛔ PER-DISTANCE SHARD-COVERAGE GATE — a complete stratum can still contain an
+          # INCOMPLETE DISTANCE, and that is a fabricated national total.
+          #
+          # The file gate above asks "did every shard write its checkpoint for this
+          # stratum?". It cannot ask "did every shard compute this DISTANCE?", because the
+          # ladder is a property of the code that ran, not of the file. LADDER_WIDE was
+          # introduced partway through this build to keep the TIGER-bearing strata off the
+          # three most expensive rungs. Shards that ran before that change computed the full
+          # 9-rung LADDER; shards that ran after computed 6. Every shard wrote its file, so
+          # the stratum looks complete — but three of its rungs were then summed from a
+          # minority of the country.
+          #
+          # Caught here on tiger-drivable: 60 shards at each of the six LADDER_WIDE rungs,
+          # and only 21 shards at 50 m, 2,414 m and 3,219 m. Its acreage consequently FELL
+          # from 28.9M at 1,609 m to 12.7M at 2,414 m, which is impossible — area cannot
+          # decrease with distance — and is the visible symptom of a partial national sum.
+          # Nothing downstream would have questioned a plausible-looking 12.7M.
+          #
+          # Rule: within a stratum, a distance is publishable only if as many shards
+          # contributed to it as contributed to the stratum's best-covered distance. A
+          # distance below that is dropped, loudly, rather than reported. Dropping is the
+          # conservative direction: it removes a partial figure instead of publishing one.
+          shard_cov = con.execute("""
+            SELECT road_stratum, d_m, COUNT(DISTINCT _shard) AS n_shards
+            FROM prox GROUP BY 1, 2 ORDER BY 1, 2
+          """).fetchall()
+          best = {}
+          for st, d, k in shard_cov:
+              best[st] = max(best.get(st, 0), k)
+          thin = [(st, d, k) for st, d, k in shard_cov if k < best[st]]
+          if thin:
+              print("\n⛔ DROPPING distances with partial shard coverage "
+                    "(a partial national sum, not a smaller one):", flush=True)
+              for st, d, k in thin:
+                  print(f"  {st:<18} d={d:>9.3f} m  {k}/{best[st]} shards  <-- dropped",
+                        flush=True)
+              con.execute("DELETE FROM prox WHERE " + " OR ".join(
+                  f"(road_stratum = '{st}' AND abs(d_m - {d}) < 0.001)" for st, d, _ in thin))
+              if any(st in REQUIRED for st, _, _ in thin):
+                  raise SystemExit(
+                      "ABORT: a REQUIRED stratum had a distance with partial shard coverage. "
+                      "Every figure reported against the agency's claim comes from those "
+                      "strata, so this cannot be dropped and reported around — re-run the "
+                      "missing shards at that distance.")
+          else:
+              print("\n  per-distance shard coverage: uniform in every stratum", flush=True)
+
+          # Every stratum must also cover the SAME polygons. Equal file counts do not imply
+          # equal coverage: a shard could write a sentinel where it should have written data.
+          cover = con.execute(
+              "SELECT road_stratum, COUNT(DISTINCT _cng_fid) FROM prox GROUP BY 1 ORDER BY 1"
+          ).fetchall()
+          for st, c in cover:
+              print(f"  {st:<18} {c:,} IRA polygons", flush=True)
+          # No two strata are co-extensive: a roadless area can have a TIGER road in range
+          # and no NFS road, or only closed ML1 roads, so differing polygon counts are
+          # expected and are NOT evidence of a missing shard. The relation that IS true by
+          # construction is containment — union-deis is roadcore-all together with
+          # tiger-drivable, so it must reach at least as many polygons as either alone, and
+          # roadcore-all must reach at least as many as the ML subsets it contains.
+          #
+          # ⚠️ Containment holds AT A GIVEN DISTANCE, and only there. Comparing total distinct
+          # polygons across the whole table is NOT a valid form of it, because the strata do
+          # not share a ladder: the TIGER-bearing strata run LADDER_WIDE, which stops at
+          # 1609.344 m, while the roadcore strata run out to 3218.688 m. So a roadless area
+          # whose nearest NFS road sits between 1609 and 3219 m gets rows under roadcore-all
+          # and none at all under union-deis — even though union-deis contains every road
+          # roadcore-all has. A whole-table comparison reads that as
+          # "union-deis covers fewer polygons than roadcore-all" and aborts, blaming a
+          # missing shard for what is really just the shorter ladder. Compare per distance,
+          # over the distances the two strata actually share.
+          pairs = (("union-deis", "roadcore-all"),
+                   ("union-deis", "tiger-drivable"),
+                   ("roadcore-all", "roadcore-ml2to5"),
+                   ("roadcore-all", "roadcore-ml1only"))
+          bycov = {}
+          for st, d, c in con.execute("""
+                SELECT road_stratum, d_m, COUNT(DISTINCT _cng_fid)
+                FROM prox GROUP BY 1, 2
+              """).fetchall():
+              bycov.setdefault(st, {})[round(d, 3)] = c
+          checked = 0
+          for parent, child in pairs:
+              if parent not in bycov or child not in bycov:
+                  continue
+              shared = sorted(set(bycov[parent]) & set(bycov[child]))
+              if not shared:
+                  raise SystemExit(
+                      f"ABORT: {parent} and {child} share no distance — one of them wrote "
+                      f"an unexpected ladder, so containment cannot be checked at all.")
+              for d in shared:
+                  if bycov[parent][d] < bycov[child][d]:
+                      raise SystemExit(
+                          f"ABORT: at d={d} m, {parent} covers {bycov[parent][d]:,} polygons "
+                          f"but contains {child}, which covers {bycov[child][d]:,} — a shard "
+                          f"of {parent} is missing or wrote a sentinel where it owed data.")
+              checked += len(shared)
+              print(f"  {parent:<18} >= {child:<18} at all {len(shared)} shared distances",
+                    flush=True)
+          print(f"  containment checks passed ({checked} stratum-distance comparisons)",
+                flush=True)
+
+          con.execute(f"""
+            COPY (
+              SELECT road_stratum, region, _cng_fid, STATE, CATEGORY, rule_affected,
+                     ira_acres, d_m, acres_within, pae_acres_within, road_miles_inside
+              FROM prox
+            ) TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 20000)
+          """)
+          print(f"wrote {OUT}", flush=True)
+
+          # ------------------------------------------------------------------- headline
+          print("\\n" + "=" * 86)
+          print("ACRES WITHIN d OF A ROAD — true geometry, equal-area projection")
+          print("=" * 86)
+          print(f"{'stratum':<18}{'d (m)':>10}{'all-IRA':>15}{'rule-affected':>15}{'PAE':>15}{'% of PAE':>10}")
+          rows = con.execute(f"""
+            SELECT road_stratum, d_m,
+                   SUM(acres_within)                                  AS all_ira,
+                   SUM(acres_within) FILTER (WHERE rule_affected)     AS ra,
+                   SUM(pae_acres_within) FILTER (WHERE rule_affected) AS pae
+            FROM prox GROUP BY 1,2 ORDER BY 1,2
+          """).fetchall()
+          for s, d, a, r, p in rows:
+              pct = 100.0 * (p or 0) / DEIS_PAE_ACRES
+              print(f"{s:<18}{d:>10.1f}{a:>15,.0f}{r:>15,.0f}{(p or 0):>15,.0f}{pct:>9.1f}%")
+
+          # ------------------------------------------------- cross-checks vs the agency
+          def at(stratum, d, col):
+              v = con.execute(f"""
+                SELECT SUM({col}) FROM prox
+                WHERE road_stratum = ? AND abs(d_m - ?) < 0.01 AND rule_affected
+              """, [stratum, d]).fetchone()[0]
+              return v or 0.0
+
+          print("\\n" + "=" * 86)
+          print("CROSS-CHECKS against published agency figures")
+          print("=" * 86)
+          checks = [
+              ("0.5 mi, PAE base (DEIS 11.3M)",  at("union-deis", HALF_MILE, "pae_acres_within"), TARGET_PAE),
+              ("0.5 mi, 44.7M base (EA 13.3M)",  at("union-deis", HALF_MILE, "acres_within"),     TARGET_RA),
+              ("1 mi, 44.7M base (EA 22.3M)",    at("union-deis", ONE_MILE,  "acres_within"),     TARGET_RA_1MI),
+          ]
+          for label, got, want in checks:
+              dev = 100.0 * (got - want) / want if want else 0
+              print(f"  {label:<36} computed {got:>13,.0f}  target {want:>12,.0f}  ({dev:+.1f}%)")
+
+          miles = con.execute("""
+            SELECT road_stratum, SUM(road_miles_inside)
+            FROM (SELECT DISTINCT road_stratum, _cng_fid, rule_affected, road_miles_inside FROM prox)
+            WHERE rule_affected GROUP BY 1 ORDER BY 2 DESC
+          """).fetchall()
+          print("\\n  Road miles inside IRAs outside ID/CO (EA reports ~17,000):")
+          for s, m in miles:
+              print(f"    {s:<18}{m:>12,.0f} mi")
+
+          # ------------------------------------- solve for the implied "near" distance
+          print("\\n" + "=" * 86)
+          print("SOLVING for the buffer distance d implied by each published acreage")
+          print("=" * 86)
+
+          def solve(stratum, col, target):
+              lad = con.execute(f"""
+                SELECT d_m, SUM({col}) FROM prox
+                WHERE road_stratum = ? AND rule_affected
+                GROUP BY 1 ORDER BY 1
+              """, [stratum]).fetchall()
+              lad = [(d, v or 0.0) for d, v in lad]
+              if not lad:
+                  return "no-data", None, lad
+              if lad[-1][1] < target:
+                  # The widest rung still falls short: the ladder does not bracket it.
+                  return "not-reached", None, lad
+              if lad[0][1] > target:
+                  # The SHORTEST rung already exceeds the target, so the implied distance is
+                  # below the finest band and this ladder cannot resolve it. Reporting the
+                  # shortest rung here — which is what falling through the loop used to do —
+                  # would print a bracketed-looking answer that is really just the bottom of
+                  # the ladder, indistinguishable from an interpolated solve. Say so instead.
+                  return "below", lad[0][0], lad
+              for (d0, v0), (d1, v1) in zip(lad, lad[1:]):
+                  if v0 <= target <= v1:
+                      # Linear interpolation on the ladder. Area grows smoothly and
+                      # monotonically in d, so this is accurate to well inside the spacing.
+                      if v1 == v0:
+                          return "ok", d0, lad
+                      return "ok", d0 + (target - v0) * (d1 - d0) / (v1 - v0), lad
+              # Monotone coverage plus the two guards above make this unreachable. If it does
+              # happen the ladder is not monotone in d, which is a defect worth failing on
+              # rather than interpolating through.
+              return "non-monotone", None, lad
+
+          for stratum in strata:
+              for col, target, label in (
+                      ("pae_acres_within", TARGET_PAE, "11.3M vs PAE"),
+                      ("acres_within",     TARGET_RA,  "13.3M vs 44.7M")):
+                  status, d, lad = solve(stratum, col, target)
+                  head = f"  {stratum:<18} {label:<16}"
+                  if status == "no-data":
+                      print(f"{head} no data")
+                  elif status == "not-reached":
+                      print(f"{head} NOT REACHED — max {lad[-1][1]:,.0f} ac "
+                            f"at the widest rung, {lad[-1][0]:.0f} m")
+                  elif status == "below":
+                      print(f"{head} BELOW THE LADDER — the shortest rung, {d:.0f} m, "
+                            f"already gives {lad[0][1]:,.0f} ac against a {target:,.0f} ac "
+                            f"target, so the implied distance is under {d:.0f} m and this "
+                            f"ladder cannot resolve it")
+                  elif status == "non-monotone":
+                      raise SystemExit(
+                          f"ABORT: {stratum} / {label} — acreage is not monotone in d "
+                          f"({lad}); the ladder cannot be interpolated and something is "
+                          f"wrong with the inputs.")
+                  else:
+                      print(f"{head} d = {d:>8.1f} m "
+                            f"({d/1609.344:.3f} mi)  [agency states 0.5 mi = 804.7 m]")
+
+          print("\\n✓ consolidation complete", flush=True)
+          PY
+          echo "✓ Complete"
+      volumes:
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      - {name: rclone-config, secret: {secretName: rclone-config}}

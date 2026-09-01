@@ -1,0 +1,423 @@
+# #588 analysis, stage 2 of 2: the buffer ladder, the ML1 breakout, and the solve for the
+# "near" distance implied by the 11.3M-acre claim.
+#
+# ⛔ TRUE GEOMETRY, NOT HEX. Every acreage here comes from
+#    ST_Area(ST_Intersection(ira, ST_Buffer(ST_Union_Agg(roads), d))) in an equal-area
+#    projection, per the issue's explicit instruction. The res-10 IRA hex is used only as
+#    an independent cross-check, in a separate job.
+#
+# Lines are unioned BEFORE buffering (one buffer per IRA x distance, not one per road) —
+# same result, orders of magnitude fewer GEOS calls.
+#
+# Checkpointed per (region, stratum) to s3://public-usfs/_work/588/prox/, so a failure or
+# preemption resumes instead of restarting the whole ladder.
+#
+# Requires: analysis-workingset.yaml (which hard-gates the equal-area projections).
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ira-road-proximity
+  labels:
+    k8s-app: ira-road-proximity
+spec:
+  completions: 60
+  parallelism: 30
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  # Preemption must not spend the retry budget that exists to catch REAL failures.
+  #
+  # The first run of this job aborted on MaxFailedIndexesExceeded with
+  # succeeded=21 failed=49 failedIndexes=32 — 48 pod deaths for a single genuinely
+  # failed index, which is the signature the pod-preemption skill describes. Index 32
+  # burned all three of its attempts inside 90 seconds during a cluster-wide preemption
+  # storm: one pod ran 54 minutes and was preempted, its replacement was preempted 13
+  # seconds after starting, and the next was preempted in the same second it was
+  # scheduled. Nothing exited 137; nothing was wrong with the shard.
+  #
+  # `Ignore` means a failure carrying the DisruptionTarget condition — preemption, node
+  # drain, node-pressure eviction, graceful shutdown — does not increment the index's
+  # failure counter, so the index is simply retried. It does NOT weaken the guarantee
+  # maxFailedIndexes: 0 exists for: an OOM or a script error still counts, still exhausts
+  # backoffLimitPerIndex, and still aborts the whole job rather than letting a lost shard
+  # silently shrink a national acreage. It only stops the cluster evicting us from being
+  # counted as our code failing.
+  #
+  # This is deliberately NOT the pod-preemption skill's first-choice fix, which is to drop
+  # priorityClassName (default priority 0, two billion points higher) and halve parallelism
+  # to keep the node claim flat. That trade is unavailable here: #590 is holding the hex
+  # lock with 192Gi pods and has had pods Pending for over an hour, and parallelism is
+  # pinned at 30 by agreement with that session. Raising our priority while keeping 30 pods
+  # would take nodes from exactly the run we agreed not to crowd. This fix costs #590
+  # nothing — it changes only how OUR failures are counted, not what we ask of the cluster.
+  #
+  # podReplacementPolicy must be stated explicitly: setting podFailurePolicy makes the
+  # default TerminatingOrFailed invalid, and the API rejects the Job rather than defaulting
+  # it. podFailurePolicy is also IMMUTABLE, so this manifest cannot be applied over a
+  # running Job — delete the Job first and re-create it. That is safe here precisely
+  # because every (stratum, region, shard) is checkpointed to S3 and re-run shards skip
+  # what already exists.
+  podReplacementPolicy: Failed
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ira-road-proximity
+    spec:
+      restartPolicy: Never
+      # ⚠️ priorityClassName is deliberately OMITTED, which gives default priority 0 —
+      # two billion points above `opportunistic` (-2000000000). These pods run 50+ minutes
+      # each, and the pod-preemption skill is explicit that preemption exposure scales with
+      # runtime: at `opportunistic` this job lost 49 pods in two hours and one index
+      # exhausted its retries inside a 90-second preemption storm, aborting the whole run.
+      #
+      # The skill pairs this with HALVING parallelism so the total node claim stays flat,
+      # and that pairing is not applied here: parallelism stays at 30. That is a deliberate
+      # exception, not an oversight. It was agreed with the concurrent LANDFIRE run (#590),
+      # which held the hex lock with 192Gi pods and had pods Pending — and which has now
+      # stood down off the cluster specifically so this job can finish. The reason the pin
+      # existed (not crowding #590) no longer applies, so the reason to compensate for the
+      # priority rise no longer applies either.
+      #
+      # ⛔ If another large run comes back onto the cluster before this finishes, this is
+      # the first thing to reconsider: 30 hard-to-evict 64Gi pods is a big claim on shared
+      # nodes, and the fair form of it is priority 0 at parallelism 15.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: proximity
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp_588_prox
+        - name: NSHARDS
+          value: '60' 
+        resources:
+          requests:
+            cpu: '4'
+            memory: 64Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 64Gi
+            ephemeral-storage: 20Gi
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp_588_prox
+          python3 - <<'PY'
+          import os, subprocess, duckdb
+
+          WORK  = "s3://public-usfs/_work/588"
+          M2_AC = 4046.8564224
+          MI_M  = 1609.344
+          MAXD  = 3218.688 * 1.05
+          SHARD  = int(os.environ["JOB_COMPLETION_INDEX"])
+          NSHARD = int(os.environ["NSHARDS"])
+          SIMPLIFY_M = 5.0   # see the note at the union below
+          IRA_PQ   = f"/scratch/tmp_588_prox/ira_stratum_{SHARD}.parquet"
+
+          # The ladder. 804.672 m = 0.5 mi is the agency's stated definition of "near"
+          # (DEIS Vol I p. 41 fn. 10); 1609.344 m = 1 mi is the Economic Analysis's second
+          # published figure. The rest bracket them so the result does not hinge on one
+          # reverse-engineered number, and double as the #587 distance bands.
+          LADDER = [50.0, 100.0, 200.0, 400.0, 804.672, 1000.0, 1609.344, 2414.016, 3218.688]
+
+          # The TIGER-bearing strata carry ~4.4M roads against RoadCore's 357k, and buffering
+          # their per-polygon unions at the widest distances OOM-killed 48Gi pods (exit 137,
+          # shards 24 and 26, union-deis CONUS) even with 5 m simplification and batches of
+          # 12. Those strata therefore use a shorter ladder. What is dropped is chosen so
+          # nothing reported is lost:
+          #   50 m      - kept for RoadCore; the #587 fine bands come from the res-10
+          #               distance hex, which is cheap, not from this table
+          #   2414.016  - no published figure, and not needed to bracket the solve
+          #   3218.688  - likewise, and by far the most expensive buffer in the ladder
+          # Both published distances (804.672 = 0.5 mi, 1609.344 = 1 mi) are retained, and
+          # 100-400 m are retained because the solve for the implied "near" distance may
+          # bracket BELOW half a mile.
+          LADDER_WIDE = [100.0, 200.0, 400.0, 804.672, 1000.0, 1609.344]
+
+          # ML values arrive as '1 - BASIC CUSTODIAL CARE (CLOSED)' etc, so key on the
+          # leading digit. ML1 = closed/stored, often impassable: counting it as an
+          # "existing road" is exactly the inflation #588 was filed to measure.
+          ML  = "substr(OPER_MAINT_LEVEL, 1, 1)"
+          # TIGER pedestrian classes are not motor-vehicle travelways and cannot satisfy
+          # 36 CFR 294.11 ("a motor vehicle travelway over 50 inches wide").
+          PED = "('S1710','S1720','S1820','S1830')"
+
+          STRATA = {
+              "roadcore-all":     ("rc", "TRUE"),
+              "roadcore-ml2to5":  ("rc", f"{ML} IN ('2','3','4','5')"),
+              "roadcore-ml1only": ("rc", f"{ML} = '1'"),
+              # union-deis is the DEIS-equivalent road set — NFS roads plus other authorized
+              # public roads (DEIS Vol I fn. 10) — and every acceptance criterion on #588
+              # depends on it. It therefore runs immediately after the roadcore strata and
+              # BEFORE both tiger-only strata, which are informational.
+              #
+              # Ordering is load-bearing here, not cosmetic. With 60 shards at parallelism
+              # 30, k8s does not start shards 30-59 until the first 30 finish EVERY stratum,
+              # so anything ahead of union-deis in this dict delays it for half the fleet.
+              # tiger-drivable was originally ahead of it and had produced 63/180 while
+              # union-deis sat at 0/180.
+              "union-deis":       ("both", "TRUE"),    # roadcore-all + tiger-drivable
+              # Informational, and both are droppable: tiger-all includes the four pedestrian
+              # MTFCC classes that 36 CFR 294.11 excludes by definition, and tiger-drivable
+              # alone answers "what do non-NFS roads reach", which union-deis vs roadcore-all
+              # already answers in the form the issue actually asks.
+              "tiger-drivable":   ("tg", f"MTFCC NOT IN {PED}"),
+              "tiger-all":        ("tg", "TRUE"),
+          }
+          REGIONS = ["CONUS", "AK", "PR"]
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
+          con.execute("SET memory_limit='44GB'; SET threads=2;")
+          con.execute("SET temp_directory='/scratch/tmp_588_prox';")
+          con.execute("SET preserve_insertion_order=false;")
+
+          con.execute(f"CREATE TABLE ira AS SELECT * FROM read_parquet('{WORK}/ira.parquet')")
+          con.execute(f"CREATE TABLE rc  AS SELECT * FROM read_parquet('{WORK}/roads_rc.parquet')")
+          con.execute(f"CREATE TABLE tg  AS SELECT * FROM read_parquet('{WORK}/roads_tg.parquet')")
+          print("loaded working set:",
+                con.execute("SELECT (SELECT COUNT(*) FROM ira), (SELECT COUNT(*) FROM rc), "
+                            "(SELECT COUNT(*) FROM tg)").fetchone(), flush=True)
+
+          def done(key):
+              r = subprocess.run(["rclone", "lsf", f"nrp:public-usfs/_work/588/prox/{key}.parquet"],
+                                 capture_output=True, text=True)
+              return bool(r.stdout.strip())
+
+          ladder_vals = ", ".join(f"({d})" for d in LADDER)
+
+          tiger_loaded = con.execute("SELECT COUNT(*) FROM tg").fetchone()[0] > 0
+          if not tiger_loaded:
+              print("\n!! roads_tg is EMPTY — computing the roadcore-* strata only.\n"
+                    "!! Re-run analysis-workingset.yaml after merge-roads.yaml, then re-run\n"
+                    "!! this job: the roadcore checkpoints are reused and only tiger-* and\n"
+                    "!! union-deis are computed.\n", flush=True)
+
+          for stratum, (src, filt) in STRATA.items():
+              if src in ("tg", "both") and not tiger_loaded:
+                  print(f"defer {stratum} (TIGER not loaded)", flush=True)
+                  continue
+              ladder = LADDER_WIDE if src in ("tg", "both") else LADDER
+              for region in REGIONS:
+                  key = f"{stratum}__{region}__{SHARD:03d}"
+                  if done(key):
+                      print(f"skip {key} (already checkpointed)", flush=True)
+                      continue
+
+                  if src == "both":
+                      roads_sql = f"""
+                        SELECT g FROM rc WHERE crs_region = '{region}'
+                        UNION ALL
+                        SELECT g FROM tg WHERE crs_region = '{region}'
+                                          AND MTFCC NOT IN {PED}
+                      """
+                  else:
+                      roads_sql = f"SELECT g FROM {src} WHERE crs_region = '{region}' AND ({filt})"
+
+                  con.execute("DROP TABLE IF EXISTS r_s")
+                  con.execute(f"CREATE TEMP TABLE r_s AS {roads_sql}")
+                  nr = con.execute("SELECT COUNT(*) FROM r_s").fetchone()[0]
+
+                  con.execute("DROP TABLE IF EXISTS i_s")
+                  con.execute(f"""
+                    CREATE TEMP TABLE i_s AS
+                    SELECT _cng_fid, STATE, CATEGORY, rule_affected, ACRES, g, g_pae,
+                           ST_Buffer(g, {MAXD}) AS gb
+                    FROM ira
+                    WHERE crs_region = '{region}'
+                      AND (hash(_cng_fid) % {NSHARD}) = {SHARD}
+                  """)
+                  ni = con.execute("SELECT COUNT(*) FROM i_s").fetchone()[0]
+                  print(f"\n=== {key}: {ni:,} IRA polygons x {nr:,} roads ===", flush=True)
+
+                  if nr == 0 or ni == 0:
+                      con.execute(f"""
+                        COPY (SELECT NULL::BIGINT _cng_fid, ''::VARCHAR STATE, ''::VARCHAR CATEGORY,
+                                     FALSE rule_affected, 0.0::DOUBLE ira_acres, 0.0::DOUBLE d_m,
+                                     0.0::DOUBLE acres_within, 0.0::DOUBLE pae_acres_within,
+                                     0.0::DOUBLE road_miles_inside
+                              WHERE FALSE)
+                        TO '{WORK}/prox/{key}.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)
+                      """)
+                      print(f"  empty -> wrote sentinel", flush=True)
+                      continue
+
+                  # Union the lines near each IRA ONCE, then buffer that union per distance.
+                  # ST_Intersects against the pre-buffered polygon is the optimizable join
+                  # predicate; ST_DWithin is not, and at 20M roads that difference decides
+                  # whether this finishes.
+                  con.execute("DROP TABLE IF EXISTS nearr")
+                  # ⚠️ SIMPLIFY_M: road centrelines are digitised far finer than this
+                  # analysis can use. A single IRA's road union can carry millions of
+                  # vertices, and ST_Buffer's output complexity follows the input's — which
+                  # OOM-killed a 36Gi pod on RoadCore alone (shard 51, 148 polygons), after
+                  # the per-distance loop had already cut peak memory ~9x. Simplifying the
+                  # centrelines before the union attacks the cause rather than the symptom.
+                  #
+                  # 5 m is deliberately below the positional accuracy of BOTH inputs: EDW
+                  # road data is compiled at source scales around 1:24,000 (~12 m), and the
+                  # STAC for census-2025/roads records that TIGER centrelines can sit tens of
+                  # metres off the true roadway in rural areas. It is also 1/10th of the
+                  # finest band in the ladder (50 m) and 1/160th of the 0.5-mile distance the
+                  # headline turns on, so its effect on any reported acreage is far smaller
+                  # than the inputs' own uncertainty. Applied UNIFORMLY to every stratum and
+                  # region so no two figures are computed by different methods.
+                  # Only a COUNT is needed here, not a union. The road set is now rebuilt
+                  # per distance below, so the old MAXD-wide union served purely to count
+                  # polygons-with-a-road — and it was the single most expensive union in the
+                  # job, at the widest band. Counting the join directly drops it entirely.
+                  nn = con.execute(f"""
+                    SELECT COUNT(DISTINCT i._cng_fid)
+                    FROM i_s i JOIN r_s r ON ST_Intersects(i.gb, r.g)
+                  """).fetchone()[0]
+                  print(f"  {nn:,} IRA polygons have a road within {MAXD:.0f} m", flush=True)
+
+                  if nn == 0:
+                      con.execute(f"""
+                        COPY (SELECT NULL::BIGINT _cng_fid, ''::VARCHAR STATE,
+                                     ''::VARCHAR CATEGORY, FALSE rule_affected,
+                                     0.0::DOUBLE ira_acres, 0.0::DOUBLE d_m,
+                                     0.0::DOUBLE acres_within, 0.0::DOUBLE pae_acres_within,
+                                     0.0::DOUBLE road_miles_inside
+                              WHERE FALSE)
+                        TO '{WORK}/prox/{key}.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)
+                      """)
+                      print("  no polygon in range -> wrote sentinel", flush=True)
+                      continue
+
+                  # ⚡ Spill the polygon set to Parquet with TINY row groups before the
+                  # buffer ladder. DuckDB assigns pipeline parallelism per row group of the
+                  # driving scan, and an in-memory temp table is a SINGLE row group — so the
+                  # ladder ran on one thread (measured: 1.9 of 16 cores busy). At 128 rows per
+                  # group the same work spreads across every thread. Pure performance change:
+                  # identical rows, identical geometry, no approximation introduced.
+                  con.execute(f"""
+                    COPY (SELECT * FROM i_s) TO '{IRA_PQ}'
+                    (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 128)
+                  """)
+
+                  # ⛔ One distance at a time, NOT a CROSS JOIN over the ladder.
+                  # ST_Buffer of a road union is a large geometry, and a cross join keeps
+                  # nine of them alive per row-vector — which OOM-killed a 28Gi pod
+                  # (exit 137) on shard 14. GEOS allocations are invisible to DuckDB's
+                  # memory_limit, so spilling cannot save it and only the number of
+                  # simultaneous geometries can. Looping cuts peak memory ~9x; the
+                  # accumulator holds numbers, not geometry.
+                  con.execute("DROP TABLE IF EXISTS acc")
+                  con.execute("""
+                    CREATE TEMP TABLE acc (
+                      _cng_fid BIGINT, STATE VARCHAR, CATEGORY VARCHAR,
+                      rule_affected BOOLEAN, ira_acres DOUBLE, d_m DOUBLE,
+                      acres_within DOUBLE, pae_acres_within DOUBLE,
+                      road_miles_inside DOUBLE)
+                  """)
+                  # Batch the polygons as well as the distances. Even simplified, a single
+                  # roadless area beside a dense network can produce a buffer large enough to
+                  # blow a 48Gi pod (observed on shard 31, roadcore-all CONUS), and DuckDB
+                  # vectorises — so without batching several such buffers are alive at once.
+                  # BATCH bounds how many large geometries can coexist, which is the only
+                  # lever that has worked on any of these OOMs. Small enough to be safe,
+                  # large enough that per-statement overhead stays negligible.
+                  BATCH = 12
+                  nbatch = max(1, (nn + BATCH - 1) // BATCH)
+                  for d in ladder:
+                      con.execute("DROP TABLE IF EXISTS nearr_d")
+                      con.execute(f"""
+                        CREATE TEMP TABLE nearr_d AS
+                        SELECT i._cng_fid AS fid,
+                               ST_Union_Agg(ST_Simplify(r.g, {SIMPLIFY_M})) AS rg
+                        FROM i_s i JOIN r_s r
+                          ON ST_Intersects(ST_Buffer(i.g, {d}::DOUBLE), r.g)
+                        GROUP BY i._cng_fid
+                      """)
+                      npq = f"/scratch/tmp_588_prox/nearr_{SHARD}_{int(d*1000)}.parquet"
+                      con.execute(f"""
+                        COPY (SELECT * FROM nearr_d) TO '{npq}'
+                        (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 128)
+                      """)
+                      nd = con.execute(f"SELECT COUNT(*) FROM read_parquet('{npq}')").fetchone()[0]
+                      print(f"    d={d:>8.1f} m: {nd:,} polygons with a road in range",
+                            flush=True)
+                      for b in range(nbatch):
+                          con.execute(f"""
+                            INSERT INTO acc
+                            SELECT i._cng_fid, i.STATE, i.CATEGORY, i.rule_affected,
+                                   i.ACRES AS ira_acres,
+                                   {d}::DOUBLE AS d_m,
+                                   ST_Area(ST_Intersection(i.g, ST_Buffer(n.rg::GEOMETRY, {d}::DOUBLE))) / {M2_AC},
+                                   CASE WHEN i.g_pae IS NULL THEN NULL
+                                        ELSE ST_Area(ST_Intersection(i.g_pae,
+                                                     ST_Buffer(n.rg::GEOMETRY, {d}::DOUBLE))) / {M2_AC} END,
+                                   ST_Length(ST_Intersection(i.g, n.rg::GEOMETRY)) / {MI_M}
+                            FROM read_parquet('{IRA_PQ}') i
+                            JOIN read_parquet('{npq}') n ON n.fid = i._cng_fid
+                            WHERE (hash(i._cng_fid) % {nbatch}) = {b}
+                          """)
+                  con.execute(f"""
+                    COPY (SELECT * FROM acc) TO '{WORK}/prox/{key}.parquet'
+                    (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 20000)
+                  """)
+                  print(f"  ✓ wrote {WORK}/prox/{key}.parquet", flush=True)
+                  for d in ladder:
+                      try:
+                          os.remove(f"/scratch/tmp_588_prox/nearr_{SHARD}_{int(d*1000)}.parquet")
+                      except OSError:
+                          pass
+
+          print(f"\n✓ shard {SHARD}/{NSHARD} complete", flush=True)
+          PY
+          echo "✓ Complete"
+      volumes:
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

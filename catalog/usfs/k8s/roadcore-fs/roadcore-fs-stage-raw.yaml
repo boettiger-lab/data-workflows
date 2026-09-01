@@ -1,0 +1,91 @@
+# Step 1b: stage the USFS RoadCore (National Forest System roads) shapefile at
+# s3://public-usfs/raw/ so the convert step restarts from S3 rather than re-hitting
+# data.fs.usda.gov (432 MB over the public internet is the slowest link in this build).
+#
+# Source (verified 2026-08-25): S_USA.RoadCore_FS.zip, 432,024,035 bytes,
+# Last-Modified Sun, 11 May 2025 17:11:42 GMT. Read from the zip central directory +
+# .shx over HTTP range: 367,666 Polyline features (.shp 556,398,584 B raw,
+# .dbf 423,184,592 B). The zip carries the FGDC sidecar S_USA.RoadCore_FS.shp.xml
+# (87,335 B) — extracted alongside the zip so STAC provenance can cite the attribute
+# domains (OPER_MAINT_LEVEL, SYSTEM, SURFACE_TYPE ...) without unpacking the archive.
+#
+# public-usfs already exists (created for #584), so setup-bucket is a no-op here — but it
+# is idempotent and the orchestrator runs it anyway.
+#
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: roadcore-fs-stage-raw
+  labels:
+    k8s-app: roadcore-fs-stage-raw
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: roadcore-fs-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cd /tmp
+          echo "Downloading S_USA.RoadCore_FS.zip ..."
+          curl -L --retry 5 --fail -o S_USA.RoadCore_FS.zip \
+            "https://data.fs.usda.gov/geodata/edw/edw_resources/shp/S_USA.RoadCore_FS.zip"
+
+          # Fail loudly on an HTML error page served with HTTP 200.
+          SIZE=$(stat -c %s S_USA.RoadCore_FS.zip)
+          echo "Downloaded ${SIZE} bytes"
+          if [ "$SIZE" -ne 432024035 ]; then
+            echo "ERROR: expected 432024035 bytes, got ${SIZE}" >&2
+            exit 1
+          fi
+          head -c 2 S_USA.RoadCore_FS.zip | grep -q 'PK' || { echo "ERROR: not a zip" >&2; exit 1; }
+
+          echo "Extracting FGDC metadata sidecar ..."
+          unzip -o -j S_USA.RoadCore_FS.zip 'S_USA.RoadCore_FS.shp.xml'
+
+          echo "Staging to s3://public-usfs/raw/ ..."
+          rclone mkdir nrp:public-usfs/raw
+          rclone copy S_USA.RoadCore_FS.zip nrp:public-usfs/raw/ -P
+          rclone copy S_USA.RoadCore_FS.shp.xml nrp:public-usfs/raw/ -P
+          rclone lsl nrp:public-usfs/raw/
+          echo "✓ Complete"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

@@ -1,0 +1,169 @@
+# Restore the full FGDC attribute names on roadcore-fs.
+#
+# WHY THIS STEP EXISTS: the EDW distribution is an ESRI Shapefile, whose DBF attribute
+# table caps field names at 10 characters. So `cng-convert-to-parquet` faithfully ingests
+# OPER_MAINT_LEVEL as `OPER_MAINT`, FUNCTIONAL_CLASS as `FUNCTIONAL`, SURFACE_TYPE as
+# `SURFACE_TY`, and so on. The truncation is an artifact of the transport format, not the
+# dataset's real schema — the FGDC metadata
+# (edw_resources/meta/S_USA.RoadCore_FS.xml) and the EDW REST service both publish the
+# full names. Issue #588 asks specifically to "Preserve OPER_MAINT_LEVEL and SYSTEM", and
+# a public catalog column called `PFSR_CLASS` is not self-describing, so the full FGDC
+# names are restored here. The mapping is recorded in the STAC so the truncated
+# shapefile names remain traceable.
+#
+# This is a pure rename: no rows added, dropped, or altered, and the geometry is passed
+# through untouched. The row-count assertion below enforces that.
+#
+# Run AFTER convert and BEFORE hex/pmtiles, so every downstream artifact carries the
+# full names.
+#
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: roadcore-fs-derive
+  labels:
+    k8s-app: roadcore-fs-derive
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: roadcore-fs-derive
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: derive
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        resources:
+          requests:
+            cpu: '4'
+            memory: 24Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 24Gi
+            ephemeral-storage: 20Gi
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, duckdb
+
+          # Shapefile DBF 10-char truncation -> full FGDC attrlabl. Columns not listed
+          # here were already <= 10 chars and are passed through unchanged
+          # (ADMIN_ORG, BMP, COUNTY, EMP, GIS_MILES, GLOBALID, ID, LANES, LOC_ERROR,
+          #  NAME, RTE_CN, SEG_LENGTH, SHAPE_LEN, SYSTEM), as are the pipeline columns
+          # OGC_FID / _cng_fid / geom.
+          RENAME = {
+              "CONGRESSIO": "CONGRESSIONAL_DISTRICT",
+              "FUNCTIONAL": "FUNCTIONAL_CLASS",
+              "JURISDICTI": "JURISDICTION",
+              "LEVEL_OF_S": "LEVEL_OF_SERVICE",
+              "MANAGING_O": "MANAGING_ORG",
+              "OBJECTIVE_": "OBJECTIVE_MAINT_LEVEL",
+              "OPENFORUSE": "OPENFORUSETO",
+              "OPER_MAINT": "OPER_MAINT_LEVEL",
+              "PFSR_CLASS": "PFSR_CLASSIFICATION",
+              "PRIMARY_MA": "PRIMARY_MAINTAINER",
+              "ROUTE_STAT": "ROUTE_STATUS",
+              "SECURITY_I": "SECURITY_ID",
+              "SERVICE_LI": "SERVICE_LIFE",
+              "SURFACE_TY": "SURFACE_TYPE",
+              "SYMBOL_COD": "SYMBOL_CODE",
+              "SYMBOL_NAM": "SYMBOL_NAME",
+          }
+
+          SRC = "s3://public-usfs/roadcore-fs.parquet"
+          TMP = "s3://public-usfs/roadcore-fs-renamed.parquet"
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
+          con.execute("SET memory_limit='20GB'; SET threads=4;")
+          con.execute("SET preserve_insertion_order=false;")
+
+          cols = [r[0] for r in con.execute(
+              f"DESCRIBE SELECT * FROM read_parquet('{SRC}')").fetchall()]
+
+          missing = sorted(set(RENAME) - set(cols))
+          if missing:
+              raise SystemExit(f"ERROR: expected truncated columns absent from source: {missing}")
+
+          n_before = con.execute(f"SELECT COUNT(*) FROM read_parquet('{SRC}')").fetchone()[0]
+          print(f"source rows: {n_before:,}", flush=True)
+
+          select = ", ".join(
+              f'"{c}" AS "{RENAME[c]}"' if c in RENAME else f'"{c}"' for c in cols
+          )
+          con.execute(f"""
+            COPY (SELECT {select} FROM read_parquet('{SRC}'))
+            TO '{TMP}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+          """)
+
+          n_after = con.execute(f"SELECT COUNT(*) FROM read_parquet('{TMP}')").fetchone()[0]
+          print(f"renamed rows: {n_after:,}", flush=True)
+          if n_after != n_before:
+              raise SystemExit(f"ERROR: row count changed {n_before} -> {n_after}")
+
+          new_cols = [r[0] for r in con.execute(
+              f"DESCRIBE SELECT * FROM read_parquet('{TMP}')").fetchall()]
+          for want in ("OPER_MAINT_LEVEL", "SYSTEM", "SURFACE_TYPE", "FUNCTIONAL_CLASS"):
+              if want not in new_cols:
+                  raise SystemExit(f"ERROR: {want} missing from renamed output")
+          print("columns:", ", ".join(sorted(new_cols)), flush=True)
+          PY
+
+          # Swap into place only after every assertion above passed.
+          rclone moveto nrp:public-usfs/roadcore-fs-renamed.parquet \
+                        nrp:public-usfs/roadcore-fs.parquet -P
+          rclone lsl nrp:public-usfs/roadcore-fs.parquet
+          echo "✓ Complete"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

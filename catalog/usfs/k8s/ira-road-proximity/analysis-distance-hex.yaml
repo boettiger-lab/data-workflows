@@ -1,0 +1,421 @@
+# #588 deliverable 2 of 2: distance-to-nearest-road per H3 cell inside the Inventoried
+# Roadless Areas — the join product #587 needs for its ignition-density gradient.
+#
+# Built by JOINING ONTO the already-published roadless-areas-2001 hex (16,309,549 rows at
+# res 10, already carrying _cng_fid and h10/h9/h8/h0 from #584) rather than re-polyfilling.
+# No new hex build, no hex lock taken.
+#
+# Distance is measured from each cell's centre to the nearest road centreline, in the same
+# equal-area projection the acreage analysis uses. The per-IRA road union computed for the
+# proximity ladder is reused: every road within 3,380 m of the IRA is in it, which covers
+# every ladder distance for any cell inside that IRA.
+#
+# ⚠️ This asset is a CROSS-CHECK and a join key, NOT the source of the headline acreage.
+# The 11.3M-acre reproduction runs on flat geometry (analysis-proximity.yaml). A res-10
+# cell is ~0.015 km2, fine enough to integrate area to ~0.25% (measured in #584), but the
+# authoritative number is still the true-geometry one.
+#
+# h8 is present, so this joins directly to public-fire/fpa-fod-1992-2024 for #587.
+#
+# Requires: analysis-workingset.yaml.
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ira-road-distance-hex
+  labels:
+    k8s-app: ira-road-distance-hex
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  # A single long pod is the worst possible preemption target: there is no other index to
+  # make progress while it retries, and each retry restarts the whole job from nothing —
+  # this one has no checkpointing, unlike the ladder. So preemption must not spend the
+  # backoff budget that exists to catch real failures. Same rule as analysis-proximity.yaml:
+  # Ignore a failure carrying DisruptionTarget (preemption, drain, node-pressure eviction,
+  # graceful shutdown); a genuine failure such as an OOM still counts and still fails the
+  # job. podReplacementPolicy must be explicit once podFailurePolicy is set.
+  podReplacementPolicy: Failed
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ira-road-distance-hex
+    spec:
+      restartPolicy: Never
+      # priorityClassName deliberately omitted — default priority 0 rather than
+      # `opportunistic` (-2000000000). This pod holds ~11k per-roadless-area road unions in
+      # memory and runs long; losing it to preemption costs the entire run, since nothing
+      # here is checkpointed. See the note in analysis-proximity.yaml — #590 has stood down
+      # off the cluster so these two jobs can finish.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: distance-hex
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /scratch/tmp_588_dist
+        resources:
+          requests:
+            cpu: '16'
+            memory: 96Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '16'
+            memory: 96Gi
+            ephemeral-storage: 20Gi
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/tmp_588_dist
+          python3 - <<'PY'
+          import os, subprocess, duckdb
+
+          WORK = "s3://public-usfs/_work/588"
+          IRAHEX = "s3://public-usfs/roadless-areas-2001/hex/h0=*/data_0.parquet"
+          OUT = "s3://public-usfs/ira-road-distance/hex"
+          MAXD = 3218.688 * 1.05
+          # Same tolerance as the buffer ladder, and the value this collection's STAC
+          # already claims. See the note at the union below.
+          SIMPLIFY_M = 5.0
+          CRS = {"CONUS": "EPSG:5070", "AK": "EPSG:3338", "PR": "EPSG:32161"}
+          PED = "('S1710','S1720','S1820','S1830')"
+          ML = "substr(OPER_MAINT_LEVEL, 1, 1)"
+
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          try:
+              con.execute("LOAD h3;")
+          except Exception:
+              con.execute("INSTALL h3 FROM community; LOAD h3;")
+          con.execute("SELECT h3_cell_to_lat(621712678913867775::UBIGINT)")  # fail fast
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute("SET s3_access_key_id='%s';" % os.environ["AWS_ACCESS_KEY_ID"])
+          con.execute("SET s3_secret_access_key='%s';" % os.environ["AWS_SECRET_ACCESS_KEY"])
+          # ⛔ threads=16 was a large part of why this OOM-killed a 96Gi pod (exit 137, 97
+          # minutes in, during the 'all' union). GEOS allocations are invisible to DuckDB's
+          # memory_limit, so the limit cannot restrain them and spilling cannot save it —
+          # the only lever is how many large geometries are alive at once, and thread count
+          # multiplies exactly that. The proximity job settled on threads=2 in a 64Gi pod
+          # for the same reason. 4 here, with headroom left below the pod limit rather than
+          # claimed up to it.
+          con.execute("SET memory_limit='56GB'; SET threads=4;")
+          con.execute("SET temp_directory='/scratch/tmp_588_dist';")
+          con.execute("SET preserve_insertion_order=false;")
+
+          con.execute(f"CREATE TABLE ira AS SELECT _cng_fid, crs_region, STATE, rule_affected "
+                      f"FROM read_parquet('{WORK}/ira.parquet')")
+          con.execute(f"CREATE TABLE rc AS SELECT * FROM read_parquet('{WORK}/roads_rc.parquet')")
+          con.execute(f"CREATE TABLE tg AS SELECT * FROM read_parquet('{WORK}/roads_tg.parquet')")
+          tiger = con.execute("SELECT COUNT(*) FROM tg").fetchone()[0] > 0
+          print(f"working set: ira={con.execute('SELECT COUNT(*) FROM ira').fetchone()[0]:,} "
+                f"rc={con.execute('SELECT COUNT(*) FROM rc').fetchone()[0]:,} "
+                f"tg={con.execute('SELECT COUNT(*) FROM tg').fetchone()[0]:,}", flush=True)
+          if not tiger:
+              raise SystemExit("roads_tg is EMPTY — re-run analysis-workingset.yaml after "
+                               "merge-roads.yaml before building the distance hex.")
+
+          # Per-IRA road unions, one per stratum. Buffering the IRA and joining on
+          # ST_Intersects is the optimizable predicate; ST_DWithin is not.
+          #
+          # ⛔ SPILLED TO PARQUET, NOT HELD AS TABLES. The previous shape built three
+          # in-memory union tables and kept all three alive, alongside `ib` (11,391 buffered
+          # polygons at 3,380 m), until the final join — then joined all three at once, so
+          # every output row had three large road unions live simultaneously. That
+          # OOM-killed a 96Gi pod at exit 137, 97 minutes in, inside the 'all' union, which
+          # carries 4.4M roads against roadcore's 359k.
+          #
+          # This is the same lesson the buffer ladder learned four times over: every OOM
+          # here yields to reducing how many large geometries coexist, never to more memory.
+          # Spilling each union as it is built, with small row groups, and dropping the
+          # table means exactly one union set is materialised at a time, and the final join
+          # streams them a row group at a time instead of holding all three resident.
+          IB_PQ = "/scratch/tmp_588_dist/ib.parquet"
+          con.execute(f"""
+            COPY (SELECT i._cng_fid AS fid, i.crs_region, ST_Buffer(w.g, {MAXD}) AS gb
+                  FROM ira i JOIN read_parquet('{WORK}/ira.parquet') w USING (_cng_fid))
+            TO '{IB_PQ}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 128)
+          """)
+          print(f"  wrote IRA search buffers -> {IB_PQ}", flush=True)
+
+          STRATA = {
+              "roadcore":       "SELECT g, crs_region FROM rc",
+              "roadcore_ml2to5": f"SELECT g, crs_region FROM rc WHERE {ML} IN ('2','3','4','5')",
+              "all":            f"SELECT g, crs_region FROM rc UNION ALL "
+                                f"SELECT g, crs_region FROM tg WHERE MTFCC NOT IN {PED}",
+          }
+          # ⛔ THE UNION IS BATCHED BY ROADLESS AREA, and each stratum is CACHED on the PVC.
+          #
+          # Spilling the finished unions to Parquet was not enough. Three pods were
+          # OOM-killed at exit 137 (4h05m, 2h27m, and a third) and NOT ONE of them ever
+          # completed the 'all' union — the log never reaches its summary line. The
+          # remaining problem is inside the single GROUP BY: DuckDB keeps an accumulating
+          # geometry alive per group, and with ~10,300 groups over 4.4M roads, the set of
+          # live accumulators alone exceeds the pod however the result is written.
+          #
+          # This is the ladder's BATCH lesson, which was learned the same way: bound how
+          # many large geometries can coexist. There it was 12 polygons per statement; here
+          # it is BATCH roadless areas per statement, each batch written as its own part
+          # file and read back through a glob. Nothing about the result changes — grouping
+          # is by fid and every fid lands in exactly one batch, so the batched union is
+          # row-for-row identical to the single-statement one.
+          #
+          # Each stratum is also cached: a completed stratum is reused rather than rebuilt.
+          # The two cheap unions (roadcore 132 MB, roadcore_ml2to5 101 MB) had already
+          # completed on the PVC and were being recomputed from scratch on every retry,
+          # burning ~60 minutes before each attempt even reached the step that kills it.
+          # BATCH was 250 and two 96Gi pods were still OOM-killed inside the first ten
+          # batches of the 'all' stratum. Calibrate against what is KNOWN to fit instead of
+          # guessing again: the buffer ladder unions the roads within d of ~177 roadless
+          # areas per shard and survives in a 64Gi pod. This job unions at MAXD (3,380 m),
+          # the widest radius in the whole analysis, so each area's road set is
+          # substantially larger than any single rung the ladder handles. 50 areas per
+          # statement sits well inside that envelope.
+          BATCH = 50
+          fids = [r[0] for r in con.execute(
+              f"SELECT fid FROM read_parquet('{IB_PQ}') ORDER BY fid").fetchall()]
+          print(f"  {len(fids):,} roadless areas to union, in batches of {BATCH}", flush=True)
+
+          UPQ = {}
+          for name, sql in STRATA.items():
+              single = f"/scratch/tmp_588_dist/u_{name}.parquet"
+              # ⚠️ The batch size is part of the directory name. Batch b covers
+              # fids[b*BATCH:(b+1)*BATCH], so the SAME index means a DIFFERENT set of
+              # roadless areas under a different BATCH. Without this, changing BATCH would
+              # silently reuse part files describing other areas and produce a wrong layer
+              # that still looks complete. Changing BATCH now starts a clean set instead.
+              parts = f"/scratch/tmp_588_dist/u_{name}_parts_b{BATCH}"
+              marker = f"{parts}/_COMPLETE"
+              # A completed single-file union from an earlier attempt is still valid — same
+              # query, same inputs — so reuse it. A ZERO-BYTE file is the debris of a COPY
+              # that was killed mid-write and must NOT be treated as a result.
+              if os.path.exists(single) and os.path.getsize(single) > 0:
+                  UPQ[name] = single
+                  n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{single}')").fetchone()[0]
+                  print(f"  road union '{name}': reusing cached {single} ({n:,} areas)",
+                        flush=True)
+                  continue
+              if os.path.exists(marker):
+                  UPQ[name] = f"{parts}/part_*.parquet"
+                  n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{UPQ[name]}')").fetchone()[0]
+                  print(f"  road union '{name}': reusing cached batches ({n:,} areas)",
+                        flush=True)
+                  continue
+              os.makedirs(parts, exist_ok=True)
+              # ST_Simplify before the union, at the SAME 5 m tolerance the buffer ladder
+              # uses. This is also a correctness fix: the published STAC text for this
+              # collection ALREADY states these distances derive from centrelines simplified
+              # with a 5 m tolerance, and the code did not simplify — the metadata described
+              # a layer that was never built. 5 m is below the positional accuracy of both
+              # inputs (EDW ~12 m at 1:24,000 source scales; TIGER rural centrelines tens of
+              # metres), so it cannot be the limiting error on a distance, and it is applied
+              # uniformly to every stratum and region.
+              # ⛔ EVERY BATCH IS ITS OWN CHECKPOINT. Without this an OOM in batch 9 threw
+              # away batches 0-8 and the next attempt started from zero — which is exactly
+              # what happened twice, both pods dying inside the first ten batches and
+              # leaving nothing behind. With it, a failure costs one batch, progress is
+              # monotone across retries, and the job grinds to completion even if some
+              # batches need more than one attempt. A part file is only written by a COPY
+              # that ran to completion, so its presence means that batch is done.
+              nb = (len(fids) + BATCH - 1) // BATCH
+              done_already = 0
+              for b in range(nb):
+                  part = f"{parts}/part_{b:04d}.parquet"
+                  if os.path.exists(part) and os.path.getsize(part) > 0:
+                      done_already += 1
+                      continue
+                  chunk = fids[b * BATCH:(b + 1) * BATCH]
+                  inlist = ",".join(str(f) for f in chunk)
+                  con.execute(f"""
+                    COPY (SELECT b.fid, ST_Union_Agg(ST_Simplify(r.g, {SIMPLIFY_M})) AS rg
+                          FROM read_parquet('{IB_PQ}') b JOIN ({sql}) r
+                            ON r.crs_region = b.crs_region AND ST_Intersects(b.gb, r.g)
+                          WHERE b.fid IN ({inlist})
+                          GROUP BY b.fid)
+                    TO '{part}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 64)
+                  """)
+                  if b % 10 == 0 or b == nb - 1:
+                      print(f"    '{name}' batch {b + 1}/{nb}", flush=True)
+              if done_already:
+                  print(f"    '{name}': {done_already}/{nb} batches were already "
+                        f"checkpointed from an earlier attempt", flush=True)
+              open(marker, "w").close()
+              UPQ[name] = f"{parts}/part_*.parquet"
+              n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{UPQ[name]}')").fetchone()[0]
+              print(f"  road union '{name}': {n:,} IRA polygons with roads in range "
+                    f"-> {UPQ[name]}", flush=True)
+
+          # Cell centres from the PUBLISHED #584 hex — no new polyfill.
+          case_crs = " ".join(
+              f"WHEN i.crs_region='{r}' THEN ST_Transform("
+              f"ST_Point(h3_cell_to_lng(h.h10), h3_cell_to_lat(h.h10)),"
+              f"'EPSG:4326','{c}', always_xy := true)" for r, c in CRS.items())
+          con.execute(f"""
+            CREATE TABLE cells AS
+            SELECT h.h10, h.h9, h.h8, h.h0, h._cng_fid,
+                   i.crs_region, i.STATE, i.rule_affected,
+                   (CASE {case_crs} END) AS pt
+            FROM (SELECT DISTINCT h10, h9, h8, h0, _cng_fid
+                  FROM read_parquet('{IRAHEX}')) h
+            JOIN ira i USING (_cng_fid)
+          """)
+          nc = con.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
+          print(f"IRA res-10 cells: {nc:,}", flush=True)
+
+          # ⛔ CELL-SET GATE. The join above is an INNER join onto ira, so an IRA missing
+          # from the working set silently drops all of its cells — and a hex that is short
+          # by a few hundred thousand cells looks exactly like a hex that is complete: it
+          # has rows, it partitions, its STAC validates. AGENTS.md records the same class of
+          # failure from the hex --chunk-size default, which dropped 99% of TIGER while the
+          # job still reported Complete. Measured independently against the published #584
+          # hex: 16,309,549 rows, 16,309,454 distinct h10 (95 cells are shared by two
+          # adjacent roadless areas, so rows exceed distinct cells), 11,391 roadless areas,
+          # 9 h0 partitions. This layer is a straight per-cell join onto that one, so it
+          # must reproduce the cell set exactly — no more, no less.
+          src = con.execute(f"""
+            SELECT COUNT(*) FROM (SELECT DISTINCT h10, h9, h8, h0, _cng_fid
+                                  FROM read_parquet('{IRAHEX}'))
+          """).fetchone()[0]
+          if nc != src:
+              raise SystemExit(
+                  f"ABORT: the published #584 hex has {src:,} distinct (h10, roadless-area) "
+                  f"pairs but only {nc:,} survived the join onto the working set — "
+                  f"{src - nc:,} cells would be missing from this layer, which would shrink "
+                  f"every band count in #587 without leaving a visible hole. Check that "
+                  f"analysis-workingset.yaml carried every _cng_fid.")
+          print(f"  cell-set gate: matches the published #584 hex exactly ({src:,})",
+                flush=True)
+
+          # ⛔ ONE h0 PARTITION AT A TIME, and each one checkpointed on S3.
+          #
+          # The single PARTITION_BY write held every cell and all three union sets in one
+          # pipeline. Partitioning the loop instead bounds the working set to one h0 — the
+          # largest is a few million cells rather than 16.3M — and gives this job the one
+          # thing it most conspicuously lacked: resumability. It died once at 97 minutes
+          # with nothing to show for it, and would have done so again on retry. Now a
+          # preemption or an OOM costs one partition, not the whole run.
+          #
+          # The unions are read from Parquet rather than memory, so DuckDB streams them a
+          # row group at a time and only a bounded number of large geometries is ever alive.
+          def partition_done(h0):
+              r = subprocess.run(
+                  ["rclone", "lsf", f"nrp:public-usfs/ira-road-distance/hex/h0={h0}/data_0.parquet"],
+                  capture_output=True, text=True)
+              return bool(r.stdout.strip())
+
+          h0s = [r[0] for r in con.execute(
+              "SELECT DISTINCT h0 FROM cells ORDER BY 1").fetchall()]
+          print(f"writing {len(h0s)} h0 partitions, one at a time", flush=True)
+          dist = "ST_Distance(c.pt, ua.rg)"
+          for h0 in h0s:
+              if partition_done(h0):
+                  print(f"  skip h0={h0} (already checkpointed)", flush=True)
+                  continue
+              con.execute(f"""
+                COPY (
+                  SELECT c.h10, c.h9, c.h8, c.h0, c._cng_fid, c.STATE, c.rule_affected,
+                         ST_Distance(c.pt, ur.rg)   AS dist_m_roadcore,
+                         ST_Distance(c.pt, um.rg)   AS dist_m_roadcore_ml2to5,
+                         {dist}                     AS dist_m_all,
+                         CASE
+                           WHEN {dist} IS NULL       THEN '>3218m'
+                           WHEN {dist} <=   50 THEN '0-50m'
+                           WHEN {dist} <=  100 THEN '50-100m'
+                           WHEN {dist} <=  200 THEN '100-200m'
+                           WHEN {dist} <=  400 THEN '200-400m'
+                           WHEN {dist} <=  804.672 THEN '400-805m'
+                           WHEN {dist} <= 1000 THEN '805-1000m'
+                           WHEN {dist} <= 1609.344 THEN '1000-1609m'
+                           WHEN {dist} <= 2414.016 THEN '1609-2414m'
+                           WHEN {dist} <= 3218.688 THEN '2414-3219m'
+                           ELSE '>3218m'
+                         END AS band
+                  FROM cells c
+                  LEFT JOIN read_parquet('{UPQ["roadcore"]}')        ur ON ur.fid = c._cng_fid
+                  LEFT JOIN read_parquet('{UPQ["roadcore_ml2to5"]}') um ON um.fid = c._cng_fid
+                  LEFT JOIN read_parquet('{UPQ["all"]}')             ua ON ua.fid = c._cng_fid
+                  WHERE c.h0 = {h0}
+                )
+                TO '{OUT}/h0={h0}/data_0.parquet'
+                (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+              """)
+              n = con.execute(
+                  f"SELECT COUNT(*) FROM read_parquet('{OUT}/h0={h0}/data_0.parquet')"
+              ).fetchone()[0]
+              print(f"  ✓ h0={h0}: {n:,} cells", flush=True)
+          print("✓ wrote", OUT, flush=True)
+
+          chk = con.execute(f"""
+            SELECT COUNT(*), COUNT(DISTINCT _cng_fid), COUNT(DISTINCT h0),
+                   ROUND(100.0 * COUNT(*) FILTER (WHERE dist_m_all <= 804.672) / COUNT(*), 2)
+            FROM read_parquet('{OUT}/h0=*/data_0.parquet')
+          """).fetchone()
+          print(f"rows={chk[0]:,} iras={chk[1]:,} h0={chk[2]} "
+                f"pct of IRA cells within 0.5 mi of a road = {chk[3]}%", flush=True)
+
+          # Read-back gate: a partial COPY (preemption mid-write, a partition that failed to
+          # land) leaves a queryable, plausible-looking layer. Compare what came back off S3
+          # against what went in, and against the #584 partition count.
+          if chk[0] != nc:
+              raise SystemExit(
+                  f"ABORT: wrote {nc:,} cells but only {chk[0]:,} read back from {OUT} — "
+                  f"the write is incomplete. Do not publish; re-run.")
+          if chk[1] != 11391:
+              raise SystemExit(
+                  f"ABORT: {chk[1]:,} roadless areas in the output, expected 11,391.")
+          if chk[2] != 9:
+              raise SystemExit(
+                  f"ABORT: {chk[2]} h0 partitions, expected 9 — a partition is missing.")
+          print(f"  read-back gate: {chk[0]:,} rows, 11,391 roadless areas, 9 h0 partitions",
+                flush=True)
+          PY
+          echo "✓ Complete"
+      volumes:
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

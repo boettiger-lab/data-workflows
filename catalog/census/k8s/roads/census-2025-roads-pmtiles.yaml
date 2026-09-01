@@ -1,0 +1,131 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-2025-roads-pmtiles
+  labels:
+    k8s-app: census-2025-roads-pmtiles
+spec:
+  completions: 1
+  parallelism: 1
+  # backoffLimit was 1, which gives a 14-20 hour uncheckpointed job exactly two chances.
+  # Both were spent on the previous run — attempt 1 died near hour 14, attempt 2 got to
+  # 99.9% — leaving the job one preemption away from failing outright with nothing to show.
+  # 4 is not generosity: at this runtime a retry budget of 2 is thinner than the background
+  # pod mortality rate the pod-preemption skill documents (~28% on a much shorter job).
+  backoffLimit: 4
+  # And preemption must not spend that budget. Ignore a failure carrying DisruptionTarget
+  # (preemption, node drain, node-pressure eviction, graceful shutdown) so only a genuine
+  # tippecanoe failure counts against backoffLimit. podReplacementPolicy must be explicit
+  # once podFailurePolicy is set. Same treatment as the #588 analysis jobs.
+  podReplacementPolicy: Failed
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: census-2025-roads-pmtiles
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: pmtiles-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-census
+        - name: DATASET
+          value: roads
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # ~20M TIGER road lines: the GeoJSONSeq intermediate runs to several GB and the
+          # pod ephemeral limit is capped at 50Gi namespace-wide, so both intermediates
+          # live on the rechunk-scratch PVC (2Ti RWX rook-cephfs). WORK is a per-run
+          # subdirectory so a retry cannot collide with a previous attempt's leftovers.
+          WORK=/scratch/pmtiles-census-2025-roads
+          rm -rf "$WORK"; mkdir -p "$WORK"
+          # Use optimized GeoParquet (has ID column) from convert job
+          # GDAL can read parquet via vsicurl
+          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq "$WORK"/$DATASET.geojsonl /vsis3/public-census/census-2025/roads.parquet -progress
+
+          # Generate PMTiles from GeoJSONSeq
+          # TIPPECANOE_MAX_THREADS must be a power of 2; Kubernetes nodes can expose
+          # non-power-of-2 logical CPU counts which triggers an internal assertion
+          # failure "N shards not a power of 2" (felt/tippecanoe#216).
+          # Round detected CPU count down to nearest power of 2 to preserve I/O parallelism.
+          # Must be `export`ed: tippecanoe is a child process and reads this from the
+          # environment, not the shell. A plain assignment is invisible to it, so it
+          # falls back to the raw (non-power-of-2) CPU count and crashes (issue #77).
+          export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          tippecanoe -o "$WORK"/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force "$WORK"/$DATASET.geojsonl
+
+          # Upload to S3 using rclone
+          rclone copy "$WORK"/$DATASET.pmtiles nrp:public-census/census-2025/
+          rm -rf "$WORK"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+      volumes:
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      # ⚠️ priorityClassName deliberately OMITTED — default priority 0 rather than
+      # `opportunistic` (-2000000000). This is the single worst preemption profile in the
+      # repo: tippecanoe over 16.5M TIGER road lines runs 14-20 hours, holds no checkpoint
+      # of any kind, and cannot resume — a preemption at hour 13 costs all 13 hours. The
+      # pod-preemption skill's rule is that exposure scales with runtime, and this is by far
+      # the longest-running pod here.
+      #
+      # Measured on the run this replaces: attempt 1 died around hour 14, attempt 2 reached
+      # 99.9% of zoom 14 at 6h15m. Resource limits are NOT the constraint and raising them
+      # will not help — tippecanoe at that stage was using 61% of ONE core of the 4 it has
+      # and 1.7% of its 32Gi. It is single-threaded and I/O-bound; the only thing that
+      # decides the outcome is whether the pod survives.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

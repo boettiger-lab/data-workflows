@@ -1,0 +1,228 @@
+# Step 1b + 1c for census-2025/roads: TIGER/Line 2025 ROADS is published as 3,233
+# per-county zips, and cng-convert-to-parquet rejects multiple .zip URLs (AGENTS.md
+# Step 1c). This Indexed Job fans out one pod per state/territory FIPS (56 of them),
+# merges that state's counties into a single GeoParquet, and stages it at
+# s3://public-census/raw/roads-2025/. merge-roads.yaml then unions the 56 into the
+# national dataset parquet.
+#
+# Source (verified 2026-08-25): https://www2.census.gov/geo/tiger/TIGER2025/ROADS/
+#   3,233 files, ~3.6 GB compressed, posted 2025-09-22 — contemporaneous with the
+#   September-2025 NRM snapshot the DEIS buffered (issue #588 / #602).
+#   Sampled county counts (06001 25,528 · 30029 10,456 · 16049 7,194 · 04017 40,868)
+#   imply ~20M line features nationally.
+#
+# ⚠️ TIGER roads shapefiles carry ONLY LINEARID, FULLNAME, RTTYP, MTFCC — no state or
+#   county FIPS. GEOID_COUNTY is injected here from the filename, because the #588
+#   proximity analysis needs to restrict roads to counties intersecting NFS land and
+#   there is no other way to recover it after the merge.
+#
+# All MTFCC classes are retained at ingest (recorded scope on #588). Pedestrian classes
+# (S1710 walkway, S1720 stairway, S1820 bike path, S1830 bridle path) are filtered at
+# ANALYSIS time, not here, so the choice stays visible and reversible.
+#
+# Restartable: a state whose parquet is already on S3 is skipped, so a partial run can
+# simply be re-applied.
+#
+# Issue: boettiger-lab/data-workflows#588
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-2025-roads-preprocess
+  labels:
+    k8s-app: census-2025-roads-preprocess
+spec:
+  completions: 56
+  parallelism: 8
+  completionMode: Indexed
+  backoffLimitPerIndex: 6
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: census-2025-roads-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        resources:
+          requests:
+            cpu: '4'
+            memory: 12Gi
+            ephemeral-storage: 24Gi
+          limits:
+            cpu: '4'
+            memory: 12Gi
+            ephemeral-storage: 24Gi
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # One entry per state/territory FIPS present in TIGER2025/ROADS, enumerated
+          # from the live directory listing on 2026-08-25 (56 entries, 3,233 counties).
+          FIPS_LIST=(01 02 04 05 06 08 09 10 11 12 13 15 16 17 18 19 20 21 22 23 24 25 \
+                     26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 44 45 46 47 48 \
+                     49 50 51 53 54 55 56 60 66 69 72 78)
+          FIPS="${FIPS_LIST[$JOB_COMPLETION_INDEX]}"
+          OUT="tl_2025_${FIPS}_roads.parquet"
+          DEST="nrp:public-census/raw/roads-2025/${OUT}"
+          echo "=== index ${JOB_COMPLETION_INDEX} -> state FIPS ${FIPS} ==="
+
+          # Stagger pod starts so six pods do not all open their listing request in the
+          # same second. Deterministic (index-derived), so a retry lands in the same slot.
+          sleep $(( (JOB_COMPLETION_INDEX % 8) * 4 ))
+
+          if [ -n "$(rclone lsf "${DEST}" 2>/dev/null)" ]; then
+            echo "✓ ${OUT} already staged — skipping (restartable re-run)"
+            exit 0
+          fi
+
+          WORK=/tmp/roads/${FIPS}
+          rm -rf "${WORK}"; mkdir -p "${WORK}/zips" "${WORK}/shp"
+          cd "${WORK}"
+
+          BASE="https://www2.census.gov/geo/tiger/TIGER2025/ROADS"
+          curl -sS --retry 15 --retry-delay 20 --retry-all-errors --fail "${BASE}/" \
+            | grep -oE "tl_2025_${FIPS}[0-9]{3}_roads\.zip" | sort -u > files.txt
+          N=$(wc -l < files.txt)
+          if [ "${N}" -eq 0 ]; then
+            echo "ERROR: no county files listed for FIPS ${FIPS}" >&2; exit 1
+          fi
+          echo "${N} county files to fetch for FIPS ${FIPS}"
+
+          # Parallel fetch. --fail turns an HTML error page into a non-zero exit rather
+          # than a poisoned build; the PK check below is the second line of defence.
+          xargs -a files.txt -P 3 -I{} \
+            curl -sS --retry 15 --retry-delay 20 --retry-all-errors --fail \
+                 -o "zips/{}" "${BASE}/{}"
+
+          # Verify-and-repair rather than verify-and-die. A rate-limited fetch can leave a
+          # short or HTML body that curl still exits 0 on; the PK check catches it, and a
+          # targeted re-fetch is far cheaper than failing a 250-county state and redoing
+          # the whole download. Only a file that is still bad after 4 tries is fatal.
+          for attempt in 1 2 3 4; do
+            BAD=""
+            for f in $(cat files.txt); do
+              if [ ! -s "zips/${f}" ] || ! head -c 2 "zips/${f}" | grep -q 'PK'; then
+                BAD="${BAD} ${f}"
+              fi
+            done
+            [ -z "${BAD}" ] && break
+            echo "attempt ${attempt}: re-fetching $(echo ${BAD} | wc -w) bad file(s)"
+            for f in ${BAD}; do
+              rm -f "zips/${f}"
+              sleep 5
+              curl -sS --retry 15 --retry-delay 20 --retry-all-errors --fail \
+                   -o "zips/${f}" "${BASE}/${f}" || true
+            done
+          done
+          # ⚠️ Documented vintage fallback. At least one 2025 object (tl_2025_47103_roads.zip,
+          # Lincoln County TN) is rejected by the Census WAF — it returns HTTP 200 with a
+          # 247-byte "Request Rejected" HTML body, from any client and any User-Agent, while
+          # neighbouring 2025 counties and the SAME county's 2024/2023 files download fine.
+          # It is a per-object server-side block, not rate limiting and not a missing file.
+          # Rather than publish a layer with a county-shaped hole, fall back to the most
+          # recent working vintage for that county and RECORD the substitution, which is
+          # uploaded next to the data and cited in the STAC.
+          : > substitutions.txt
+          for f in $(cat files.txt); do
+            head -c 2 "zips/${f}" 2>/dev/null | grep -q 'PK' && continue
+            CTY=$(echo "${f}" | sed -E 's/tl_2025_([0-9]{5})_roads\.zip/\1/')
+            for YR in 2024 2023; do
+              echo "WAF-blocked ${f}: trying TIGER${YR} for county ${CTY}"
+              curl -sS --retry 8 --retry-delay 10 --retry-all-errors --fail \
+                   -o "zips/${f}" \
+                   "https://www2.census.gov/geo/tiger/TIGER${YR}/ROADS/tl_${YR}_${CTY}_roads.zip" || true
+              if head -c 2 "zips/${f}" 2>/dev/null | grep -q 'PK'; then
+                echo "${CTY} TIGER2025 blocked -> substituted TIGER${YR}" >> substitutions.txt
+                echo "  ✓ substituted TIGER${YR} for county ${CTY}"
+                break
+              fi
+            done
+          done
+
+          for z in zips/*.zip; do
+            head -c 2 "${z}" | grep -q 'PK' || { echo "ERROR: ${z} is not a zip after retries and vintage fallback" >&2; exit 1; }
+          done
+          if [ -s substitutions.txt ]; then
+            echo "=== VINTAGE SUBSTITUTIONS for FIPS ${FIPS} ==="; cat substitutions.txt
+            rclone copyto substitutions.txt \
+              "nrp:public-census/raw/roads-2025/_substitutions_${FIPS}.txt"
+          fi
+          NZ=$(ls zips/*.zip | wc -l)
+          if [ "${NZ}" -ne "${N}" ]; then
+            echo "ERROR: expected ${N} zips, have ${NZ}" >&2; exit 1
+          fi
+
+          for z in zips/*.zip; do unzip -q -o "${z}" -d shp/; done
+
+          # Merge into one GPKG (Parquet is write-once, so -append needs an intermediate
+          # container format), injecting the county GEOID from the filename as we go.
+          rm -f state.gpkg
+          # Vintage-agnostic: a WAF-substituted county arrives as tl_2024_*/tl_2023_*, so
+          # neither the glob nor the GEOID extraction may assume the 2025 prefix.
+          for s in shp/tl_*_${FIPS}[0-9][0-9][0-9]_roads.shp; do
+            LAYER=$(basename "${s}" .shp)
+            CGEOID=$(echo "${LAYER}" | sed -E 's/^tl_[0-9]{4}_([0-9]{5})_roads$/\1/')
+            ogr2ogr -f GPKG state.gpkg "${s}" \
+              -append -nln roads -t_srs EPSG:4326 \
+              -dialect SQLITE \
+              -sql "SELECT *, '${CGEOID}' AS GEOID_COUNTY FROM \"${LAYER}\""
+          done
+
+          ogr2ogr -f Parquet "${OUT}" state.gpkg roads \
+            -lco GEOMETRY_NAME=geometry \
+            -lco COMPRESSION=ZSTD \
+            -lco ROW_GROUP_SIZE=100000
+
+          FEATS=$(ogrinfo -so -al "${OUT}" | grep -oP 'Feature Count: \K[0-9]+' | head -1)
+          echo "FIPS ${FIPS}: ${N} counties -> ${FEATS} features, $(stat -c %s "${OUT}") bytes"
+          if [ "${FEATS:-0}" -eq 0 ]; then
+            echo "ERROR: FIPS ${FIPS} produced 0 features" >&2; exit 1
+          fi
+
+          rclone copyto "${OUT}" "${DEST}" -P
+          echo "✓ staged ${DEST}"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
