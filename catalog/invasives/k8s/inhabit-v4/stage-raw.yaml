@@ -1,0 +1,168 @@
+# Stage USGS INHABIT v4.0 (June 2024) source rasters to s3://public-invasives/raw/inhabit-v4-2024/
+# (data-workflows #610). One index per species; 12 species x 11 in-scope files = 132 files, 26.0 GB.
+#
+# In scope per species: the 9 rasters (3 continuous ensembles x {plain, -masked}, 3
+# integrated-binary thresholds) + the variableImportance / assessmentMetrics sidecar tables.
+# Skipped: mergedDataset.zip and responseCurves.zip (model internals, per the issue scope).
+#
+# ⚠️ THE INNER TIF NAME DOES NOT MATCH THE ZIP NAME. occurrence-weighted-ensemble-masked.zip
+# contains occ-cbi-weighted-ensemble-masked.tif ("cbi" = continuous Boyce index, the v4 ensemble
+# weighting). Never derive the member name from the zip name — glob the archive and rename to the
+# canonical product key, which is what every downstream path and STAC id uses.
+#
+# ⚠️ Fetch from ScienceBase, never from https://gis.usgs.gov/inhabit/ — the viewer 403s
+# non-browser agents. Child-item ids are PINNED below (verified against the v4 parent listing
+# 663926f0d34e2537768ce951 on 2026-08-21 and re-verified 2026-08-26) so a change to the parent
+# listing cannot silently repoint this job.
+#
+# RE-RUNNABLE BY DESIGN: each index skips files already present at its destination, so
+# re-applying heals a partial run. Never hand-write a one-off retry Job — delete and re-apply.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inhabit-v4-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: inhabit-v4-stage-raw}
+spec:
+  completions: 12          # one per species
+  parallelism: 3           # deliberately low: #590 (landfire-2024-hex) and #588 own the cluster
+  completionMode: Indexed
+  backoffLimitPerIndex: 4
+  maxFailedIndexes: 12
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: inhabit-v4-stage-raw}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: DEST,                value: 'nrp:public-invasives/raw/inhabit-v4-2024'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          IDX=${JOB_COMPLETION_INDEX}
+
+          # species_dir <TAB> ScienceBase child-item id  (index order is this list's order)
+          SPECIES=(
+            "bromus_tectorum          66a14c62d34ec831f2c2b1cc"
+            "bromus_rubens            66a14559d34ef32deb7ee1a2"
+            "bromus_japonicus         66a14239d34ef32deb7ede9c"
+            "bromus_arvensis          669fd2e7d34eef99d5abc5eb"
+            "taeniatherum_caput_medusae 66bb7a6ad34e033882814282"
+            "ventenata_dubia          66c3adebd34e03388287af28"
+            "aegilops_cylindrica      669ee0dcd34eef99d5abbb3b"
+            "agropyron_cristatum      669ee8e0d34eef99d5abbb50"
+            "salsola_tragus           66c3c389d34e03388287bba9"
+            "tamarix_chinensis_ramosissima 66bb7eccd34e033882814498"
+            "elaeagnus_angustifolia   66a68b88d34ea6469c870807"
+            "cenchrus_ciliaris        66a29430d34ec831f2c2d2d7"
+          )
+          read -r SP ITEM <<< "${SPECIES[$IDX]}"
+          echo "=== idx ${IDX} -> ${SP} (ScienceBase ${ITEM}) ==="
+
+          rm -rf /tmp/stage && mkdir -p /tmp/stage && cd /tmp/stage
+
+          # Resolve download URLs from the item API. The zip->product map is EXPLICIT: exact zip
+          # names only, so "abundance-weighted-ensemble" can never match the "high-abundance-"
+          # file by prefix.
+          python3 - "$ITEM" > /tmp/manifest.tsv <<'PY'
+          import json, sys, urllib.request
+          WANT = {
+            "occurrence-weighted-ensemble.zip":        "occurrence",
+            "occurrence-weighted-ensemble-masked.zip": "occurrence-masked",
+            "abundance-weighted-ensemble.zip":         "abundance",
+            "abundance-weighted-ensemble-masked.zip":  "abundance-masked",
+            "high-abundance-weighted-ensemble.zip":         "high-abundance",
+            "high-abundance-weighted-ensemble-masked.zip":  "high-abundance-masked",
+            "integrated-binary-first.zip": "integrated-binary-first",
+            "integrated-binary-fifth.zip": "integrated-binary-fifth",
+            "integrated-binary-tenth.zip": "integrated-binary-tenth",
+            "variableImportance.zip":  "variableImportance",
+            "assessmentMetrics.zip":   "assessmentMetrics",
+          }
+          item = sys.argv[1]
+          url = f"https://www.sciencebase.gov/catalog/item/{item}?format=json&fields=title,files"
+          d = json.load(urllib.request.urlopen(url, timeout=120))
+          got = {f["name"]: f for f in d.get("files", [])}
+          missing = [z for z in WANT if z not in got]
+          if missing:
+              # Not fatal by itself: INHABIT only builds abundance / high-abundance where data
+              # sufficed. Record it loudly; the acceptance criterion is "recorded, not silently
+              # dropped". (Measured 2026-08-26: all 12 species carry all 9 rasters.)
+              print("MISSING\t" + ",".join(sorted(missing)), file=sys.stderr)
+          for zipname, product in WANT.items():
+              f = got.get(zipname)
+              if f:
+                  print(f"{product}\t{f['size']}\t{f['url']}")
+          PY
+
+          echo "--- files to consider:"; cut -f1 /tmp/manifest.tsv | tr '\n' ' '; echo
+
+          HAVE=$(rclone lsf "${DEST}/${SP}/" 2>/dev/null || true)
+          N=0
+          while IFS=$'\t' read -r PRODUCT SIZE URL; do
+            # A raster product lands as <product>.tif + <product>.xml; a sidecar as .csv + .xml
+            case "$PRODUCT" in
+              variableImportance|assessmentMetrics) EXT=csv ;;
+              *)                                    EXT=tif ;;
+            esac
+            if grep -qxF "${PRODUCT}.${EXT}" <<<"$HAVE"; then
+              echo "-> ${PRODUCT} (already staged, skip)"; continue
+            fi
+            echo "-> ${PRODUCT} ($(( SIZE / 1000000 )) MB)"
+            rm -rf /tmp/stage/work && mkdir -p /tmp/stage/work && cd /tmp/stage/work
+            curl -sS --fail --location -o dl.zip "$URL" \
+              --retry 8 --retry-delay 15 --retry-all-errors --retry-max-time 1800 \
+              --connect-timeout 30 --speed-limit 10240 --speed-time 120
+            unzip -q -o dl.zip && rm -f dl.zip
+            # Rename by EXTENSION, never by inner basename (see header warning).
+            INNER=$(ls *.${EXT} 2>/dev/null | head -1)
+            [ -n "$INNER" ] || { echo "no .${EXT} inside ${PRODUCT}.zip" >&2; exit 1; }
+            mv "$INNER" "/tmp/stage/${PRODUCT}.${EXT}"
+            INNER_XML=$(ls *.xml 2>/dev/null | head -1)
+            [ -n "$INNER_XML" ] && mv "$INNER_XML" "/tmp/stage/${PRODUCT}.xml"
+            cd /tmp/stage && rm -rf /tmp/stage/work
+            rclone copy /tmp/stage "${DEST}/${SP}/" --include "${PRODUCT}.*" \
+              -P --retries 5 --low-level-retries 20 --retries-sleep 10s
+            rm -f /tmp/stage/${PRODUCT}.*      # keep ephemeral flat: one product at a time
+            N=$(( N + 1 ))
+          done < /tmp/manifest.tsv
+
+          # Assert every product resolved above is present at the destination before reporting
+          # success, so a partial index can never be recorded as complete.
+          HAVE=$(rclone lsf "${DEST}/${SP}/" 2>/dev/null || true)
+          FAIL=0
+          while IFS=$'\t' read -r PRODUCT SIZE URL; do
+            case "$PRODUCT" in
+              variableImportance|assessmentMetrics) EXT=csv ;;
+              *)                                    EXT=tif ;;
+            esac
+            grep -qxF "${PRODUCT}.${EXT}" <<<"$HAVE" || { echo "MISSING at dest: ${PRODUCT}.${EXT}" >&2; FAIL=1; }
+          done < /tmp/manifest.tsv
+          [ "$FAIL" -eq 0 ] || exit 1
+          echo "index ${IDX} (${SP}) staged OK — ${N} new file(s), $(wc -l < /tmp/manifest.tsv) verified at dest"
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

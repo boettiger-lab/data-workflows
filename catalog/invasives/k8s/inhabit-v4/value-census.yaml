@@ -1,0 +1,140 @@
+# Exact value census over every staged INHABIT v4 source raster (data-workflows #610).
+#
+# WHY THIS RUNS BEFORE THE COG WARP, not after:
+#   The declared NoData has to be right before `gdalwarp -srcnodata`, so a post-hoc census is too
+#   late to protect the COG — it would only catch the damage. Evidence from the #590 LANDFIRE build
+#   (peer session, 2026-08-26): `32767` is fill in all four LANDFIRE layers, 5.26% of every raster,
+#   and appears in the band NoData tag ONLY — zero rows in the shipped CSV legends, zero mentions
+#   across the FGDC records, nothing in the README. The inverse also held: the band tag declares
+#   only `32767` and never `-9999` / `-1111`, which the CSV legends DO carry. Four candidate
+#   authorities — docs, FGDC, CSV legend, band tag — and not one of them is complete.
+#   An undeclared sentinel survives every structural check, wins cells outright under `mode`, and
+#   takes share from real classes.
+#
+# So: trust none of them, count the pixels. uint8/int8 makes this cheap — 256 bins, exact, one
+# pass. The measured value set is what goes into STAC, where verify-stac.py's values-vs-distinct
+# check is HARD against it, so an invented or leaked code fails the gate rather than shipping.
+#
+# INHABIT's FGDC is thinner than LANDFIRE's: it gives a bare numeric domain (rdommin/rdommax) with
+# NO edomvd labels at all, so it cannot even say what `-1` means in integrated-binary-*, let alone
+# rule out an undeclared sentinel.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inhabit-v4-value-census
+  namespace: geo-workflows
+  labels: {k8s-app: inhabit-v4-value-census}
+spec:
+  completions: 12          # one per species, 9 rasters each
+  parallelism: 3           # #590's landfire-2024-hex owns the cluster; stay small
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 12
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: inhabit-v4-value-census}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
+      containers:
+      - name: census
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: SRC,                 value: 'nrp:public-invasives/raw/inhabit-v4-2024'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          IDX=${JOB_COMPLETION_INDEX}
+          SPECIES=(bromus_tectorum bromus_rubens bromus_japonicus bromus_arvensis
+                   taeniatherum_caput_medusae ventenata_dubia aegilops_cylindrica
+                   agropyron_cristatum salsola_tragus tamarix_chinensis_ramosissima
+                   elaeagnus_angustifolia cenchrus_ciliaris)
+          SP=${SPECIES[$IDX]}
+          echo "=== value census: ${SP} ==="
+          mkdir -p /tmp/c && cd /tmp/c
+
+          for PRODUCT in occurrence occurrence-masked abundance abundance-masked \
+                         high-abundance high-abundance-masked \
+                         integrated-binary-first integrated-binary-fifth integrated-binary-tenth; do
+            # ⚠️ `rclone lsf` exits 0 on a nonexistent path — test the OUTPUT, not the status,
+            # or an absent product reads as present and the pod goes on to census a stale tif.
+            if [ -z "$(rclone lsf "${SRC}/${SP}/${PRODUCT}.tif" 2>/dev/null)" ]; then
+              echo "-> ${PRODUCT}: absent upstream, recorded as missing"; continue
+            fi
+            rclone copyto "${SRC}/${SP}/${PRODUCT}.tif" /tmp/c/r.tif \
+              --retries 5 --low-level-retries 20 --retries-sleep 10s
+            python3 - "$SP" "$PRODUCT" > "/tmp/c/${PRODUCT}.json" <<'PY'
+          import json, sys
+          import numpy as np, rasterio
+          sp, product = sys.argv[1], sys.argv[2]
+          r = rasterio.open('/tmp/c/r.tif')
+          dt = r.dtypes[0]
+          # int8 is shifted by +128 so bincount can index it; uint8 is used as-is. Anything else
+          # is unexpected for this product family and must stop the build rather than be coerced.
+          if dt not in ('uint8', 'int8'):
+              raise SystemExit(f"unexpected dtype {dt} for {sp}/{product}")
+          counts = np.zeros(256, dtype=np.int64)
+          for _, win in r.block_windows(1):
+              a = r.read(1, window=win)
+              flat = (a.astype(np.int16) + 128) if dt == 'int8' else a
+              counts += np.bincount(flat.ravel(), minlength=256)
+          vals = {}
+          for i, n in enumerate(counts):
+              if n:
+                  vals[str(i - 128 if dt == 'int8' else i)] = int(n)
+          total = int(counts.sum())
+          declared = r.nodata
+          present = sorted(int(k) for k in vals)
+          out = {
+            "species": sp, "product": product, "dtype": dt,
+            "width": r.width, "height": r.height, "pixels": total,
+            "declared_nodata": None if declared is None else int(declared),
+            "values_present": present,
+            "counts": vals,
+            # Everything that is NOT the declared NoData. This is the set that must appear in
+            # STAC and that verify-stac.py enforces — computed, never taken from metadata.
+            "data_values": [v for v in present if declared is None or v != int(declared)],
+          }
+          # Loud, machine-greppable flags for the two failure shapes the #590 build hit.
+          if declared is not None and int(declared) not in present:
+              out["FLAG_declared_nodata_absent"] = True
+          if declared is None:
+              out["FLAG_no_declared_nodata"] = True
+          print(json.dumps(out, indent=1))
+          PY
+            python3 -c "
+          import json,sys
+          d=json.load(open('/tmp/c/${PRODUCT}.json'))
+          nd=d['declared_nodata']; dv=d['data_values']
+          print(f\"-> {d['product']:24s} {d['dtype']:5s} nodata={nd} data values={dv[:12]}{'...' if len(dv)>12 else ''} ({len(dv)} distinct)\")
+          for k in d:
+              if k.startswith('FLAG_'): print(f'   ⚠ {k}')
+          "
+            rm -f /tmp/c/r.tif
+          done
+
+          rclone copy /tmp/c "${SRC}/_census/${SP}/" --include "*.json" \
+            -P --retries 5 --low-level-retries 20 --retries-sleep 10s
+          echo "census for ${SP} complete"
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
