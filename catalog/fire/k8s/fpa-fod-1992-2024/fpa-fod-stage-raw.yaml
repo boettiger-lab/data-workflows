@@ -1,0 +1,152 @@
+# Stage the FPA-FOD 7th edition (1992-2024) raw GPKG to s3://public-fire/raw/ and probe its schema.
+#
+# Issue #587. Source: Short, Karen C. 2026. Spatial wildfire occurrence data for the United
+# States, 1992-2024 [FPA_FOD_20260615], 7th Edition. DOI 10.2737/RDS-2013-0009.7
+#
+# Single pod - safe to run while a hex fan-out holds the namespace-wide hex lock.
+#
+# This job also serves as the schema probe: it prints the authoritative layer list, the Fires
+# feature count and the full field list. The Fires count is the N used to size the hex job
+# (chunk_size = ceil(N / completions)); the generator's zip counter looks for shapefiles and
+# raises on a GPKG-in-zip, which silently caps hex coverage at 200,000 features (#494).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fpa-fod-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: fpa-fod-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: fpa-fod-stage-raw
+    spec:
+      restartPolicy: Never
+      # NOTE: do NOT set dnsPolicy: None with public nameservers here. The rclone `nrp:` remote
+      # targets the INTERNAL endpoint rook-ceph-rgw-nautiluss3.rook, which only cluster DNS can
+      # resolve; overriding to 8.8.8.8/1.1.1.1 hangs the upload at 0 B. Default ClusterFirst
+      # resolves both the internal S3 name and the external source URL.
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          URL='https://www.fs.usda.gov/rds/archive/products/RDS-2013-0009.7/RDS-2013-0009.7_Data_Format3_GPKG.zip'
+          EXPECTED_BYTES=238170979
+
+          echo "=== downloading FPA-FOD 7th edition GPKG zip ==="
+          curl -L --retry 8 --retry-all-errors --fail \
+            -A 'Mozilla/5.0 (X11; Linux x86_64)' \
+            -o /tmp/fpa-fod.zip "$URL"
+          ls -la /tmp/fpa-fod.zip
+
+          ACTUAL_BYTES=$(stat -c %s /tmp/fpa-fod.zip)
+          echo "expected bytes: $EXPECTED_BYTES"
+          echo "actual bytes:   $ACTUAL_BYTES"
+          if [ "$ACTUAL_BYTES" != "$EXPECTED_BYTES" ]; then
+            echo "FATAL: byte count mismatch - upstream changed or download truncated." >&2
+            exit 1
+          fi
+
+          echo "=== sha256 (provenance fingerprint, record in STAC description) ==="
+          sha256sum /tmp/fpa-fod.zip | tee /tmp/fpa-fod.zip.sha256
+
+          echo "=== unzip ==="
+          mkdir -p /tmp/fpa && cd /tmp/fpa
+          unzip -q -o /tmp/fpa-fod.zip
+          find /tmp/fpa -type f | head -20
+          GPKG=$(find /tmp/fpa -name '*.gpkg' | head -1)
+          echo "GPKG: $GPKG"
+          ls -la "$GPKG"
+
+          echo "=== SCHEMA PROBE: layer list (authoritative layer names) ==="
+          ogrinfo -so "$GPKG"
+
+          echo "=== SCHEMA PROBE: Fires layer summary + FEATURE COUNT ==="
+          ogrinfo -so "$GPKG" Fires
+
+          echo "=== SCHEMA PROBE: non-spatial unit lookup layer ==="
+          UNITS=$(ogrinfo -so "$GPKG" | grep -oE 'NWCG_UnitI[dD]Active[A-Za-z0-9_]*' | head -1)
+          echo "units layer: ${UNITS:-<not found>}"
+          if [ -n "$UNITS" ]; then ogrinfo -so "$GPKG" "$UNITS"; fi
+
+          echo "=== SCHEMA PROBE: FIRE_YEAR range (confirms 1992-2024 landed) ==="
+          ogrinfo -ro -q "$GPKG" -dialect SQLITE -sql "SELECT MIN(FIRE_YEAR) AS min_year, MAX(FIRE_YEAR) AS max_year, COUNT(*) AS n FROM Fires"
+
+          echo "=== SCHEMA PROBE: NWCG_GENERAL_CAUSE domain (NOT enumerated upstream - #294) ==="
+          ogrinfo -ro -q "$GPKG" -dialect SQLITE -sql "SELECT NWCG_GENERAL_CAUSE, COUNT(*) AS n FROM Fires GROUP BY NWCG_GENERAL_CAUSE ORDER BY n DESC"
+
+          echo "=== SCHEMA PROBE: NWCG_CAUSE_CLASSIFICATION domain ==="
+          ogrinfo -ro -q "$GPKG" -dialect SQLITE -sql "SELECT NWCG_CAUSE_CLASSIFICATION, COUNT(*) AS n FROM Fires GROUP BY NWCG_CAUSE_CLASSIFICATION ORDER BY n DESC"
+
+          echo "=== SCHEMA PROBE: OWNER_DESCR domain (NOT enumerated upstream) ==="
+          ogrinfo -ro -q "$GPKG" -dialect SQLITE -sql "SELECT OWNER_DESCR, COUNT(*) AS n FROM Fires GROUP BY OWNER_DESCR ORDER BY n DESC"
+
+          echo "=== uploading raw to s3://public-fire/raw/ ==="
+          rclone copy "$GPKG" nrp:public-fire/raw/ -P --transfers 8 --checkers 8
+          VD=$(find /tmp/fpa -name '_variable_descriptions.csv' | head -1)
+          if [ -n "$VD" ]; then
+            rclone copyto "$VD" nrp:public-fire/raw/FPA_FOD_20260615_variable_descriptions.csv
+          fi
+          rclone copyto /tmp/fpa-fod.zip.sha256 nrp:public-fire/raw/FPA_FOD_20260615.gpkg.zip.sha256
+
+          echo "=== verify upload ==="
+          rclone ls nrp:public-fire/raw/ | grep -i fpa
+          echo "DONE"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 8Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 8Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
