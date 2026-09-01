@@ -1,0 +1,270 @@
+# Reproject the staged WRC v2 source rasters to EPSG:4326 COGs on NRP S3.
+#
+# ⛔ THIS STEP IS NOT OPTIONAL AND ITS ABSENCE FAILS SILENTLY.
+# `cng-datasets raster` hands H3 cell polygons, in degrees, to exactextract. Against a source in
+# Albers metres every cell lands within ~100 m of the projection origin -- EPSG:5070 (0,0) is
+# lon -96 / lat 23, in the Gulf of Mexico -- so every cell reads nodata, ZERO rows are written and
+# the Job exits 0. Measured on #586. Structural checks all pass on an empty build; only the h0
+# coverage gate catches it. Both WRC domains are projected (CONUS EPSG:5070, Alaska EPSG:3338), so
+# both need this.
+#
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# ⚠️ EVERYTHING IS LOCAL. TWO EARLIER DESIGNS WERE MEASURED AND REJECTED.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# The working set is raw + warped intermediate + COG, ~80 GB for CONUS, which looks like it cannot
+# fit under the 50Gi ephemeral figure quoted in AGENTS.md. Both attempts to work around that were
+# measured on these exact rasters and were far worse than the thing they avoided:
+#
+#   S3 -> local ephemeral, rclone                      375 MiB/s   <-- what this job now uses
+#   S3 -> rechunk-scratch PVC (rook-cephfs)          1.4-6.5 MiB/s
+#   S3 -> gdalwarp reading the source over /vsis3     0.9-2.8 MiB/s
+#
+# The /vsis3 read is the worse of the two, and it degrades: a sequential 300-row benchmark on the
+# same object sustained ~31 MiB/s, but the warper's access pattern across a STRIPED source (one
+# row per block, 156,335 px wide) turns into heavy request amplification, and the observed rate
+# fell to under 3 MiB/s. After 24 minutes the CONUS warp had pulled 15.9 GB and written essentially
+# nothing. Do not reintroduce either path here.
+#
+# ⚠️ AND THE CONSTRAINT ITSELF WAS WRONG: 50Gi IS A DEFAULT, NOT A CEILING.
+# `kubectl get limitrange ephemeral-storage-default-limit -o yaml` shows `max` EMPTY and
+# `default: {ephemeral-storage: 50Gi}`. There is no enforced ephemeral quota in this namespace
+# (`low-priority-ban` only bans the `nice`/`batch-low` priority classes), and a 90Gi request passes
+# server-side validation. AGENTS.md's "the namespace caps it at 50Gi" describes the default a pod
+# inherits when it asks for nothing; the real rule is the courtesy one -- do not be antisocial on
+# shared nodes.
+#
+# So this job asks for 60Gi, a deliberate and modest overage, and earns it by never holding all
+# three files at once: the raw is deleted the moment the warp finishes, making the peak
+# max(raw + warp, warp + COG) = ~53 GB rather than ~80 GB. Observed node capacity is 869-932 GB
+# with 228-606 GB free, so 60Gi from two pods is a small fraction. Sequence:
+#
+#   1. rclone the raw to /tmp                    (~75 s for 27 GB at 375 MiB/s)
+#   2. gdalwarp local -> local                   (no network in the hot loop)
+#   3. rm the raw                                (peak passes here)
+#   4. gdal_translate -of COG local -> local
+#   5. upload the COG, delete both locals
+#
+# ⚠️ RESAMPLING IS `near`, DELIBERATELY.
+# The warp is ~1:1 in ground resolution (30 m -> ~0.00034 deg at 38N), so interpolation buys no
+# accuracy, while `bilinear` would smear the -9999 sentinel across every nodata boundary -- the
+# exact leak the downstream plausibility bound exists to catch. The real area weighting happens in
+# exactextract when hexing. #586 used `near` for both its products for the same reason.
+#
+# ⚠️ COGs STAY Float32 -- no scale/offset integer encoding.
+# These layers have huge dynamic range (RPS spans ~1e-23 to 13.2; the published 1st-percentile
+# CONUS RPS is 2.4e-4). A linear Int16 + scale encoding would annihilate the low end and break
+# agreement with the source's published percentile table, so the size win is not available here.
+#
+# Alaska is clipped to -180..-129 lon. Its EPSG:3338 grid spans the antimeridian, and a naive warp
+# to EPSG:4326 yields a ~360-deg-wide, almost entirely nodata raster sitting on the dateline seam.
+# The clip drops the far-western Aleutians (~157E..180), which hold NO National Forest System land
+# -- the Alaska units are the Tongass and Chugach, far to the east -- so nothing relevant to the
+# roadless question is lost. Recorded in STAC.
+#
+# RPS-FIRST: indexes 0 and 1 are RPS_CONUS and RPS_AK. To build only those, apply with
+# `sed 's/^  completions: 8$/  completions: 2/'` -- the index map below is unchanged.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-make-cogs
+  namespace: geo-workflows
+  labels:
+    k8s-app: wrc-2-make-cogs
+spec:
+  completions: 8
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wrc-2-make-cogs
+    spec:
+      restartPolicy: Never
+      # ClusterFirst is required: rclone's nrp: remote resolves the INTERNAL endpoint
+      # rook-ceph-rgw-nautiluss3.rook, which only cluster DNS can resolve.
+      dnsPolicy: ClusterFirst
+      # A CONUS warp plus COG pass is a long pod; bound a true node hang.
+      activeDeadlineSeconds: 28800
+      containers:
+      - name: make-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        # rclone reads these for the nrp: remote.
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        # ⛔ Do NOT set PROJ_DATA / PROJ_LIB. The image ships 8 proj.db at differing layout
+        # versions and a stale pick breaks -t_srs EPSG:4326 non-deterministically (#453).
+        # GDAL's own default resolves the matching one correctly.
+        - name: GDAL_CACHEMAX
+          value: '8192'
+        - name: GDAL_NUM_THREADS
+          value: ALL_CPUS
+        - name: TMPDIR
+          value: /tmp
+        - name: CPL_TMPDIR
+          value: /tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # Same index order as wrc-2-stage-raw.yaml.
+          SRC=(RPS_CONUS RPS_AK BP_CONUS BP_AK CFL_CONUS CFL_AK Exposure_CONUS Exposure_AK)
+          OUT=(wrc-2-rps-conus wrc-2-rps-ak wrc-2-bp-conus wrc-2-bp-ak wrc-2-cfl-conus wrc-2-cfl-ak wrc-2-exposure-conus wrc-2-exposure-ak)
+          # Alaska is clipped east of the antimeridian; CONUS needs no clip.
+          TE=("" "-te -180 48.8 -129.0 71.6" "" "-te -180 48.8 -129.0 71.6" "" "-te -180 48.8 -129.0 71.6" "" "-te -180 48.8 -129.0 71.6")
+          ND=-9999
+
+          i=${JOB_COMPLETION_INDEX}
+          s=${SRC[$i]}; o=${OUT[$i]}; te=${TE[$i]}
+
+          echo "=== [$i] $s -> $o-cog.tif  (nodata $ND) ${te:+clip: $te} ==="
+
+          # ── 1. localize the raw. 375 MiB/s measured; this is the fast path. ──────────────────
+          echo "--- localizing raw ---"
+          time rclone copyto "nrp:public-fire/raw/wrc-2/${s}.tif" "/tmp/${s}.tif" \
+            --transfers 4 --retries 6 --stats-one-line --stats 30s
+          ls -la "/tmp/${s}.tif"
+
+          echo "--- source CRS / size / nodata ---"
+          gdalinfo "/tmp/${s}.tif" | grep -E '^Size is|ID\["EPSG|Pixel Size|NoData|Type=|Block=' | head -20
+
+          # ── 2. warp to EPSG:4326, entirely local ────────────────────────────────────────────
+          # No -tr: let gdalwarp preserve the source ground resolution near the centre of the
+          # extent rather than hardcoding a degree value, which would silently rescale the grid.
+          echo "--- warping (all local) ---"
+          time gdalwarp \
+            -t_srs EPSG:4326 \
+            -r near \
+            -srcnodata "$ND" -dstnodata "$ND" \
+            $te \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 2048 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=3 -co BIGTIFF=YES \
+            -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 \
+            -co NUM_THREADS=ALL_CPUS \
+            "/tmp/${s}.tif" "/tmp/${o}-warp.tif"
+
+          # ── 3. drop the raw: this is what keeps the peak at ~53 GB rather than ~80 GB ────────
+          rm -f "/tmp/${s}.tif"
+          ls -la "/tmp/${o}-warp.tif"
+          gdalinfo "/tmp/${o}-warp.tif" | grep -E '^Size is|Pixel Size|NoData|Upper Left|Lower Right'
+
+          # ── 4. COG-ify, still local ─────────────────────────────────────────────────────────
+          # AVERAGE overviews are correct for a continuous float layer (NEAREST would be right
+          # only for categorical, as in #586's classified WHP).
+          echo "--- building COG (all local) ---"
+          time gdal_translate "/tmp/${o}-warp.tif" "/tmp/${o}-cog.tif" \
+            -of COG \
+            -co COMPRESS=DEFLATE -co PREDICTOR=3 -co BIGTIFF=YES \
+            -co OVERVIEW_RESAMPLING=AVERAGE -co BLOCKSIZE=512 \
+            -co NUM_THREADS=ALL_CPUS
+          rm -f "/tmp/${o}-warp.tif"
+
+          ls -la "/tmp/${o}-cog.tif"
+          echo "--- final COG ---"
+          gdalinfo "/tmp/${o}-cog.tif" | grep -E '^Size is|Pixel Size|NoData|Overviews|Block'
+
+          # ── 5. gate: a published all-nodata COG is a real failure mode, and is exactly what
+          # hexing the raw Albers source produces. Stats come off the overviews (approx_ok) so
+          # this costs seconds rather than a full 30 GB read, and the min/max/mean it prints IS
+          # the validation truth the `mean` hex reducer is later checked against.
+          # NOTE: gdalinfo -stats caches into a .tif.aux.xml sidecar and reports STALE values on
+          # a rebuild; we compute in-process and never write a sidecar.
+          python3 - "/tmp/${o}-cog.tif" "$ND" <<'PY'
+          import sys
+          from osgeo import gdal
+          gdal.UseExceptions()
+
+          path, nd = sys.argv[1], float(sys.argv[2])
+          ds = gdal.Open(path)
+          b = ds.GetRasterBand(1)
+          print(f'  size      : {ds.RasterXSize} x {ds.RasterYSize}')
+          print(f'  dtype     : {gdal.GetDataTypeName(b.DataType)}')
+          print(f'  nodata    : {b.GetNoDataValue()}')
+          print(f'  overviews : {b.GetOverviewCount()}')
+          if b.GetNoDataValue() is None or abs(b.GetNoDataValue() - nd) > 1e-6:
+              print(f'FATAL: COG nodata is {b.GetNoDataValue()}, expected {nd}')
+              sys.exit(1)
+          try:
+              mn, mx, mean, sd = b.ComputeStatistics(True)
+          except Exception as exc:
+              print(f'FATAL: no valid pixels ({exc})')
+              sys.exit(1)
+          print(f'  min/max   : {mn} / {mx}')
+          print(f'  mean/std  : {mean} / {sd}')
+          if mn <= nd + 1e-6:
+              print(f'FATAL: nodata sentinel {nd} survived into the valid range')
+              sys.exit(1)
+          if not (mx > mn):
+              print('FATAL: degenerate value range -- COG is constant or empty')
+              sys.exit(1)
+          PY
+
+          # ── 6. publish ──────────────────────────────────────────────────────────────────────
+          echo "--- uploading COG ---"
+          rclone copyto "/tmp/${o}-cog.tif" "nrp:public-fire/${o}-cog.tif" \
+            --transfers 4 --retries 6 --stats-one-line --stats 30s
+          rclone size "nrp:public-fire/${o}-cog.tif"
+          rm -f "/tmp/${o}-cog.tif"
+          echo "DONE $o"
+        resources:
+          # 60Gi: peak is max(raw + warp, warp + COG) ~= 53 GB for CONUS, because the raw is
+          # deleted as soon as the warp finishes. This is a deliberate overage on the 50Gi
+          # LimitRange DEFAULT (there is no enforced max -- see the header); Alaska pods use only
+          # ~10 GB of it.
+          requests:
+            cpu: '8'
+            memory: 24Gi
+            ephemeral-storage: 60Gi
+          limits:
+            cpu: '8'
+            memory: 24Gi
+            ephemeral-storage: 60Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

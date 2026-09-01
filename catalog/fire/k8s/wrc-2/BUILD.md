@@ -1,0 +1,637 @@
+# `wrc-2` — build notes and measured evidence
+
+Wildfire Risk to Communities, 2nd Edition (landscape-wide risk), ingested for #592 as part of the
+`roadless` dataset set (#594). Counterpart to #586 (Wildfire Hazard Potential): WHP answers "could
+this burn intensely", WRC answers "would that harm anyone". The 2026-08-18 Roadless Rule rescission
+announcement talks about "neighboring communities" but cites only the hazard statistic; this is the
+layer that measures the quantity the announcement claims to be about.
+
+## Source
+
+| | |
+|---|---|
+| Citation | Scott, Joe H.; Brough, April M.; Gilbertson-Day, Julie W.; Dillon, Gregory K.; Moran, Christopher. 2024. *Wildfire Risk to Communities: Spatial datasets of landscape-wide wildfire risk components for the United States*, 2nd Edition. Fort Collins, CO: Forest Service Research Data Archive. |
+| Archive id | **RDS-2020-0016-2** (`https://doi.org/10.2737/RDS-2020-0016-2`) |
+| Metadata date | 2024-04-23 |
+| License | US Government work — public domain |
+| Staged raw | `s3://public-fire/raw/wrc-2/` |
+
+### Latest edition confirmed by grepping the body, not the status code
+
+The RDS archive **soft-200s on invalid publication ids** — it returns HTTP 200 with an "Invalid
+publication id" HTML body — so a status check proves nothing. Grepping the body:
+
+| id | verdict |
+|---|---|
+| `RDS-2020-0016` (1st ed.) | VALID |
+| **`RDS-2020-0016-2`** | **VALID — latest** |
+| `RDS-2020-0016-3` | INVALID |
+| `RDS-2020-0016-4` | INVALID |
+
+## Two findings that corrected the issue's own scope
+
+Both recorded on #592 before building.
+
+### 1. This publication has no building-coverage layer
+
+The issue asked for a "Building Coverage / building density" layer. The authoritative
+`_fileindex_RDS-2020-0016-2.html` enumerates **exactly eight themes**, and none is a building layer:
+
+`BP` · `CFL` · `cRPS` · `Exposure` · `FLEP4` · `FLEP8` · `RPS` · `WHP`
+
+Building and housing-unit products are a **separate DOI** — `RDS-2020-0060-2`, *WRC: spatial
+datasets of wildfire risk for populated areas* (confirmed latest; `-3` is INVALID). Split out as
+**#611** rather than pulling one raster from a second publication into this collection set: that
+publication has ten themes, and `HURisk`/`HUExposure` are arguably more on-point for "risk to
+communities" than building cover. The question this issue actually poses — how much IRA acreage is
+near a community — is already answerable from `silvis-wui-2020`.
+
+### 2. Exposure Type is continuous, so its reducer is `mean`, not `mode`
+
+The issue's reducer table listed Exposure Type as categorical. The source says otherwise:
+
+> "**Continuous values** of exposure type… A value of 1 is 'direct' exposure. **Values between 0 and
+> 1 represent 'indirect' exposure**, with higher values representing closer proximity to directly
+> exposed areas… A value of 0 represents 'nonexposed' areas that have nonburnable land cover and are
+> more than 1530 m from burnable wildland vegetation."
+
+Confirmed on the raster itself (`AK/Exposure_AK.tif`, extracted and opened): `Float32`, **no color
+table, no category names**, computed min/max `0.0 / 1.0`, mean `0.759`. There is nothing to take a
+mode of. The categorical presentation belongs to the **web application**, which bins this continuum
+for display; the published raster is a continuum.
+
+## Layers and reducers
+
+| `--dataset` | Source theme | Native | Parents | Reducer | Column | Source range |
+|---|---|---|---|---|---|---|
+| `wrc-2-rps-conus` / `-ak` | `RPS` | 10 | 9, 8, 0 | `mean` | `rps` | 0 – 13.2 |
+| `wrc-2-bp-conus` / `-ak` | `BP` | 10 | 9, 8, 0 | `mean` | `bp` | 0 – 0.14 |
+| `wrc-2-cfl-conus` / `-ak` | `CFL` | 10 | 9, 8, 0 | `mean` | `cfl` | 0 – 861.7 |
+| `wrc-2-exposure-conus` / `-ak` | `Exposure` | 10 | 9, 8, 0 | `mean` | `exposure` | 0 – 1 |
+
+**All four take `mean`.** Every one is an index, a probability, or a length — a per-area or
+normalized quantity, never an amount already integrated over the pixel — so `sum` would produce a
+meaningless sum of intensities, the error class that made the carbon layer ~7× low (#171/#202).
+There is no meaningful "total RPS"; consumers compare means across land classes.
+
+`cRPS`, `FLEP4`, `FLEP8` and this publication's own 30 m `WHP` are in scope of the source but not of
+this issue. Note the 30 m `WHP` here is a **different product** from the 270 m
+`RDS-2015-0047-4` WHP ingested in #586 — do not conflate them.
+
+### Resolution: 10, and it is a join requirement not just a pixel match
+
+The source is 30 m and `h10` (0.0150 km²) is the catalog's finest resolution, so 30 m is mildly
+**under**-sampled — accepted per the raster-hexing anchor table. More important, native 10 with
+parents 9, 8, 0 matches both join partners exactly, so this layer joins them cell-for-cell:
+
+| Partner | Path | H3 |
+|---|---|---|
+| `roadless-areas-2001` (#584) | `s3://public-usfs/roadless-areas-2001/hex/h0=*/data_0.parquet` | 10 → [9, 8, 0] |
+| `silvis-wui-2020` | `s3://public-wui/wui-2020/hex/h0=*/data_0.parquet` | 10 → [9, 8, 0] |
+
+⚠️ Both partners are **vector-derived**, so their per-feature attributes repeat on every cell the
+feature covers — dedup by `_cng_fid` before any `SUM`. WRC is raster-derived: one row per cell, no
+dedup needed. Getting this asymmetry wrong is the main correctness hazard in the downstream joins.
+
+## Grid facts — measured, not assumed
+
+| | CONUS | Alaska |
+|---|---|---|
+| CRS | **EPSG:5070** (Albers, 29.5/45.5, −96, 23) | **EPSG:3338** (Alaska Albers, 55/65, −154, 50) |
+| Pixels | 156,335 × 101,538 | 124,603 × 66,861 |
+| Pixel size | 30 m | 30 m |
+| Dtype | Float32 | Float32 |
+| NoData | **−9999** | **−9999** |
+| Compression | DEFLATE, **striped — 1 row per block** | same |
+| Container | BigTIFF (`II+\0`) | BigTIFF |
+
+CONUS CRS was read from the FGDC metadata's projection parameters; Alaska was confirmed by opening
+`Exposure_AK.tif` directly (`NAD83 / Alaska Albers`, EPSG authority code 3338, nodata −9999,
+approximate min/max/mean 0.0 / 1.0 / 0.759).
+
+**Striped blocks matter:** with one row per block there is no tiling to support random access, so
+`gdalwarp` reads are effectively sequential. Do not expect `/vsis3` to behave — and the
+raster-hexing skill already forbids it for GDAL ("flaky/node-dependent"), so the COG job
+rclone-localizes first.
+
+### The COG step is mandatory and its absence fails silently
+
+Both domains are projected, which is the #586 trap exactly: `cng-datasets raster` hands H3 cell
+polygons in **degrees** to exactextract, so against an Albers raster in metres every cell lands
+within ~100 m of the projection origin — EPSG:5070 (0,0) is lon −96 / lat 23, in the Gulf of Mexico
+— and every cell reads nodata. Measured on #586: **zero rows written, Job exited 0.** Structural
+checks all pass on an empty build; only the h0 coverage gate catches it.
+
+### COGs stay Float32 — the integer scale/offset optimization is not available
+
+RPS spans roughly `1e-23` to `13.2`, and the source's own percentile table puts the CONUS 1st
+percentile at `2.4e-4`. A linear `Int16 + scale` encoding would annihilate the low end and break
+agreement with that table, so the ~2× size win is refused. BP (0–0.14) and CFL (0–861.7) have the
+same problem at the bottom of their ranges.
+
+Resampling for the warp is **`near`**, deliberately: the warp is ~1:1 in ground resolution
+(30 m → ~0.00034° at 40°N), so interpolation adds no accuracy, while `bilinear` would smear the
+−9999 sentinel across every nodata boundary — the exact leak the plausibility bound exists to catch.
+The real area weighting happens later, in exactextract.
+
+## Distribution is awkward — why staging is a ranged Zip64 extraction
+
+Three facts, all verified live:
+
+1. **The data zips are Box-only.** The stable
+   `https://www.fs.usda.gov/rds/archive/products/RDS-2020-0016-2/<name>.zip` path **404s** for every
+   data archive; only `_Metadata_Fileindex.zip` and `_Supplements.zip` are served there. The data
+   comes exclusively from opaque `usfs-public.box.com/shared/static/<hash>.zip` URLs that have to be
+   scraped off the catalog HTML. (`RDS-2020-0060-2`, for #611, *is* on the stable path — this
+   publication is the odd one.)
+2. **~⅓ of every zip is `.tif.ovr` pyramid** we do not want. `RPS_CONUS.zip` is 36.3 GB, of which
+   8.96 GB is a pyramid.
+3. **All eight Alaska themes ship inside one 29 GB zip**, interleaved with their pyramids. A
+   streaming `unzip -p` for `RPS_AK` — the 7th theme — would read ~24 GB of stream to reach it, and
+   four times over for four layers.
+
+So each pod reads the Zip64 end-of-central-directory, walks the central directory, seeks to the one
+member's local header, and inflates only its compressed byte range. Verified byte-exact against
+`AK/Exposure_AK.tif` (511,598,120 bytes, magic `II+\0`).
+
+| Member | Box hash | zip | `.tif` uncompressed |
+|---|---|---|---|
+| `RPS_CONUS` | `88tv8byot0t22o9p1eqlrfqco3z5ouvf` | 36.3 GB | 27,368,546,444 |
+| `BP_CONUS` | `7itw7p56vje2m0u3kqh91lt6kqq1i9l1` | 34.7 GB | 26,196,396,386 |
+| `CFL_CONUS` | `7nb6hpw2rfc0zrhk1mv80fhbirajoqfd` | 31.3 GB | 23,587,116,646 |
+| `Exposure_CONUS` | `nbmlha1iejzzjo9y3uoehln493o2c4ad` | 6.05 GB | 4,554,904,628 |
+| Alaska, all 8 themes | `jh6l2x2blct82hbtmu4n6dvoe9bz25ap` | 29.0 GB | RPS 5,423,384,600 · BP 5,059,258,202 · CFL 3,347,670,548 · Exposure 511,598,120 |
+
+All eight hash / member / size triples were checked against the live central directories before the
+job was submitted. The expected uncompressed size is asserted in the pod, so a truncated or
+soft-200'd download fails loudly instead of producing a short raster that hexes to garbage.
+
+**If a pod 404s, re-scrape rather than assuming the file moved:**
+```bash
+curl -sL https://www.fs.usda.gov/rds/archive/catalog/RDS-2020-0016-2 \
+  | grep -oE '<a[^>]+box\.com/shared/static/[^"]+"[^>]*>[^<]+'
+```
+
+## Independent validation target — better than a COG min/max
+
+`RDS-2020-0016-2_Supplements.zip` (731 KB, stable URL) ships **`WRC_V2_DataPercentiles.xlsx`** with
+sheets `RPS_percentiles`, `cRPS_percentiles`, `WHP_percentiles` — values at **1-percentile
+increments for CONUS and for every state, Alaska included**. So the hex distribution can be checked
+against published source percentiles rather than only against the COG's own range, which is the WRC
+analogue of the class-share table that validated #586. The web application's RPS class breaks are
+the **40th / 70th / 90th / 95th** percentiles; standard WHP breaks are the 44th / 67th / 84th /
+95th.
+
+Also shipped: `WRC_V2_Methods_Landscape-wideRisk.pdf`, `WRC_V2_Landscape-wideRisk_GISDataSymbology.pdf`.
+
+## Provenance caveats to carry into STAC
+
+- The FSim burn-probability and intensity inputs are natively **270 m** and were **upsampled to
+  30 m** to match the LANDFIRE fuel and vegetation grid. So the 30 m grid overstates the independent
+  information content of BP and CFL in particular — the same oversampling obligation #586
+  discharged.
+- The data "reflect landscape conditions as of the end of **2014**" (LANDFIRE 2020, version 2.2.0).
+  That, not the 2024 publication date, is the basis for the temporal extent.
+- Alaska is clipped to −180..−129 longitude in the COG step. The source EPSG:3338 grid spans the
+  antimeridian and a naive warp to EPSG:4326 yields a ~360°-wide, almost entirely nodata raster on
+  the dateline seam. The dropped far-western Aleutians (~157°E..180) hold **no** National Forest
+  System land — the Alaska units are the Tongass and Chugach, far to the east — so nothing relevant
+  to the roadless question is lost. Recorded in STAC.
+
+## Contrast with #586 worth stating in STAC
+
+WHP was published as four per-domain collections because its **classified breaks are
+domain-relative** — an Alaska "Very High" starts at index 8,912 while a CONUS "Very High" starts at
+1,985, so the two cannot be pooled. **WRC RPS has no such problem**: the source quotes a single
+national range (0–13.2) and the same structure-response functions are applied everywhere, so CONUS
+and Alaska values *are* comparable. The CONUS/Alaska split here is purely about grid and CRS.
+
+## Pipeline
+
+Run in `geo-workflows`, and **one hex Job at a time** (`AGENTS.md`).
+
+```bash
+# 1. stage the eight source rasters to s3://public-fire/raw/wrc-2/
+kubectl apply -n geo-workflows -f wrc-2-stage-raw.yaml
+
+# 2. build the eight WGS84 COGs (MANDATORY -- see above)
+kubectl apply -n geo-workflows -f make-cogs.yaml
+
+# 3. hex, sequentially, waiting for Complete between each
+kubectl apply -n geo-workflows -f wrc-2-rps-conus-hex.yaml
+kubectl apply -n geo-workflows -f wrc-2-rps-ak-hex.yaml
+```
+
+`setup-bucket` is **not** run: `public-fire` already exists, serves anonymously, is a child of the
+root catalog, and already holds `calfire-2024`/`calfire-2025`/`usgs-fires-2021` and the four
+`whp-2023-*` collections. Nothing about a new dataset changes bucket-level access. There is no
+root-catalog or MinIO-backup registration step either — that tier was retired in #568; the only
+obligation is a correct SPDX `license`, which is `public-domain` with a license link.
+
+### Hex sizing, from measurement rather than guesswork
+
+`nlcd` is the right precedent: same footprint (CONUS), same source pixel (30 m), same native
+resolution (10). Measured live from its published hex:
+
+| | rows | populated h0 | densest h0 |
+|---|---:|---:|---:|
+| `nlcd/hex/year=2024` | 520,932,773 | 6 | 226,732,560 (`577164439745200127`) |
+
+So expect **~521 M rows per CONUS layer**, and — scaling the measured `whp-2023` Alaska res-9 count
+(16,540,214 over 3 h0) by the ~7× cells-per-resolution step — **~116 M rows per Alaska layer**.
+
+| Setting | Value | Why |
+|---|---|---|
+| `memory` (CONUS) | **192Gi** | measured peak on res-10 CONUS is 105–141Gi (#453). A 256Gi request barely fits a ~250Gi-allocatable node and causes chronic `FailedScheduling` |
+| `memory` (Alaska) | 128Gi | densest Alaska h0 is roughly a quarter of CONUS's cell count |
+| `ephemeral-storage` | **50Gi** | the pod rclone-localizes the COG, and ours is ~28 GB — unlike `nlcd`, whose COG is only 1.58 GB and fits in 40Gi |
+| `parallelism` | 6 | 192Gi pods must spread across the cluster |
+| `priorityClassName` | **omitted** | default priority 0. A dense res-10 h0 runs 1.5–2 h, and `opportunistic` (−2000000000) at that duration is near-certain preemption |
+| node pinning | **none** | pinning a 192Gi/8cpu job serializes it — #307 turned a CONUS res-10 hex from hours into 30–50 h |
+| `backoffLimitPerIndex` / `maxFailedIndexes` | 3 / 0 | a partial indexed run must surface as `Failed`, not publish as complete (#409) |
+| `podFailurePolicy` | Ignore `DisruptionTarget` | a preemption is not a data error and should not spend the index's retry budget |
+
+### The 116 near-no-op pods, and why they are not optimized away yet
+
+Completions are fixed at 122 (one per h0 base cell) but only 6 intersect CONUS and 3 intersect the
+Alaska COG, so ~116 pods per layer localize the ~28 GB COG and produce nothing. `nlcd` accepts the
+same waste, but its COG is 1.58 GB, so for us the cost is ~20× worse.
+
+It is deliberately **not** gated on a computed h0-index whitelist on this first build: the
+index → h0 cell mapping belongs to `cng-datasets`, and guessing it risks silently skipping a
+*populated* cell — a far worse failure than wasted bandwidth. Each pod echoes its index, so once
+this job has run the real mapping can be read out of the pod logs and the remaining six layers can
+use the established explicit `CHUNK_MAP=(...)` pattern (`catalog/rap`, `catalog/cwhr`). Upstream
+two-tier proposal: `boettiger-lab/datasets#172`.
+
+## Post-build verification
+
+```bash
+# h0 coverage gate -- per domain, against its own measured h0 set.
+# ⚠️ NEVER gate these against a national reference such as roadless-areas-2001/hex/: each WRC
+# collection is one domain, so a national reference is a guaranteed false FAIL (learned on #586).
+scripts/check-hex-coverage.sh nrp:public-fire/wrc-2-rps-conus/hex/ \
+  --expect-h0 576812596024311807,577164439745200127,577199624117288959,577234808489377791,577692205326532607,577762574070710271
+scripts/check-hex-coverage.sh nrp:public-fire/wrc-2-rps-ak/hex/ \
+  --expect-h0 576707042908045311,576812596024311807,576988517884755967
+
+# STAC, with data checks
+python3 scripts/verify-stac.py --bucket public-fire
+```
+
+### Expected h0 partition sets, measured from published neighbours
+
+Taken from layers that already cover these exact footprints, so the gate has a target before the
+build rather than after it:
+
+| Domain | Expected populated h0 | Source of the expectation |
+|---|---|---|
+| CONUS (6) | `576812596024311807`, `577164439745200127`, `577199624117288959`, `577234808489377791`, `577692205326532607`, `577762574070710271` | `nlcd/hex/year=2024` (CONUS 30 m, res 10) |
+| Alaska (3) | `576707042908045311`, `576812596024311807`, `576988517884755967` | `whp-2023-classified-ak` (same Alaska clip) |
+
+Two things to note. `576812596024311807` appears in **both** sets — it is a genuinely shared base
+cell, not a bookkeeping error. And `576707042908045311` is the **dateline** cell and Alaska's
+densest (15,085,997 cells at resolution 9, so roughly 105 M at resolution 10); its presence is the
+standard check that the antimeridian is handled rather than seam-inflated.
+
+`check-hex-coverage.sh` communicates through its exit code — read `${PIPESTATUS[0]}` if piping. It
+compares **populated** partitions (`--min-bytes`), which is what avoided the #409/#410 phantom-gap
+false alarm.
+
+Value checks, via the duckdb-geo MCP:
+
+- rows == `COUNT(DISTINCT h10)`; zero NULL in the finest parent
+- zero `-9999` leak; `MIN`/`MAX` inside the COG's measured range
+- **percentile agreement** with `WRC_V2_DataPercentiles.xlsx` at the 40/70/90/95 breaks, for CONUS
+  and for Alaska — this is the check worth trusting most, and it catches nodata leaks and any
+  double-scaling at once
+- the Alaska dateline h0 `576707042908045311` must be populated
+- **cross-layer sanity**: join RPS to `whp-2023-continuous-conus` on `h8`. RPS should rise with the
+  WHP index but **not** track it perfectly — that divergence is the hazard-vs-risk distinction, and
+  perfect agreement would mean something is wrong
+
+## Build results
+
+### Stage raw (2026-08-24) — 8/8, every member byte-exact
+
+Job `Complete=True`, `succeeded=8`, `failedIndexes` empty. Each pod asserted the member's
+uncompressed size from the Zip64 central directory before uploading, and every one matched:
+
+| Member | Staged bytes | Expected |
+|---|---:|---|
+| `RPS_CONUS` | 27,368,546,444 | ✅ |
+| `BP_CONUS` | 26,196,396,386 | ✅ |
+| `CFL_CONUS` | 23,587,116,646 | ✅ |
+| `Exposure_CONUS` | 4,554,904,628 | ✅ |
+| `RPS_AK` | 5,423,384,600 | ✅ |
+| `BP_AK` | 5,059,258,202 | ✅ |
+| `CFL_AK` | 3,347,670,548 | ✅ |
+| `Exposure_AK` | 511,598,120 | ✅ |
+
+**89.5 GiB staged**, with zero size drift. The `.ovr` pyramids were never transferred — roughly
+45 GB of bytes the ranged extraction skipped that a whole-archive download would have moved.
+
+Measured throughput, which is what informed the COG design: Box → pod ≈ 26–36 MiB/s per pod;
+pod → NRP S3 (internal endpoint) **375 MiB/s** for `RPS_CONUS`, 118 MiB/s for `RPS_AK`.
+
+### A datum note worth recording
+
+`gdalwarp` emits `Several coordinate operations are going to be used. Artifacts may appear.` on
+every one of these warps. Both source CRSs are **NAD83** (EPSG:5070 and EPSG:3338) and the target
+is **WGS84** (EPSG:4326), and PROJ has more than one candidate NAD83→WGS84 transform, so different
+parts of the grid can take different ones. The disagreement between those candidates is on the
+order of **1–2 m**, against a **30 m** pixel — sub-pixel, and well below the resampling difference
+the hex reduce introduces. It is left at PROJ's default rather than pinned with
+`-to ONLY_BEST=YES`, which can fail outright when the best transform needs a grid file the image
+does not ship. Recorded here so the warning is not mistaken for a defect later. #586 warped the
+same NAD83 Albers grids and had the same warning.
+
+### RPS COGs (2026-08-26) — 2/2, 12m22s
+
+Job `wrc-2-make-cogs` applied with `completions: 8` sedded to `2`, so only indexes 0 and 1
+(`RPS_CONUS`, `RPS_AK`) built. Both warp outputs match the sizes predicted above exactly.
+
+| | `wrc-2-rps-conus` | `wrc-2-rps-ak` |
+|---|---|---|
+| Warped size | 197,514 × 92,269 | 150,764 × 67,401 |
+| Pixel (deg) | 0.000325712923102 | 0.000338277042265 |
+| Dtype / nodata | Float32 / −9999 | Float32 / −9999 |
+| Overviews | 9, `BLOCKSIZE=512` | 9, `BLOCKSIZE=512` |
+| Size on S3 | 26,905,265,649 (25.06 GiB) | 7,144,571,115 (6.65 GiB) |
+
+**Budget ~15 minutes for a COG pair, not an hour.** The whole job was 12m22s, essentially at
+parity with `landfire-2024-cog`'s 12m24s on the same CONUS grid — scaling that up for Float32,
+`PREDICTOR=3` and a 27 GB localize predicted 40–90 min and was wrong. The Alaska warp alone was
+2m38s. Useful for #627, which has six more COGs to build.
+
+Warp behaviour worth knowing for the next reader: **the output file sits at 0 bytes for several
+minutes** and that is not a hang. GDAL buffers output blocks in its 8 GB block cache
+(`GDAL_CACHEMAX=8192`) and nothing reaches disk until eviction starts. The signal that a warp is
+alive is `ps` CPU **time climbing** (a stalled `/vsis3` read shows it flat near zero), not file
+size. Alaska additionally grows slowly at first because the top of its clipped 4326 extent
+(~71.6°N) is Arctic Ocean, and all-nodata tiles compress to almost nothing.
+
+#### ⛔ The publish gate's min/max/mean is APPROXIMATE. Do not publish it.
+
+`make-cogs.yaml`'s gate calls `ComputeStatistics(True)` — `approx_ok` — which GDAL answers from
+the **AVERAGE-resampled overviews**, not the full-resolution band. That is the right trade for
+what the gate is *for* (catch an all-nodata or degenerate COG in seconds rather than reading
+30 GB), but an earlier revision of this file claimed the printed range "IS the validation truth
+the `mean` hex reducer is later checked against." **It is not**, and `gen_stac.py` reads
+`cog_min`/`cog_max`/`cog_mean` from `facts.json` straight into the published `raster:bands`
+statistics, so trusting it would have shipped a wrong value range.
+
+Measured both ways by job `wrc-2-rps-cog-stats` (`ComputeStatistics(False)` vs `(True)` on the
+same band, 4 cpu / 8Gi, a few minutes each):
+
+| | exact | approx (overviews) | bias | source 100th pct |
+|---|---|---|---|---|
+| CONUS max | **13.194137573242188** | 9.466273307800293 | −28% | 13.1249895095825 |
+| CONUS mean | **0.140196598414851** | 0.135843583190117 | −3% | |
+| AK max | **4.163270473480225** | 1.9759924411773682 | −53% | 4.16327047348022 |
+| AK mean | **0.11694088449523347** | 0.10425039861940202 | −11% | |
+
+`min` is 0.0 exactly on both, either way — no −9999 sentinel leak. Exact std: CONUS
+0.4339427007851727, AK 0.28023642286512307. **These exact figures are what go in `facts.json`.**
+
+**The strongest evidence so far that the reprojection is faithful:** the Alaska exact max
+`4.163270473480225` matches the source percentile table's Alaska 100th percentile
+`4.16327047348022` to every published digit. The EPSG:3338 → EPSG:4326 warp at `-r near`
+preserved the source extremum exactly.
+
+CONUS is 0.5% above its table entry (13.194 vs 13.125) rather than an exact match. The source's
+own documented RPS range is **0 – 13.2**, which our measured max satisfies; the likeliest
+explanation is that the CONUS percentile column is computed on a sample of a 15.9 Gpixel grid
+while Alaska's smaller grid was done exhaustively. The exact Alaska agreement rules out a
+systematic warp error, so this is recorded as a note, not a defect.
+
+One implementation trap, since it cost five pod retries: `gdal.Open(path).GetRasterBand(1)`
+chained in one expression lets the dataset be garbage-collected and the band handle goes invalid
+(`TypeError` on the SWIG shadow pointer). Bind the dataset to a name first, as `make-cogs.yaml`
+already does.
+
+#### Source percentile table, extracted
+
+`WRC_V2_DataPercentiles.xlsx` from `RDS-2020-0016-2_Supplements.zip` (730,940 bytes, on the
+stable `/rds/archive/products/` path). Sheets: `RPS_percentiles`, `cRPS_percentiles`,
+`WHP_percentiles`; 101 rows each (0–100). Columns are `RPS_CONUS` plus one per state, so Alaska
+comes from `RPS_Alaska`.
+
+⚠️ **Percentiles are stored as fractions 0–1, not 0–100** — row `0.4` is the 40th percentile.
+
+| percentile | CONUS | Alaska |
+|---|---|---|
+| 1 | 0.000239684 | 0.000124813 |
+| **40** | **0.0188485** | **0.00903468** |
+| **70** | **0.094043** | **0.0767783** |
+| **90** | **0.408197** | **0.442008** |
+| **95** | **0.722298** | **0.790832** |
+| 99 | 2.16437 | 1.51155 |
+
+The bolded rows are the web application's class breaks and the agreement target for the hex.
+The CONUS 1st percentile of 2.397e-4 confirms the `2.4e-4` figure quoted above under "COGs stay
+Float32", which was recorded independently.
+
+Worth noting for the write-up: Alaska's 90th and 95th percentiles are **higher** than CONUS's
+even though its maximum is a third of CONUS's. The Alaska distribution is tighter and higher in
+the middle. Since RPS is on a single national scale, that comparison is meaningful.
+
+### RPS CONUS hex (2026-08-27) — 6/6, 5h14m, 520,962,613 rows
+
+Ran as six pods in one wave over the measured h0 index map, not the generator's 122. No OOM, no
+failed index, no retry.
+
+| h0 index | h0 cell | RPS cells | `nlcd` res-10 | delta |
+|---:|---|---:|---:|---:|
+| 20 | `577164439745200127` | 226,732,521 | 226,732,560 | −39 |
+| 50 | `577199624117288959` | 107,016,291 | 107,004,747 | +11,544 |
+| 14 | `577692205326532607` | 69,412,850 | 69,405,063 | +7,787 |
+| 78 | `577234808489377791` | 65,273,799 | 65,260,607 | +13,192 |
+| 71 | `577762574070710271` | 47,816,987 | 47,819,630 | −2,643 |
+| 12 | `576812596024311807` | 4,710,165 | 4,710,166 | −1 |
+| | **total** | **520,962,613** | 520,932,773 | +0.006% |
+
+#### ⚠️ Runtime at res 10 is dominated by the ENUMERATION, not the slice size
+
+This is the single most useful operational fact from the build, and it contradicts the intuition
+that a big h0 costs proportionally more.
+
+| h0 index | cells | node | minutes |
+|---:|---:|---|---:|
+| 12 | 4.7 M | SDSU | 75 |
+| 78 | 65.3 M | MGHPCC | 208 |
+| 71 | 47.8 M | Fullerton | 299 |
+| 14 | 69.4 M | Fullerton | 304 |
+| 50 | 107.0 M | Fullerton | 310 |
+| 20 | **226.7 M** | Fullerton | **314** |
+
+A **48× range in cell count spans 75 to 314 minutes**, and the four Fullerton slices — 47.8 M
+through 226.7 M, a 4.7× range — span 299 to 314 minutes, a 5% spread. Every surviving h0
+enumerates the same 282,475,249 res-10 children; the per-cell extraction is the small part. The
+same constant explains why memory is flat (below).
+
+**Do not size a res-10 slice from its cell count.** A two-point linear fit on the first two
+completions predicted 9.4 h for h0-index 20 and drove a whole separate job to rescue it from the
+6 h pod deadline (`wrc-2-rps-conus-hex-dense.yaml`). It finished in 314 minutes, inside the
+deadline, and the rescue was deleted unused. The fit was wrong because both of its points were
+fast-node slices at the extreme ends of the size range.
+
+Memory measured on four pods concurrently, spanning 47.8 M to 226.7 M cells:
+132,065 / 133,356 / 133,593 / 134,460 Mi. **A 4.7× range in cells gives a 1.8% range in memory.**
+192Gi is right and 128Gi would OOM regardless of slice size.
+
+Node speed, by contrast, is real and large: h0-index 71 took 299 minutes on Fullerton against the
+170 minutes the fast-node fit predicts — a **1.76×** penalty, worse than the 1.5× implied by
+`mtbs-severity-conus-hex.yaml:72-73`.
+
+#### Verification — all structural checks pass
+
+```
+scripts/check-hex-coverage.sh nrp:public-fire/wrc-2-rps-conus/hex/ --expect-h0 <the 6 cells>
+  -> PASS, exit 0, 6/6 populated
+```
+
+| check | result |
+|---|---|
+| `rows == COUNT(DISTINCT h10)` | 520,962,613 == 520,962,613, 0 duplicates |
+| NULL `h10`/`h9`/`h8`/`h0` | 0 / 0 / 0 / 0 |
+| NULL `rps` | 0 |
+| `-9999` leak | **0** |
+| hex max vs COG exact max | 13.05575893 ≤ 13.194137573242188 ✅ |
+| hex mean vs COG exact mean | 0.1397544367 vs 0.140196598414851, 0.3% apart ✅ |
+
+The max relation is the right one to check, not equality: a cell carries the area-weighted **mean**
+of roughly 17 pixels, so it cannot reach the pixel maximum.
+
+#### Percentile agreement — consistent, once the zero population is accounted for
+
+| percentile | source | hex, all cells | hex, `rps > 0` | agreement |
+|---:|---:|---:|---:|---:|
+| 40 | 0.018848 | 0.009074 | 0.015681 | 83% |
+| 70 | 0.094043 | 0.067991 | 0.085857 | 91% |
+| 90 | 0.408197 | 0.342712 | 0.387262 | **95%** |
+| 95 | 0.722298 | 0.634640 | 0.692488 | **96%** |
+
+⚠️ **`WRC_V2_DataPercentiles.xlsx` is computed over RPS > 0, not over all pixels.** The tell is in
+the table itself: its CONUS 0th percentile is `1.4554442680560599e-23`, a **positive** number. Any
+population containing zero-valued pixels has a 0th percentile of exactly 0. Comparing our full
+cell population — of which **11.02% (57,408,806 cells) are exactly zero** — against a nonzero
+population is simply the wrong comparison, and it is what produces the alarming 0.48 ratio at p40.
+
+The residual gap after excluding zeros is **area-averaging**, and its shape is the evidence: even a
+nonzero cell mixes zero pixels into its mean, which pulls it below the corresponding pixel value,
+and that bias is largest where cells straddle the nonburnable boundary. Hence the monotone
+improvement from 83% at p40 to 96% at p95.
+
+**This is recorded as explained, not as exact agreement.** The two breaks the web application
+actually classes on, the 90th and 95th, agree to 95–96%.
+
+### RPS Alaska hex (2026-08-27) — 122/122, 120,349,584 rows, and a footprint surprise
+
+Job `Complete`, `succeeded=122`, `failedIndexes` empty, no OOM at 192Gi.
+
+| h0 index | h0 cell | cells | bytes |
+|---:|---|---:|---:|
+| 105 | `576707042908045311` (dateline) | 107,792,789 | 898,406,383 |
+| 12 | `576812596024311807` | 8,302,827 | 49,238,200 |
+| 104 | `577094071001022463` | 2,396,432 | 11,369,264 |
+| 59 | `576988517884755967` | 1,855,579 | 10,549,022 |
+| 98 | `576882964768489471` | **1,957** | **5,583** |
+| | **total** | **120,349,584** | |
+
+#### ⛔ Alaska populates FIVE h0, not the three this file predicted
+
+The expected set recorded above was borrowed from `whp-2023-classified-ak`, which populates three
+h0 over the same clip box. **RPS Alaska populates five.** `577094071001022463` (2,396,432 cells)
+and `576882964768489471` (1,957 cells) are real data that the borrowed footprint does not contain.
+
+Two products over one clip box are **not** co-extensive, and one's populated set is not a safe gate
+for another's. Had Alaska been trimmed to the borrowed three-cell list — which is exactly what an
+efficiency argument would have recommended, and which this file's own "harvest the map, then trim"
+plan invited — **4.25 M cells across two partitions would have been silently dropped**, and the
+coverage gate would have passed, because it only checks that expected partitions are PRESENT, never
+that unexpected ones are absent.
+
+The 1,957-cell partition is the pointed case: at 5,583 bytes it clears
+`check-hex-coverage.sh`'s 4,096-byte `--min-bytes` threshold by 36%. A slightly smaller sliver
+would be classified as empty by the very gate meant to catch this.
+
+So the 122-completion fan-out was not overhead here; it is what found the footprint. **The measured
+Alaska trim set for #627 is `{12, 59, 98, 104, 105}`**, and it is safe only because every member was
+observed writing, not inferred.
+
+Indexes that ran and produced nothing: 50, 121, and the rest of the 122. Their envelopes intersect
+the Alaska clip box, so they are not pruned and each enumerates all 282,475,249 res-10 children
+before finding no data — the cost `mtbs-severity-conus-hex.yaml:20-24` warns about, ~5 h at 192Gi
+apiece.
+
+#### Verification — all checks pass
+
+```
+scripts/check-hex-coverage.sh nrp:public-fire/wrc-2-rps-ak/hex/ \
+  --expect-h0 576707042908045311,576812596024311807,576882964768489471,576988517884755967,577094071001022463
+  -> PASS, exit 0, 5/5 populated       # NOTE: the MEASURED set, not the borrowed one
+```
+
+| check | CONUS | Alaska |
+|---|---|---|
+| `rows == COUNT(DISTINCT h10)` | 520,962,613 ✅ | 120,349,584 ✅ |
+| duplicate rows | 0 | 0 |
+| NULL `h9`/`h8`/`h0`/`rps` | 0 | 0 |
+| `-9999` leak | **0** | **0** |
+| hex max ≤ COG exact max | 13.056 ≤ 13.194 ✅ | 3.676 ≤ 4.163 ✅ |
+| hex mean vs COG exact mean | 0.13975 vs 0.14020 (0.3%) | 0.11251 vs 0.11694 (3.8%) |
+| exact-zero cells | 11.02% | 18.2% |
+
+Measured footprints (from `h3_cell_to_lng`/`lat` over every populated cell, never the warp clip box
+— that error was 2.4° out on #586):
+
+| | bbox |
+|---|---|
+| CONUS | `[-124.8616429, 24.39506098, -66.88468074, 49.38491788]` |
+| Alaska | `[-179.2283357, 51.15942105, -129.9739204, 71.43962069]` |
+
+**The antimeridian is handled.** Alaska data reaches −179.23, within 0.77° of the dateline on the
+east side, with no westward seam inflation into the +180 hemisphere — the failure mode that would
+have produced a ~360°-wide raster. North edge 71.44°N is Point Barrow; south 51.16°N the Aleutians.
+
+#### Percentile agreement, both domains
+
+Compared like with like — source column against cells with `rps > 0`, per the zero-population
+finding above.
+
+| percentile | CONUS source | CONUS hex>0 | agree | AK source | AK hex>0 | agree |
+|---:|---:|---:|---:|---:|---:|---:|
+| 40 | 0.018848 | 0.015681 | 83% | 0.009035 | 0.008155 | 90% |
+| 70 | 0.094043 | 0.085857 | 91% | 0.076778 | 0.074012 | 96% |
+| 90 | 0.408197 | 0.387262 | 95% | 0.442008 | 0.437378 | **99%** |
+| 95 | 0.722298 | 0.692488 | 96% | 0.790832 | 0.769136 | 97% |
+
+Alaska agrees more closely than CONUS despite having a **higher** zero fraction (18.2% vs 11.02%).
+Two domains with different zero fractions converging on the same 83–99% band, after the same
+correction, is what a population mismatch predicts and what a processing error does not. Treat this
+as the strongest evidence the reduce is faithful.
+
+Also worth stating for the write-up: Alaska's 90th and 95th percentiles are **higher** than CONUS's
+(0.442 vs 0.408, 0.791 vs 0.722) while its maximum is a third of CONUS's. The Alaska distribution is
+tighter and higher in the middle. RPS is on a single national scale, so that comparison is
+meaningful — unlike WHP, whose classified breaks are domain-relative.
+
+### STAC published (2026-08-27)
+
+```
+python3 gen_stac.py wrc-2-rps-conus wrc-2-rps-ak   # facts.json committed alongside
+python3 gen_stac.py --bucket-patch                 # 15 -> 17 child links, 15 assets preserved
+scripts/verify-stac.py --no-data <each>            # PASS pre-publish
+scripts/verify-stac.py --bucket public-fire                        # PASS, 0 hard, 18 advisory
+scripts/verify-stac.py --bucket public-fire --dataset wrc-2-rps-*  # PASS, 0 findings each
+```
+
+All 18 advisories are pre-existing on the CAL FIRE and USGS perimeter assets; none is on a `wrc-2`
+collection. The bucket collection was backed up to `/tmp/public-fire-stac-collection.backup.json`
+before patching.
+
+⚠️ **`raster:bands` statistics carry the EXACT COG values, not the build gate's approximate ones**
+(13.194 for CONUS, not 9.466). See the COG section above for why that distinction matters.
+
+Temporal extent is **2014**, the LANDFIRE landscape date, not the 2024 publication date.

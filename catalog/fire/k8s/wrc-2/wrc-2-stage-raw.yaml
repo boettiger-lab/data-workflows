@@ -1,0 +1,323 @@
+# Stage the Wildfire Risk to Communities v2 (RDS-2020-0016-2) source rasters to
+# s3://public-fire/raw/wrc-2/, one indexed pod per (layer, domain).
+#
+# ⚠️ WHY THIS IS NOT A `curl | unzip`
+#
+# 1. The RDS archive does NOT serve this publication's data zips from the stable
+#    https://www.fs.usda.gov/rds/archive/products/RDS-2020-0016-2/<name>.zip path -- those 404.
+#    Only _Metadata_Fileindex.zip and _Supplements.zip live there. The DATA is served exclusively
+#    from opaque Box hash URLs that have to be scraped off the catalog HTML page. The hashes below
+#    were scraped and verified live (2026-08-21); if a pod 404s, re-scrape the catalog page rather
+#    than assuming the file moved:
+#      curl -sL https://www.fs.usda.gov/rds/archive/catalog/RDS-2020-0016-2 \
+#        | grep -oE '<a[^>]+box\.com/shared/static/[^"]+"[^>]*>[^<]+'
+#
+# 2. Roughly a THIRD of every zip is a `.tif.ovr` pyramid we do not want (RPS_CONUS ships a
+#    8,957,454,869-byte .ovr next to its 27,368,546,444-byte .tif). Downloading whole zips would
+#    move ~145 GB to keep ~96 GB.
+#
+# 3. Alaska is worse: all EIGHT themes ship inside ONE 29 GB zip (RDS-2020-0016-2_Alaska.zip),
+#    interleaved with their pyramids. A streaming `unzip -p` for RPS_AK -- the 7th theme -- would
+#    read ~24 GB of the stream to reach it, four times over for four layers.
+#
+# So each pod does a RANGED SINGLE-MEMBER extraction: read the Zip64 end-of-central-directory,
+# walk the central directory, seek to just that member's local header, and inflate only its
+# compressed byte range. Verified byte-exact against AK/Exposure_AK.tif (511,598,120 bytes).
+# The expected uncompressed size is asserted, so a truncated or soft-200'd download FAILS here
+# rather than silently producing a short raster that hexes to garbage.
+#
+# ⚠️ The RDS archive soft-200s on invalid publication ids (returns HTTP 200 with an "Invalid
+# publication id" body), which is why edition checks grep the body. Verified for this issue:
+# RDS-2020-0016 and -2 are real; -3 and -4 are NOT. -2 is the latest edition.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wrc-2-stage-raw-src
+  namespace: geo-workflows
+data:
+  extract_member.py: |
+    """Extract one member from a remote Zip64 archive over HTTP range requests.
+
+    Usage: extract_member.py <box-hash> <member-path> <out-path> <expected-uncompressed-bytes>
+
+    Box redirects usfs-public.box.com -> public.boxcloud.com with a signed URL. urllib follows
+    the chain on every request, so we simply re-issue against the stable hash URL for each
+    range; that keeps us immune to the signed URL expiring part-way through a 27 GB read.
+    """
+    import os
+    import struct
+    import sys
+    import time
+    import urllib.error
+    import urllib.request
+    import zlib
+
+    BOX = "https://usfs-public.box.com/shared/static/%s.zip"
+    CHUNK = 256 << 20  # 256 MiB per range request
+    RETRIES = 8
+
+
+    def _range(url, start, end):
+        """GET bytes [start, end] inclusive, with retries. Returns (body, total_size)."""
+        last = None
+        for attempt in range(RETRIES):
+            try:
+                req = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}"})
+                with urllib.request.urlopen(req, timeout=300) as r:
+                    body = r.read()
+                    cr = r.headers.get("Content-Range")
+                    total = int(cr.split("/")[-1]) if cr else None
+                if len(body) != end - start + 1:
+                    raise IOError(f"short range read: got {len(body)}, want {end - start + 1}")
+                return body, total
+            except Exception as exc:  # noqa: BLE001 - retry anything transient
+                last = exc
+                wait = min(2 ** attempt, 60)
+                print(f"    range {start}-{end} attempt {attempt + 1} failed: {exc!r}; "
+                      f"retry in {wait}s", flush=True)
+                time.sleep(wait)
+        raise RuntimeError(f"range {start}-{end} failed after {RETRIES} attempts: {last!r}")
+
+
+    def central_directory(url):
+        """Return {name: entry} from the Zip64 central directory."""
+        _, total = _range(url, 0, 0)
+        tail_len = min(70000, total)
+        tail, _ = _range(url, total - tail_len, total - 1)
+
+        i = tail.rfind(b"PK\x06\x07")  # Zip64 EOCD locator
+        if i < 0:
+            raise RuntimeError("no Zip64 EOCD locator; archive is not Zip64 as expected")
+        z64_off = struct.unpack("<Q", tail[i + 8:i + 16])[0]
+        z64, _ = _range(url, z64_off, z64_off + 55)
+        if z64[:4] != b"PK\x06\x06":
+            raise RuntimeError(f"bad Zip64 EOCD signature {z64[:4]!r}")
+        cd_size, cd_off = struct.unpack("<QQ", z64[40:56])
+        cd, _ = _range(url, cd_off, cd_off + cd_size - 1)
+
+        out, p = {}, 0
+        while p < len(cd) and cd[p:p + 4] == b"PK\x01\x02":
+            method = struct.unpack("<H", cd[p + 10:p + 12])[0]
+            csz, usz = struct.unpack("<II", cd[p + 20:p + 28])
+            nlen, elen, clen = struct.unpack("<HHH", cd[p + 28:p + 34])
+            lho = struct.unpack("<I", cd[p + 42:p + 46])[0]
+            name = cd[p + 46:p + 46 + nlen].decode("utf-8", "replace")
+            extra = cd[p + 46 + nlen:p + 46 + nlen + elen]
+            q = 0
+            while q + 4 <= len(extra):
+                hid, hsz = struct.unpack("<HH", extra[q:q + 4])
+                val, o = extra[q + 4:q + 4 + hsz], 0
+                if hid == 1:  # Zip64 extended information
+                    if usz == 0xFFFFFFFF:
+                        usz = struct.unpack("<Q", val[o:o + 8])[0]
+                        o += 8
+                    if csz == 0xFFFFFFFF:
+                        csz = struct.unpack("<Q", val[o:o + 8])[0]
+                        o += 8
+                    if lho == 0xFFFFFFFF:
+                        lho = struct.unpack("<Q", val[o:o + 8])[0]
+                q += 4 + hsz
+            out[name] = dict(name=name, method=method, csz=csz, usz=usz, lho=lho)
+            p += 46 + nlen + elen + clen
+        return out
+
+
+    def extract(url, ent, out_path):
+        """Stream-inflate one member to out_path. Returns bytes written."""
+        lh, _ = _range(url, ent["lho"], ent["lho"] + 29)
+        if lh[:4] != b"PK\x03\x04":
+            raise RuntimeError(f"bad local header signature {lh[:4]!r}")
+        nlen, elen = struct.unpack("<HH", lh[26:30])
+        start = ent["lho"] + 30 + nlen + elen
+        end = start + ent["csz"] - 1
+
+        dec = zlib.decompressobj(-15) if ent["method"] == 8 else None
+        written = 0
+        with open(out_path, "wb") as fh:
+            pos = start
+            while pos <= end:
+                stop = min(pos + CHUNK - 1, end)
+                body, _ = _range(url, pos, stop)
+                out = dec.decompress(body) if dec else body
+                fh.write(out)
+                written += len(out)
+                pos = stop + 1
+                pct = 100.0 * (pos - start) / ent["csz"]
+                print(f"    {pct:5.1f}%  compressed {pos - start:,}/{ent['csz']:,}"
+                      f"  ->  {written:,} bytes", flush=True)
+            if dec:
+                tail = dec.flush()
+                fh.write(tail)
+                written += len(tail)
+        return written
+
+
+    def main():
+        box_hash, member, out_path, expect = sys.argv[1:5]
+        expect = int(expect)
+        url = BOX % box_hash
+
+        print(f"=== archive https://usfs-public.box.com/shared/static/{box_hash}.zip", flush=True)
+        entries = central_directory(url)
+        print(f"    {len(entries)} members in central directory", flush=True)
+        if member not in entries:
+            print("FATAL: member not found. Archive contains:", flush=True)
+            for n in sorted(entries):
+                print(f"      {n}  ({entries[n]['usz']:,} bytes)", flush=True)
+            sys.exit(1)
+
+        ent = entries[member]
+        print(f"=== extracting {member}", flush=True)
+        print(f"    compressed {ent['csz']:,}  uncompressed {ent['usz']:,}  method {ent['method']}",
+              flush=True)
+        if ent["usz"] != expect:
+            print(f"FATAL: central directory says {ent['usz']:,} uncompressed bytes but this "
+                  f"build expects {expect:,}. The upstream publication changed -- re-verify the "
+                  f"edition and sizes before proceeding.", flush=True)
+            sys.exit(1)
+
+        written = extract(url, ent, out_path)
+        on_disk = os.path.getsize(out_path)
+        print(f"=== wrote {written:,} bytes ({on_disk:,} on disk)", flush=True)
+        if written != expect or on_disk != expect:
+            print(f"FATAL: size mismatch, expected {expect:,}", flush=True)
+            sys.exit(1)
+        # A GeoTIFF starts II*\0 (little-endian classic) or II+\0 (little-endian BigTIFF).
+        with open(out_path, "rb") as fh:
+            magic = fh.read(4)
+        if magic not in (b"II\x2a\x00", b"II\x2b\x00", b"MM\x00\x2a", b"MM\x00\x2b"):
+            print(f"FATAL: not a TIFF (magic {magic!r})", flush=True)
+            sys.exit(1)
+        print(f"=== OK  magic {magic!r}", flush=True)
+
+
+    if __name__ == "__main__":
+        main()
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: wrc-2-stage-raw
+spec:
+  completions: 8
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: wrc-2-stage-raw
+    spec:
+      restartPolicy: Never
+      # ClusterFirst so rclone's nrp: remote can resolve the INTERNAL endpoint
+      # rook-ceph-rgw-nautiluss3.rook; the extra public nameservers cover box.com.
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: src
+          mountPath: /src
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # (layer, domain) -> Box hash, member path inside the archive, expected .tif bytes.
+          # CONUS ships one zip per theme; ALASKA ships all eight themes in ONE zip, so the four
+          # AK rows share a hash and differ only in member path.
+          NAME=(RPS_CONUS       RPS_AK          BP_CONUS        BP_AK           CFL_CONUS       CFL_AK          Exposure_CONUS       Exposure_AK)
+          HASH=(88tv8byot0t22o9p1eqlrfqco3z5ouvf jh6l2x2blct82hbtmu4n6dvoe9bz25ap 7itw7p56vje2m0u3kqh91lt6kqq1i9l1 jh6l2x2blct82hbtmu4n6dvoe9bz25ap 7nb6hpw2rfc0zrhk1mv80fhbirajoqfd jh6l2x2blct82hbtmu4n6dvoe9bz25ap nbmlha1iejzzjo9y3uoehln493o2c4ad jh6l2x2blct82hbtmu4n6dvoe9bz25ap)
+          MEMBER=(RPS_CONUS/RPS_CONUS.tif AK/RPS_AK.tif BP_CONUS/BP_CONUS.tif AK/BP_AK.tif CFL_CONUS/CFL_CONUS.tif AK/CFL_AK.tif Exposure_CONUS/Exposure_CONUS.tif AK/Exposure_AK.tif)
+          BYTES=(27368546444 5423384600 26196396386 5059258202 23587116646 3347670548 4554904628 511598120)
+
+          i=${JOB_COMPLETION_INDEX}
+          n=${NAME[$i]}; h=${HASH[$i]}; m=${MEMBER[$i]}; b=${BYTES[$i]}
+          DEST="nrp:public-fire/raw/wrc-2/${n}.tif"
+
+          echo "=== [$i] $n  <-  $m   (expect ${b} bytes) ==="
+
+          # Idempotent: a completed index does not re-download 27 GB on a retry of a later index.
+          if rclone lsjson "$DEST" >/dev/null 2>&1; then
+            SZ=$(rclone size --json "$DEST" | python3 -c 'import json,sys; print(json.load(sys.stdin)["bytes"])')
+            if [ "$SZ" = "$b" ]; then
+              echo "already staged at $DEST with correct size ($SZ) -- nothing to do"
+              exit 0
+            fi
+            echo "present but wrong size ($SZ != $b); re-staging"
+          fi
+
+          python3 /src/extract_member.py "$h" "$m" "/tmp/${n}.tif" "$b"
+          ls -la "/tmp/${n}.tif"
+
+          echo "=== uploading to $DEST ==="
+          rclone copyto "/tmp/${n}.tif" "$DEST" -P --transfers 4 --retries 6
+          rclone size "$DEST"
+          rm -f "/tmp/${n}.tif"
+          echo "STAGED $n"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 45Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 45Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: src
+        configMap:
+          name: wrc-2-stage-raw-src
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              # Known-bad egress/S3 hosts: pods schedule but hang on download/localize.
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
