@@ -1,0 +1,116 @@
+# WOA23 Step 1b: stage the 8 source netCDF files to s3://public-high-seas/raw/woa23/
+# (data-workflows #643). One indexed pod per variable. Parallelism is deliberately
+# low: NCEI serves these at roughly 1-3 MB/s and is the only bottleneck here.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: woa23-stage-raw
+  labels:
+    k8s-app: woa23-stage-raw
+spec:
+  completions: 8
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: woa23-stage-raw
+    spec:
+      restartPolicy: Never
+      # CoreDNS on some nodes intermittently fails to resolve external hosts; keep
+      # ClusterFirst (the internal S3 endpoint must still resolve) and append public
+      # resolvers. curl needs --retry-all-errors, since plain --retry skips DNS failures.
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-high-seas
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          BASE=https://www.ncei.noaa.gov/data/oceans/woa/WOA23/DATA
+
+          # index -> upstream path. Variable-code letter is CASE SENSITIVE:
+          # o = dissolved oxygen, O = percent oxygen saturation.
+          PATHS=(
+            "temperature/netcdf/decav91C0/1.00/woa23_decav91C0_t00_01.nc"
+            "salinity/netcdf/decav91C0/1.00/woa23_decav91C0_s00_01.nc"
+            "oxygen/netcdf/all/1.00/woa23_all_o00_01.nc"
+            "o2sat/netcdf/all/1.00/woa23_all_O00_01.nc"
+            "AOU/netcdf/all/1.00/woa23_all_A00_01.nc"
+            "silicate/netcdf/all/1.00/woa23_all_i00_01.nc"
+            "phosphate/netcdf/all/1.00/woa23_all_p00_01.nc"
+            "nitrate/netcdf/all/1.00/woa23_all_n00_01.nc"
+          )
+          REL="${PATHS[${JOB_COMPLETION_INDEX}]}"
+          FILE="$(basename "$REL")"
+          echo "index ${JOB_COMPLETION_INDEX} -> ${FILE}"
+
+          mkdir -p /tmp/raw
+          curl -sSL --retry 8 --retry-delay 5 --retry-all-errors \
+               -o "/tmp/raw/${FILE}" "${BASE}/${REL}"
+
+          # netCDF-4 files are an HDF5 container: reject an HTML error page early.
+          test -s "/tmp/raw/${FILE}"
+          head -c 4 "/tmp/raw/${FILE}" | grep -q $'\x89HDF' \
+            || { echo "ERROR: ${FILE} is not HDF5/netCDF-4"; head -c 200 "/tmp/raw/${FILE}"; exit 1; }
+          echo "downloaded $(stat -c%s "/tmp/raw/${FILE}") bytes"
+
+          rclone copyto "/tmp/raw/${FILE}" "nrp:${BUCKET}/raw/woa23/${FILE}" \
+            --retries 5 --low-level-retries 20 --retries-sleep 10s
+
+          # Provenance: recompute size and checksum FROM the staged object, never
+          # transcribe the local ones (AGENTS.md Step 1b).
+          echo "PROVENANCE ${FILE}"
+          rclone size  "nrp:${BUCKET}/raw/woa23/${FILE}"
+          # Ceph RGW does not serve sha256 server-side; --download hashes the object itself
+          rclone hashsum sha256 --download "nrp:${BUCKET}/raw/woa23/${FILE}"
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 4Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']

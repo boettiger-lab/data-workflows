@@ -1,0 +1,111 @@
+# WOA23 H3 hex (data-workflows #643). One indexed pod per layer, each processing
+# the whole globe: at native h3 a layer is only ~29k cells over a 180x360 source
+# grid, so the usual 122-completion-per-layer fan-out would be ~2,900 pods of pure
+# scheduling overhead for a few seconds of real work. 24 pods total instead.
+#
+# Native resolution 3 matches the 1-degree source pixel (~12,300 km2 vs an h3 cell
+# of 12,393 km2). These layers therefore carry NO h8 column: h8 would be a ~16,000x
+# oversample of the source. That is the sanctioned coarse-raster case (AGENTS.md,
+# skill raster-hexing) and is documented on every hex asset.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: woa23-hex
+  labels:
+    k8s-app: woa23-hex
+spec:
+  completions: 24
+  parallelism: 12
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: woa23-hex
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: BUCKET
+          value: public-high-seas
+        - name: HEX_PREFIX
+          value: hex
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          LAYERS=(
+            temperature-0m temperature-200m temperature-1000m
+            salinity-0m salinity-200m salinity-1000m
+            oxygen-0m oxygen-200m oxygen-1000m
+            oxygen-saturation-0m oxygen-saturation-200m oxygen-saturation-1000m
+            aou-0m aou-200m aou-1000m
+            silicate-0m silicate-200m silicate-1000m
+            phosphate-0m phosphate-200m phosphate-1000m
+            nitrate-0m nitrate-200m nitrate-1000m
+          )
+          LAYER="${LAYERS[${JOB_COMPLETION_INDEX}]}"
+          # Value column = layer name minus the depth suffix, dashes to underscores:
+          # oxygen-saturation-200m -> oxygen_saturation. Matches the COG band name
+          # written by woa23_netcdf_to_cog.py.
+          COLUMN=$(echo "${LAYER%-*}" | tr '-' '_')
+          echo "index ${JOB_COMPLETION_INDEX} -> ${LAYER} (column ${COLUMN})"
+
+          cng-datasets raster \
+            --input "s3://${BUCKET}/woa23/${LAYER}/woa23-${LAYER}-cog.tif" \
+            --output-parquet "s3://${BUCKET}/woa23/${LAYER}/${HEX_PREFIX}/" \
+            --resolution 3 --parent-resolutions 0 \
+            --value-column "${COLUMN}" --hex-resampling mean
+
+          echo "hexed woa23/${LAYER}/${HEX_PREFIX}/"
+          rclone ls "nrp:${BUCKET}/woa23/${LAYER}/${HEX_PREFIX}/" | head -5
+          echo "partitions: $(rclone lsf --dirs-only "nrp:${BUCKET}/woa23/${LAYER}/${HEX_PREFIX}/" | wc -l)"
+        resources:
+          requests: {cpu: '2', memory: 16Gi, ephemeral-storage: 8Gi}
+          limits:   {cpu: '2', memory: 16Gi, ephemeral-storage: 8Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ['true']
