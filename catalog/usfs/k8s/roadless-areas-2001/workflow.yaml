@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: roadless-areas-2001-workflow
+  namespace: geo-workflows
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "\nset -e\n\necho \"Starting roadless-areas-2001 workflow...\"\n\n# Step\
+          \ 0: Setup bucket with public access and CORS\necho \"Step 0: Setting up\
+          \ bucket...\"\nkubectl apply -f /yamls/roadless-areas-2001-setup-bucket.yaml\
+          \ -n geo-workflows\n\necho \"Waiting for bucket setup to complete...\"\n\
+          kubectl wait --for=condition=complete --timeout=600s job/roadless-areas-2001-setup-bucket\
+          \ -n geo-workflows\n\n# Step 1: Convert to optimized GeoParquet (needed\
+          \ by both pmtiles and hex jobs)\necho \"Step 1: Converting to optimized\
+          \ GeoParquet...\"\nkubectl apply -f /yamls/roadless-areas-2001-convert.yaml\
+          \ -n geo-workflows\n\necho \"Waiting for GeoParquet conversion to complete...\"\
+          \nkubectl wait --for=condition=complete --timeout=3600s job/roadless-areas-2001-convert\
+          \ -n geo-workflows\n\n# Step 2: Run pmtiles and hex tiling in parallel (both\
+          \ use the converted geoparquet)\necho \"Step 2: H3 hexagonal tiling and\
+          \ PMTiles generation (parallel)...\"\nkubectl apply -f /yamls/roadless-areas-2001-pmtiles.yaml\
+          \ -n geo-workflows\nkubectl apply -f /yamls/roadless-areas-2001-hex.yaml\
+          \ -n geo-workflows\n\necho \"Waiting for hex tiling to complete (PMTiles\
+          \ continues in background)...\"\necho \"Timeout set to 48 hours (172800s)...\"\
+          \nkubectl wait --for=condition=complete --timeout=172800s job/roadless-areas-2001-hex\
+          \ -n geo-workflows\n\necho \"Step 3: Repartitioning by h0...\"\nkubectl\
+          \ apply -f /yamls/roadless-areas-2001-repartition.yaml -n geo-workflows\n\
+          \necho \"Waiting for repartition to complete...\"\nkubectl wait --for=condition=complete\
+          \ --timeout=3600s job/roadless-areas-2001-repartition -n geo-workflows\n\
+          \necho \"\u2713 Workflow complete!\"\necho \"Note: PMTiles job may still\
+          \ be running in the background\"\necho \"\"\necho \"Clean up with:\"\necho\
+          \ \"  kubectl delete jobs roadless-areas-2001-setup-bucket roadless-areas-2001-convert\
+          \ roadless-areas-2001-pmtiles roadless-areas-2001-hex roadless-areas-2001-repartition\
+          \ roadless-areas-2001-workflow -n geo-workflows\"\necho \"  kubectl delete\
+          \ configmap roadless-areas-2001-yamls -n geo-workflows\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: roadless-areas-2001-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
