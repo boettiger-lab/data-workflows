@@ -15,6 +15,8 @@ directly if it has no skill support.
 | `hex-tuning` | a hex job OOMs, or choosing native/parent H3 resolutions and chunk sizes |
 | `job-troubleshooting` | a job fails, hangs, or a published parquet will not read |
 | `dataset-recipes` | starting an ingest that resembles a worked example |
+| `armada-pipeline` | `armadactl` will not authenticate, a k8s job hits the 200-completion cap, or you are choosing between the k8s and Armada pathways |
+| `pod-preemption` | indexed-job pods die and retry for no apparent reason, or before submitting any job whose pods run over an hour |
 
 Everything below is always in force, skill or no skill.
 
@@ -277,12 +279,16 @@ armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-repartition.yaml
 ```
 Monitor: **https://armada-lookout.nrp-nautilus.io**
 
+⛔ **Load this before your first `armadactl` command, not after it hangs** — auth is a device-code
+flow, not the documented PKCE one, and the code expires in 60 seconds. That, install/config, the
+queue-to-namespace mapping, priority classes, and when to microslice: **skill `armada-pipeline`**.
+
 Convert an existing k8s hex YAML to Armada (for rechunking):
 ```python
 from cng_datasets.k8s.armada import k8s_indexed_job_to_armada, save_armada_yaml
 import yaml
 with open('<name>-hex.yaml') as f: job_spec = yaml.safe_load(f)
-armada_spec = k8s_indexed_job_to_armada(job_spec, queue='biodiversity', job_set_id='<name>-hex')
+armada_spec = k8s_indexed_job_to_armada(job_spec, queue='geo-workflows', job_set_id='<name>-hex')
 save_armada_yaml(armada_spec, 'armada-<name>-hex.yaml')
 ```
 
@@ -450,6 +456,11 @@ done
 ```
 
 With armada, submit freely — chunk-size 1 (one pod per feature) eliminates "one slow pod blocks everything."
+
+⛔ **Pod count is not what decides whether those pods survive.** At `opportunistic` priority a
+long pod is preempted rather than finished, and retries hide it — a job reports `Complete=True`
+while indexes are killed and restarted, and a retry-exhausted index leaves *stale* data, not
+missing data. Before submitting anything whose pods run over an hour: **skill `pod-preemption`**.
 
 ## S3 Bucket Layout
 
