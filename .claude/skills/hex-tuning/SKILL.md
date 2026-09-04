@@ -30,12 +30,28 @@ kubectl -n geo-workflows top pod --no-headers | grep '^<prefix>' | awk '{
   printf "n=%d peak=%.2f mean=%.2f cores\n", n, m/1000, s/n/1000}'
 ```
 
-Measured on the CHELSA hex (one raster per job), against what was requested:
+Measured on the CHELSA build, against what was requested — **three dimensions, all inherited
+rather than measured, each throttling throughput a different way**:
 
-| dimension | requested | measured | over-ask |
-|---|---|---|---|
-| memory | 32 Gi | peak **5.2 Gi**, mean 3.5 Gi | ~6x |
-| cpu | 8 cores | peak 8.6, mean **3.3 cores** | ~2.4x |
+| dimension | requested | actually used | over-ask | how it hurt |
+|---|---|---|---|---|
+| memory | 32 Gi | peak **5.2 Gi** | ~6x | scheduler: *"4,231 jobs do not fit on any node"* |
+| cpu | 8 cores | mean **3.3 cores** | ~2.4x | halved the pods that fit in the core budget |
+| **ephemeral** | **40 Gi** | **kilobytes** | enormous | job was **unschedulable outright** |
+
+The ephemeral case is the sharpest lesson. A join pod asked for 40 Gi of ephemeral storage to write
+a **2 KB** partition, having inherited the number from a different job. It did not run slowly — it
+cycled `Leased -> Pending -> LeaseReturned -> Queued` indefinitely, because no node had that much
+free ephemeral, while 121 identical jobs placed fine. Nothing in the logs says "your request is too
+large"; the job simply never starts.
+
+**Ephemeral storage is a scheduling dimension exactly like cpu and memory.** Size it to what the
+job actually writes:
+
+```bash
+# inside a representative pod, right before the step you suspect
+df -h /tmp; du -sh /tmp/<scratch dirs>
+```
 
 Both were inherited rather than measured — memory by halving a 64 Gi figure sized for a
 35-raster chain rather than the one raster a job runs, cpu by copying the same job's `8`. Only 19
