@@ -39,6 +39,11 @@ FILL = {
 }
 PRIMARY_NODATA = -9999
 
+# Layers actually published to S3. LAYERS below is the full roster the generator can
+# build; only these have a live collection, so only these may appear as a child link
+# on the bucket collection -- a child link to an unpublished collection is a 404.
+PUBLISHED = {"vcc", "evt"}
+
 LAYERS = {
     "vcc": dict(
         prod="VCC", csv="LF2024_VCC.csv", name_col="CLASS", desc_col="DESCRIPTION",
@@ -179,11 +184,27 @@ def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
                       "being the part of the cell with no valid source pixel."})
         return c + [{"name": n, "type": t, "description": d} for n, t, d in HEX_COLS]
 
+    # The mode asset must not advertise a fractions asset this collection does not
+    # carry. Publishing without fractions is a deliberate, measured choice for this
+    # source (BUILD.md: at 30 m and res 10 a cell holds ~17 pixels and stands are far
+    # larger, so mode tracked the true CONUS VCC distribution to within 0.72 pp), so
+    # the honest text states the limit and names the reducer that answers it -- rather
+    # than pointing at an asset that was purged on purpose.
+    if fractions_published:
+        mix_note = ("so the mix within a cell is not preserved; for the area held by each class "
+                    "use the fractional-coverage asset instead.")
+    else:
+        mix_note = ("so the mix within a cell is not preserved, and no per-class "
+                    "fractional-coverage asset is published for this layer. At a 30 m source and "
+                    "resolution 10 a cell holds roughly 17 pixels, so where stands are large "
+                    "relative to the cell the dominant class closely tracks the true class "
+                    "distribution; for absolute acreage, rare or interspersed classes, and "
+                    "ecotone work, a fractional-coverage build is the reducer that answers it.")
+
     hex_desc = (
         f"Dominant-class (mode reducer) H3 hex of LANDFIRE 2024 {cfg['short']} at resolution 10, "
         f"one row per cell, hive-partitioned by h0. Each cell takes the class covering the largest "
-        f"share of it, so the mix within a cell is not preserved; for the area held by each class "
-        f"use the fractional-coverage asset instead. Cells with no valid source pixel are not "
+        f"share of it, {mix_note} Cells with no valid source pixel are not "
         f"written, so partitions are sparse. {fill_note}")
 
     frac_desc = (
@@ -310,14 +331,22 @@ def bucket_collection():
         "stac_version": "1.0.0",
         "id": "landfire",
         "title": "LANDFIRE",
+        # Describes what is ACTUALLY on S3, not the full LAYERS roster. The previous
+        # text promised all four products "in both dominant-class and per-class
+        # fractional-coverage form" -- of which only two products ship, none with
+        # fractions. It was corrected by hand at publish time, so re-running this
+        # generator would have regressed the live document back to the false claim.
         "description": (
             "LANDFIRE is a shared program of the US Geological Survey and the USDA Forest Service "
             "that maps vegetation, fuel and fire regime conditions across the United States at 30 "
             "metre resolution. This catalog holds the LANDFIRE 2024 Update (version 2.5.0) for the "
-            "conterminous United States: vegetation condition class, existing vegetation type, "
-            "existing vegetation cover and the 40 Scott and Burgan fire behaviour fuel models. "
-            "Each product is published as a cloud-optimized GeoTIFF and as H3 hex tables at "
-            "resolution 10, in both dominant-class and per-class fractional-coverage form."),
+            "conterminous United States. Two products are published so far: vegetation condition "
+            "class, which measures how far current vegetation has departed from its historical "
+            "reference condition, and existing vegetation type. Each is available as a "
+            "cloud-optimized GeoTIFF and as an H3 hex table at resolution 10 giving the dominant "
+            "class in each cell. Existing vegetation cover and the 40 Scott and Burgan fire "
+            "behaviour fuel models are not yet published, and neither are the per-class "
+            "fractional-coverage hex tables that area accounting requires."),
         "license": "public-domain",
         "extent": {"spatial": {"bbox": [BBOX]},
                    "temporal": {"interval": [TEMPORAL]}},
@@ -329,7 +358,7 @@ def bucket_collection():
             {"rel": "child", "id": f"landfire-2024-{k}",
              "href": f"{BASE}/landfire-2024-{k}/stac-collection.json",
              "type": "application/json", "title": v["title"]}
-            for k, v in LAYERS.items()
+            for k, v in LAYERS.items() if k in PUBLISHED
         ],
     }
 
