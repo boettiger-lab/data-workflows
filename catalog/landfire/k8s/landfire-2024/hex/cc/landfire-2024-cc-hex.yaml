@@ -1,0 +1,95 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landfire-2024-cc-hex
+  labels:
+    k8s-app: landfire-2024-cc-hex
+spec:
+  completions: 6
+  parallelism: 6
+  completionMode: Indexed
+  backoffLimit: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: landfire-2024-cc-hex
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: BUCKET
+          value: public-landfire
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+
+          # CONUS occupies only 6 h0 cells at res 10 -- the set measured in #590 and
+          # identical to NLCD 2024's populated partitions and the MTBS CONUS set.
+          # cng-datasets raster-workflow hardcodes completions:122; running all of them
+          # would start 116 pods per layer that each localize a multi-GB COG only to find
+          # no overlap. Same edit as catalog/fire/k8s/mtbs/severity/mtbs-severity-conus-hex.yaml.
+          H0S=(12 14 20 50 71 78)
+          H0=${H0S[$JOB_COMPLETION_INDEX]}
+          echo "index $JOB_COMPLETION_INDEX -> h0-index $H0"
+
+          cng-datasets raster --input "s3://public-landfire/landfire-2024-cc/landfire-2024-cc-cog.tif" --output-parquet s3://public-landfire/landfire-2024-cc/hex/ --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 --value-column cc --hex-resampling mean --nodata "-9999,0"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
