@@ -60,6 +60,7 @@ spec:
         - |-
           set -e
 
+          # DEVIATION from generated output (boettiger-lab/datasets#191):
           # CONUS occupies only 6 h0 cells at res 10 -- the set measured in #590 and
           # identical to NLCD 2024's populated partitions and the MTBS CONUS set.
           # cng-datasets raster-workflow hardcodes completions:122; running all of them
@@ -73,12 +74,12 @@ spec:
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
-            ephemeral-storage: 20Gi
+            memory: 192Gi
+            ephemeral-storage: 40Gi
           limits:
             cpu: '4'
-            memory: 32Gi
-            ephemeral-storage: 20Gi
+            memory: 192Gi
+            ephemeral-storage: 40Gi
       volumes:
       - name: rclone-config
         secret:

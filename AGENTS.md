@@ -484,6 +484,58 @@ let the control plane reap it (skill `k8s-never-force-delete`).
 Causes and fixes — OOMKilled, evictions, `ContainerStatusUnknown`, flaky-node hangs,
 ephemeral-storage limits and PVC scratch, pod-quota errors, 404s on convert, blank PMTiles in
 MapLibre, DuckDB `stoi` — plus how to reprocess failed chunks: **skill `job-troubleshooting`**.
+## ⛔ Generate manifests with `cng-datasets`; declare every deviation
+
+`cng-datasets` is tested and has a deploy pipeline. A manifest typed by hand is neither, and it
+drifts from the tool in ways review does not catch — a missing `--nodata`, a stale reducer, a
+namespace that silently resolves to `default`.
+
+**Generate first, always:**
+
+```bash
+cng-datasets raster-workflow ... --output-dir catalog/<dataset>/k8s/<name>   # raster
+cng-datasets workflow        ... --output-dir catalog/<dataset>/k8s/<name>   # vector
+```
+
+The generated output carries a `# Generation command: cng-datasets ...` banner. **Keep it** — it is
+how a reviewer, and `scripts/check-generated-manifests.py`, tells generated from hand-written.
+
+**Deviating is allowed. Deviating silently is not.** Some shapes the generator genuinely cannot emit
+yet. When you must, say so in the manifest that deviates:
+
+```yaml
+# HAND-ROLLED: <why the generator cannot emit this> (<tracking issue>)
+```
+
+and for an edit on top of generated output:
+
+```yaml
+# DEVIATION from generated output (<tracking issue>): <what and why>
+```
+
+If the reason is a gap in the tool, **file it on `boettiger-lab/datasets` with a tested MRE**
+(Hard Boundary 2) and cite the issue, so the deviation is temporary rather than permanent. Known
+open gaps that legitimately force a hand edit today:
+
+| gap | issue |
+|---|---|
+| `--namespace` not stamped on step manifests | datasets#190 |
+| hex `completions` fixed at 122; no populated-h0 subset | datasets#191 |
+| multi-dimension fan-out (h0 × year/layer/reducer) | datasets#172 |
+| orchestrator cannot drive the Armada backend | datasets#39 |
+| Armada converter keeps k8s pod shape, drops retry | datasets#183 |
+
+**The gate.** CI runs `scripts/check-generated-manifests.py --base origin/main` over the recipes your
+PR touches. It ratchets rather than blocking on history: the ~33 pre-existing undeclared recipes are
+grandfathered until someone touches them.
+
+**Why this is a hard rule.** The catalog currently runs ~90 generated raster recipes against ~26
+hand-rolled, and the hand-rolled ones are disproportionately the large, expensive builds — because
+hand-rolling starts exactly where the work gets hard. The pattern is self-propagating: an agent
+copies the neighbouring recipe, and a reviewer unsure whether the deviation was deliberate does not
+challenge it. A stated reason turns "should I push back on this?" into "the file says why", which is
+the whole point.
+
 ## What NOT To Do
 
 - **Do not process data locally.** CLI generates YAML; the cluster does the work.
