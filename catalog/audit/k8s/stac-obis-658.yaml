@@ -1,0 +1,244 @@
+# data-workflows#658 (and the STAC half of #424) — register the OBIS network sidecar on
+# `gbif-derived`, and stop the root catalog from advertising the collection as sidecars only.
+#
+# Why this is a cluster job and not a local `rclone copyto`: STAC is canonical on NRP S3, and
+# the NRP-canonical credentials live in this namespace (`rclone-config`), not on a laptop.
+#
+# Two edits, both idempotent — re-running changes nothing:
+#
+#  1. `nrp:public-gbif/stac-collection.json`
+#     Adds asset `gbif-obis-datasets-2026-06` (the 2026-06 OBIS membership table built by
+#     catalog/gbif/2026-06/gbif-2026-06-obis-datasets.yaml), plus a "Marine subset" section in
+#     the collection description and the `marine` / `OBIS` keywords. This is what lets a query
+#     say "just OBIS": the occurrence hex carries `datasetkey` per record but no network
+#     provenance column, so the marine records already in it cannot otherwise be isolated.
+#
+#     The row counts quoted in the prose are COUNTed from the published parquet at run time
+#     rather than transcribed, so a rebuild on a later snapshot cannot leave stale figures
+#     behind (the #417 "recompute, never transcribe" rule). OBIS membership grows with each
+#     release: 3,467 datasets when #424 was written, 3,522 at this build.
+#
+#  2. `nrp:public-data/stac/catalog.json`
+#     The root's child link calls this collection "GBIF Derived Products (Redlining &
+#     Taxonomy)" while the collection's own title is "GBIF Occurrence Data & Derived Products".
+#     The root wins in a catalog browse, so the 3.5-billion-record occurrence hex is advertised
+#     by the names of two narrow sidecars — an agent looking for marine occurrences has no
+#     reason to open it. Only the stale link title changes; the collection title was already
+#     right, and no child is added or removed.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: stac-obis-658, namespace: geo-workflows}
+data:
+  fix.py: |
+    import json, subprocess, sys
+    import duckdb
+
+    COLLECTION = 'nrp:public-gbif/stac-collection.json'
+    ROOT = 'nrp:public-data/stac/catalog.json'
+    ASSET_KEY = 'gbif-obis-datasets-2026-06'
+    PARQUET_HTTPS = ('https://s3-west.nrp-nautilus.io/public-gbif/2026-06/'
+                     'obis-datasets.parquet')
+    PARQUET_S3 = 's3://public-gbif/2026-06/obis-datasets.parquet'
+    HREF = PARQUET_HTTPS
+    ROOT_TITLE_OLD = 'GBIF Derived Products (Redlining & Taxonomy)'
+    ROOT_TITLE_NEW = 'GBIF Occurrence Data & Derived Products'
+
+    FAIL = []
+
+    # --- measure the published table, never transcribe it -------------------------
+    con = duckdb.connect()
+    con.execute('INSTALL httpfs; LOAD httpfs')
+    n_rows, n_keys = con.execute(
+        "SELECT COUNT(*), COUNT(DISTINCT datasetkey) FROM read_parquet(?)",
+        [PARQUET_HTTPS]).fetchone()
+    by_type = dict(con.execute(
+        "SELECT type, COUNT(*) FROM read_parquet(?) GROUP BY 1", [PARQUET_HTTPS]).fetchall())
+    if n_rows != n_keys:
+        FAIL.append('datasetkey is not unique in %s (%d rows, %d keys)'
+                    % (PARQUET_HTTPS, n_rows, n_keys))
+    if n_rows < 3000:
+        FAIL.append('OBIS table suspiciously small: %d rows' % n_rows)
+    n_occ = by_type.get('OCCURRENCE', 0)
+    n_se = by_type.get('SAMPLING_EVENT', 0)
+    print('measured\trows=%d\toccurrence=%d\tsampling_event=%d' % (n_rows, n_occ, n_se))
+
+    SQL_EXAMPLE = (
+        "```sql\n"
+        "SELECT g.h6, COUNT(*) AS n\n"
+        "FROM read_parquet('s3://public-gbif/2026-06/hex/h0=*/data_0.parquet',"
+        " hive_partitioning=true) g\n"
+        "SEMI JOIN read_parquet('%s') o USING (datasetkey)\n"
+        "WHERE NOT list_has_any(g.issue, ['ZERO_COORDINATE','COORDINATE_INVALID',\n"
+        "                                 'COORDINATE_OUT_OF_RANGE',"
+        "'COUNTRY_COORDINATE_MISMATCH'])\n"
+        "GROUP BY g.h6;\n"
+        "```"
+    ) % PARQUET_S3
+
+    EFFORT_NOTE = (
+        'Counts from this join measure survey effort as much as biology. Marine sampling '
+        'follows ship tracks, research cruise transects and coastal access, so a densely '
+        'recorded cell means the area is well surveyed, and a sparse cell in the open ocean '
+        'usually means nobody has sampled there rather than that nothing lives there. Present '
+        'these as records, not as abundance or richness.'
+    )
+
+    ASSET_DESC = (
+        'One row per dataset belonging to the Ocean Biodiversity Information System (OBIS), '
+        'the global marine biodiversity network. OBIS publishes to GBIF as a network rather '
+        'than as a separate archive, so its marine records are already inside the occurrence '
+        'hex and this table is what identifies them: %s member datasets, of which %s are '
+        'occurrence datasets and %s are sampling-event datasets. Semi-join it on the hex\'s '
+        '`datasetkey` column to restrict a query to marine records without downloading a '
+        'separate dataset:\n\n%s\n\n'
+        'Both sides store the key as text, so the join needs no cast. Aggregate to resolution '
+        '5 or 6 for a global map; the occurrence hex is native resolution 10, which is far '
+        'more cells than a whole-ocean view can render.\n\n%s\n\n'
+        'OBIS membership grows as new datasets join the network, so this table is rebuilt '
+        'with each GBIF release and reflects membership at the 2026-06 snapshot. Non-spatial '
+        'lookup/crosswalk table (no geometry, no _cng_fid).'
+    ) % (format(n_rows, ','), format(n_occ, ','), format(n_se, ','), SQL_EXAMPLE, EFFORT_NOTE)
+
+    DESC_SECTION = (
+        '## Marine subset: restrict occurrences to OBIS\n'
+        'The Ocean Biodiversity Information System (OBIS) is a GBIF network, not a separate '
+        'archive, so its marine records are already in the hex. The hex keeps `datasetkey` '
+        'per record but no network column, so use the `%s` sidecar to identify them (%s '
+        'member datasets):\n\n%s\n\n'
+        'Marine sampling follows ship tracks and coastal access, so per-cell counts describe '
+        'survey effort as much as biology; report them as records rather than as abundance.'
+    ) % (ASSET_KEY, format(n_rows, ','), SQL_EXAMPLE)
+
+    # --- 1. the collection -------------------------------------------------------
+    doc = json.loads(subprocess.check_output(['rclone', 'cat', COLLECTION]))
+    changed = []
+
+    # `datasetkey` and `type` already carry canonical text on other assets here. The
+    # mcp-data-server renderer folds per-column descriptions by column NAME and keeps the
+    # first it sees, so a second, differently-worded copy is dropped silently. Reuse the
+    # existing text byte-for-byte instead of writing our own.
+    canon = {}
+    for asset in doc.get('assets', {}).values():
+        for col in asset.get('table:columns', []):
+            canon.setdefault(col['name'], col)
+    for required in ('datasetkey', 'type'):
+        if required not in canon:
+            FAIL.append('no existing `%s` column text to match' % required)
+
+    if not FAIL:
+        cols = [
+            {'name': 'datasetkey', 'type': 'string',
+             'description': canon['datasetkey']['description']},
+            {'name': 'type', 'type': 'string',
+             'description': canon['type']['description'],
+             'values': canon['type']['values']},
+            {'name': 'title', 'type': 'string',
+             'description': 'Dataset title as registered with GBIF.'},
+            {'name': 'publishing_org_key', 'type': 'string',
+             'description': 'UUID of the organization that published the dataset to OBIS, '
+                            'usually a national or regional OBIS node.'},
+        ]
+        want = {
+            'href': HREF,
+            'type': 'application/vnd.apache.parquet',
+            'title': 'OBIS network membership (sidecar, 2026-06)',
+            'roles': ['metadata'],
+            'description': ASSET_DESC,
+            'table:columns': cols,
+        }
+        if doc.setdefault('assets', {}).get(ASSET_KEY) != want:
+            doc['assets'][ASSET_KEY] = want
+            changed.append('assets.%s' % ASSET_KEY)
+
+        desc = (doc.get('description') or '').rstrip()
+        if 'Marine subset: restrict occurrences to OBIS' not in desc:
+            doc['description'] = desc + '\n\n' + DESC_SECTION + '\n'
+            changed.append('description+marine-subset')
+
+        kw = doc.setdefault('keywords', [])
+        for k in ('marine', 'OBIS'):
+            if k not in kw:
+                kw.append(k)
+                changed.append('keywords+%s' % k)
+
+    if FAIL:
+        print('FAILURES:')
+        for f in FAIL:
+            print('  ' + f)
+        sys.exit(1)
+
+    if changed:
+        open('/tmp/c.json', 'w').write(json.dumps(doc, indent=2, ensure_ascii=False))
+        json.load(open('/tmp/c.json'))          # re-parse before publishing
+        subprocess.check_call(['rclone', 'copyto', '/tmp/c.json', COLLECTION])
+        print('CHANGED\t%s\t%s' % (COLLECTION, ','.join(changed)))
+    else:
+        print('ALREADY\t%s' % COLLECTION)
+
+    # --- 2. the root catalog child link title ------------------------------------
+    root = json.loads(subprocess.check_output(['rclone', 'cat', ROOT]))
+    hits = [l for l in root.get('links', []) if l.get('id') == 'gbif-derived']
+    if len(hits) != 1:
+        print('FAIL: expected exactly one gbif-derived child link, found %d' % len(hits))
+        sys.exit(1)
+    link = hits[0]
+    if link.get('title') == ROOT_TITLE_OLD:
+        link['title'] = ROOT_TITLE_NEW
+        open('/tmp/r.json', 'w').write(json.dumps(root, indent=2, ensure_ascii=False))
+        json.load(open('/tmp/r.json'))
+        subprocess.check_call(['rclone', 'copyto', '/tmp/r.json', ROOT])
+        print('CHANGED\t%s\ttitle -> %s' % (ROOT, ROOT_TITLE_NEW))
+    elif link.get('title') == ROOT_TITLE_NEW:
+        print('ALREADY\t%s' % ROOT)
+    else:
+        print('FAIL: root link title is neither expected value: %r' % link.get('title'))
+        sys.exit(1)
+
+    # --- 3. confirm both documents round-trip ------------------------------------
+    back = json.loads(subprocess.check_output(['rclone', 'cat', COLLECTION]))
+    asset = back.get('assets', {}).get(ASSET_KEY)
+    if not asset:
+        print('FAIL: asset missing after write'); sys.exit(1)
+    if format(n_rows, ',') not in asset['description']:
+        print('FAIL: measured row count missing from published description'); sys.exit(1)
+    if [c['name'] for c in asset['table:columns']] != [
+            'datasetkey', 'type', 'title', 'publishing_org_key']:
+        print('FAIL: unexpected column list after write'); sys.exit(1)
+    backroot = json.loads(subprocess.check_output(['rclone', 'cat', ROOT]))
+    rt = [l['title'] for l in backroot['links'] if l.get('id') == 'gbif-derived']
+    if rt != [ROOT_TITLE_NEW]:
+        print('FAIL: root link title after write: %r' % rt); sys.exit(1)
+    n_children = len([l for l in backroot['links'] if l.get('rel') == 'child'])
+    print('verified\tasset=%s\trows=%d\troot_children=%d' % (ASSET_KEY, n_rows, n_children))
+    print('done')
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-obis-658
+  namespace: geo-workflows
+  labels: {k8s-app: stac-obis-658}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-obis-658}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: fix, mountPath: /config, readOnly: true}
+        command: [bash, -c, "set -uo pipefail; python3 /config/fix.py"]
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: fix, configMap: {name: stac-obis-658}}

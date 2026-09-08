@@ -1,0 +1,146 @@
+# GBIF 2026-06 — OBIS network membership sidecar (data-workflows #424, #658).
+# Tiny crosswalk: one row per dataset belonging to the OBIS (Ocean Biodiversity
+# Information System) GBIF network, so the occurrence hex can be subset to the marine
+# OBIS records with a semi-join on the hex's `datasetkey` column. The hex itself carries
+# no publisher/network provenance, so without this table there is no way to say "just
+# OBIS". Mirrors the publisher sidecar (gbif-2026-06-publishers.yaml): reads the registry
+# over https, writes S3 internal.
+#
+# OBIS membership GROWS over time, so regenerate this alongside every GBIF snapshot.
+# The registry's `dataset?networkKey=` filter is NOT honored (it returns recent datasets
+# regardless of network); /network/{key}/constituents is the authoritative feed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2026-06-obis-datasets
+  namespace: geo-workflows
+  labels:
+    k8s-app: gbif-2026-06-obis-datasets
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2026-06-obis-datasets
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: build-obis-datasets
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: "1", memory: 4Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: "1", memory: 4Gi, ephemeral-storage: 5Gi}
+        env:
+        - name: OBIS_NETWORK_KEY
+          value: '2b7c7b4f-4d4f-40d3-94de-c28b6fa054a6'
+        - name: DST
+          value: 's3://public-gbif/2026-06/obis-datasets.parquet'
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          python3 - <<'PYEOF'
+          import duckdb, json, os, time, urllib.request
+
+          net = os.environ["OBIS_NETWORK_KEY"]
+          dst = os.environ["DST"]
+          key = os.environ["AWS_ACCESS_KEY_ID"]
+          secret = os.environ["AWS_SECRET_ACCESS_KEY"]
+          endpoint = os.environ.get("AWS_S3_ENDPOINT", "rook-ceph-rgw-nautiluss3.rook")
+
+          # Paginate /network/{key}/constituents. Trust endOfRecords rather than `count`:
+          # the registry's declared count is only recorded for the log, not used to stop.
+          base = f"https://api.gbif.org/v1/network/{net}/constituents"
+          rows, offset, declared = [], 0, None
+          while True:
+              url = f"{base}?limit=1000&offset={offset}"
+              for attempt in range(5):
+                  try:
+                      with urllib.request.urlopen(url, timeout=120) as resp:
+                          page = json.load(resp)
+                      break
+                  except Exception as e:
+                      if attempt == 4:
+                          raise
+                      print(f"  retry {attempt+1} on offset={offset}: {e}", flush=True)
+                      time.sleep(5 * (attempt + 1))
+              if declared is None:
+                  declared = page.get("count")
+              for d in page["results"]:
+                  org = d.get("publishingOrganizationKey")
+                  rows.append({
+                      "datasetkey": str(d["key"]),
+                      "type": d.get("type"),
+                      "title": d.get("title"),
+                      "publishing_org_key": str(org) if org else None,
+                  })
+              print(f"  offset={offset} fetched={len(page['results'])} total={len(rows)}", flush=True)
+              if page.get("endOfRecords"):
+                  break
+              offset += 1000
+
+          # The feed can repeat a key across page boundaries; keep first occurrence so the
+          # semi-join against the hex is unambiguous.
+          seen, uniq = set(), []
+          for r in rows:
+              if r["datasetkey"] not in seen:
+                  seen.add(r["datasetkey"])
+                  uniq.append(r)
+          print(f"  fetched={len(rows)} unique={len(uniq)} registry_declared={declared}")
+          assert len(uniq) > 3000, f"OBIS constituent list suspiciously small: {len(uniq)}"
+
+          # Hand DuckDB newline-delimited JSON with an explicit schema so every column lands
+          # as VARCHAR. `datasetkey` MUST be VARCHAR to match the hex's own VARCHAR
+          # datasetkey, so the downstream semi-join needs no cast.
+          with open("/tmp/obis.ndjson", "w") as f:
+              for r in uniq:
+                  f.write(json.dumps(r) + "\n")
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000")
+          con.execute(
+              f"CREATE SECRET s3_secret (TYPE S3, KEY_ID '{key}', SECRET '{secret}', "
+              f"ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false)")
+          con.execute(f"""
+              COPY (
+                  SELECT datasetkey, type, title, publishing_org_key
+                  FROM read_json('/tmp/obis.ndjson', format='newline_delimited',
+                                 columns={{datasetkey: 'VARCHAR', type: 'VARCHAR',
+                                           title: 'VARCHAR', publishing_org_key: 'VARCHAR'}})
+              ) TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD)
+          """)
+
+          n, dk = con.execute(
+              f"SELECT COUNT(*), COUNT(DISTINCT datasetkey) FROM read_parquet('{dst}')"
+          ).fetchone()
+          print(f"  obis-datasets rows={n} distinct_datasetkey={dk}")
+          assert n == dk, "datasetkey not unique"
+          assert n == len(uniq), "written row count does not match fetched"
+          print(con.execute(
+              f"SELECT type, COUNT(*) n FROM read_parquet('{dst}') GROUP BY 1 ORDER BY n DESC"
+          ).fetchdf().to_string(index=False))
+          print("  OK")
+          PYEOF
