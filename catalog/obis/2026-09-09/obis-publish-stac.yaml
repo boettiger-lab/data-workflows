@@ -1,0 +1,42 @@
+# Publishes the STAC collection + README to public-obis and registers obis-derived in the
+# root catalog. Files come from the obis-2026-09-09-publish ConfigMap, generated from
+# measurements of the published hex (never edited by hand). Also removes the smoke-test prefix.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: obis-2026-09-09-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: obis-2026-09-09-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels: {k8s-app: obis-2026-09-09-publish-stac}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {memory: "2Gi", cpu: "1", ephemeral-storage: "2Gi"}
+          limits:   {memory: "2Gi", cpu: "1", ephemeral-storage: "2Gi"}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: files, mountPath: /files, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          rclone copyto /files/stac-collection.json nrp:public-obis/stac-collection.json
+          rclone copyto /files/README.md            nrp:public-obis/README.md
+          rclone copyto nrp:public-data/stac/catalog.json /tmp/root.json
+          python3 /files/append_root_child.py /tmp/root.json /tmp/root-new.json
+          rclone copyto /tmp/root-new.json nrp:public-data/stac/catalog.json
+          rclone purge nrp:public-obis/2026-09-09/smoke || true
+          echo "published"
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: files, configMap: {name: obis-2026-09-09-publish}}
