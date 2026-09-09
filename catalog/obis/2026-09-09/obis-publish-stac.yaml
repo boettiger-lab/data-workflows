@@ -30,10 +30,12 @@ spec:
         - -c
         - |
           set -euo pipefail
-          rclone copyto /files/stac-collection.json nrp:public-obis/stac-collection.json
-          rclone copyto /files/README.md            nrp:public-obis/README.md
+          # ConfigMap mounts are symlinks, which rclone's local backend rejects; dereference first.
+          cp -L /files/* /tmp/
+          rclone copyto /tmp/stac-collection.json nrp:public-obis/stac-collection.json
+          rclone copyto /tmp/README.md            nrp:public-obis/README.md
           rclone copyto nrp:public-data/stac/catalog.json /tmp/root.json
-          python3 /files/append_root_child.py /tmp/root.json /tmp/root-new.json
+          python3 /tmp/append_root_child.py /tmp/root.json /tmp/root-new.json
           rclone copyto /tmp/root-new.json nrp:public-data/stac/catalog.json
           rclone purge nrp:public-obis/2026-09-09/smoke || true
           echo "published"
