@@ -5,7 +5,9 @@
 #   kubectl -n geo-workflows get job gbif-2026-09-consolidate \
 #     -o jsonpath='{.status.failedIndexes}{"\n"}'
 # cross-checked against the h0 dirs actually present under 2026-09/hex/, since a job's
-# failedIndexes lags its last pod. The 2026-06 build needed 11 indices
+# failedIndexes lags its last pod: index 95 was still on a retry when the first batch was
+# applied and only failed afterwards, so this build ran 4..34 first and 95 as a separate
+# single-index job. The 8 here is the set a rebuild should use. The 2026-06 build needed 11 indices
 # (4,12,15,19,20,21,34,39,68,76,95); this one needs fewer, so never reuse that list:
 # the indices are positions in a build's own sorted h0 list and the OOM set moves
 # with the snapshot.
@@ -26,11 +28,11 @@ metadata:
   labels:
     k8s-app: gbif-2026-09-consolidate-rechunk
 spec:
-  completions: 7
+  completions: 8
   parallelism: 3
   completionMode: Indexed
   backoffLimitPerIndex: 3
-  maxFailedIndexes: 7
+  maxFailedIndexes: 8
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -68,7 +70,7 @@ spec:
         - name: REMAP
           # This build's OOM'd indices, from gbif-2026-09-consolidate .status.failedIndexes
           # cross-checked against the h0 partitions actually present under 2026-09/hex/.
-          value: "4,12,15,19,20,21,34"
+          value: "4,12,15,19,20,21,34,95"
         - name: DUCKDB_MEMORY_LIMIT
           value: "440GB"
         - name: DUCKDB_THREADS
