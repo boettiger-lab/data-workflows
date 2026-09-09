@@ -1,0 +1,78 @@
+# OBIS 2026-09-09 Stage 1: flatten + filter + h8/h0 index -> 2026-09-09/chunks/
+# Scripts come from the obis-2026-09-09-scripts ConfigMap (NOT a datasets-repo clone),
+# per AGENTS.md HARD BOUNDARY 2. Apply configmap.yaml first.
+# Reads the source direct from AWS Open Data. The raw staging job (provenance, Step 1b)
+# runs concurrently rather than ahead of this, so the build is not serialised behind it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: obis-2026-09-09-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: obis-2026-09-09-hex
+spec:
+  completions: 100
+  parallelism: 50
+  completionMode: Indexed
+  backoffLimitPerIndex: 5
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: obis-2026-09-09-hex
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+        - name: hex
+          image: ghcr.io/boettiger-lab/datasets:latest
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+            - name: AWS_S3_ENDPOINT
+              value: "rook-ceph-rgw-nautiluss3.rook"
+            - name: AWS_PUBLIC_ENDPOINT
+              value: "s3-west.nrp-nautilus.io"
+            - name: AWS_HTTPS
+              value: "false"
+            - name: AWS_VIRTUAL_HOSTING
+              value: "FALSE"
+            - name: TMPDIR
+              value: "/tmp"
+            - name: TOTAL_SHARDS
+              value: "100"
+            - name: JOB_COMPLETION_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+          resources:
+            requests: {cpu: "4", memory: 24Gi, ephemeral-storage: 20Gi}
+            limits:   {cpu: "4", memory: 24Gi, ephemeral-storage: 20Gi}
+          command:
+            - bash
+            - -lc
+            - |
+              pip install -q boto3
+              python3 -u /scripts/process_obis_h3.py
+      volumes:
+        - name: scripts
+          configMap:
+            name: obis-2026-09-09-scripts
