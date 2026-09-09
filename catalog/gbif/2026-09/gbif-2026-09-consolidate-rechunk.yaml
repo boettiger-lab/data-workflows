@@ -1,14 +1,14 @@
 # GBIF 2026-09 Stage 2 RECHUNK — the dense h0 partitions that OOM the standard
 # 120Gi consolidate job.
 #
-# ⛔ REMAP and `completions` below are PLACEHOLDERS. Fill them from THIS build's
-# failed indices after gbif-2026-09-consolidate finishes:
+# REMAP and `completions` are filled from THIS build's failed indices:
 #   kubectl -n geo-workflows get job gbif-2026-09-consolidate \
 #     -o jsonpath='{.status.failedIndexes}{"\n"}'
-# Set REMAP to that list and `completions` to its length. Do NOT reuse the 2026-06
-# list (4,12,15,19,20,21,34,39,68,76,95) — those indices are positions in that
-# build's sorted h0 list, and both the density ranking and the OOM set move with
-# the snapshot.
+# cross-checked against the h0 dirs actually present under 2026-09/hex/, since a job's
+# failedIndexes lags its last pod. The 2026-06 build needed 11 indices
+# (4,12,15,19,20,21,34,39,68,76,95); this one needs fewer, so never reuse that list:
+# the indices are positions in a build's own sorted h0 list and the OOM set moves
+# with the snapshot.
 #
 # Fix per project guidance: BIG RAM is the primary lever (in-memory dedup+sort is
 # much faster than PVC spill); fewer threads keeps peak memory efficient; the
@@ -26,11 +26,11 @@ metadata:
   labels:
     k8s-app: gbif-2026-09-consolidate-rechunk
 spec:
-  completions: 11   # PLACEHOLDER — set to len(REMAP)
+  completions: 7
   parallelism: 3
   completionMode: Indexed
   backoffLimitPerIndex: 3
-  maxFailedIndexes: 11   # PLACEHOLDER — set to len(REMAP)
+  maxFailedIndexes: 7
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -66,10 +66,9 @@ spec:
           mountPath: /scratch
         env:
         - name: REMAP
-          # PLACEHOLDER — replace with this build's failed indices (see header).
-          # Deliberately not parseable: an unedited apply crashes the pod immediately
-          # rather than silently rechunking indices 0..10 at 480Gi.
-          value: "FILL_ME"
+          # This build's OOM'd indices, from gbif-2026-09-consolidate .status.failedIndexes
+          # cross-checked against the h0 partitions actually present under 2026-09/hex/.
+          value: "4,12,15,19,20,21,34"
         - name: DUCKDB_MEMORY_LIMIT
           value: "440GB"
         - name: DUCKDB_THREADS
