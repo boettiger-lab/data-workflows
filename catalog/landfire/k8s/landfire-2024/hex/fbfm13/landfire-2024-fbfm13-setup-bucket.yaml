@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: landfire-2024-fbfm13-setup-bucket
+  namespace: geo-workflows
   labels:
     k8s-app: landfire-2024-fbfm13-setup-bucket
 spec:
