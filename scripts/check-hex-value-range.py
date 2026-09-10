@@ -54,13 +54,20 @@ def main():
     ap.add_argument("--bucket", required=True)
     ap.add_argument("--dataset", required=True)
     ap.add_argument("--column", required=True)
-    ap.add_argument("--min", type=float, required=True, help="minimum valid RAW value")
-    ap.add_argument("--max", type=float, required=True, help="maximum valid RAW value")
+    ap.add_argument("--min", type=float, default=float("-inf"), help="minimum valid RAW value")
+    ap.add_argument("--max", type=float, default=float("inf"), help="maximum valid RAW value")
     ap.add_argument("--scale", type=float, default=1.0,
                     help="raw -> physical multiplier, for reporting (e.g. 0.01 for kg/m^3 x100)")
     ap.add_argument("--unit", default="")
     ap.add_argument("--forbid", type=float, action="append", default=[],
                     help="a value that must not appear at all (fill/sentinel codes). Repeatable.")
+    ap.add_argument("--allowed-csv", metavar="URL",
+                    help="URL of the shipped legend CSV. Asserts SET MEMBERSHIP against its "
+                         "VALUE column instead of a range. Required for categorical layers: "
+                         "LANDFIRE class codes are not contiguous (FBFM13 has 18 classes in 3 "
+                         "runs; FVH has 55 in 28 runs spanning 11..651), so a min/max range "
+                         "admits codes that are not real classes.")
+    ap.add_argument("--value-col", default="VALUE", help="legend CSV column holding the code")
     ap.add_argument("--tolerance", type=float, default=1e-6,
                     help="float slack on the bounds; `mean` over identical pixels can land at "
                          "max+1e-14, which is noise rather than an out-of-range value")
@@ -68,16 +75,36 @@ def main():
 
     path = f"s3://{a.bucket}/{a.dataset}/hex/h0=*/data_0.parquet"
     col = a.column
+
+    allowed = None
+    if a.allowed_csv:
+        import csv, io, urllib.request as _u
+        with _u.urlopen(a.allowed_csv, timeout=120) as r:
+            text = r.read().decode("utf-8-sig", "replace")
+        rows = list(csv.DictReader(io.StringIO(text)))
+        allowed = sorted({int(x[a.value_col]) for x in rows
+                          if x.get(a.value_col, "").lstrip("-").isdigit()
+                          and int(x[a.value_col]) not in (-9999, 32767)})
+        if not allowed:
+            print(f"FAIL: no usable codes in {a.allowed_csv} column {a.value_col}")
+            return 1
+        print(f"  legend: {len(allowed)} classes from {a.allowed_csv.rsplit('/',1)[-1]}")
     forbid_sql = ", ".join(
         f"count(*) FILTER (WHERE {col} = {v}) AS forbid_{str(v).replace('-','neg').replace('.','_')}"
         for v in a.forbid) or "0 AS no_forbidden_declared"
+
+    if allowed is not None:
+        range_pred = (f"count(*) FILTER (WHERE {col} NOT IN "
+                      f"({', '.join(str(v) for v in allowed)}))")
+    else:
+        range_pred = (f"count(*) FILTER (WHERE {col} < {a.min - a.tolerance} "
+                      f"OR {col} > {a.max + a.tolerance})")
 
     sql = f"""
       SELECT count(*) AS cells,
              min({col}) AS lo, max({col}) AS hi, avg({col}) AS mean,
              count(*) FILTER (WHERE {col} IS NULL) AS nulls,
-             count(*) FILTER (WHERE {col} < {a.min - a.tolerance}
-                                 OR {col} > {a.max + a.tolerance}) AS out_of_range,
+             {range_pred} AS out_of_range,
              {forbid_sql}
       FROM read_parquet('{path}')
     """
@@ -102,7 +129,9 @@ def main():
         return int(f) if f == int(f) else f
 
     if get("out_of_range"):
-        fails.append(f"{get('out_of_range')} cells outside [{a.min}, {a.max}]")
+        where = ("not in the shipped legend" if allowed is not None
+                 else f"outside [{a.min}, {a.max}]")
+        fails.append(f"{get('out_of_range')} cells {where}")
     if get("nulls"):
         fails.append(f"{get('nulls')} NULL cells")
     for v in a.forbid:
