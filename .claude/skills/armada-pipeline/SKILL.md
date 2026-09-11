@@ -3,9 +3,11 @@ name: armada-pipeline
 description: >-
   Set up and use the Armada batch queue on NRP: headless device-code authentication (the
   documented PKCE flow cannot work from a shell), armadactl install and config, queue-to-namespace
-  mapping, Armada priority classes, and when to microslice work into thousands of small jobs
-  instead of hundreds of large ones. Use when armadactl hangs or will not authenticate, when a k8s
-  indexed job is hitting the completion cap, or when deciding between the k8s and Armada pathways.
+  mapping, Armada priority classes, when to microslice work into thousands of small jobs instead of
+  hundreds of large ones, and how to close the retry loop with gap-fill since Armada retries
+  nothing. Use when armadactl hangs or will not authenticate, when a k8s indexed job is hitting the
+  completion cap, when a fan-out has come back short, or when deciding between the k8s and Armada
+  pathways.
 ---
 
 # Armada Pipeline (NRP)
@@ -14,8 +16,12 @@ description: >-
 
 Armada's value is **not** automatic retry — the
 [NRP docs](https://nrp.ai/documentation/userdocs/running/scheduling/) state plainly that
-*"preempted jobs will not be automatically rescheduled"*. Reaching for Armada to survive
-preemption is the wrong reason.
+*"preempted jobs will not be automatically rescheduled"*, and `armadactl get retry-policies`
+returns `Unimplemented` on NRP. Reaching for Armada to survive preemption is the wrong reason.
+
+Because nothing retries, **gap-fill is a pipeline stage rather than an exception** — measured 1-4
+missing slices per 3,780 (~0.1%). See "Closing the retry loop" below; you no longer have to write
+the gap-fill by hand for a raster hex build.
 
 The real reason is that Armada is not bound by the k8s indexed-Job completion cap (~200, an etcd
 pressure limit). Millions of completions are fine. That makes **microslicing** practical, and
@@ -35,6 +41,34 @@ than placing 100 big ones — more so under preemption.
 
 Big jobs also make you *conservative*: a 35-step chain must request the peak requirement of its
 worst step, so every step pays that cost. One unit per job asks for what it needs.
+
+### Microslicing a raster hex is now generated, not hand-written
+
+`cng-datasets raster-workflow` emits sub-h0 units directly, so the CHELSA-era pattern of a
+bespoke `gen_armada_*.py` per dataset is no longer the only route for the **spatial** dimension:
+
+```bash
+cng-datasets raster-workflow --dataset <name> --source-url <url> --bucket <bucket> \
+  --h3-resolution 10 --chunk-resolution 2 --backend auto
+```
+
+`--chunk-resolution N` makes one job a res-N descendant of an h0 rather than a whole h0, cutting
+the largest chunk's cell count ~7x per level (measured: h1 4.6 GiB, h2 0.68 GiB, against ~32 GiB
+for a whole h0 at res 10). `--max-hex-memory 8Gi` picks the *coarsest* level that fits a budget —
+coarsest, because every extra level multiplies the pod count sevenfold and each pod schedules,
+pulls the image and reads the source. `--backend auto` then routes to Armada once the chunk count
+passes the ~200-pod k8s guideline, and to k8s below it.
+
+⚠️ **The budget model covers the cell enumeration, not the reducer's working set.** It reports a
+floor, not a guarantee. For a categorical layer under `mode`/`fractions` the binding term is the
+per-cell class map inside exactextract — LANDFIRE EVC's is ~4x VCC's — so `--max-hex-memory`
+under-predicts there. Chunking still fixes it (that map scales with cells too), but measure rather
+than trusting the auto-selected request on categorical layers.
+
+⚠️ **Still hand-written: the non-spatial dimensions.** CHELSA microsliced by
+`(h0, variable, GCM member)`; `--chunk-resolution` only splits space. A multi-variable or
+multi-member build still needs its own generator for the other axes, or `year=`-style partitioning
+(cng-datasets #172).
 
 ## ⛔ Authentication: use the device-code flow, not the documented PKCE flow
 
@@ -156,8 +190,35 @@ Verified 2026-08-19: **1,875 queues**, one per namespace, including `geo-workflo
 `biodiversity`, `biodiversity-llm` and `boettiger-lab`. Data-workflow jobs belong in
 **`geo-workflows`**.
 
-`cng_datasets/k8s/armada.py` defaults to `queue="biodiversity"`, which predates the
-`geo-workflows` migration — pass the right queue explicitly.
+### Queue and namespace are two fields, not one
+
+A submitted job set carries `queue` at the top and `namespace` on **each job**:
+
+```yaml
+queue: geo-workflows          # Armada's scheduling / accounting entity
+jobSetId: chelsa-hex
+jobs:
+  - namespace: geo-workflows  # the k8s namespace the pod is actually created in
+    priorityClassName: armada-default
+    podSpec: {...}
+```
+
+They are 1:1 *by NRP convention*, not by the format — nothing stops you submitting to one queue
+with pods in another namespace, though your access to the namespace still has to hold. The CHELSA
+run set both explicitly and identically (`gen_armada_hex.py` takes separate `--queue` and
+`--namespace`, each defaulting to `geo-workflows`), and the pods executed in `geo-workflows`,
+visible there as `armada-<jobid>-0`.
+
+⚠️ **`cng-datasets` derives the queue from `--namespace`**, passing `queue=namespace` for every
+converted step. So the queue follows whatever namespace you generated with — and
+`raster-workflow`/`workflow` still default `--namespace` to **`biodiversity`**. A generated Armada
+workflow with no `--namespace` therefore submits to the **`biodiversity`** queue, not
+`geo-workflows`, regardless of `convert_workflow_to_armada`'s own `geo-workflows` default, which
+the generators override. **Pass `--namespace geo-workflows` for data-workflows builds.**
+
+`cng_datasets/k8s/armada.py` now defaults to `queue="geo-workflows"` (it used to default to
+`biodiversity`, predating the migration), and the workflow generators pass the namespace
+explicitly in any case. Verified against cng-datasets `main`, 2026-09-11.
 
 ## Priority classes
 
@@ -167,9 +228,15 @@ Verified 2026-08-19: **1,875 queues**, one per namespace, including `geo-workflo
 | `armada-preemptible` | yes | 50 |
 | `armada-high-priority` | no | 1000 |
 
-`cng_datasets/k8s/armada.py` **defaults to `armada-preemptible`** and maps k8s `opportunistic`
-onto it. Preemptible is the right default *when microsliced*; pass `armada-default` when a unit is
-long enough that losing it hurts.
+`cng_datasets/k8s/armada.py` **defaults to `armada-default`** (non-preemptible), and the
+`opportunistic` → `armada-preemptible` mapping has been **removed**. It used to do both, which was
+the trap: an opportunistic k8s pod is preempted and then *recreated by its Job controller*, while a
+preempted Armada job simply stops, so the mapping preserved the preemption and dropped the
+recovery. Verified against cng-datasets `main`, 2026-09-11.
+
+Preemptible is still the right choice *when microsliced* — pass `--armada-priority-class
+preemptible` once a unit is short enough that losing it is cheap. The default is conservative
+because the converter reproduces whatever shape it is given, and that is not always small.
 
 Armada preemption acts only within Armada — its pods neither preempt nor are preempted by normal
 cluster pods.
@@ -180,18 +247,67 @@ The NRP docs warn that *"job specs (the YAML you submit) are visible to every us
 cluster"*, with no namespace restriction. Reference secrets via `secretKeyRef` — never inline a
 credential into a submitted spec.
 
-## Converting an existing k8s job
+## Getting work onto Armada
+
+**Preferred: generate it.** `--backend armada` (or `--backend auto`) on `workflow` /
+`raster-workflow` converts every step as it generates, emitting `armada-<name>-<step>.yaml`
+alongside the k8s manifests. Submit each in order with `armadactl submit`.
+
+**Converting a manifest you already have:**
 
 ```python
 from cng_datasets.k8s.armada import k8s_indexed_job_to_armada, save_armada_yaml
 import yaml
 with open('<name>-hex.yaml') as f:
     job_spec = yaml.safe_load(f)
-armada_spec = k8s_indexed_job_to_armada(job_spec, queue='<namespace>', job_set_id='<name>-hex')
+armada_spec = k8s_indexed_job_to_armada(job_spec, queue='geo-workflows', job_set_id='<name>-hex')
 save_armada_yaml(armada_spec, 'armada-<name>-hex.yaml')
 ```
 
-Submit with `armadactl submit <file>`; monitor at <https://armada-lookout.nrp-nautilus.io>.
+Pass `indices=[...]` to expand only some completions — that is what gap-fill uses.
+
+Monitor at <https://armada-lookout.nrp-nautilus.io>.
+
+## Closing the retry loop: gap-fill
+
+Nothing retries, so **every fan-out needs a completeness gate and a way to re-run what is
+missing.** For a sub-h0 raster hex build that is now built in:
+
+```bash
+# 1. The merge refuses to publish a partial build, and names what is absent.
+cng-datasets merge-chunks --chunks-dir s3://<bucket>/<ds>/hex-chunks \
+  --output-dir s3://<bucket>/<ds>/hex --expect-chunks 294
+#    Incomplete fan-out: 2 of 294 chunks never recorded completion.
+#      Missing chunk indices: 41,77
+
+# 2. Emit a job set for exactly those, and submit it.
+cng-datasets gapfill --chunks-dir s3://<bucket>/<ds>/hex-chunks --expect-chunks 294 \
+  --hex-manifest <ds>-hex.yaml --output armada-<ds>-gapfill.yaml
+armadactl submit armada-<ds>-gapfill.yaml
+
+# 3. Merge again. Re-running a chunk is idempotent, so a partial rerun is safe.
+```
+
+`gapfill` exits 0 when nothing is missing and 1 when it wrote a job set, so a pipeline branches on
+it the way it would on `diff`.
+
+⛔ **Find gaps by ENUMERATING the expected set, never by counting.** 3,779 of 3,780 reads as
+complete at a glance, and a count cannot tell you *which* slice is absent. Every chunk writes a
+completion marker under `_manifest/` **whether or not it produced data** — a chunk that does not
+overlap the raster legitimately writes no output, so counting output files cannot distinguish
+"nothing here" from "never ran".
+
+**Gap detection needs only S3 — no Armada and no Kubernetes access.** It reads the markers as an
+ordinary S3 client after a job set finishes, whatever submitted it. Only re-submitting needs
+`armadactl`. That is what lets the retry loop close without touching Armada's authentication,
+which (see above) is the real blocker for anything unattended.
+
+`catalog/bioclimate/scripts/armada_gapfill.py` remains the pattern for builds whose units are not
+plain h3 chunks — it enumerates the expected `(variable, member, h0)` set from S3 the same way.
+
+**The k8s backend needs none of this.** `backoffLimitPerIndex` + `maxFailedIndexes` retry a failed
+index in place and surface a partial run as `Failed`; that Job-level budget is precisely what
+conversion to Armada cannot carry across.
 
 ## ⛔ Concurrency is set by your RESOURCE REQUEST, not by a quota
 
@@ -286,6 +402,12 @@ query parameters so there is nothing to escape at all.
 
 - **k8s** — the standard route here. Right when the work is naturally a few hundred units and each
   is short. Pair with default priority (not `opportunistic`) for anything over ~1 hour; see the
-  `pod-preemption` skill.
+  `pod-preemption` skill. `cng-datasets` now omits `priorityClassName` by default and gives hex
+  fan-outs `backoffLimitPerIndex`, so a generated k8s job already has both.
 - **Armada** — right when the work microslices into thousands of small units, or when the ~200
-  completion cap forces artificial batching that inflates per-pod RAM and runtime.
+  completion cap forces artificial batching that inflates per-pod RAM and runtime. Budget for a
+  gap-fill pass: nothing retries, so a fan-out of a few thousand will lose one or two units.
+
+`--backend auto` makes that choice on chunk count alone (~200), which is a reasonable proxy but
+only a proxy — it does not know how long a unit runs or how expensive losing one is. Override it
+when you do.
