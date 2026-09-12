@@ -484,10 +484,71 @@ let the control plane reap it (skill `k8s-never-force-delete`).
 Causes and fixes — OOMKilled, evictions, `ContainerStatusUnknown`, flaky-node hangs,
 ephemeral-storage limits and PVC scratch, pod-quota errors, 404s on convert, blank PMTiles in
 MapLibre, DuckDB `stoi` — plus how to reprocess failed chunks: **skill `job-troubleshooting`**.
+## ⛔ Generate manifests with `cng-datasets`; declare every deviation
+
+`cng-datasets` is tested and has a deploy pipeline. A manifest typed by hand is neither, and it
+drifts from the tool in ways review does not catch — a missing `--nodata`, a stale reducer, a
+namespace that silently resolves to `default`.
+
+**Generate first, always:**
+
+```bash
+cng-datasets raster-workflow ... --output-dir catalog/<dataset>/k8s/<name>   # raster
+cng-datasets workflow        ... --output-dir catalog/<dataset>/k8s/<name>   # vector
+```
+
+The generated output carries a `# Generation command: cng-datasets ...` banner. **Keep it** — it is
+how a reviewer, and `scripts/check-generated-manifests.py`, tells generated from hand-written.
+
+**Deviating is allowed. Deviating silently is not.** Some shapes the generator genuinely cannot emit
+yet. When you must, say so in the manifest that deviates:
+
+```yaml
+# HAND-ROLLED: <why the generator cannot emit this> (<tracking issue>)
+```
+
+and for an edit on top of generated output:
+
+```yaml
+# DEVIATION from generated output (<tracking issue>): <what and why>
+```
+
+If the reason is a gap in the tool, **file it on `boettiger-lab/datasets` with a tested MRE**
+(Hard Boundary 2) and cite the issue, so the deviation is temporary rather than permanent. Known
+open gaps that legitimately force a hand edit today:
+
+| gap | issue |
+|---|---|
+| `--namespace` not stamped on step manifests | datasets#190 |
+| hex `completions` fixed at 122; no populated-h0 subset | datasets#191 |
+| multi-dimension fan-out (h0 × year/layer/reducer) | datasets#172 |
+| orchestrator cannot drive the Armada backend | datasets#39 |
+| Armada converter keeps k8s pod shape, drops retry | datasets#183 |
+
+**The gate.** CI runs `scripts/check-generated-manifests.py --base origin/main` over the recipes your
+PR touches. It ratchets rather than blocking on history: the ~33 pre-existing undeclared recipes are
+grandfathered until someone touches them.
+
+**Why this is a hard rule.** The catalog currently runs ~90 generated raster recipes against ~26
+hand-rolled, and the hand-rolled ones are disproportionately the large, expensive builds — because
+hand-rolling starts exactly where the work gets hard. The pattern is self-propagating: an agent
+copies the neighbouring recipe, and a reviewer unsure whether the deviation was deliberate does not
+challenge it. A stated reason turns "should I push back on this?" into "the file says why", which is
+the whole point.
+
 ## What NOT To Do
 
 - **Do not process data locally.** CLI generates YAML; the cluster does the work.
 - **Do not modify `cng_datasets/` source.** File an issue (see Hard Boundary 2).
+- ⛔ **An ephemeral eviction is indistinguishable from an OOM in `kubectl get pods`.** Both
+  report **exit 137** with `ContainerStatusUnknown` or `Error`. Only `kubectl describe pod`
+  reveals it: `Reason: Evicted` / `Pod ephemeral local storage usage exceeds the total limit
+  of containers`. **If pods die at 137 while sitting far below their memory limit, check
+  ephemeral before touching memory** — on #515 five fvc pods died at 21–23 GiB of a 128 GiB
+  limit and the memory request was raised twice for nothing. Size ephemeral from the work:
+  the raster hex step writes an **uncompressed fill-collapse intermediate**
+  (`/tmp/cng_collapsed_*.tif`) measured at **34 GB for a 4.32 GB COG**, ~8x the compressed
+  input, on top of the localized COG (boettiger-lab/datasets#209).
 - **Keep ephemeral-storage modest; generated YAMLs default to 250Gi, so reduce it.** 50Gi is a good default and what most jobs need. It is **not a hard cap** in `geo-workflows`: the LimitRange there sets `default: 50Gi` with `max` empty, so a larger request is legal and passes validation. (The 50Gi *clamp* was the legacy `biodiversity` namespace, which these jobs no longer run in.) Go above 50Gi only with a reason recorded in the manifest — `wrc-2` warps a striped CONUS source at 60Gi (#592) — and keep it courteous on shared nodes.
 - **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
 - **Do not record operational/how-to-work lessons in agent memory (`~/.claude/.../memory`).** This repo is cloned and run by students — and soon by always-on headless agents (Hermes/openclaw). Anything that should shape how tasks run here belongs in **this AGENTS.md or a local skill (`.claude/skills/`)**, so every clone and headless run behaves the same. A lesson saved only to one VM's memory silently diverges your experience from everyone else's. (Memory remains fine for genuinely personal, non-shareable session context.)

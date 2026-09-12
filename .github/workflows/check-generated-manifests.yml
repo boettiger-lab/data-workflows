@@ -1,0 +1,34 @@
+name: Generated manifests
+
+# Recipes must be cng-datasets output, or say why they are not (AGENTS.md).
+#
+# Ratchets rather than blocking on history: only the catalog paths this PR touches
+# are checked, so the pre-existing undeclared recipes are grandfathered until
+# someone edits them. The point is to stop the hand-rolled share from growing, and
+# to make a deviation something a reviewer can see rather than something they have
+# to suspect.
+on:
+  pull_request:
+    paths:
+      - 'catalog/**'
+      - 'scripts/check-generated-manifests.py'
+      - '.github/workflows/check-generated-manifests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # need the merge base to diff against
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check changed recipes are generated or declared
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=0
+          python3 scripts/check-generated-manifests.py --base "origin/${{ github.base_ref }}"

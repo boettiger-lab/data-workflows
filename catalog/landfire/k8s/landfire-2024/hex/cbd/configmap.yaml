@@ -1,0 +1,182 @@
+# Auto-generated ConfigMap for raster workflow
+# Generation command: cng-datasets raster-workflow --dataset landfire-2024-cbd --source-url "s3://public-landfire/landfire-2024-cbd/landfire-2024-cbd-cog.tif" --bucket public-landfire --h3-resolution 10 --parent-resolutions "9,8,0"
+apiVersion: v1
+data:
+  landfire-2024-cbd-hex.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: landfire-2024-cbd-hex
+      namespace: geo-workflows
+      labels:
+        k8s-app: landfire-2024-cbd-hex
+    spec:
+      completions: 6
+      parallelism: 6
+      completionMode: Indexed
+      backoffLimit: 0
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - type: DisruptionTarget
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: landfire-2024-cbd-hex
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: hex-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: GDAL_DATA
+              value: /usr/share/gdal
+            - name: PYTHONPATH
+              value: /usr/lib/python3/dist-packages
+            - name: BUCKET
+              value: public-landfire
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - "set -e\n\n# Only the h0 base cells this source overlaps (--h0-subset);\
+              \ the\n# completion index selects one of them.\nH0S=(12 14 20 50 71 78)\n\
+              H0=${H0S[$JOB_COMPLETION_INDEX]}\nif [ -z \"${JOB_COMPLETION_INDEX}\" ]\
+              \ || [ -z \"$H0\" ]; then\n  echo \"No h0 cell for completion index '${JOB_COMPLETION_INDEX}'\
+              \ in (${H0S[*]}) \u2014 completions must match the --h0-subset length\"\
+              \ >&2\n  exit 1\nfi\n\ncng-datasets raster --input \"s3://public-landfire/landfire-2024-cbd/landfire-2024-cbd-cog.tif\"\
+              \ --output-parquet s3://public-landfire/landfire-2024-cbd/hex/ --h0-index\
+              \ ${H0} --resolution 10 --parent-resolutions 9,8,0 --value-column cbd --hex-resampling\
+              \ mean --nodata \"-9999,0,32767\""
+            resources:
+              requests:
+                cpu: '4'
+                memory: 96Gi
+                ephemeral-storage: 40Gi
+              limits:
+                cpu: '4'
+                memory: 96Gi
+                ephemeral-storage: 40Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  landfire-2024-cbd-setup-bucket.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: landfire-2024-cbd-setup-bucket
+      namespace: geo-workflows
+      labels:
+        k8s-app: landfire-2024-cbd-setup-bucket
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: landfire-2024-cbd-setup-bucket
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: setup-bucket-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-landfire
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              echo "Setting up bucket with public access and CORS..."
+              cng-datasets storage setup-bucket \
+                --bucket "${BUCKET}" \
+                --remote nrp \
+                --verify
+
+              echo "Bucket setup complete!"
+            resources:
+              requests:
+                cpu: '1'
+                memory: 2Gi
+              limits:
+                cpu: '1'
+                memory: 2Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+kind: ConfigMap
+metadata:
+  name: landfire-2024-cbd-yamls
+  namespace: geo-workflows
