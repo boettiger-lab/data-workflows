@@ -540,6 +540,15 @@ the whole point.
 
 - **Do not process data locally.** CLI generates YAML; the cluster does the work.
 - **Do not modify `cng_datasets/` source.** File an issue (see Hard Boundary 2).
+- ⛔ **An ephemeral eviction is indistinguishable from an OOM in `kubectl get pods`.** Both
+  report **exit 137** with `ContainerStatusUnknown` or `Error`. Only `kubectl describe pod`
+  reveals it: `Reason: Evicted` / `Pod ephemeral local storage usage exceeds the total limit
+  of containers`. **If pods die at 137 while sitting far below their memory limit, check
+  ephemeral before touching memory** — on #515 five fvc pods died at 21–23 GiB of a 128 GiB
+  limit and the memory request was raised twice for nothing. Size ephemeral from the work:
+  the raster hex step writes an **uncompressed fill-collapse intermediate**
+  (`/tmp/cng_collapsed_*.tif`) measured at **34 GB for a 4.32 GB COG**, ~8x the compressed
+  input, on top of the localized COG (boettiger-lab/datasets#209).
 - **Keep ephemeral-storage modest; generated YAMLs default to 250Gi, so reduce it.** 50Gi is a good default and what most jobs need. It is **not a hard cap** in `geo-workflows`: the LimitRange there sets `default: 50Gi` with `max` empty, so a larger request is legal and passes validation. (The 50Gi *clamp* was the legacy `biodiversity` namespace, which these jobs no longer run in.) Go above 50Gi only with a reason recorded in the manifest — `wrc-2` warps a striped CONUS source at 60Gi (#592) — and keep it courteous on shared nodes.
 - **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
 - **Do not record operational/how-to-work lessons in agent memory (`~/.claude/.../memory`).** This repo is cloned and run by students — and soon by always-on headless agents (Hermes/openclaw). Anything that should shape how tasks run here belongs in **this AGENTS.md or a local skill (`.claude/skills/`)**, so every clone and headless run behaves the same. A lesson saved only to one VM's memory silently diverges your experience from everyone else's. (Memory remains fine for genuinely personal, non-shareable session context.)
