@@ -71,8 +71,24 @@ spec:
             exit 1
           fi
 
+          # Localize the tiles before mosaicking. gdal.Warp is already multithread=True, but
+          # reading 764 source tiles through /vsicurl leaves it ~16% CPU-bound and blocked on
+          # per-block HTTP round trips: the first attempt produced 945 MB of a ~12 GB zone-10
+          # warp in 30 minutes, which extrapolates past 24 hours for all four zones. Pulling
+          # the ~12 GB tile set to the scratch PVC first takes a couple of minutes over the
+          # internal endpoint and makes the warp disk-bound instead.
+          TILEDIR=/tmp/cng-raster-cache/tiles-$L
+          mkdir -p $TILEDIR
+          echo "=== localizing $L tiles to $TILEDIR ==="
+          rclone copy "nrp:public-rap/raw/$L/" "$TILEDIR/" \
+            --include "*.tif" --transfers 32 --checkers 32 --stats-one-line --stats 30s
+          LOCAL=$(ls -1 $TILEDIR/*.tif | wc -l)
+          echo "localized $LOCAL tiles"
+          test "$LOCAL" = "764"
+          du -sh $TILEDIR
+
           ARGS=()
-          for t in "${TILES[@]}"; do ARGS+=(--input "s3://public-rap/raw/$L/$t"); done
+          for t in "${TILES[@]}"; do ARGS+=(--input "$TILEDIR/$t"); done
 
           echo "=== mosaicking $L -> s3://public-rap/rap-$L-cog.tif ==="
           cng-datasets raster "${ARGS[@]}" \
@@ -81,6 +97,9 @@ spec:
             --resampling bilinear \
             --nodata "255" \
             --hex-resampling mean
+
+          echo "=== removing localized tiles from shared scratch ==="
+          rm -rf "$TILEDIR"
 
           echo "✓ $L mosaic complete"
         resources:

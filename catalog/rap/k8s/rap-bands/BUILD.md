@@ -132,6 +132,17 @@ a byte, at 4.8% CPU. Setting it to `rook-ceph-rgw-nautiluss3.rook` keeps those r
 100 Gb/s network. This is configuration, not a tool bug — the tool explicitly refuses to hardwire
 the endpoint. Writes were already fine, since they go through `/vsis3` and `AWS_S3_ENDPOINT`.
 
+**Localize the tiles before mosaicking — the endpoint fix alone is not enough.** `gdal.Warp` is
+already invoked with `multithread=True`, but reading 764 source tiles through `/vsicurl` leaves it
+blocked on per-block HTTP round trips: measured at **16% CPU across 8 cores**, producing 945 MB of
+a ~12 GB zone-10 warp in 30 minutes. Zone 10 is the smallest of the four groups, so that pace
+extrapolates past 24 hours before the ~60 GB merge even starts. `rclone copy` of the ~12 GB tile
+set to the scratch PVC takes a couple of minutes over the internal endpoint and makes the warp
+disk-bound instead. The job deletes its localized copy afterwards.
+
+The two lessons stack: the internal endpoint fixes *throughput*, localization fixes *latency*.
+Neither substitutes for the other when a job touches hundreds of files repeatedly.
+
 **`TMPDIR` must point at the scratch PVC.** `create_mosaic_cog` builds an *uncompressed*
 intermediate (`COMPRESS=NONE`) via `tempfile.mkdtemp()`. For the full western-US 10 m mosaic that
 is roughly 60 GB, against a 20 Gi ephemeral limit. `TMPDIR=/tmp/cng-raster-cache` on the
