@@ -10,6 +10,11 @@
 #   band 1 -> rap-afg-cover-cog.tif   (annual forb & grass, #667)
 #   band 4 -> rap-pfg-cover-cog.tif   (perennial forb & grass, #666 -- replaces the 6-band file)
 #
+# BIGTIFF=YES is REQUIRED, not defensive: a single band of this raster is ~6.6 GB, past the
+# 4 GB classic-TIFF limit. The COG driver's default sizing guessed wrong on compressed
+# output and the first run died ~70% through with
+#   ERROR 1: TIFFAppendToStrip:Maximum TIFF file size exceeded. Use BIGTIFF=YES
+#
 # Safe to overwrite rap-pfg-cover-cog.tif: the upstream original is staged at
 # s3://public-rap/raw/vegetation-cover-v3-2025.tif (37.59 GB). Both extracts complete before
 # either upload, so a failure cannot leave the bucket half-updated.
@@ -66,7 +71,7 @@ spec:
             gdal_translate -b ${BAND} -a_nodata 255 \
               -of COG \
               -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co NUM_THREADS=ALL_CPUS \
-              -co OVERVIEWS=IGNORE_EXISTING \
+              -co OVERVIEWS=IGNORE_EXISTING -co BIGTIFF=YES \
               --config GDAL_NUM_THREADS ALL_CPUS \
               $SRC /tmp/work/${OUT}
             echo "--- verifying ${OUT} is single-band ---"

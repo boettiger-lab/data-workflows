@@ -287,3 +287,55 @@ for c in COLLECTIONS:
     p = OUT / f"{c['id']}-stac-collection.json"
     p.write_text(json.dumps(c, indent=2, ensure_ascii=False) + "\n")
     print(f"  wrote {p.name}")
+
+# ---------------------------------------------------------------- parent bucket collection
+
+def parent(cols):
+    """Bucket-level meta-collection.
+
+    license "various" is correct and deliberate here: the two products genuinely differ
+    (RAP Vegetation Cover v3 is CC0-1.0, rangeland-s2 is CC-BY-4.0). Per the stac-authoring
+    rules a meta-collection with child links may use "various" WITHOUT a license link --
+    the real licences live on the children, which is what redistribution gating keys on.
+    A single parent-level link would misrepresent one of the two.
+    """
+    bboxes = [c["extent"]["spatial"]["bbox"][0] for c in cols]
+    union = [min(b[0] for b in bboxes), min(b[1] for b in bboxes),
+             max(b[2] for b in bboxes), max(b[3] for b in bboxes)]
+    return {
+        "type": "Collection",
+        "stac_version": "1.0.0",
+        "id": "public-rap",
+        "title": "Rangeland vegetation cover (RAP / rangeland-s2)",
+        "description": (
+            "Rangeland vegetation-cover products from NTSG at the University of Montana, "
+            "aggregated to H3 hexagonal cells.\n\n"
+            "Two different upstream products live here and they do not cover the same area or "
+            "carry the same licence. The RAP Vegetation Cover v3 layers (annual and perennial "
+            "forb and grass) are 30 m, cover the conterminous United States, and are released "
+            "under CC0 1.0. The rangeland-s2 layers (sagebrush and invasive annual grass) are "
+            "10 m, cover only the western United States out to about 101 degrees west, and are "
+            "released under CC BY 4.0, which requires attribution. Each collection states its "
+            "own licence and citation."),
+        "license": "various",
+        "keywords": ["rangeland", "vegetation cover", "RAP", "rangeland-s2", "NTSG", "H3"],
+        "extent": {
+            "spatial": {"bbox": [union]},
+            "temporal": {"interval": [["2025-01-01T00:00:00Z", "2025-12-31T23:59:59Z"]]},
+        },
+        "created": NOW,
+        "updated": NOW,
+        "links": [
+            {"rel": "self", "href": f"{BASE}/stac-collection.json", "type": "application/json"},
+            {"rel": "root", "href": ROOT, "type": "application/json"},
+            {"rel": "parent", "href": ROOT, "type": "application/json"},
+        ] + [
+            {"rel": "child", "href": f"{BASE}/{c['id']}/stac-collection.json",
+             "type": "application/json", "title": c["title"]}
+            for c in cols
+        ],
+    }
+
+p = OUT / "parent-stac-collection.json"
+p.write_text(json.dumps(parent(COLLECTIONS), indent=2, ensure_ascii=False) + "\n")
+print(f"  wrote {p.name} (4 child links, license=various)")

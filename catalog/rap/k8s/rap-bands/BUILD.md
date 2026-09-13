@@ -34,9 +34,19 @@ exactly the Pacific zone's geometry).
 
 ## Defect 1 — `rap-pfg-cover-cog.tif` was the raw 6-band stack (#666)
 
-The band subset never happened: 39.48 GB and 6 bands, against 1.32/1.85 GB single-band siblings.
-TiTiler returned HTTP 500 `Source data must be 1 band` for every tile, so the layer could not
-render at all. Fixed by `rap-extract-bands.yaml`.
+39.48 GB and 6 bands, against 1.32/1.85 GB single-band siblings. TiTiler returned HTTP 500
+`Source data must be 1 band` for every tile, so the layer could not render at all.
+
+**This one is not our recipe's fault.** `rap-pfg-cover-preprocess-cog.yaml` passes `--band 4`.
+The tool ignored it: with a single `--input`, `cng-datasets` never consults the band argument
+(`cog.py:1101` — it is applied only on the 2+ input mosaic branch), and exits 0 with no warning.
+Reproduced as boettiger-lab/datasets#214 — the identical command with the input listed twice
+returns one band, value 44; with it listed once, six bands.
+
+`rap-extract-bands.yaml` uses `gdal_translate` directly rather than the tool, so the fix does not
+wait on the upstream one. It needs `-co BIGTIFF=YES`: a single band is ~6.6 GB, past the 4 GB
+classic-TIFF limit, and the COG driver's default sizing guessed wrong on compressed output
+(`TIFFAppendToStrip:Maximum TIFF file size exceeded`, ~70% through the first attempt).
 
 ## Defect 2 — the hex was missing two CONUS h0 cells (#666)
 
