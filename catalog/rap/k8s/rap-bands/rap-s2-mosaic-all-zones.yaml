@@ -1,0 +1,83 @@
+# Issue #607: re-mosaic rap-arte and rap-iag from the FULL 764-tile 2025 set (UTM zones 10-13),
+# replacing the 117-tile zone-10-only COGs.
+#
+# Supersedes catalog/rap/k8s/rap-{arte,iag}/rap-{arte,iag}-preprocess-cog.yaml, which hardcoded
+# 117 --input paths. The tile list is enumerated from S3 at run time instead, so it cannot drift
+# from what was staged, and a short stage fails here rather than silently producing a small COG.
+#
+# Expected output: ~-125.05 .. -100.96, 28.68 .. 49.65 at 10 m, roughly 6-7 GB per layer
+# (the zone-10-only COGs were 1.32 GB / 1.85 GB).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-s2-mosaic-all-zones
+  namespace: geo-workflows
+  labels: {k8s-app: rap-s2-mosaic-all-zones}
+spec:
+  completions: 2
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
+  maxFailedIndexes: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rap-s2-mosaic-all-zones}}
+    spec:
+      restartPolicy: Never
+      # No priorityClassName -- a multi-hour mosaic must not be preemptible (skill pod-preemption).
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
+      containers:
+      - name: mosaic
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: GDAL_CACHEMAX, value: '8192'}
+        - {name: GDAL_HTTP_TIMEOUT, value: '120'}
+        - {name: GDAL_HTTP_MAX_RETRY, value: '5'}
+        - {name: RCLONE_CONFIG, value: /root/.config/rclone/rclone.conf}
+        - {name: TMPDIR, value: /tmp/cng-raster-cache}
+        - {name: CPL_TMPDIR, value: /tmp/cng-raster-cache}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scratch, mountPath: /tmp/cng-raster-cache}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          LAYERS=(arte iag); L=${LAYERS[$JOB_COMPLETION_INDEX]}
+
+          # Enumerate what is actually staged rather than hardcoding a tile list.
+          mapfile -t TILES < <(rclone lsf nrp:public-rap/raw/$L/ | grep -E "^${L}-2025-[0-9]+-[0-9]+-[0-9]+\.tif$" | sort)
+          echo "=== $L: ${#TILES[@]} staged tiles ==="
+          printf '%s\n' "${TILES[@]}" | awk -F- '{print $3}' | sort | uniq -c
+
+          if [ "${#TILES[@]}" != "764" ]; then
+            echo "FATAL: expected 764 staged tiles for $L, found ${#TILES[@]}. Run rap-s2-stage-all-zones first." >&2
+            exit 1
+          fi
+
+          ARGS=()
+          for t in "${TILES[@]}"; do ARGS+=(--input "s3://public-rap/raw/$L/$t"); done
+
+          echo "=== mosaicking $L -> s3://public-rap/rap-$L-cog.tif ==="
+          cng-datasets raster "${ARGS[@]}" \
+            --output-cog "s3://public-rap/rap-$L-cog.tif" \
+            --target-crs EPSG:4326 \
+            --resampling bilinear \
+            --nodata "255" \
+            --hex-resampling mean
+
+          echo "✓ $L mosaic complete"
+        resources:
+          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '8', memory: 64Gi, ephemeral-storage: 20Gi}

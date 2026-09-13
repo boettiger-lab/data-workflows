@@ -1,0 +1,89 @@
+# Issue #607: stage the FULL NTSG rangeland-s2 arte + iag 2025 tile set.
+#
+# Supersedes catalog/rap/k8s/rap-s2-stage.yaml, which matched
+#     ${L}-2025-10-[0-9]+-[0-9]+\.tif
+# reading the "10" as a month. It is the UTM ZONE. Upstream tiles are named
+#     {product}-{year}-{zone}-{easting}-{northing}.tif
+# and the zone field takes exactly four values -- 10, 11, 12, 13 -- with 117/201/217/229 tiles
+# each, identical in every year 2018-2025. A month field cannot be 13. That misreading staged
+# 117 of 764 tiles (15%), which is why rap-arte and rap-iag cover only the Pacific coast strip
+# and Wyoming is absent entirely.
+#
+# Full 2025 set: 764 tiles per layer, ~11 GB (arte) / ~12 GB (iag).
+# Target extent once mosaicked: -125.05 .. -100.96, 28.68 .. 49.65 (union of zones 10-13).
+# This is a WESTERN-US product -- it is not CONUS and must not be compared to one.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-s2-stage-all-zones
+  namespace: geo-workflows
+  labels: {k8s-app: rap-s2-stage-all-zones}
+spec:
+  completions: 2
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rap-s2-stage-all-zones}}
+    spec:
+      restartPolicy: Never
+      # No priorityClassName: this runs well over an hour, and `opportunistic` (-2000000000) makes
+      # a long pod preemptible for its whole life (skill pod-preemption).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: RCLONE_CONFIG, value: /root/.config/rclone/rclone.conf}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          LAYERS=(arte iag); L=${LAYERS[$JOB_COMPLETION_INDEX]}
+          NTSG=https://rangeland.ntsg.umt.edu/data/rangeland-s2/$L
+          mkdir -p /tmp/$L && cd /tmp/$L
+
+          curl -sS --max-time 900 --retry 3 "$NTSG/" -o listing.html
+          # Match EVERY zone, not just zone 10. Field order: product-year-zone-easting-northing.
+          grep -oE "${L}-2025-[0-9]+-[0-9]+-[0-9]+\.tif" listing.html | sort -u > tiles.txt
+          N=$(wc -l < tiles.txt)
+          echo "=== $L: found $N tiles for 2025 ==="
+          awk -F- '{print $3}' tiles.txt | sort | uniq -c
+
+          # Guard: upstream publishes 764 tiles per layer per year (117+201+217+229).
+          # If this ever changes, stop rather than silently stage a partial product again.
+          if [ "$N" != "764" ]; then
+            echo "FATAL: expected 764 tiles for $L 2025, found $N. Upstream layout may have changed." >&2
+            exit 1
+          fi
+
+          # Download and upload one zone at a time so peak local disk stays ~4 GB.
+          for Z in 10 11 12 13; do
+            echo "--- zone $Z ---"
+            grep -E "^${L}-2025-${Z}-" tiles.txt > zone.txt
+            echo "$(wc -l < zone.txt) tiles in zone $Z"
+            xargs -P 8 -I {} curl -sS --max-time 600 --retry 3 -O "$NTSG/{}" < zone.txt
+            rclone copy /tmp/$L nrp:public-rap/raw/$L/ --transfers 16 --s3-no-check-bucket --stats-one-line
+            rm -f ${L}-2025-${Z}-*.tif
+          done
+          rm -f listing.html tiles.txt zone.txt
+
+          STAGED=$(rclone ls nrp:public-rap/raw/$L/ | grep -c "${L}-2025-" || true)
+          echo "=== staged in S3: $STAGED ==="
+          test "$STAGED" = "764"
+          echo "✓ $L: all 764 tiles staged"
+        resources:
+          requests: {cpu: '4', memory: 8Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 8Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

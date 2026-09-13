@@ -1,3 +1,9 @@
+# ============================================================================
+# SUPERSEDED by rap-bands/rap-extract-bands.yaml -- DO NOT RUN (issue #666 defect 1).
+# This COG-ified the six-band RAP vegetation-cover stack whole; the band subset never
+# happened. The result could not render (TiTiler: "Source data must be 1 band") and, fed to
+# the hex step with no band selection, silently produced band 1 instead of band 4.
+# ============================================================================
 apiVersion: batch/v1
 kind: Job
 metadata:

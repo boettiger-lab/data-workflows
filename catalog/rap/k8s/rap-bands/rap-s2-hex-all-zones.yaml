@@ -1,0 +1,92 @@
+# Issue #607: re-hex rap-arte and rap-iag from the full-extent COGs.
+#
+# The h0 set is UNCHANGED from the previous build -- (12 20 50 71) was already correct. The old
+# build produced only 2 partitions not because the fan-out was wrong but because the zone-10-only
+# COG did not overlap the other two cells, so the tool skipped them. With the full mosaic in
+# place the same four indices fill in on their own.
+#
+# These are --h0-index values, resolved from the `i` column of s3://public-grids/hex/h0-valid.parquet:
+#   12 -> base cell  9   20 -> base cell 19   50 -> base cell 20   71 -> base cell 36
+# Note index 20 is base cell 19, NOT base cell 20.
+#
+# rangeland-s2 is a WESTERN-US product (UTM zones 10-13, stopping at -101). Four h0 cells is the
+# complete set for it -- base cells 21 and 34 lie east of -79 and can never contain data here.
+# Do not "fix" this to the six-cell CONUS set used by rap-afg-cover / rap-pfg-cover.
+#
+# Completion index maps to (layer, h0): 0-3 = arte x (12,20,50,71), 4-7 = iag x (12,20,50,71).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-s2-hex-all-zones
+  namespace: geo-workflows
+  labels: {k8s-app: rap-s2-hex-all-zones}
+spec:
+  completions: 8
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 8
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rap-s2-hex-all-zones}}
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: stratus1.nrp-espm.berkeley.edu
+      tolerations:
+      - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS, value: '8'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          LAYERS=(arte iag)
+          CHUNK_MAP=(12 20 50 71)
+          L=${LAYERS[$(( JOB_COMPLETION_INDEX / 4 ))]}
+          H0=${CHUNK_MAP[$(( JOB_COMPLETION_INDEX % 4 ))]}
+          echo "=== rap-$L res-10 mean, h0-index $H0 ==="
+
+          # The mosaic must have run: a zone-10-only COG would silently reproduce the
+          # truncated build this job exists to replace.
+          # Compare the eastern edge numerically -- a substring match on the longitude would
+          # accept the old -118.85 COG just as happily as a correct -100.96 one.
+          gdalinfo -json /vsis3/public-rap/rap-$L-cog.tif > /tmp/cog.json
+          python3 - <<'PYGUARD'
+          import json, sys
+          info = json.load(open('/tmp/cog.json'))
+          xs = [p[0] for p in info['wgs84Extent']['coordinates'][0]]
+          east = max(xs)
+          print(f"COG eastern edge: {east:.4f}")
+          if east > -105.0:
+              print("OK: full zone 10-13 extent")
+          else:
+              sys.exit(f"FATAL: eastern edge {east:.4f} -- this is still a zone-10-only COG. "
+                       "Run rap-s2-mosaic-all-zones first.")
+          PYGUARD
+
+          cng-datasets raster \
+            --input "s3://public-rap/rap-$L-cog.tif" \
+            --output-parquet s3://public-rap/rap-$L/hex/ \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column $L --hex-resampling mean --nodata "255"
+        resources:
+          requests: {cpu: '8', memory: 256Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 256Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

@@ -1,0 +1,89 @@
+# Issue #667: the 4 hex partitions published under rap-pfg-cover are actually BAND 1 --
+# annual forb & grass -- because the hex step was handed the 6-band COG with no band selection
+# (#666 defect 3). They are valid AFG data under the wrong name, so they are migrated to the AFG
+# collection rather than rebuilt: 384,922,346 rows, 3.42 GB, already at res 10 with parents
+# 9,8,0 and the `mean` reducer.
+#
+# The only change is the value column: pfg -> afg. Everything else (column order, types, ZSTD,
+# row-group sizing) is preserved so the migrated partitions are indistinguishable from the two
+# that #667 still has to build (h0-index 14 and 78).
+#
+# MUST run before rap-pfg-hex, which overwrites these same 4 partitions with genuine band-4 data.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-afg-migrate-hex
+  namespace: geo-workflows
+  labels: {k8s-app: rap-afg-migrate-hex}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: rap-afg-migrate-hex}
+    spec:
+      restartPolicy: Never
+      tolerations:
+      - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
+      containers:
+      - name: migrate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: HOME, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cat > /tmp/migrate.py <<'PY'
+          import duckdb, os, sys
+
+          CELLS = [
+              576812596024311807,   # base  9  (h0-index 12)
+              577164439745200127,   # base 19  (h0-index 20)
+              577199624117288959,   # base 20  (h0-index 50)
+              577762574070710271,   # base 36  (h0-index 71)
+          ]
+          SRC = "s3://public-rap/rap-pfg-cover/hex/h0={cell}/data_0.parquet"
+          DST = "s3://public-rap/rap-afg-cover/hex/h0={cell}/data_0.parquet"
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute(f"SET s3_endpoint='{os.environ['AWS_S3_ENDPOINT']}';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';")
+          con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+
+          total_in = total_out = 0
+          for cell in CELLS:
+              src, dst = SRC.format(cell=cell), DST.format(cell=cell)
+              n_in = con.execute(f"SELECT count(*) FROM read_parquet('{src}')").fetchone()[0]
+              # Column order and types preserved exactly; only the value column is renamed.
+              con.execute(f"""
+                  COPY (SELECT pfg AS afg, h10, h0, h8, h9 FROM read_parquet('{src}'))
+                  TO '{dst}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880)
+              """)
+              n_out = con.execute(f"SELECT count(*) FROM read_parquet('{dst}')").fetchone()[0]
+              cols = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{dst}')").fetchall()]
+              print(f"h0={cell}: {n_in} -> {n_out} rows, columns {cols}", flush=True)
+              assert n_in == n_out, f"row count changed for {cell}: {n_in} != {n_out}"
+              assert cols == ['afg', 'h10', 'h0', 'h8', 'h9'], f"unexpected schema {cols}"
+              total_in += n_in; total_out += n_out
+
+          print(f"TOTAL {total_in} -> {total_out}", flush=True)
+          assert total_in == total_out == 384922346, f"expected 384,922,346 rows, got {total_out}"
+          print("✓ migration verified")
+          PY
+          python3 /tmp/migrate.py
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 32Gi, ephemeral-storage: 20Gi}

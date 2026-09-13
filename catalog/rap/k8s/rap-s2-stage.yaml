@@ -1,3 +1,9 @@
+# ============================================================================
+# SUPERSEDED by rap-bands/rap-s2-stage-all-zones.yaml -- DO NOT RUN (issue #607).
+# The tile filter below reads `${L}-2025-10-...` as year-month. The field is the UTM ZONE,
+# and upstream publishes zones 10, 11, 12 and 13 (117/201/217/229 tiles). This staged 117 of
+# 764 tiles, which is why rap-arte and rap-iag covered only the Pacific coast strip.
+# ============================================================================
 # Stage NTSG rangeland-s2 arte (sagebrush) + iag (invasive annual grass) 2025-10 tiles to S3.
 # 117 UTM zone-10N (EPSG:32610) 10 m tiles per layer; mosaicked + reprojected to WGS84 by preprocess-cog.
 apiVersion: batch/v1
