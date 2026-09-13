@@ -540,6 +540,22 @@ the whole point.
 
 - **Do not process data locally.** CLI generates YAML; the cluster does the work.
 - **Do not modify `cng_datasets/` source.** File an issue (see Hard Boundary 2).
+- **Ephemeral is requestable well past the 50Gi default, but the two eviction modes differ —
+  only one is fixed by raising it.** A *limit* eviction (`usage exceeds the total limit of
+  containers <N>`) means the pod passed its own declared limit: unconditional, priority
+  irrelevant, raise the limit. A *node DiskPressure* eviction means the node ran short, and
+  the kubelet picks victims in **priority order** — so a large ephemeral request and
+  `priorityClassName: opportunistic` compound badly. If you raise ephemeral, do not also run
+  at opportunistic (see the pod-preemption skill). Verified 2026-09-13 by server-side
+  admission: 80Gi, 200Gi and 1Ti are all admitted in **both** `geo-workflows` and
+  `biodiversity`; neither namespace's LimitRange carries a `max`, and no ResourceQuota in
+  either mentions ephemeral. The real ceiling is node free space, not policy.
+- **Coming: Armada on 4x GB10 nodes, each with ~4 TB of local/ephemeral storage, largely
+  free.** That changes the calculus recorded here. Today, scratch-heavy raster work is
+  constrained by shared-node disk and must be sized carefully; on that hardware the
+  constraint largely disappears, and Armada becomes the natural home for scratch-heavy and
+  finely-chunked work (datasets#173) rather than a way to escape the k8s completion cap.
+  Until then, size ephemeral from the intermediate and keep priority at default.
 - ⛔ **An ephemeral eviction is indistinguishable from an OOM in `kubectl get pods`.** Both
   report **exit 137** with `ContainerStatusUnknown` or `Error`. Only `kubectl describe pod`
   reveals it: `Reason: Evicted` / `Pod ephemeral local storage usage exceeds the total limit
