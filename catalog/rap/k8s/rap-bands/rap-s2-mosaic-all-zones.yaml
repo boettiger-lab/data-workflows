@@ -1,12 +1,26 @@
-# Issue #607: re-mosaic rap-arte and rap-iag from the FULL 764-tile 2025 set (UTM zones 10-13),
+# Issue #607: mosaic rap-arte and rap-iag from the FULL 764-tile 2025 set (UTM zones 10-13),
 # replacing the 117-tile zone-10-only COGs.
 #
 # Supersedes catalog/rap/k8s/rap-{arte,iag}/rap-{arte,iag}-preprocess-cog.yaml, which hardcoded
-# 117 --input paths. The tile list is enumerated from S3 at run time instead, so it cannot drift
-# from what was staged, and a short stage fails here rather than silently producing a small COG.
+# 117 --input paths. The tile list is derived from the staged set at run time, so it cannot drift
+# from what was staged, and a short stage fails here rather than producing a small COG.
 #
-# Expected output: ~-125.05 .. -100.96, 28.68 .. 49.65 at 10 m, roughly 6-7 GB per layer
-# (the zone-10-only COGs were 1.32 GB / 1.85 GB).
+# ── Why plain GDAL instead of `cng-datasets raster --output-cog` ────────────────────────────
+# create_mosaic_cog writes every intermediate with COMPRESS=NONE. For this mosaic that is a
+# ~12 GB warp per UTM zone plus a ~60 GB merged intermediate -- roughly 140 GB of uncompressed
+# I/O. Measured on the rechunk-scratch CephFS PVC that ran at 39 MB/min with the process at
+# 0.17% of one core, i.e. fully blocked on storage; the same box writes 171 MB/min to node-local
+# ephemeral disk while computing at 43% of a core. Extrapolated, the tool path needed well over
+# 24 hours.
+#
+# Writing DEFLATE intermediates to ephemeral instead cuts the I/O roughly eight-fold and keeps
+# the whole job inside the 50Gi ephemeral cap:
+#   localized tiles ~12 GB  ->  warped (compressed) ~8 GB  ->  [tiles deleted]  ->  COG ~8 GB
+# Peak ~20 GB.
+#
+# This is the same reason rap-extract-bands.yaml uses gdal_translate directly. It is NOT a
+# workaround for boettiger-lab/datasets#214 (that is the --band defect); it is purely about
+# intermediate compression and storage choice.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -25,9 +39,6 @@ spec:
     spec:
       restartPolicy: Never
       # No priorityClassName -- a multi-hour mosaic must not be preemptible (skill pod-preemption).
-      volumes:
-      - {name: rclone-config, secret: {secretName: rclone-config}}
-      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
       containers:
       - name: mosaic
         image: ghcr.io/boettiger-lab/datasets:latest
@@ -36,72 +47,83 @@ spec:
         - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
         - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
         - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
-        # NOT the public host. cng-datasets resolves source rasters through
-        # _ensure_vsi_path(use_public_endpoint=True), which honours AWS_PUBLIC_ENDPOINT; left
-        # at s3-west.nrp-nautilus.io it reads every tile over the ~12 MB/s public path from
-        # inside the cluster. Pointing it at the internal RGW keeps those reads on the
-        # 100 Gb/s network. Writes already use /vsis3 via AWS_S3_ENDPOINT.
-        - {name: AWS_PUBLIC_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
         - {name: AWS_HTTPS, value: 'false'}
         - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
         - {name: GDAL_DATA, value: /usr/share/gdal}
         - {name: GDAL_CACHEMAX, value: '8192'}
-        - {name: GDAL_HTTP_TIMEOUT, value: '120'}
-        - {name: GDAL_HTTP_MAX_RETRY, value: '5'}
+        - {name: GDAL_NUM_THREADS, value: ALL_CPUS}
         - {name: RCLONE_CONFIG, value: /root/.config/rclone/rclone.conf}
-        - {name: TMPDIR, value: /tmp/cng-raster-cache}
-        - {name: CPL_TMPDIR, value: /tmp/cng-raster-cache}
+        - {name: CPL_TMPDIR, value: /tmp/work}
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
-        - {name: scratch, mountPath: /tmp/cng-raster-cache}
         command:
         - bash
         - -c
         - |-
           set -euo pipefail
-          LAYERS=(arte iag); L=${LAYERS[$JOB_COMPLETION_INDEX]}
+          LAYERS=(arte iag); export L=${LAYERS[$JOB_COMPLETION_INDEX]}
+          W=/tmp/work; T=/tmp/tiles
+          mkdir -p $W $T
 
-          # Enumerate what is actually staged rather than hardcoding a tile list.
-          mapfile -t TILES < <(rclone lsf nrp:public-rap/raw/$L/ | grep -E "^${L}-2025-[0-9]+-[0-9]+-[0-9]+\.tif$" | sort)
-          echo "=== $L: ${#TILES[@]} staged tiles ==="
-          printf '%s\n' "${TILES[@]}" | awk -F- '{print $3}' | sort | uniq -c
+          echo "=== localizing $L tiles ==="
+          rclone copy "nrp:public-rap/raw/$L/" "$T/" --include "*.tif" \
+            --transfers 32 --checkers 32 --stats-one-line --stats 30s
+          N=$(ls -1 $T/*.tif | wc -l)
+          echo "localized $N tiles"
+          test "$N" = "764"
+          du -sh $T
 
-          if [ "${#TILES[@]}" != "764" ]; then
-            echo "FATAL: expected 764 staged tiles for $L, found ${#TILES[@]}. Run rap-s2-stage-all-zones first." >&2
-            exit 1
-          fi
+          echo "=== per-zone VRTs ==="
+          VRTS=()
+          for Z in 10 11 12 13; do
+            ls -1 $T/${L}-2025-${Z}-*.tif > $W/z$Z.txt
+            echo "  zone $Z: $(wc -l < $W/z$Z.txt) tiles"
+            gdalbuildvrt -q -input_file_list $W/z$Z.txt $W/z$Z.vrt
+            VRTS+=($W/z$Z.vrt)
+          done
 
-          # Localize the tiles before mosaicking. gdal.Warp is already multithread=True, but
-          # reading 764 source tiles through /vsicurl leaves it ~16% CPU-bound and blocked on
-          # per-block HTTP round trips: the first attempt produced 945 MB of a ~12 GB zone-10
-          # warp in 30 minutes, which extrapolates past 24 hours for all four zones. Pulling
-          # the ~12 GB tile set to the scratch PVC first takes a couple of minutes over the
-          # internal endpoint and makes the warp disk-bound instead.
-          TILEDIR=/tmp/cng-raster-cache/tiles-$L
-          mkdir -p $TILEDIR
-          echo "=== localizing $L tiles to $TILEDIR ==="
-          rclone copy "nrp:public-rap/raw/$L/" "$TILEDIR/" \
-            --include "*.tif" --transfers 32 --checkers 32 --stats-one-line --stats 30s
-          LOCAL=$(ls -1 $TILEDIR/*.tif | wc -l)
-          echo "localized $LOCAL tiles"
-          test "$LOCAL" = "764"
-          du -sh $TILEDIR
+          # One warp over all four zone VRTs, so every zone lands on a single common grid.
+          # Warping them separately and merging afterwards risks grid mismatch at zone seams.
+          echo "=== warping 4 UTM zones -> EPSG:4326 (compressed) ==="
+          gdalwarp -t_srs EPSG:4326 -r bilinear \
+            -srcnodata 255 -dstnodata 255 \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 4096 \
+            -co COMPRESS=DEFLATE -co TILED=YES -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+            "${VRTS[@]}" $W/warped.tif
+          ls -lh $W/warped.tif
 
-          ARGS=()
-          for t in "${TILES[@]}"; do ARGS+=(--input "$TILEDIR/$t"); done
+          # Free the 12 GB of tiles before building the COG, to stay inside the ephemeral cap.
+          echo "=== freeing localized tiles ==="
+          rm -rf $T
 
-          echo "=== mosaicking $L -> s3://public-rap/rap-$L-cog.tif ==="
-          cng-datasets raster "${ARGS[@]}" \
-            --output-cog "s3://public-rap/rap-$L-cog.tif" \
-            --target-crs EPSG:4326 \
-            --resampling bilinear \
-            --nodata "255" \
-            --hex-resampling mean
+          echo "=== COG ==="
+          gdal_translate -of COG -a_nodata 255 \
+            -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+            $W/warped.tif $W/rap-$L-cog.tif
+          rm -f $W/warped.tif
 
-          echo "=== removing localized tiles from shared scratch ==="
-          rm -rf "$TILEDIR"
+          echo "=== verifying before upload ==="
+          BANDS=$(gdalinfo $W/rap-$L-cog.tif | grep -c '^Band ' || true)
+          echo "band count: $BANDS"
+          test "$BANDS" = "1"
+          python3 - <<'PYCHK'
+          import json, os, subprocess, sys
+          path = f"/tmp/work/rap-{os.environ['L']}-cog.tif"
+          info = json.loads(subprocess.run(["gdalinfo", "-json", path],
+                                           capture_output=True, text=True).stdout)
+          xs = [p[0] for p in info["wgs84Extent"]["coordinates"][0]]
+          east = max(xs)
+          print(f"eastern edge: {east:.4f}")
+          if east <= -105.0:
+              sys.exit(f"FATAL: eastern edge {east:.4f} -- zones 11-13 did not make it in.")
+          print("OK: full zone 10-13 extent")
+          PYCHK
 
+          echo "=== uploading ==="
+          rclone copyto --s3-no-check-bucket $W/rap-$L-cog.tif nrp:public-rap/rap-$L-cog.tif
           echo "✓ $L mosaic complete"
         resources:
-          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 20Gi}
-          limits:   {cpu: '8', memory: 64Gi, ephemeral-storage: 20Gi}
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

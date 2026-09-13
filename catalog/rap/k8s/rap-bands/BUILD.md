@@ -132,7 +132,38 @@ a byte, at 4.8% CPU. Setting it to `rook-ceph-rgw-nautiluss3.rook` keeps those r
 100 Gb/s network. This is configuration, not a tool bug — the tool explicitly refuses to hardwire
 the endpoint. Writes were already fine, since they go through `/vsis3` and `AWS_S3_ENDPOINT`.
 
-**Localize the tiles before mosaicking — the endpoint fix alone is not enough.** `gdal.Warp` is
+**The scratch PVC is the wrong place for raster intermediates.** This cost the most time to find,
+because two intermediate diagnoses looked right and were not. Measured, per-process, on the live
+job:
+
+| path | write | CPU |
+|---|---:|---:|
+| `create_mosaic_cog` onto the `rechunk-scratch` CephFS PVC | 39 MB/min | 10 ticks/min — **0.17% of one core** |
+| `gdal_translate` onto node-local ephemeral | 171 MB/min | 43% of a core |
+| `gdalwarp` + DEFLATE onto ephemeral | bursty | 37,314 ticks/min — **6.2 cores** |
+
+The job was never compute-limited; it was blocked writing to network storage. Two things fix it
+together, and neither is sufficient alone:
+
+1. **Write to node-local ephemeral, not the PVC.**
+2. **Compress the intermediates.** `create_mosaic_cog` writes every intermediate `COMPRESS=NONE`:
+   ~12 GB per UTM zone plus a ~60 GB merge, about 140 GB of uncompressed I/O. DEFLATE cuts that
+   roughly eight-fold, which is also what makes the job *fit* in the 50Gi ephemeral cap:
+   12 GB tiles → 8 GB warped → delete tiles → 8 GB COG, peaking near 20 GB.
+
+Because the tool hardcodes `COMPRESS=NONE`, the mosaic is built with plain
+`gdalbuildvrt` / `gdalwarp` / `gdal_translate -of COG` instead — the same reason
+`rap-extract-bands` uses `gdal_translate` directly. All four zone VRTs go through **one** warp so
+every zone lands on a common grid; warping per zone and merging afterwards risks a grid mismatch
+at the UTM seams.
+
+⚠️ **Measure per-process and instantaneously.** `ps` `%CPU` is a *lifetime average* and reported
+108% for a process that was actually idle; `rchar` did not reflect `/vsicurl` reads at all. Both
+sent this diagnosis in the wrong direction. Read `/proc/<pid>/io` and `/proc/<pid>/stat` deltas
+over a fixed window, and confirm the PID belongs to the current pod — a stale PID from a previous
+run reads as zero and looks like a stall.
+
+**Localizing the tiles is still worth doing — but it was not the main fix.** `gdal.Warp` is
 already invoked with `multithread=True`, but reading 764 source tiles through `/vsicurl` leaves it
 blocked on per-block HTTP round trips: measured at **16% CPU across 8 cores**, producing 945 MB of
 a ~12 GB zone-10 warp in 30 minutes. Zone 10 is the smallest of the four groups, so that pace
