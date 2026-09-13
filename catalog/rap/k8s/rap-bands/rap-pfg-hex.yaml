@@ -51,7 +51,12 @@ spec:
         - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
         - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
         - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
-        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        # NOT the public host. cng-datasets resolves source rasters through
+        # _ensure_vsi_path(use_public_endpoint=True), which honours AWS_PUBLIC_ENDPOINT; left
+        # at s3-west.nrp-nautilus.io it reads every tile over the ~12 MB/s public path from
+        # inside the cluster. Pointing it at the internal RGW keeps those reads on the
+        # 100 Gb/s network. Writes already use /vsis3 via AWS_S3_ENDPOINT.
+        - {name: AWS_PUBLIC_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
         - {name: AWS_HTTPS, value: 'false'}
         - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
         - {name: GDAL_DATA, value: /usr/share/gdal}

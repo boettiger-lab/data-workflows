@@ -121,6 +121,26 @@ not the 6-cell CONUS set. Base cells 21 and 34 lie east of −79° and can never
 pinning six would leave two indices permanently empty. The existing fan-out was already correct —
 only the COG beneath it was truncated.
 
+## Two configuration traps worth knowing before re-running any of this
+
+**`AWS_PUBLIC_ENDPOINT` must point at the internal RGW, not the public host.** `cng-datasets`
+resolves source rasters through `_ensure_vsi_path(use_public_endpoint=True)`, which honours
+`AWS_PUBLIC_ENDPOINT` and falls back to `AWS_S3_ENDPOINT`. The legacy manifests set it to
+`s3-west.nrp-nautilus.io`, so a job running *inside* the cluster read every source tile over the
+~12 MB/s public path. The first mosaic attempt spent 35 minutes opening 764 tiles without writing
+a byte, at 4.8% CPU. Setting it to `rook-ceph-rgw-nautiluss3.rook` keeps those reads on the
+100 Gb/s network. This is configuration, not a tool bug — the tool explicitly refuses to hardwire
+the endpoint. Writes were already fine, since they go through `/vsis3` and `AWS_S3_ENDPOINT`.
+
+**`TMPDIR` must point at the scratch PVC.** `create_mosaic_cog` builds an *uncompressed*
+intermediate (`COMPRESS=NONE`) via `tempfile.mkdtemp()`. For the full western-US 10 m mosaic that
+is roughly 60 GB, against a 20 Gi ephemeral limit. `TMPDIR=/tmp/cng-raster-cache` on the
+`rechunk-scratch` PVC keeps it off ephemeral storage. Note that PVC is shared with other work —
+never clear it wholesale.
+
+For the record, the mosaic path does set `BIGTIFF=IF_SAFER` on both its intermediate and its COG,
+so it does not hit the 4 GB ceiling that `gdal_translate -of COG` hit in `rap-extract-bands`.
+
 ## Run order
 
 ```bash
