@@ -32,8 +32,16 @@ def head(url):
     return created, size
 
 def cog_info(url):
-    """Measured band count and WGS84 bounds from the published COG."""
-    q = urllib.parse.quote(url, safe="")
+    """Measured band count and WGS84 bounds from the published COG.
+
+    TiTiler caches /cog/info per URL, and that cache outlives an overwrite of the object: after
+    rap-pfg-cover-cog.tif was replaced with a single-band file, TiTiler kept reporting the old
+    count=6 for the canonical URL. Emitting STAC from that would have refused to publish a
+    correct collection. A throwaway query parameter makes a fresh cache key; S3 ignores it, so
+    the bytes read are the same. The href written into the STAC stays clean.
+    """
+    probe = f"{url}?cachebust={int(datetime.datetime.now().timestamp())}"
+    q = urllib.parse.quote(probe, safe="")
     with urllib.request.urlopen(
             f"https://titiler.nrp-nautilus.io/cog/info?url={q}", timeout=180) as r:
         d = json.load(r)
