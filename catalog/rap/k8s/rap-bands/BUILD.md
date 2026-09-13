@@ -16,6 +16,9 @@ re-run.
 | CRS / pixel | EPSG:4326, ~30 m |
 | licence | **CC0-1.0** — <https://creativecommons.org/publicdomain/zero/1.0/> |
 | edition | v3.0; 2025 data released **2026-02-24** (upstream changelog) |
+| staged raw | `s3://public-rap/raw/vegetation-cover-v3-2025.tif`, 37,594,614,065 bytes |
+| staged raw SHA-256 | `012e29a570865ecf6845578a50fe7e3ea0fe68621bb4b150cb00308f20ea0e84` |
+| access date | 2026-06-13 (S3 last-modified of the staged copy) |
 | suitability | "primarily intended for rangeland ecosystems… may not be suitable in other ecosystems, e.g., forests, agricultural lands" |
 
 The previously published collections claimed `license: public-domain` with a link to
