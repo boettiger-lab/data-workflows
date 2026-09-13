@@ -53,12 +53,12 @@ spec:
           NTSG=https://rangeland.ntsg.umt.edu/data/rangeland-s2/$L
           mkdir -p /tmp/$L && cd /tmp/$L
 
-          curl -sS --max-time 900 --retry 3 "$NTSG/" -o listing.html
+          curl -sS --max-time 900 --retry 3 "$NTSG/" -o /tmp/listing.html
           # Match EVERY zone, not just zone 10. Field order: product-year-zone-easting-northing.
-          grep -oE "${L}-2025-[0-9]+-[0-9]+-[0-9]+\.tif" listing.html | sort -u > tiles.txt
-          N=$(wc -l < tiles.txt)
+          grep -oE "${L}-2025-[0-9]+-[0-9]+-[0-9]+\.tif" /tmp/listing.html | sort -u > /tmp/tiles.txt
+          N=$(wc -l < /tmp/tiles.txt)
           echo "=== $L: found $N tiles for 2025 ==="
-          awk -F- '{print $3}' tiles.txt | sort | uniq -c
+          awk -F- '{print $3}' /tmp/tiles.txt | sort | uniq -c
 
           # Guard: upstream publishes 764 tiles per layer per year (117+201+217+229).
           # If this ever changes, stop rather than silently stage a partial product again.
@@ -70,13 +70,12 @@ spec:
           # Download and upload one zone at a time so peak local disk stays ~4 GB.
           for Z in 10 11 12 13; do
             echo "--- zone $Z ---"
-            grep -E "^${L}-2025-${Z}-" tiles.txt > zone.txt
-            echo "$(wc -l < zone.txt) tiles in zone $Z"
-            xargs -P 8 -I {} curl -sS --max-time 600 --retry 3 -O "$NTSG/{}" < zone.txt
-            rclone copy /tmp/$L nrp:public-rap/raw/$L/ --transfers 16 --s3-no-check-bucket --stats-one-line
+            grep -E "^${L}-2025-${Z}-" /tmp/tiles.txt > /tmp/zone.txt
+            echo "$(wc -l < /tmp/zone.txt) tiles in zone $Z"
+            xargs -P 8 -I {} curl -sS --max-time 600 --retry 3 -O "$NTSG/{}" < /tmp/zone.txt
+            rclone copy /tmp/$L nrp:public-rap/raw/$L/ --include "*.tif" --transfers 16 --s3-no-check-bucket --stats-one-line
             rm -f ${L}-2025-${Z}-*.tif
           done
-          rm -f listing.html tiles.txt zone.txt
 
           STAGED=$(rclone ls nrp:public-rap/raw/$L/ | grep -c "${L}-2025-" || true)
           echo "=== staged in S3: $STAGED ==="

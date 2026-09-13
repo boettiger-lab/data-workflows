@@ -1,0 +1,59 @@
+# Publishes the STAC collections + README from a ConfigMap to s3://public-rap/.
+# STAC never lives in this repo (AGENTS.md Hard Boundary 1) and this laptop holds no NRP write
+# credentials by design -- geo-workflows is the only place they exist.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: rap-publish-stac}
+spec:
+  completions: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rap-publish-stac}}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        env:
+        - {name: RCLONE_CONFIG, value: /root/.config/rclone/rclone.conf}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: stac, mountPath: /stac, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          echo "=== files to publish ==="
+          ls -la /stac/
+
+          for ds in rap-afg-cover rap-pfg-cover rap-arte rap-iag; do
+            f="/stac/${ds}-stac-collection.json"
+            [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
+            python3 -c "import json,sys; json.load(open('$f'))"   # refuse to publish invalid JSON
+            echo "publishing $ds"
+            rclone copyto --s3-no-check-bucket "$f" "nrp:public-rap/${ds}/stac-collection.json"
+          done
+
+          echo "publishing bucket collection + README"
+          python3 -c "import json; json.load(open('/stac/parent-stac-collection.json'))"
+          rclone copyto --s3-no-check-bucket /stac/parent-stac-collection.json nrp:public-rap/stac-collection.json
+          rclone copyto --s3-no-check-bucket /stac/README.md nrp:public-rap/README.md
+
+          echo "=== verifying what is live ==="
+          for ds in rap-afg-cover rap-pfg-cover rap-arte rap-iag; do
+            echo -n "$ds: "
+            rclone cat "nrp:public-rap/${ds}/stac-collection.json" \
+              | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['id'], '|', d['license'], '|', d['extent']['spatial']['bbox'][0])"
+          done
+          echo "✓ published"
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: stac, configMap: {name: rap-stac}}
