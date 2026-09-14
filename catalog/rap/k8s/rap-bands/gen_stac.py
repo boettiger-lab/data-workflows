@@ -127,17 +127,15 @@ def build(ds, var, title, blurb, caveat, extent_note, licence, licence_url, lice
                 "weight each cell by its H3 cell area rather than counting cells, because H3 "
                 "cells are not equal-area.")
 
+    # No h3_cell_area() recipe here, deliberately: an inlined area formula drifts out of sync
+    # with mcp-server's h3-guide, and a stale copy previously undercounted a published extent
+    # by about 6% (#389). State the constraint, defer the method.
     hex_desc = (
         "One row per H3 cell at resolution 10, holding the area-weighted mean of the source "
         "pixels in that cell. Because the reducer is a mean rather than a sum, the value is "
-        "already an intensity: combine cells by averaging, weighted by cell area, rather than "
-        "adding them.\n\n"
-        "```sql\n"
-        "-- mean cover over a region, weighted by cell area\n"
-        f"SELECT SUM({var['col']} * h3_cell_area(h10, 'km^2')) / SUM(h3_cell_area(h10, 'km^2'))\n"
-        f"FROM read_parquet('{hex_href}')\n"
-        "WHERE h0 = 577199624117288959;\n"
-        "```\n\n"
+        "already an intensity: combine cells by averaging rather than adding them, and weight "
+        "by cell area rather than by a count of cells, because H3 cells are not equal-area. "
+        "The h3-guide gives the current method for cell area.\n\n"
         "Cells covering only no-data pixels are absent rather than present with a fill value, so "
         "there are no sentinel values to filter. Partitioned by h0 for hive-partitioned reads; h8 "
         "is the resolution shared with the rest of the catalog for joins.")
