@@ -30,5 +30,8 @@ jobs:
           python-version: '3.12'
       - name: Check changed recipes are generated or declared
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=0
+          # checkout above already ran with fetch-depth: 0, so the base branch ref is
+          # present; `--depth=0` here was rejected outright ("depth 0 is not a positive
+          # number") and failed the job before the check ever ran.
+          git fetch origin "${{ github.base_ref }}"
           python3 scripts/check-generated-manifests.py --base "origin/${{ github.base_ref }}"
