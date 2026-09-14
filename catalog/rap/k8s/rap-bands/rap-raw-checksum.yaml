@@ -1,0 +1,57 @@
+# Provenance (AGENTS.md Step 1b, stac-authoring): upstream republishes
+# vegetation-cover-v3-<year>.tif in place at the same URL with no dated archive, so once it is
+# overwritten our staged copy plus its checksum IS the provenance. The S3 ETag is useless for this
+# (multipart: "...-7171"), so compute a real SHA-256 by streaming the object over the internal
+# endpoint. Result goes in the description of both rap-afg-cover and rap-pfg-cover.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-raw-checksum
+  namespace: geo-workflows
+  labels: {k8s-app: rap-raw-checksum}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: rap-raw-checksum}
+    spec:
+      restartPolicy: Never
+      tolerations:
+      - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
+      containers:
+      - name: checksum
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        # rclone reads its config from the mount at /root/.config/rclone -- do NOT set HOME,
+        # or rclone looks in $HOME/.config/rclone and fails with "didn't find section in config file".
+        - {name: RCLONE_CONFIG, value: /root/.config/rclone/rclone.conf}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          echo "=== streaming s3://public-rap/raw/vegetation-cover-v3-2025.tif ==="
+          # Stream to stdout so nothing lands on ephemeral storage.
+          rclone cat nrp:public-rap/raw/vegetation-cover-v3-2025.tif \
+            | tee >(sha256sum > /tmp/sha) >(wc -c > /tmp/size) > /dev/null
+          echo "SHA256: $(cut -d' ' -f1 /tmp/sha)"
+          echo "BYTES:  $(cat /tmp/size)"
+          echo "(expected 37594614065 bytes)"
+          test "$(cat /tmp/size)" = "37594614065"
+          echo "✓ size matches S3 content-length"
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

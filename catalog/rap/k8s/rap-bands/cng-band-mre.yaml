@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cng-band-mre
+  namespace: geo-workflows
+  labels: {k8s-app: cng-band-mre}
+spec:
+  completions: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: cng-band-mre}}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: mre
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PYTHONUNBUFFERED, value: '1'}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+
+          echo "=== 1. build a 6-band raster, each band a distinct constant ==="
+          python3 - <<'PY'
+          from osgeo import gdal, osr
+          gdal.UseExceptions()
+          W = H = 40
+          ds = gdal.GetDriverByName('GTiff').Create('/tmp/sixband.tif', W, H, 6, gdal.GDT_Byte)
+          ds.SetGeoTransform((-116.200, 0.0001, 0, 43.600, 0, -0.0001))
+          srs = osr.SpatialReference(); srs.ImportFromEPSG(4326)
+          ds.SetProjection(srs.ExportToWkt())
+          for b, v in enumerate([11, 22, 33, 44, 55, 66], start=1):
+              band = ds.GetRasterBand(b)
+              band.WriteRaster(0, 0, W, H, bytes([v]) * (W * H))
+              band.SetNoDataValue(255)
+          ds = None
+          print("band 1=11  band 2=22  band 3=33  band 4=44  band 5=55  band 6=66")
+          PY
+          gdalinfo /tmp/sixband.tif | grep -E '^Band |Size is'
+
+          echo
+          echo "=== 2. run the hex step; no band is selectable on this path ==="
+          mkdir -p /tmp/out
+          cng-datasets raster \
+            --input /tmp/sixband.tif \
+            --output-parquet /tmp/out/ \
+            --h0-index 50 --resolution 5 --parent-resolutions 0 \
+            --value-column myvalue --hex-resampling mean --nodata 255
+
+          echo
+          echo "=== 3. what landed in the parquet ==="
+          python3 - <<'PY'
+          import glob, duckdb
+          files = glob.glob('/tmp/out/**/*.parquet', recursive=True)
+          print("files:", files)
+          con = duckdb.connect()
+          for f in files:
+              rows = con.execute(
+                  f"SELECT DISTINCT myvalue FROM read_parquet('{f}') ORDER BY 1").fetchall()
+              print(f"{f}: distinct myvalue = {[r[0] for r in rows]}")
+          vals = sorted({r[0] for f in files
+                         for r in con.execute(f"SELECT DISTINCT myvalue FROM read_parquet('{f}')").fetchall()})
+          print()
+          print(f"EXPECTED (band 4, as --value-column suggests the caller wanted): 44.0")
+          print(f"ACTUAL:   {vals}")
+          print("=> band 1 was read silently; there is no way to ask for another band on this path.")
+          PY
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 4Gi}

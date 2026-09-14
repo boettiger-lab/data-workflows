@@ -1,0 +1,73 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cng-band-mre2
+  namespace: geo-workflows
+  labels: {k8s-app: cng-band-mre2}
+spec:
+  completions: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: cng-band-mre2}}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: mre
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: PYTHONUNBUFFERED, value: '1'}
+        command:
+        - bash
+        - -c
+        - |-
+          set -uo pipefail
+          cd /tmp
+
+          cat > /tmp/make.py <<'PY'
+          from osgeo import gdal, osr
+          gdal.UseExceptions()
+          W = H = 40
+          ds = gdal.GetDriverByName('GTiff').Create('/tmp/sixband.tif', W, H, 6, gdal.GDT_Byte)
+          ds.SetGeoTransform((-116.200, 0.0001, 0, 43.600, 0, -0.0001))
+          srs = osr.SpatialReference(); srs.ImportFromEPSG(4326)
+          ds.SetProjection(srs.ExportToWkt())
+          for b, v in enumerate([11, 22, 33, 44, 55, 66], start=1):
+              band = ds.GetRasterBand(b)
+              band.WriteRaster(0, 0, W, H, bytes([v]) * (W * H))
+              band.SetNoDataValue(255)
+          ds = None
+          print("input: 6 bands, constants band1=11 band2=22 band3=33 band4=44 band5=55 band6=66")
+          PY
+
+          cat > /tmp/show.py <<'PY'
+          import sys
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open(sys.argv[1])
+          print(f"  {sys.argv[1]}: RasterCount = {ds.RasterCount}")
+          for b in range(1, ds.RasterCount + 1):
+              print(f"    band {b} first pixel = {ds.GetRasterBand(b).ReadRaster(0,0,1,1)[0]}")
+          PY
+
+          python3 /tmp/make.py
+
+          echo
+          echo "=== case A: ONE --input, --band 4 explicitly requested ==="
+          cng-datasets raster --input /tmp/sixband.tif --output-cog /tmp/one.tif \
+            --band 4 --target-crs EPSG:4326 --nodata 255 2>&1 | tail -4
+          python3 /tmp/show.py /tmp/one.tif
+
+          echo
+          echo "=== case B: identical request, input listed TWICE (mosaic path) ==="
+          cng-datasets raster --input /tmp/sixband.tif --input /tmp/sixband.tif \
+            --output-cog /tmp/two.tif \
+            --band 4 --target-crs EPSG:4326 --nodata 255 2>&1 | tail -4
+          python3 /tmp/show.py /tmp/two.tif
+
+          echo
+          echo "EXPECTED in both cases: RasterCount = 1, first pixel = 44"
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 4Gi}
