@@ -4,7 +4,15 @@
 Asset timestamps, sizes and bboxes are MEASURED from the live objects, never hardcoded.
 Run only after the COG and hex jobs have landed.
 """
-import json, subprocess, email.utils, datetime, pathlib, urllib.request
+import json, subprocess, email.utils, datetime, pathlib, urllib.request, importlib.util
+
+# Reuse the MCP client from scripts/verify-stac.py (hyphen in the name blocks a plain import).
+_vs_path = pathlib.Path(__file__).resolve().parents[3] / "scripts" / "verify-stac.py"
+if not _vs_path.exists():  # running from the scratch copy
+    _vs_path = pathlib.Path("/home/jovyan/data-workflows/scripts/verify-stac.py")
+_spec = importlib.util.spec_from_file_location("verify_stac", _vs_path)
+_vs = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_vs)
+MCP = _vs.MCPClient()
 
 OUT = pathlib.Path(__file__).parent / "stac"
 OUT.mkdir(exist_ok=True)
@@ -30,6 +38,24 @@ def head(url):
         elif k == "content-length":
             size = int(v)
     return created, size
+
+def hex_extent(href):
+    """Measured bbox of the HEX DATA, which is what the collection extent must describe.
+
+    The COG bbox is the rectangular envelope of the source tiles and can overstate the data:
+    rangeland-s2 masks pixels outside each tile's reference UTM zone, so the arte/iag rasters
+    extend to about -100.85 while actual data stops at the zone-13 boundary near -102. Declaring
+    the envelope would repeat, in miniature, the defect this rebuild exists to fix (#666) -- a
+    bbox that claims coverage the data does not have.
+    """
+    rows = MCP.query(
+        "SELECT round(min(h3_cell_to_lng(h10)),4) AS w, round(min(h3_cell_to_lat(h10)),4) AS s, "
+        "round(max(h3_cell_to_lng(h10)),4) AS e, round(max(h3_cell_to_lat(h10)),4) AS n "
+        f"FROM read_parquet('{href.replace('https://s3-west.nrp-nautilus.io/', 's3://')}', "
+        "hive_partitioning=true)")
+    r = rows[0]
+    return [float(r["w"]), float(r["s"]), float(r["e"]), float(r["n"])]
+
 
 def cog_info(url):
     """Measured band count and WGS84 bounds from the published COG.
@@ -81,10 +107,15 @@ S2_CITATION = (
     "https://doi.org/10.1038/s41597-025-06160-9. Accessed 2026-09-13.")
 S2_EXTENT_NOTE = (
     "Coverage is the western United States. Upstream publishes this product only for UTM zones 10 "
-    "through 13, so the data stop at about 101 degrees west; there is no data further east. That "
-    "is the product's extent rather than a gap in this copy — the same publisher does carry the "
-    "eastern zones for its companion plant-functional-type product, and deliberately does not "
-    "here.")
+    "through 13, so the data end at the eastern edge of zone 13, close to 102 degrees west, and "
+    "there is no data further east. That is the product's extent rather than a gap in this copy — "
+    "the same publisher carries the eastern zones for its companion plant-functional-type product "
+    "and deliberately does not here.\n\n"
+    "The cloud-optimized GeoTIFF's own bounding box reaches slightly further east, to about "
+    "100.8 degrees west, because it is the rectangular envelope of the source tile grid. Upstream "
+    "masks pixels that fall outside a tile's reference UTM zone, so that eastern margin of the "
+    "raster is no-data. The extent declared for this collection is the measured extent of the "
+    "data, not the envelope.")
 TILESET = {
     "arte": dict(n=764, bytes=11_545_139_799,
                  digest="0028a1f0fece3a604509afa31e0d3e7b854ff4905c7f6e2fc68a684ed14911ce"),
@@ -109,9 +140,13 @@ def build(ds, var, title, blurb, caveat, extent_note, licence, licence_url, lice
     cog_href = f"{BASE}/{ds}-cog.tif"
     hex_href = f"{BASE}/{ds}/hex/h0=*/data_0.parquet"
 
-    nbands, bbox = cog_info(cog_href)
+    nbands, cog_bbox = cog_info(cog_href)
     if nbands != 1:
         raise SystemExit(f"{ds}: COG reports {nbands} bands; expected 1. Do not publish.")
+    # Collection extent describes the DATA, measured from the hex, not the COG envelope.
+    bbox = hex_extent(hex_href)
+    drift = round(cog_bbox[2] - bbox[2], 3)
+    print(f"  {ds}: cog east {cog_bbox[2]}, data east {bbox[2]} (envelope exceeds data by {drift} deg)")
     cog_created, cog_size = head(cog_href)
 
     desc = "\n\n".join(x for x in [
