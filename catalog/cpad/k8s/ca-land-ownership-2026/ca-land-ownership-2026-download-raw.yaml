@@ -1,0 +1,95 @@
+# Step 1b: fetch CAL FIRE "California Land Ownership (public)" and stage it at
+# s3://public-cpad/raw/ for the vector convert step.
+#
+# Source (issue #671): CAL FIRE, compiled from CPAD2025b + US FWS FWSInterest +
+# DoD Military Bases + BIA Surface Trust/LAR. Upstream edition label: "updated May, 2026";
+# ArcGIS item modified 2026-06-22T17:29:49Z. 57,404 polygon features at access time.
+# Landing page: https://data.ca.gov/dataset/california-land-ownership-public
+#
+# Exported via the CNRA hub download API in EPSG:4326 (the default export is 3857).
+# Run this BEFORE the workflow orchestrator.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ca-land-ownership-2026-download-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: ca-land-ownership-2026-download-raw
+spec:
+  backoffLimit: 3
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: ca-land-ownership-2026-download-raw
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: download
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "2"
+            ephemeral-storage: "20Gi"
+          limits:
+            memory: "8Gi"
+            cpu: "2"
+            ephemeral-storage: "20Gi"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+          SRC="https://gis.data.cnra.ca.gov/api/download/v1/items/bd68c63f1905437a879115380b1f0201/shapefile?layers=0&spatialRefId=4326"
+          echo "Downloading CAL FIRE California Land Ownership (public), EPSG:4326 shapefile export..."
+          curl -L --retry 5 --retry-delay 10 --max-time 3600 -o ca-land-ownership-2026.zip "$SRC"
+          ls -la ca-land-ownership-2026.zip
+
+          echo "=== Verifying export integrity ==="
+          unzip -t ca-land-ownership-2026.zip > /dev/null
+          SHP=$(unzip -Z1 ca-land-ownership-2026.zip | grep -i '\.shp$' | head -1)
+          echo "shapefile member: $SHP"
+          ogrinfo -al -so "/vsizip//tmp/ca-land-ownership-2026.zip/$SHP" | sed -n '1,40p'
+
+          N=$(ogrinfo -al -so "/vsizip//tmp/ca-land-ownership-2026.zip/$SHP" | grep -i '^Feature Count' | head -1 | awk '{print $NF}')
+          echo "Feature count: $N (expected 57404 at access 2026-09-14)"
+          if [ "$N" -lt 57000 ]; then
+            echo "ERROR: export looks truncated (got $N, expected ~57404). Aborting."
+            exit 1
+          fi
+
+          echo "=== Staging to s3://public-cpad/raw/ ==="
+          rclone mkdir nrp:public-cpad/raw
+          rclone copyto ca-land-ownership-2026.zip \
+            nrp:public-cpad/raw/ca-land-ownership-2026.zip -P
+
+          echo "=== Provenance (record these in the STAC) ==="
+          # NOTE: Ceph RGW does not serve sha256 via `rclone hashsum` ("hash type not
+          # supported"); md5 comes from the object ETag. sha256 is computed by streaming
+          # the staged object back, so the digest is recomputed from S3, never transcribed.
+          rclone size   nrp:public-cpad/raw/ca-land-ownership-2026.zip
+          rclone md5sum nrp:public-cpad/raw/ca-land-ownership-2026.zip
+          rclone cat    nrp:public-cpad/raw/ca-land-ownership-2026.zip | sha256sum
+          echo "✓ Complete"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
