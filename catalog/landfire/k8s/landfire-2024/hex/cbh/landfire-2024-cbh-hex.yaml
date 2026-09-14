@@ -1,0 +1,108 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landfire-2024-cbh-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: landfire-2024-cbh-hex
+spec:
+  # DEVIATION from generated output (.claude/skills/pod-preemption): raster-workflow emits
+  # `priorityClassName: opportunistic` (priority -2000000000) and `backoffLimit: 0`. The skill
+  # forbids both for a long fan-out: "Do not run long pods at opportunistic" and "never
+  # backoffLimit: 0 on a fan-out". These slices measured ~7 h each, so at opportunistic they
+  # are a large preemption target, and with backoffLimit 0 a single death fails the index with
+  # no retry. Default priority 0 is admitted in geo-workflows (verified: inhabit-v4-hex runs
+  # at 0). Parallelism halved 6 -> 3 as the skill prescribes, so raising priority does not
+  # grow our claim on shared nodes.
+  completions: 6
+  parallelism: 3
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 6
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: landfire-2024-cbh-hex
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        # DEVIATION from generated output (boettiger-lab/datasets#195, open): no --hex-workers
+        # flag exists, so CNG_HEX_WORKERS must be set by hand. Measured on this tranche
+        # (2.09-2.61 GB COGs, res 10, 282M cells/h0): 48-64 workers (the tool default) peaked
+        # at 190.5 GiB and completed nothing in 3h40m; 8 workers peaked ~37 GiB and completed
+        # 6/6; 2 workers still OOMed a 32 GiB pod. So peak is dominated by a fixed per-h0 term,
+        # not by worker count, and 8 is the throughput sweet spot rather than a memory risk.
+        # Drop this once #195 lands.
+        - {name: CNG_HEX_WORKERS, value: '8'}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: BUCKET
+          value: public-landfire
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - "set -e\n\n# Only the h0 base cells this source overlaps (--h0-subset);\
+          \ the\n# completion index selects one of them.\nH0S=(12 14 20 50 71 78)\n\
+          H0=${H0S[$JOB_COMPLETION_INDEX]}\nif [ -z \"${JOB_COMPLETION_INDEX}\" ]\
+          \ || [ -z \"$H0\" ]; then\n  echo \"No h0 cell for completion index '${JOB_COMPLETION_INDEX}'\
+          \ in (${H0S[*]}) \u2014 completions must match the --h0-subset length\"\
+          \ >&2\n  exit 1\nfi\n\ncng-datasets raster --input \"s3://public-landfire/landfire-2024-cbh/landfire-2024-cbh-cog.tif\"\
+          \ --output-parquet s3://public-landfire/landfire-2024-cbh/hex/ --h0-index\
+          \ ${H0} --resolution 10 --parent-resolutions 9,8,0 --value-column cbh --hex-resampling\
+          \ mean --nodata \"-9999,0,32767\""
+        resources:
+          requests:
+            cpu: '4'
+            memory: 64Gi
+            ephemeral-storage: 40Gi
+          limits:
+            cpu: '4'
+            memory: 64Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
