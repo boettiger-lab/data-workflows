@@ -93,12 +93,14 @@ def main():
         f"count(*) FILTER (WHERE {col} = {v}) AS forbid_{str(v).replace('-','neg').replace('.','_')}"
         for v in a.forbid) or "0 AS no_forbidden_declared"
 
-    if allowed is not None:
-        range_pred = (f"count(*) FILTER (WHERE {col} NOT IN "
-                      f"({', '.join(str(v) for v in allowed)}))")
-    else:
-        range_pred = (f"count(*) FILTER (WHERE {col} < {a.min - a.tolerance} "
-                      f"OR {col} > {a.max + a.tolerance})")
+    # Membership is checked CLIENT-side, from a cheap DISTINCT aggregate, not by pushing a
+    # huge NOT IN predicate to the engine. LANDFIRE FVT has 906 legend classes, and a
+    # 906-value NOT IN over 566 M rows did not complete at all -- a checker that hangs is
+    # worse than one that fails, because it looks like patience. DISTINCT on a
+    # low-cardinality column is a small aggregate regardless of legend size.
+    range_pred = ("0" if allowed is not None else
+                  f"count(*) FILTER (WHERE {col} < {a.min - a.tolerance} "
+                  f"OR {col} > {a.max + a.tolerance})")
 
     sql = f"""
       SELECT count(*) AS cells,
@@ -111,6 +113,17 @@ def main():
     row = run_sql(sql)
     print(f"=== {a.dataset}.{col} ===")
     print(f"  {row}")
+
+    stray = []
+    if allowed is not None:
+        present_raw = run_sql(
+            f"SELECT string_agg(DISTINCT CAST(CAST({col} AS BIGINT) AS VARCHAR), ',') AS v "
+            f"FROM read_parquet('{path}')")
+        raw = (present_raw or {}).get("v") or ""
+        present = {int(x) for x in raw.split(",") if x.strip().lstrip("-").isdigit()}
+        stray = sorted(present - set(allowed))
+        print(f"  {len(present)} distinct values present; {len(set(allowed) - present)} "
+              f"legend classes unused")
 
     fails = []
     r = row if isinstance(row, dict) else {}
@@ -128,10 +141,11 @@ def main():
             return v
         return int(f) if f == int(f) else f
 
-    if get("out_of_range"):
-        where = ("not in the shipped legend" if allowed is not None
-                 else f"outside [{a.min}, {a.max}]")
-        fails.append(f"{get('out_of_range')} cells {where}")
+    if stray:
+        fails.append(f"{len(stray)} value(s) not in the shipped legend: "
+                     f"{stray[:20]}{' ...' if len(stray) > 20 else ''}")
+    if allowed is None and get("out_of_range"):
+        fails.append(f"{get('out_of_range')} cells outside [{a.min}, {a.max}]")
     if get("nulls"):
         fails.append(f"{get('nulls')} NULL cells")
     for v in a.forbid:
