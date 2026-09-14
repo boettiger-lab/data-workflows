@@ -16,11 +16,12 @@ collection's own metadata.
 
 Usage:  ./verify-rap-build.py [collection ...]      (default: all four)
 """
-import json, sys, urllib.parse, urllib.request, pathlib, importlib.util
+import json, sys, datetime, urllib.parse, urllib.request, pathlib, importlib.util
 
 # Reuse the MCP client from scripts/verify-stac.py. Loaded by path because the hyphen in the
 # filename makes it unimportable by name.
-_path = pathlib.Path(__file__).resolve().parents[3] / "scripts" / "verify-stac.py"
+# catalog/rap/k8s/rap-bands/ -> repo root is parents[4], not [3].
+_path = pathlib.Path(__file__).resolve().parents[4] / "scripts" / "verify-stac.py"
 _spec = importlib.util.spec_from_file_location("verify_stac", _path)
 _vs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_vs)
@@ -52,7 +53,8 @@ SPECS = {
 }
 
 def cog_info(url):
-    q = urllib.parse.quote(url, safe="")
+    probe = f"{url}?cachebust={int(datetime.datetime.now().timestamp())}"
+    q = urllib.parse.quote(probe, safe="")
     with urllib.request.urlopen(f"{TITILER}/cog/info?url={q}", timeout=180) as r:
         return json.load(r)
 
@@ -60,9 +62,12 @@ def cog_window_mean(url, w, e, s, n):
     """Mean of band 1 over a lon/lat box, from the published COG."""
     feat = {"type": "Feature", "properties": {}, "geometry": {"type": "Polygon",
             "coordinates": [[[w, s], [e, s], [e, n], [w, n], [w, s]]]}}
-    q = urllib.parse.quote(url, safe="")
+    # max_size=1024 returns HTTP 500 from this TiTiler; 512 is ample for a 1-degree window.
+    # The cachebust parameter avoids TiTiler's per-URL cache, which survives object overwrites.
+    probe = f"{url}?cachebust={int(datetime.datetime.now().timestamp())}"
+    q = urllib.parse.quote(probe, safe="")
     req = urllib.request.Request(
-        f"{TITILER}/cog/statistics?url={q}&max_size=1024",
+        f"{TITILER}/cog/statistics?url={q}&max_size=512",
         data=json.dumps(feat).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=600) as r:
         d = json.load(r)
@@ -74,7 +79,9 @@ def main(names):
     failures = []
     for name in names:
         spec = SPECS[name]
-        col, href = spec["col"], f"{BASE}/{name}/hex/h0=*/data_0.parquet"
+        col = spec["col"]
+        # The MCP reads s3:// paths; the https:// form silently matches nothing.
+        href = f"s3://public-rap/{name}/hex/h0=*/data_0.parquet"
         print(f"\n=== {name} ===")
 
         info = cog_info(spec["source"])
@@ -98,6 +105,10 @@ def main(names):
                 f"SELECT count(*) AS n, avg({col}) AS mean FROM read_parquet('{href}', hive_partitioning=true) "
                 f"WHERE h3_cell_to_lng(h10) BETWEEN {w} AND {e} "
                 f"AND h3_cell_to_lat(h10) BETWEEN {s} AND {n}")
+            if not hx:
+                print(f"  [FAIL] {label}: hex query returned no rows")
+                failures.append(f"{name}: {label} hex query returned nothing")
+                continue
             hmean, hn = hx[0].get("mean"), int(hx[0]["n"])
             if not hn:
                 print(f"  [skip] {label}: no hex cells (outside this product's extent)")

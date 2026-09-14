@@ -28,11 +28,15 @@ spec:
         - -c
         - |-
           set -euo pipefail
+          # A ConfigMap mount presents each key as a symlink into ..data/, and rclone refuses to
+          # follow those ("not a directory"). Dereference into a plain directory first.
+          mkdir -p /tmp/stac
+          cp -L /stac/* /tmp/stac/
           echo "=== files to publish ==="
-          ls -la /stac/
+          ls -la /tmp/stac/
 
           for ds in rap-afg-cover rap-pfg-cover rap-arte rap-iag; do
-            f="/stac/${ds}-stac-collection.json"
+            f="/tmp/stac/${ds}-stac-collection.json"
             [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
             python3 -c "import json,sys; json.load(open('$f'))"   # refuse to publish invalid JSON
             echo "publishing $ds"
@@ -41,8 +45,8 @@ spec:
 
           echo "publishing bucket collection + README"
           python3 -c "import json; json.load(open('/stac/parent-stac-collection.json'))"
-          rclone copyto --s3-no-check-bucket /stac/parent-stac-collection.json nrp:public-rap/stac-collection.json
-          rclone copyto --s3-no-check-bucket /stac/README.md nrp:public-rap/README.md
+          rclone copyto --s3-no-check-bucket /tmp/stac/parent-stac-collection.json nrp:public-rap/stac-collection.json
+          rclone copyto --s3-no-check-bucket /tmp/stac/README.md nrp:public-rap/README.md
 
           echo "=== verifying what is live ==="
           for ds in rap-afg-cover rap-pfg-cover rap-arte rap-iag; do
