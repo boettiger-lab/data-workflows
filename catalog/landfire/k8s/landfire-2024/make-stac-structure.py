@@ -41,6 +41,7 @@ MEASURED = {
     "fbfm13": dict(cells=566661014, lo=2,  hi=99,          mean=None),
     "fvc":    dict(cells=566661014, lo=11, hi=129,         mean=None),
     "fvh":    dict(cells=566661014, lo=11, hi=651,         mean=None),
+    "fvt":    dict(cells=566661014, lo=11, hi=2969,        mean=None),
 }
 
 RAW = {  # staged pristine upstream zip: bytes + sha256 recomputed from the object
@@ -51,16 +52,17 @@ RAW = {  # staged pristine upstream zip: bytes + sha256 recomputed from the obje
     "fbfm13": (2552370712, "cc02ff3f5e87c3cff312f24e2c691ea1e07572e994a387372e446b2712c099ef"),
     "fvc":    (4146626612, "e75bccdbc26d6d46ab5088e662ff10ee3371892f0beb22b7a37fb67355a07c0f"),
     "fvh":    (3535211143, "e77136958c99d4da8729565bc928a55203d2add2f109057f8903d201fbb2207d"),
+    "fvt":    (3719631490, "11413880c3642d951756f5bcaaabf19362838611f051db8a27884c27563b6fa5"),
 }
 
 COG_CREATED = {  # object mtime on S3 -- which conversion produced which asset (#549)
     "cbd": "2026-09-07T18:43:20Z", "cbh": "2026-09-07T18:43:32Z",
     "cc":  "2026-09-07T18:52:12Z", "ch":  "2026-09-07T18:53:28Z",
     "fbfm13": "2026-09-07T19:06:37Z", "fvc": "2026-09-07T18:44:30Z",
-    "fvh": "2026-09-07T18:44:06Z",
+    "fvh": "2026-09-07T18:44:06Z", "fvt": "2026-09-07T18:45:00Z",
 }
 COG_BYTES = {"cbd":2089104183,"cbh":2605634917,"cc":2087722356,"ch":1998245444,
-             "fbfm13":2657139827,"fvc":4322553564,"fvh":3744772364}
+             "fbfm13":2657139827,"fvc":4322553564,"fvh":3744772364,"fvt":4009625884}
 
 # values actually present in the published hex (measured, not from the legend)
 PRESENT = {
@@ -71,6 +73,9 @@ PRESENT = {
     "fvh": [11,12,13,14,15,16,17,22,23,24,25,31,32,61,63,64,65,68,69,82,
             100,425,475,499,502,507,520,530,603,607,611,615,619,623,627,631,635,639,643,651],
 }
+
+PRESENT["fvt"] = [int(v) for v in
+    pathlib.Path("/tmp/fvt-present-list.txt").read_text().strip().split(",")]
 
 CONT = {
     "cbd": dict(
@@ -129,6 +134,17 @@ CAT = {
                "models, banded by life form. Tree, shrub and herb cover occupy separate code "
                "ranges, and further codes mark water, snow and ice, developed land, barren ground "
                "and agriculture.")),
+    "fvt": dict(
+        code="FVT", csv="LF2024_FVT.csv", name_col="EVT_FUEL_N",
+        title="LANDFIRE 2024 Fuel Vegetation Type (CONUS, 30 m)",
+        short="Fuel Vegetation Type",
+        blurb=("Fuel Vegetation Type is the vegetation classification used to assign fuel models, "
+               "naming what is growing rather than how much of it there is. With fuel vegetation "
+               "cover and fuel vegetation height it forms the set that describes the fuel-bearing "
+               "vegetation: what it is, how much ground it covers and how tall it stands. Classes "
+               "carry a life-form prefix, and further codes mark open water, snow and ice, "
+               "developed land, barren ground and agriculture. The national legend lists 906 "
+               "classes, of which 565 occur in the conterminous United States.")),
     "fvh": dict(
         code="FVH", csv="LF2024_FVH.csv", name_col="CLASSNAMES",
         title="LANDFIRE 2024 Fuel Vegetation Height (CONUS, 30 m)",
@@ -366,6 +382,7 @@ PUBLISHED_ALL = [
     ("landfire-2024-fbfm13", "LANDFIRE 2024 13 Anderson Fire Behavior Fuel Models (CONUS, 30 m)"),
     ("landfire-2024-fvc",    "LANDFIRE 2024 Fuel Vegetation Cover (CONUS, 30 m)"),
     ("landfire-2024-fvh",    "LANDFIRE 2024 Fuel Vegetation Height (CONUS, 30 m)"),
+    ("landfire-2024-fvt",    "LANDFIRE 2024 Fuel Vegetation Type (CONUS, 30 m)"),
 ]
 
 
@@ -384,8 +401,8 @@ def bucket_collection():
             "GeoTIFF and as an H3 hex table at resolution 10. The four canopy layers describe "
             "forested ground only, because the value marking non-forested land is excluded from "
             "their hex tables; the other five cover all mapped land. Existing vegetation cover, "
-            "existing vegetation height, the 40 Scott and Burgan fire behaviour fuel models and "
-            "fuel vegetation type are not yet published."),
+            "existing vegetation height and the 40 Scott and Burgan fire behaviour fuel models are "
+            "not yet published."),
         "license": "public-domain",
         "extent": {"spatial": {"bbox": [BBOX]}, "temporal": {"interval": [TEMPORAL]}},
         "links": [
