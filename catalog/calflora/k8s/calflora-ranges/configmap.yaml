@@ -1,0 +1,319 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: calflora-scripts
+  namespace: geo-workflows
+data:
+  make_calflora_stac.py: |
+    """Write the STAC collection and README for public-ca-ccca5/calflora-ranges (#668).
+
+    Every number in the output is measured from the published artifacts -- the per-species COG
+    statistics written by the COG job, the species lookup, and the consolidated hex table -- so the
+    description cannot drift from the data the way a hand-edited one does.
+    """
+    import argparse
+    import datetime
+    import json
+
+    import duckdb
+
+    B = 'https://s3-west.nrp-nautilus.io/public-ca-ccca5'
+    ZIP_NAME = 'SppRange_Project-20260915T185722Z-1-001.zip'
+    ZIP_SHA256 = '3da13b2afc993be9dbe7325ca7f7369cb93e3d41cddda5e28cdbe6eeaf8fe775'
+
+    # Shared prose. Per-column text must be IDENTICAL wherever a column name recurs across assets,
+    # or the renderer's first-seen-wins fold silently drops one version.
+    VALUES_NOTE = (
+        "A cell's value is the number of times the species has been observed there. A cell whose "
+        "climate falls within the species' modelled tolerances but where the species has not been "
+        "recorded carries 0, and is still inside the range. A cell outside those tolerances carries "
+        "no value at all and is absent from the data."
+    )
+    CENSORED = (
+        "The count saturates at 9: no cell anywhere in this collection exceeds 9, so the top class "
+        "means nine or more observations rather than exactly nine."
+    )
+    EFFORT = (
+        "Observation counts record where people have botanised, not how much of the plant is present, "
+        "so they should not be read as abundance, cover or population size."
+    )
+
+
+    def main() -> None:
+        ap = argparse.ArgumentParser()
+        ap.add_argument('--cog-stats', required=True)
+        ap.add_argument('--species', required=True)
+        ap.add_argument('--hex-glob', required=True)
+        ap.add_argument('--zip-bytes', type=int, required=True)
+        ap.add_argument('--out-stac', required=True)
+        ap.add_argument('--out-readme', required=True)
+        args = ap.parse_args()
+
+        stats = {r['code']: r for r in json.load(open(args.cog_stats))}
+        con = duckdb.connect()
+        names = dict(con.execute(
+            f"SELECT species_code, scientific_name FROM read_parquet('{args.species}')").fetchall())
+
+        hx = f"read_parquet('{args.hex_glob}', hive_partitioning=true)"
+        nrow, nsp, nz, npos, mx = con.execute(f"""
+            SELECT count(*), count(DISTINCT species_code),
+                   sum(CASE WHEN n_observations = 0 THEN 1 ELSE 0 END),
+                   sum(CASE WHEN n_observations > 0 THEN 1 ELSE 0 END),
+                   max(n_observations) FROM {hx}""").fetchone()
+
+        lon_min = min(r['lon_min'] for r in stats.values())
+        lon_max = max(r['lon_max'] for r in stats.values())
+        lat_min = min(r['lat_min'] for r in stats.values())
+        lat_max = max(r['lat_max'] for r in stats.values())
+        total_valid = sum(r['valid'] for r in stats.values())
+        total_pos = sum(r['positive'] for r in stats.values())
+        n_south = sum(1 for r in stats.values() if r['lat_min'] < 32.5)
+        now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+        # The hex and the rasters do not report the same observed share, and a consumer comparing
+        # them needs to know why before concluding one is wrong.
+        grain = (
+            f"A hex cell takes the highest count among the source pixels it overlaps, which keeps an "
+            f"isolated record from vanishing when the grids do not line up. Because one cell can "
+            f"overlap several pixels, a single record can mark more than one cell: "
+            f"{100.0 * npos / nrow:.1f} percent of hex cells carry an observation against "
+            f"{100.0 * total_pos / total_valid:.1f} percent of source pixels. For how much of a range "
+            f"has actually been surveyed, measure it on the rasters rather than on the hex table."
+        )
+
+        description = "\n".join([
+            f"Modelled current distributions for {len(stats)} California plant species, exported from",
+            "Calflora's \"Plant Range - by Climate Model\" tool by the research team behind California's",
+            "Fifth Climate Change Assessment study of plant photosynthetic heat tolerance",
+            "(G. G. Hernandez, G. Bucciarelli, J. L. Funk, J. M. Valliere). One cloud-optimized GeoTIFF",
+            "per species at approximately 30 arc-seconds (0.00833 degrees, roughly 900 m), plus a single",
+            "hex table covering all species. Each raster is clipped to its own footprint rather than",
+            "sharing a common grid.",
+            "",
+            f"WHAT THE VALUES MEAN. {VALUES_NOTE} So a species' range is every cell present in the data,",
+            f"including the zeros, and the zeros are most of it: across all species {total_valid:,} cells",
+            f"are in range and {total_pos:,} of them ({100.0 * total_pos / total_valid:.1f} percent) have",
+            "ever been observed in. Any area or percentage computed from this collection should use the",
+            f"full in-range cell count as its denominator. {CENSORED} {EFFORT}",
+            "",
+            "FOOTPRINT. The collection spans California and adjacent Nevada, Oregon, Arizona and Utah,",
+            "and reaches into Baja California and Sonora for the desert species. It is a set of",
+            "per-species model footprints, not a California extent, and it is not clipped to any",
+            "political boundary. Observations outside California are part of the source data and are",
+            f"retained: {n_south} species have records south of the state line, including a white fir",
+            "population in the Sierra San Pedro Martir.",
+            "",
+            "PROVENANCE. Each file was downloaded by hand from Calflora following the team's written",
+            "protocol (staged alongside the raw data), then renamed to the species code. Calflora exports",
+            "are per-user and per-session: there is no stable download URL that resolves to these files,",
+            "so the staged raw copies are the provenance. This is the corrected edition received",
+            "2026-09-15, which replaced an earlier download in which three pairs of species shared a",
+            "single raster and four species were missing. The delivered archive is staged at",
+            f"raw/2026-09-15/{ZIP_NAME} ({args.zip_bytes:,} bytes, sha256 {ZIP_SHA256}); the superseded",
+            "download is kept at raw/2025-07-01/. The vintage of Calflora's underlying climate model is",
+            "not published at the export and we have not established it.",
+            "",
+            "PROCESSING. Source exports were cleaned only in ways that do not alter modelled values. One",
+            "stray pixel at latitude 0.0042 N was removed from 20 files, an artifact of the Calflora",
+            "export in which a record's latitude decoded to zero; in three files the longitude was zeroed",
+            "as well, stretching the raster from California to the prime meridian. Each raster was then",
+            "clipped to its remaining valid-data window, and nodata was set explicitly to NaN, which the",
+            "source exports do not declare. Overviews were built with nearest-neighbour resampling so",
+            "that isolated observations survive at reduced zoom. Two filenames that used a seven-letter",
+            "code were renamed to the six-letter form the rest of the study uses.",
+        ])
+
+        col_species = {
+            "name": "species_code", "type": "string",
+            "description": ("Six-letter species code, three letters of genus and three of species. "
+                            "Joins to species.parquet for the scientific name."),
+        }
+        col_nobs = {
+            "name": "n_observations", "type": "int8",
+            "description": (f"Number of Calflora records of this species in this cell. {VALUES_NOTE} "
+                            f"{CENSORED} {EFFORT}"),
+        }
+
+        def col_h(res: int, extra: str) -> dict:
+            return {"name": f"h{res}", "type": "uint64",
+                    "description": f"H3 resolution {res} cell index. {extra}"}
+
+        assets = {
+            "calflora-ranges-hex": {
+                "href": f"{B}/calflora-ranges/hex/h0=*/data_0.parquet",
+                "type": "application/vnd.apache.parquet",
+                "title": "Species ranges, H3 hex (all species, long form)",
+                "roles": ["data"],
+                "description": (
+                    f"All {nsp} species in one long-form table at H3 resolution 8: one row per species "
+                    f"and cell, {nrow:,} rows in total. Filter by species_code rather than reading the "
+                    f"whole table. Row presence is the range: a cell absent for a species lies outside "
+                    f"that species' modelled climatic tolerance, while a row whose n_observations is 0 "
+                    f"is inside the range and simply has no record there. {nz:,} rows carry a zero and "
+                    f"{npos:,} carry an observation count, so dropping the zeros would discard most of "
+                    f"the range. Resolution 8 is the native resolution and matches the source pixel "
+                    f"closely; resolution 7 is provided for joining to coarser climate data. {grain}"
+                ),
+                "created": now,
+                "h3:native_resolution": 8,
+                "h3:parent_resolutions": [7, 0],
+                "table:columns": [
+                    col_species,
+                    col_h(0, "Partition key for this table."),
+                    col_h(7, "Rollup resolution, and the resolution at which this collection joins "
+                             "coarser downscaled climate collections."),
+                    col_h(8, "Native resolution: one row per species and resolution 8 cell."),
+                    col_nobs,
+                ],
+            },
+            "calflora-ranges-species": {
+                "href": f"{B}/calflora-ranges/species.parquet",
+                "type": "application/vnd.apache.parquet",
+                "title": "Species code to scientific name lookup",
+                "roles": ["data"],
+                "description": (f"Scientific name for each of the {len(names)} species codes in this "
+                                f"collection, with the Calflora list the study drew from."),
+                "created": now,
+                "table:columns": [
+                    col_species,
+                    {"name": "scientific_name", "type": "string",
+                     "description": "Scientific binomial as recorded by the study team."},
+                    {"name": "source_code", "type": "string",
+                     "description": ("Code as it appeared in the team's download sheet, where three "
+                                     "species used a seven-letter form.")},
+                    {"name": "calflora_list_url", "type": "string",
+                     "description": "The Calflora species list the study drew from."},
+                ],
+            },
+        }
+
+        for code in sorted(stats):
+            r = stats[code]
+            nm = names.get(code, code)
+            assets[f"{code.lower()}-cog"] = {
+                "href": f"{B}/calflora-ranges/cog/{code}.tif",
+                "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+                "title": f"{nm} ({code})",
+                "roles": ["data", "visual"],
+                "description": (f"Calflora climate-model distribution for {nm}. {r['valid']:,} cells "
+                                f"are in range, of which {r['positive']:,} have a recorded observation. "
+                                f"{VALUES_NOTE}"),
+                "created": now,
+                "proj:epsg": 4326,
+                "proj:shape": [r['h'], r['w']],
+                "proj:bbox": [r['lon_min'], r['lat_min'], r['lon_max'], r['lat_max']],
+                "raster:bands": [{"name": "n_observations", "data_type": "float32", "nodata": "nan",
+                                  "unit": "count of observations"}],
+                "species:code": code,
+                "species:scientific_name": nm,
+            }
+
+        coll = {
+            "type": "Collection",
+            "stac_version": "1.0.0",
+            "stac_extensions": [
+                "https://stac-extensions.github.io/projection/v1.1.0/schema.json",
+                "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+                "https://stac-extensions.github.io/table/v1.2.0/schema.json",
+                "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
+            ],
+            "id": "calflora-ranges",
+            "title": (f"Calflora climate-model species range rasters "
+                      f"(CCCA5 plant heat-tolerance study, {len(stats)} species)"),
+            "description": description,
+            "license": "other",
+            "created": now,
+            "updated": now,
+            "sci:citation": (
+                "Calflora climate-model plant range exports, downloaded by the California's Fifth "
+                "Climate Change Assessment plant heat-tolerance study team (Hernandez, Bucciarelli, "
+                "Funk & Valliere). Corrected edition accessed 2026-09-15; superseded edition accessed "
+                "2025-06-30/2025-07-01."
+            ),
+            "extent": {
+                "spatial": {"bbox": [[lon_min, lat_min, lon_max, lat_max]]},
+                "temporal": {"interval": [[None, "2026-09-15T00:00:00Z"]]},
+            },
+            "providers": [
+                {"name": "Calflora", "roles": ["producer"], "url": "https://www.calflora.org/"},
+                {"name": ("Hernandez, Bucciarelli, Funk & Valliere (California's Fifth Climate Change "
+                          "Assessment)"),
+                 "roles": ["producer"], "url": "https://climateassessment.ca.gov/"},
+                {"name": "Boettiger Lab", "roles": ["processor", "host"],
+                 "url": "https://github.com/boettiger-lab"},
+            ],
+            "links": [
+                {"rel": "self", "href": f"{B}/calflora-ranges/stac-collection.json",
+                 "type": "application/json"},
+                {"rel": "root", "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+                 "type": "application/json"},
+                {"rel": "parent",
+                 "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+                 "type": "application/json"},
+                {"rel": "describedby", "href": f"{B}/calflora-ranges/README.md", "type": "text/markdown"},
+                {"rel": "about", "href": "https://www.calflora.org/app/ipl?list_id=px4593",
+                 "type": "text/html"},
+            ],
+            "assets": assets,
+        }
+
+        with open(args.out_stac, 'w') as fh:
+            json.dump(coll, fh, indent=2)
+        print(f'STAC: {len(assets)} assets, bbox {lon_min},{lat_min},{lon_max},{lat_max}')
+        print(f'hex : {nrow:,} rows, {nsp} species, {nz:,} zero / {npos:,} positive, max {mx}')
+
+        readme = "\n".join([
+            "# Calflora climate-model species range rasters",
+            "",
+            f"Modelled current distributions for {len(stats)} California plant species, for the",
+            "California's Fifth Climate Change Assessment study of plant photosynthetic heat tolerance.",
+            "",
+            VALUES_NOTE,
+            "",
+            f"A species' range is every cell present in the data, zeros included. {CENSORED} {EFFORT}",
+            "",
+            "## Query the hex table with DuckDB",
+            "",
+            "```sql",
+            "INSTALL httpfs; LOAD httpfs;",
+            "",
+            "-- How large is coast redwood's modelled range, and how much of it has it been observed in?",
+            "SELECT count(*) AS cells_in_range,",
+            "       sum(CASE WHEN n_observations > 0 THEN 1 ELSE 0 END) AS cells_observed",
+            f"FROM read_parquet('{B}/calflora-ranges/hex/h0=*/data_0.parquet', hive_partitioning = true)",
+            "WHERE species_code = 'SEQSEM';",
+            "",
+            "-- The ten largest modelled ranges, named",
+            "SELECT s.scientific_name, count(*) AS cells_in_range",
+            f"FROM read_parquet('{B}/calflora-ranges/hex/h0=*/data_0.parquet', hive_partitioning = true) r",
+            f"JOIN read_parquet('{B}/calflora-ranges/species.parquet') s USING (species_code)",
+            "GROUP BY 1 ORDER BY 2 DESC LIMIT 10;",
+            "```",
+            "",
+            "Roll up with `GROUP BY h7` to join against coarser climate grids.",
+            "",
+            "## Display one species with MapLibre GL JS",
+            "",
+            "Each species is a separate cloud-optimized GeoTIFF, served through titiler:",
+            "",
+            "```js",
+            "map.addSource('seqsem', {",
+            "  type: 'raster',",
+            "  tiles: ['https://titiler.nrp-nautilus.io/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png'",
+            f"        + '?url={B}/calflora-ranges/cog/SEQSEM.tif'",
+            "        + '&colormap_name=reds&rescale=0,3'],",
+            "  tileSize: 256,",
+            "});",
+            "map.addLayer({id: 'seqsem', type: 'raster', source: 'seqsem'});",
+            "```",
+            "",
+            "Cells with no observation render at the pale end of the ramp. They are in range, not absent.",
+            "",
+        ])
+        with open(args.out_readme, 'w') as fh:
+            fh.write(readme)
+        print('README written')
+
+
+    if __name__ == '__main__':
+        main()
