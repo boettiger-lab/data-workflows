@@ -1,6 +1,6 @@
 # Auto-generated ConfigMap containing job definitions
 # Generated from: fmmp-2022-setup-bucket.yaml, fmmp-2022-convert.yaml, fmmp-2022-pmtiles.yaml, fmmp-2022-hex.yaml, fmmp-2022-repartition.yaml
-# Generation command: cng-datasets workflow --dataset fmmp-2022 --source-url https://s3-west.nrp-nautilus.io/public-ca30x30/raw/fmmp-2022.zip --bucket public-ca30x30 --h3-resolution 8 --parent-resolutions "0"
+# Generation command: cng-datasets workflow --dataset fmmp-2022 --source-url https://s3-west.nrp-nautilus.io/public-ca30x30/raw/fmmp-2022-featureserver-2026-08-25.zip --bucket public-ca30x30 --h3-resolution 8 --parent-resolutions "0"
 #
 # This ConfigMap is equivalent to running:
 #   kubectl create configmap fmmp-2022-yamls \
@@ -66,9 +66,9 @@ data:
             - |
               set -e
               cng-convert-to-parquet \
-                https://s3-west.nrp-nautilus.io/public-ca30x30/raw/fmmp-2022.zip \
+                https://s3-west.nrp-nautilus.io/public-ca30x30/raw/fmmp-2022-featureserver-2026-08-25.zip \
                 s3://public-ca30x30/fmmp-2022.parquet \
-                --row-group-size 100000
+                --row-group-size 2000
             resources:
               requests:
                 cpu: '4'
@@ -233,8 +233,18 @@ data:
               # non-power-of-2 logical CPU counts which triggers an internal assertion
               # failure "N shards not a power of 2" (felt/tippecanoe#216).
               # Round detected CPU count down to nearest power of 2 to preserve I/O parallelism.
-              TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
-              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$DATASET.geojsonl
+              # Must be `export`ed: tippecanoe is a child process and reads this from the
+              # environment, not the shell. A plain assignment is invisible to it, so it
+              # falls back to the raw (non-power-of-2) CPU count and crashes (issue #77).
+              export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+
+              # Raise the soft open-file limit before tippecanoe (issue #154). It opens many
+              # temp files (per-thread x per-tile shards); on high-core nodes os.cpu_count()
+              # reports the node's full core count, so the thread/shard count blows past the
+              # container's default soft nofile limit (often 1024) and aborts with
+              # "Too many open files". `|| true` keeps going if the limit can't be raised.
+              ulimit -n 65536 || true
+              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --coalesce-densest-as-needed --drop-densest-as-needed -z 11 --force /tmp/$DATASET.geojsonl
 
               # Upload to S3 using rclone
               rclone copy /tmp/$DATASET.pmtiles nrp:public-ca30x30/
@@ -421,4 +431,4 @@ data:
 kind: ConfigMap
 metadata:
   name: fmmp-2022-yamls
-  namespace: biodiversity
+  namespace: geo-workflows

@@ -1,7 +1,7 @@
 ---
 name: dataset-recipes
 description: >-
-  Worked end-to-end examples of dataset ingests to copy from: PAD-US multi-layer GDB, Census TIGER per-state zips with a preprocess job, a single-COG carbon raster, reading one small table out of a huge remote zip via GDAL range reads, and preprocessing multi-file zipped sources. Use as a starting template when a new ingest resembles one of these shapes.
+  Worked end-to-end examples of dataset ingests to copy from: PAD-US multi-layer GDB, Census TIGER per-state zips with a preprocess job, a single-COG carbon raster, reading one small table out of a huge remote zip via GDAL range reads, preprocessing multi-file zipped sources, and checking feature count and spatial coverage against the source before publishing. Use as a starting template when a new ingest resembles one of these shapes.
 ---
 
 # Dataset Recipes
@@ -32,6 +32,47 @@ ogrinfo -ro -q "$SRC" -dialect SQLITE \
 - Working manifests: `catalog/usgs-nhd/k8s/extract-fcode-domain.yaml`,
   `catalog/usgs-nhd/k8s/preflight-nhdplus-hr-vaa.yaml`.
 - ⛔ Never hand-write a coded domain from memory (#294) — this is how you get the real one.
+
+## 💡 Check coverage against the source before you publish (#615)
+
+A source file can be **valid, readable, internally consistent — and still be a fraction of the
+dataset**. Nothing downstream notices: convert, pmtiles, hex and `verify-stac.py` all pass on a
+short read, because none of them knows what the source was supposed to contain. `fmmp-2022`
+shipped and was consumed for two months holding 45,285 of 127,133 features — 13 of 38 counties,
+missing Riverside, Monterey, Stanislaus, Sacramento and Imperial.
+
+So before publishing, compare the build against the source on **two axes**, not one:
+
+1. **Feature count** — the number the source itself reports.
+2. **Spatial coverage** — the count of whole units the data should span (counties, states, HU4s,
+   ecoregions, tiles). A truncated export usually stops on a unit boundary, which makes the count
+   alone look merely "smaller" while the unit list is visibly short.
+
+The second is what would have caught this fastest: 13 counties in a statewide layer is obvious to
+anyone who looks, whereas 45,285 features is a plausible-looking number.
+
+```sql
+-- coverage, from the built parquet (mcp__duckdb-geo__query)
+SELECT COUNT(*) AS features, COUNT(DISTINCT county_nam) AS units
+FROM read_parquet('s3://<bucket>/<dataset>.parquet')
+```
+
+Then assert it in the staging job so a short read fails the build instead of publishing quietly —
+a green pipeline over partial data is the failure mode, not a crash. Worked manifest:
+`catalog/ca30x30/k8s/fmmp-2022/fmmp-2022-stage-raw.yaml` (asserts count, distinct ids, and unit
+count before staging).
+
+**Where "what the source should contain" comes from** depends on the source: an ArcGIS service
+answers `returnCountOnly` and a `groupByFieldsForStatistics` unit breakdown directly; a national
+file has a published record count or a unit list; upstream documentation often states the unit
+count ("FMMP surveys 38 counties"). Any of these beats trusting the file you were handed.
+
+⚠️ **A pre-built export is a claim, not the data.** The `fmmp-2022` truncation came from an ArcGIS
+Hub export artifact that had been cached since 2025-10-24 while the item's own metadata reported
+the full `recordCount` — the export and the service disagreed, and only the service was right.
+When a source offers both a canned download and a queryable service, the service is authoritative;
+page it (`resultOffset` + `orderByFields`, `maxRecordCount` per page) rather than trusting the
+export. See `catalog/ca30x30/k8s/fmmp-2022/page_featureserver.py`.
 
 ## Step 1c: Preprocessing multi-file zipped datasets
 
