@@ -179,8 +179,10 @@ data:
                     {"name": "scientific_name", "type": "string",
                      "description": "Scientific binomial as recorded by the study team."},
                     {"name": "source_code", "type": "string",
-                     "description": ("Code as it appeared in the team's download sheet, where three "
-                                     "species used a seven-letter form.")},
+                     "description": ("Species code as it appeared in the team's download sheet, which "
+                                     "joins to species_code. Three species were listed there with a "
+                                     "seven-letter code rather than the canonical six-letter form, so "
+                                     "this preserves the spelling the raster filenames arrived with.")},
                     {"name": "calflora_list_url", "type": "string",
                      "description": "The Calflora species list the study drew from."},
                 ],
