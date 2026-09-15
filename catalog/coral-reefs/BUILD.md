@@ -76,6 +76,49 @@ The split drops the `.xml`, `.sbn` and `.sbx` sidecars, which the reader does no
 Once #216 lands, the split step can be dropped and the workflows regenerated with `--layer`
 against the original archive.
 
+## Measured findings that changed what the STAC says
+
+Recorded because each one contradicts a reasonable assumption, and all four collections now carry
+the measured version instead.
+
+**Coral `GIS_AREA_K` is a source-record total, not a per-polygon area.** Summing it raw gives
+899,466 km²; collapsing to distinct `(NAME, METADATA_I, GIS_AREA_K)` gives **151,288 km²**, which
+is the figure consistent with the reef area UNEP-WCMC publishes. The STAC and README both carry
+the dedup SQL.
+
+**Seagrass `AREA_SQKM` is the opposite — genuinely per-polygon.** 290,401 distinct values across
+293,147 rows, so `SUM` on the flat GeoParquet is correct (667,004 km²) and de-duplication would
+undercount. The coral warning was deliberately *not* copied across; on the hex asset, where the
+(feature, cell) expansion does repeat it, the dedup note applies again.
+
+**The seagrass polygon layer is not purely marine.** Alongside *Zostera*, *Posidonia* and
+*Halophila* it carries freshwater and brackish genera — *Myriophyllum*, *Najas*, *Vallisneria*,
+*Trapa*, *Utricularia*, *Ceratophyllum*, *Hydrilla*. 22 families and 31 genera against the point
+layer's 6 and 14.
+
+**Coral mapping effort varies by orders of magnitude.** `Metadata_CoralReefs.dbf` in the archive
+holds 81 source records keyed by `METADATA_I`, with nominal scales from as fine as 1:6,000 to as
+coarse as 1:15,000,000. Read as "where reefs have been mapped", not an even-effort census.
+
+**Three transcription traps, all caught by the data-backed verifier and none by inspection:**
+
+1. Seagrass taxonomy `values` written from the *point* layer and reused for *polygons* — wrong by
+   16 families and 17 genera.
+2. `SURVEY_MET` on coral polygons ends in a **literal asterisk**:
+   `Assessment of LADS features based on geomorpholog*`. That is upstream's own marker for a label
+   cut to fit a 50-character field. The plausible reconstruction ("…geomorphology") was wrong.
+3. Casing differs between the two layers of the same product — polygons carry `Expert Verified` /
+   `Field survey`, points carry `Expert verified` / `Field Survey`; seagrass points carry both
+   `Not Reported` and `Not reported` in one column.
+
+Every `values` array is therefore generated from the published parquet rather than typed. See
+`catalog/wcmc-stac/`.
+
+**Other consumer-facing quirks now documented in STAC:** seagrass `habitat` is a 50-character
+field truncated mid-word upstream, with near-duplicate variants (`Z. marina`/`Z.marina`,
+`sediment`/`sediments`); seagrass `FAMILY`/`GENUS` use pipe-separated compound values
+(`Valisneria | najas`) with inconsistent spelling (`Haloragaceae`/`Haloragidaceae`).
+
 ## Licence
 
 Both archives carry an identical `LICENSE.txt`: **UNEP-WCMC General Data License (excluding
@@ -146,3 +189,22 @@ for d in catalog/coral-reefs/k8s/points catalog/coral-reefs/k8s/polygons \
   # one hex workflow at a time
 done
 ```
+
+
+## Published
+
+Six documents on NRP, all four collections passing `verify-stac.py --bucket … --dataset …`:
+
+```
+s3://public-coral-reefs/stac-collection.json
+s3://public-coral-reefs/README.md
+s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons/stac-collection.json
+s3://public-coral-reefs/unep-wcmc-coral-reefs/points/stac-collection.json
+s3://public-seagrass/stac-collection.json
+s3://public-seagrass/README.md
+s3://public-seagrass/unep-wcmc-seagrass/polygons/stac-collection.json
+s3://public-seagrass/unep-wcmc-seagrass/points/stac-collection.json
+```
+
+Both bucket collections are registered as children of the root catalog
+(`public-data/stac/catalog.json`).
