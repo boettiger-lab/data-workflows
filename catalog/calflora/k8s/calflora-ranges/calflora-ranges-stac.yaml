@@ -1,0 +1,65 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: calflora-ranges-stac
+  namespace: geo-workflows
+  labels: {k8s-app: calflora-ranges-stac}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 172800
+  activeDeadlineSeconds: 3600
+  template:
+    metadata: {labels: {k8s-app: calflora-ranges-stac}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stac
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /opt/scripts, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          rclone copyto nrp:public-ca-ccca5/calflora-ranges/cog-stats.json /tmp/cog-stats.json --retries 5
+          rclone copyto nrp:public-ca-ccca5/calflora-ranges/species.parquet /tmp/species.parquet --retries 5
+          rclone copy nrp:public-ca-ccca5/calflora-ranges/hex/ /tmp/hex/ --transfers 16 --retries 5
+          ZIPSIZE=$(rclone size "nrp:public-ca-ccca5/raw/2026-09-15/SppRange_Project-20260915T185722Z-1-001.zip" --json \
+            | python3 -c 'import json,sys;print(json.load(sys.stdin)["bytes"])')
+
+          python3 /opt/scripts/make_calflora_stac.py \
+            --cog-stats /tmp/cog-stats.json \
+            --species /tmp/species.parquet \
+            --hex-glob '/tmp/hex/**/*.parquet' \
+            --zip-bytes "$ZIPSIZE" \
+            --out-stac /tmp/stac-collection.json \
+            --out-readme /tmp/README.md
+
+          rclone copyto /tmp/stac-collection.json nrp:public-ca-ccca5/calflora-ranges/stac-collection.json --retries 5
+          rclone copyto /tmp/README.md nrp:public-ca-ccca5/calflora-ranges/README.md --retries 5
+          echo "STAC STEP COMPLETE"
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: calflora-scripts}}
