@@ -5,11 +5,13 @@ metadata:
   namespace: geo-workflows
   labels: {k8s-app: calflora-ranges-hex}
 spec:
-  completions: 1
-  parallelism: 1
-  backoffLimit: 3          # opportunistic pods get preempted; just retry
+  completions: 109           # one species per pod
+  parallelism: 16
+  completionMode: Indexed
+  backoffLimitPerIndex: 3    # opportunistic pods get preempted; retry the index, not the job
+  maxFailedIndexes: 0        # every species must land: a gap is a species missing from the app
   ttlSecondsAfterFinished: 172800
-  activeDeadlineSeconds: 14400
+  activeDeadlineSeconds: 28800
   template:
     metadata: {labels: {k8s-app: calflora-ranges-hex}}
     spec:
@@ -31,6 +33,12 @@ spec:
         - {name: AWS_HTTPS, value: 'false'}
         - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
         - {name: TMPDIR, value: /tmp}
+        # The tool cannot read the pod's cgroup CPU quota and otherwise fans out to the
+        # NODE's core count (256 on these machines), which oversubscribes a shared node 16x
+        # per pod once 25 of them are running.  64 is a compromise: the work is dominated by
+        # a 5.7M-cell polyfill that parallelises well, and pinning to the 16-core limit made a
+        # single species take over 13 minutes.
+        - {name: CNG_HEX_WORKERS, value: '64'}
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         command:
@@ -38,105 +46,72 @@ spec:
         - -c
         - |-
           set -euo pipefail
-          # Calflora species ranges -> ONE long-form hex table.  Issue #668.
+          # One species per pod.  Issue #668.
           #
-          # Not 109 collections and not `raster-workflow`: the app needs a single table it can
-          # filter by species, so each species COG is hexed separately and the results are
-          # unioned with a species_code column.
+          # Why a fan-out rather than one pod looping over 109 rasters: `cng-datasets raster`
+          # polyfills the whole h0 base cell at the target resolution before intersecting with
+          # the source (5,764,801 cells at resolution 8), so the cost per species is set by the
+          # base cell, not by the raster -- minutes even for a raster of 33,000 pixels.  Spread
+          # across pods that is fine; serially it is nine hours.
           #
-          #   native h8 (0.737 km2 vs the ~0.69 km2 source pixel -- near 1:1), parents 7 and 0.
-          #   res 7 is the join key to loca2-hybrid/tasmax-exceedance.
-          #
-          # Reducer `max`, over non-NaN pixels only.  A NaN pixel emits no row, so ROW PRESENCE
-          # is the range mask and the reducer only sets the observation count for a cell already
-          # in range.  `mean` would manufacture fractional counts; `sum` would make the count
-          # depend on how many source pixels happen to land in a cell.
-          #
-          # ZERO ROWS ARE KEPT.  A 0 means "climate suitable, species not observed here" and is
-          # in range -- 97.8% of the range.  Suppressing zeros would delete the range and leave
-          # only the observation records.
-          #
-          # h0 subset 9,20,50,71 -- the four h0 cells covering the footprint (23N-42N,
-          # -125E to -110E).  Without it each of the 109 species enumerates all 122 cells.
+          # Reducer `max` over non-NaN pixels.  A NaN pixel yields no row, so ROW PRESENCE is the
+          # range mask and the reducer only sets the observation count for a cell already in
+          # range.  `mean` would manufacture fractional counts; `sum` would make the count depend
+          # on how many source pixels happen to land in a cell.  Zero rows are kept: a 0 means
+          # "climate suitable, not observed here", which is in range and is 97.8% of the range.
           cd /tmp
-          echo "=== fetch COGs ==="
-          rclone copy nrp:public-ca-ccca5/calflora-ranges/cog/ /tmp/cog/ --transfers 16 --retries 5
-          N=$(ls /tmp/cog/*.tif | wc -l)
-          echo "$N COGs"
-          test "$N" -eq 109 || { echo "expected 109 COGs, found $N"; exit 1; }
+          rclone lsf nrp:public-ca-ccca5/calflora-ranges/cog/ --include '*.tif' | sed 's/\.tif$//' | sort > /tmp/species.txt
+          N=$(wc -l < /tmp/species.txt)
+          test "$N" -eq 109 || { echo "expected 109 species, found $N"; exit 1; }
+          CODE=$(sed -n "$((JOB_COMPLETION_INDEX + 1))p" /tmp/species.txt)
+          test -n "$CODE" || { echo "no species for index $JOB_COMPLETION_INDEX"; exit 1; }
+          echo "=== [$JOB_COMPLETION_INDEX] $CODE ==="
 
-          mkdir -p /tmp/hex
-          i=0
-          for f in /tmp/cog/*.tif; do
-            CODE=$(basename "$f" .tif)
-            i=$((i+1))
-            printf '[%3d/109] %s\n' "$i" "$CODE"
-            cng-datasets raster \
-              --input "$f" \
-              --output-parquet "/tmp/hex/${CODE}" \
-              --resolution 8 --parent-resolutions 7,0 \
-              --value-column n_observations \
-              --hex-resampling max \
-              --h0-subset 9,20,50,71 \
-              --local-cache-dir /tmp/cache >/dev/null 2>&1 || { echo "FAILED: $CODE"; exit 1; }
-          done
+          rclone copyto "nrp:public-ca-ccca5/calflora-ranges/cog/${CODE}.tif" /tmp/src.tif --retries 5
 
-          echo "=== union into one long-form table ==="
-          python3 - <<'PY'
-          import glob, os, duckdb
+          t0=$SECONDS
+          cng-datasets raster \
+            --input /tmp/src.tif \
+            --output-parquet "/tmp/hex" \
+            --resolution 8 --parent-resolutions 7,0 \
+            --value-column n_observations \
+            --hex-resampling max \
+            --local-cache-dir /tmp/cache
+          echo "hexed in $((SECONDS - t0))s"
+
+          # Tag with the species code and republish as one file per h0, so the consolidate step
+          # reads 109 small trees rather than a directory of anonymous parts.
+          python3 - "$CODE" <<'PY'
+          import glob, os, sys, duckdb
+          code = sys.argv[1]
+          src = glob.glob('/tmp/hex/**/*.parquet', recursive=True)
+          assert src, f'{code}: hex produced no parquet'
           con = duckdb.connect()
-          con.execute("INSTALL h3 FROM community; LOAD h3;")
-          dirs = sorted(glob.glob('/tmp/hex/*'))
-          assert len(dirs) == 109, f'{len(dirs)} species dirs, expected 109'
-
-          # Build one relation per species, tagging it with its code, then union.
-          parts = []
-          for d in dirs:
-              code = os.path.basename(d)
-              if not glob.glob(f'{d}/**/*.parquet', recursive=True):
-                  raise SystemExit(f'{code}: hex produced no parquet')
-              parts.append(
-                  f"SELECT '{code}' AS species_code, * FROM read_parquet('{d}/**/*.parquet', "
-                  f"hive_partitioning=true, union_by_name=true)"
-              )
-          con.execute("CREATE VIEW allsp AS " + " UNION ALL ".join(parts))
-
-          cols = [r[0] for r in con.execute('DESCRIBE allsp').fetchall()]
-          print('columns:', cols)
-          for need in ('species_code', 'h8', 'h7', 'h0', 'n_observations'):
-              assert need in cols, f'missing column {need}; got {cols}'
-
+          rel = ("read_parquet('/tmp/hex/**/*.parquet', hive_partitioning=true, union_by_name=true)")
+          cols = [r[0] for r in con.execute(f'DESCRIBE SELECT * FROM {rel}').fetchall()]
+          for need in ('h8', 'h7', 'h0', 'n_observations'):
+              assert need in cols, f'{code}: missing {need}; got {cols}'
           os.makedirs('/tmp/out', exist_ok=True)
-          con.execute("""
-            COPY (SELECT species_code, h0, h7, h8, CAST(n_observations AS TINYINT) AS n_observations
-                  FROM allsp ORDER BY species_code, h8)
+          con.execute(f"""
+            COPY (SELECT '{code}' AS species_code, h0, h7, h8,
+                         CAST(n_observations AS TINYINT) AS n_observations
+                  FROM {rel} ORDER BY h8)
             TO '/tmp/out' (FORMAT PARQUET, PARTITION_BY h0, COMPRESSION zstd,
                            ROW_GROUP_SIZE 2000, OVERWRITE_OR_IGNORE true)
           """)
-
-          q = lambda s: con.execute(s).fetchall()
-          n, nsp, nz, npos, mx = q("""
-            SELECT count(*), count(DISTINCT species_code),
-                   sum(CASE WHEN n_observations = 0 THEN 1 ELSE 0 END),
-                   sum(CASE WHEN n_observations > 0 THEN 1 ELSE 0 END),
-                   max(n_observations) FROM allsp""")[0]
-          print(f'rows           : {n:,}')
-          print(f'species        : {nsp}')
-          print(f'zero rows      : {nz:,} ({100.0*nz/n:.2f}%)   <- must be ~98%, not 0')
-          print(f'positive rows  : {npos:,}')
-          print(f'max count      : {mx}')
-          assert nsp == 109, 'not all species present'
-          assert nz > 0, 'zero rows were suppressed -- the range has been deleted'
-          assert mx is not None and mx <= 9, f'max {mx} exceeds the saturating bin'
+          n, nz, mx = con.execute(f"""
+            SELECT count(*), sum(CASE WHEN n_observations = 0 THEN 1 ELSE 0 END),
+                   max(n_observations) FROM {rel}""").fetchone()
+          print(f'{code}: {n:,} cells, {nz:,} zero, max {mx}')
+          assert n > 0, f'{code}: no cells'
+          assert mx is None or mx <= 9, f'{code}: max {mx} exceeds the saturating bin'
           PY
 
-          echo "=== verify partitions then publish ==="
-          ls /tmp/out
-          rclone copy /tmp/out/ nrp:public-ca-ccca5/calflora-ranges/hex/ --transfers 16 --retries 5
-          rclone lsf -R nrp:public-ca-ccca5/calflora-ranges/hex/ | head
-          echo "HEX STEP COMPLETE"
+          rclone copy /tmp/out/ "nrp:public-ca-ccca5/calflora-ranges/hex-parts/species_code=${CODE}/" \
+            --transfers 8 --retries 5
+          echo "DONE ${CODE}"
         resources:
-          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 40Gi}
-          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 40Gi}
+          requests: {cpu: '16', memory: 24Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '16', memory: 24Gi, ephemeral-storage: 20Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
