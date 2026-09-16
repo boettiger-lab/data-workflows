@@ -67,3 +67,8 @@ armadactl submit damage/armada-ids-damage-1997-2025-repartition.yaml
   `SURVEYED_AREA_ID` has 57,575 distinct values over 73,730 rows, `DAMAGE_AREA_ID` 4,338,867 over
   4,533,015.
 - **The geometry column is `Shape`**, not `geom`, inherited from the FileGDB.
+- **Hex wants ~5 Gi, not 32 Gi.** Measured on the survey-extent hex (74 completions, chunk-size
+  1000, res 10 + parents 9,8,0): pods ran at 328Mi-1.4Gi with a **peak of 5,243Mi**. The damage
+  armada manifests therefore request **8Gi**, not the 32Gi first generated. On Armada this is not
+  a tidiness point: memory is what decides how many placement slots exist, and the
+  `armada-pipeline` skill measured a 32Gi request leaving 4,231 of 4,233 jobs unschedulable.

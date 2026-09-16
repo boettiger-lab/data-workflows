@@ -74,10 +74,10 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 32Gi
+                memory: 8Gi
               limits:
                 cpu: '4'
-                memory: 32Gi
+                memory: 8Gi
           volumes:
           - name: rclone-config
             secret:
@@ -155,11 +155,11 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 32Gi
+                memory: 8Gi
                 ephemeral-storage: 10Gi
               limits:
                 cpu: '4'
-                memory: 32Gi
+                memory: 8Gi
                 ephemeral-storage: 10Gi
           affinity:
             nodeAffinity:
@@ -255,10 +255,10 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 32Gi
+                memory: 8Gi
               limits:
                 cpu: '4'
-                memory: 32Gi
+                memory: 8Gi
           volumes:
           - name: rclone-config
             secret:
