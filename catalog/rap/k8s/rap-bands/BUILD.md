@@ -26,6 +26,18 @@ The previously published collections claimed `license: public-domain` with a lin
 is the actual grant, and it is an SPDX id, so the collections now assert it with the CC0 deed as
 the licence link.
 
+`README` at <https://rangeland.ntsg.umt.edu/data/rangeland-s2/README> ("Terms of Use"):
+
+| fact | value |
+|---|---|
+| licence | **CC-BY-4.0** — <https://creativecommons.org/licenses/by/4.0/> |
+| products | `arte` sagebrush cover, `iag` invasive annual grass cover, 10 m |
+| model | <https://github.com/allredbw/rangeland-s2-cover-gap> |
+
+The two products in this bucket carry **different grants** — RAP v3 is CC0-1.0, rangeland-s2 is
+CC-BY-4.0 and requires attribution — which is why the parent bucket collection declares
+`license: "various"` with the real terms on each child rather than one bucket-wide claim.
+
 `rangeland-s2` tile naming is `{product}-{year}-{zone}-{easting}-{northing}.tif`. Measured over the
 full listing: the third field takes **exactly four values — 10, 11, 12, 13** — with 117/201/217/229
 tiles each, identical in every year 2018–2025. It is the **UTM zone**, not a month (a month cannot
@@ -185,6 +197,8 @@ so it does not hit the 4 GB ceiling that `gdal_translate -of COG` hit in `rap-ex
 
 ## Run order
 
+### 1. Build
+
 ```bash
 kubectl apply -n geo-workflows -f rap-extract-bands.yaml        # band 1 + band 4 COGs
 kubectl apply -n geo-workflows -f rap-afg-migrate-hex.yaml      # AFG rows out of rap-pfg-cover
@@ -200,5 +214,44 @@ kubectl apply -n geo-workflows -f rap-s2-hex-all-zones.yaml
 Each hex job guards its own precondition (single-band input; COG eastern edge past −105) and fails
 loudly rather than silently rebuilding a defective layer.
 
+### 2. Verify, before publishing anything
+
+```bash
+./verify-rap-build.py            # all four collections; exits non-zero on any failure
+```
+
+Checks the three things every structural gate missed (band count, h0 set, value provenance).
+Check 3 samples the hex against the **original** 6-band raw at the band the collection claims,
+not against the extracted COG — comparing a collection to its own COG passes just as happily
+when the wrong band was pulled, which is the whole defect. It also reports what the rival band
+would read in the same window, so a pass is only banked when the window can tell them apart.
+
+### 3. Publish
+
+```bash
+kubectl apply -n geo-workflows -f rap-raw-checksum.yaml         # SHA-256 of the staged raw
+./gen_stac.py                                                   # -> /tmp/rap-stac/ (never the repo)
+
+kubectl create configmap rap-stac -n geo-workflows \
+  --from-file=/tmp/rap-stac/ --dry-run=client -o yaml | kubectl apply -n geo-workflows -f -
+
+kubectl apply -n geo-workflows -f rap-publish-stac.yaml         # -> s3://public-rap/
+```
+
 `rap-raw-checksum.yaml` computes the SHA-256 of the staged raw for the STAC provenance block —
-the S3 ETag is multipart and unusable for this.
+the S3 ETag is multipart and unusable for this. Run it before `gen_stac.py`, which reads the
+result.
+
+`gen_stac.py` writes the four collection JSONs, the parent bucket collection **and `README.md`**
+into `/tmp/rap-stac/`, measuring every bbox, size and timestamp off the live objects. Nothing it
+produces is committed — AGENTS.md HARD BOUNDARY 1 keeps STAC and README out of this repo, which
+is why the generator, not the artifact, is the thing under version control. `rap-publish-stac.yaml`
+publishes exactly the ConfigMap's contents, so re-create the ConfigMap after any re-run.
+
+Pre-publish gate on the generated files:
+
+```bash
+python3 ../../../../scripts/verify-stac.py --no-data /tmp/rap-stac/rap-afg-cover-stac-collection.json
+# ... and post-publish, data-backed:
+python3 ../../../../scripts/verify-stac.py --bucket public-rap
+```

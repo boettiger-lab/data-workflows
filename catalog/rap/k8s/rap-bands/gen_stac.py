@@ -4,18 +4,21 @@
 Asset timestamps, sizes and bboxes are MEASURED from the live objects, never hardcoded.
 Run only after the COG and hex jobs have landed.
 """
-import json, subprocess, email.utils, datetime, pathlib, urllib.request, importlib.util
+import json, os, subprocess, email.utils, datetime, pathlib, urllib.request, importlib.util
 
 # Reuse the MCP client from scripts/verify-stac.py (hyphen in the name blocks a plain import).
-_vs_path = pathlib.Path(__file__).resolve().parents[3] / "scripts" / "verify-stac.py"
-if not _vs_path.exists():  # running from the scratch copy
-    _vs_path = pathlib.Path("/home/jovyan/data-workflows/scripts/verify-stac.py")
+# catalog/rap/k8s/rap-bands/ -> repo root is parents[4], not [3]. There is deliberately no
+# hardcoded fallback: an absolute path into one machine's checkout made this script unrunnable
+# from a clean clone, and masked the wrong index because that path happened to exist there.
+_vs_path = pathlib.Path(__file__).resolve().parents[4] / "scripts" / "verify-stac.py"
 _spec = importlib.util.spec_from_file_location("verify_stac", _vs_path)
 _vs = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_vs)
 MCP = _vs.MCPClient()
 
-OUT = pathlib.Path(__file__).parent / "stac"
-OUT.mkdir(exist_ok=True)
+# Generated STAC and README go to /tmp, never into the repo: AGENTS.md HARD BOUNDARY 1 forbids
+# catalog/*/stac/. Override with RAP_STAC_OUT to stage them elsewhere.
+OUT = pathlib.Path(os.environ.get("RAP_STAC_OUT", "/tmp/rap-stac"))
+OUT.mkdir(parents=True, exist_ok=True)
 BASE = "https://s3-west.nrp-nautilus.io/public-rap"
 ROOT = "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
 NOW = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -380,3 +383,106 @@ def parent(cols):
 p = OUT / "parent-stac-collection.json"
 p.write_text(json.dumps(parent(COLLECTIONS), indent=2, ensure_ascii=False) + "\n")
 print(f"  wrote {p.name} (4 child links, license=various)")
+
+# ---------------------------------------------------------------- bucket README
+# rap-publish-stac.yaml copies README.md out of the same ConfigMap as the STAC, so it has to be
+# generated here or it has no source in the repo at all (review of #670). Like the collections,
+# the extent figures are MEASURED -- they come off the collections built above, so the README
+# cannot drift from the STAC it ships beside.
+
+def readme(cols):
+    by_id = {c["id"]: c for c in cols}
+    def bbox(ds):
+        return by_id[ds]["extent"]["spatial"]["bbox"][0]
+    conus, west = bbox("rap-afg-cover"), bbox("rap-arte")
+    # Target h0 counts: CONUS takes all six, rangeland-s2 the four western cells (BUILD.md
+    # defect 2 / defect 4). verify-rap-build.py asserts the measured sets against these.
+    n_conus, n_west = 6, 4
+    return f"""# public-rap — rangeland vegetation cover
+
+Rangeland vegetation-cover products from NTSG at the University of Montana, aggregated to H3.
+Two upstream products live in this bucket. They do **not** share an extent or a licence, so
+check which one you are reading.
+
+## Collections
+
+| collection | variable | extent | source product | licence |
+|---|---|---|---|---|
+| `rap-afg-cover` | annual forb & grass cover, % | CONUS | RAP Vegetation Cover v3, band 1 | CC0-1.0 |
+| `rap-pfg-cover` | perennial forb & grass cover, % | CONUS | RAP Vegetation Cover v3, band 4 | CC0-1.0 |
+| `rap-arte` | sagebrush (*Artemisia*) cover, % | western US | rangeland-s2, UTM zones 10–13 | CC-BY-4.0 |
+| `rap-iag` | invasive annual grass cover, % | western US | rangeland-s2, UTM zones 10–13 | CC-BY-4.0 |
+
+Cite Allred et al. (2021), <https://doi.org/10.1111/2041-210X.13564>. The rangeland-s2 layers are
+CC BY 4.0 and require attribution; the RAP v3 layers are a CC0 public-domain dedication.
+
+**Annual vs perennial.** Annual forbs and grasses include invasive annuals such as cheatgrass;
+perennial forbs and grasses are the native perennial herbaceous cover that invasion tends to
+displace. The two are close to ecological opposites.
+
+**The two extents differ, and the difference is real data, not a gap.** `rap-afg-cover` and
+`rap-pfg-cover` cover the conterminous United States ({n_conus} h0 partitions), measured
+{conus[0]:.2f} … {conus[2]:.2f} °E, {conus[1]:.2f} … {conus[3]:.2f} °N. `rap-arte` and `rap-iag`
+come from a 10 m Sentinel-2 product published only for UTM zones 10–13, so they cover the western
+US only ({n_west} h0 partitions), measured {west[0]:.2f} … {west[2]:.2f} °E,
+{west[1]:.2f} … {west[3]:.2f} °N. An empty result east of about {west[2]:.0f}° W is the product's
+extent, not missing data.
+
+**Suitability.** The producers note these estimates are primarily intended for rangeland
+ecosystems and may be less reliable elsewhere, such as forests and agricultural land.
+
+## Query the hex layers with DuckDB
+
+One row per H3 cell at resolution 10, holding the area-weighted mean percent cover. Parent
+columns `h9`, `h8` and `h0` are present for rollups and joins; `h8` is the resolution shared with
+the rest of the catalog.
+
+```sql
+INSTALL httpfs; LOAD httpfs;
+INSTALL h3 FROM community; LOAD h3;
+
+-- Mean annual forb & grass cover by resolution-8 cell over one partition.
+-- Weight by cell area: H3 cells are not equal-area, so a plain AVG is biased.
+SELECT h8,
+       SUM(afg * h3_cell_area(h10, 'km^2')) / SUM(h3_cell_area(h10, 'km^2')) AS mean_afg
+FROM read_parquet(
+  'https://s3-west.nrp-nautilus.io/public-rap/rap-afg-cover/hex/h0=*/data_0.parquet',
+  hive_partitioning = true)
+WHERE h0 = 577199624117288959
+GROUP BY h8;
+```
+
+Compare the two vegetation-cover variables cell by cell:
+
+```sql
+SELECT a.h8,
+       AVG(a.afg) AS annual,
+       AVG(p.pfg) AS perennial
+FROM read_parquet('https://s3-west.nrp-nautilus.io/public-rap/rap-afg-cover/hex/h0=*/data_0.parquet') a
+JOIN read_parquet('https://s3-west.nrp-nautilus.io/public-rap/rap-pfg-cover/hex/h0=*/data_0.parquet') p
+  USING (h10)
+GROUP BY a.h8;
+```
+
+## Display the COGs in MapLibre GL JS
+
+These are single-band rasters, so they render as a raster source through TiTiler with a colormap.
+There is no PMTiles layer and therefore no `source-layer` to set.
+
+```js
+const cog = 'https://s3-west.nrp-nautilus.io/public-rap/rap-afg-cover-cog.tif';
+
+map.addSource('rap-afg', {{
+  type: 'raster',
+  tiles: [
+    'https://titiler.nrp-nautilus.io/cog/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}.png' +
+    `?url=${{encodeURIComponent(cog)}}&colormap_name=viridis&rescale=0,100`
+  ],
+  tileSize: 256,
+}});
+```
+"""
+
+p = OUT / "README.md"
+p.write_text(readme(COLLECTIONS))
+print(f"  wrote {p.name} ({len(p.read_text())} bytes)")
