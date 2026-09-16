@@ -216,8 +216,11 @@ spec:
           df -h /tmp | tail -1
 
           # NDJSON -> FlatGeobuf. GeoJSONSeq streams, so neither side is held in RAM.
+          # -if GeoJSONSeq is REQUIRED, not belt-and-braces: GDAL probes the plain GeoJSON
+          # driver first on a .geojsonl file, which slurps the whole document and dies with
+          # "JSON parsing error: buffer size overflow" on anything this size (12.4 GB here).
           ogr2ogr -f FlatGeobuf /tmp/twig-treatment-index-2026-08.fgb \
-            /tmp/twig.geojsonl \
+            -if GeoJSONSeq /tmp/twig.geojsonl \
             -nln twig_treatment_index \
             -a_srs EPSG:4326 \
             -nlt PROMOTE_TO_MULTI \
@@ -226,6 +229,15 @@ spec:
 
           ls -la /tmp/twig-treatment-index-2026-08.fgb
           ogrinfo -so /tmp/twig-treatment-index-2026-08.fgb twig_treatment_index
+
+          # The NDJSON reconciled against the service; prove the FGB did not lose rows on the
+          # way through ogr2ogr, so a silent truncation cannot reach the convert step.
+          FGB_N=$(ogrinfo -so /tmp/twig-treatment-index-2026-08.fgb twig_treatment_index \
+                  | sed -n 's/^Feature Count: //p')
+          echo "FGB feature count: $FGB_N"
+          if [ "$FGB_N" != "1491072" ]; then
+            echo "FAIL: FGB holds $FGB_N features, expected 1491072"; exit 1
+          fi
 
           # The staged raw + its checksum ARE the provenance: the service is live and
           # overwrites in place, so this edition is not otherwise recoverable (AGENTS.md
@@ -248,14 +260,20 @@ spec:
           rclone copyto /tmp/twig-fetch-manifest.json \
             nrp:public-fire/raw/twig-treatment-index-2026-08-fetch-manifest.json --s3-no-check-bucket
           echo "staged raw -> s3://public-fire/raw/twig-treatment-index-2026-08.fgb"
+        # Sized to what this actually uses, not to a neighbouring job's numbers: the scrape is
+        # network-bound (6 HTTP workers streaming straight to disk), and the only real memory
+        # is the 1.49M-element objectid set (~110 MB) plus FlatGeobuf's packed R-tree (~60 MB).
+        # NRP's admission webhook rejects an over-request outright ("resources utilization is
+        # too low"), so an inherited 4 CPU / 16 Gi does not merely waste a slot, it fails to
+        # schedule at all. Ephemeral storage is the one big ask: the NDJSON is 12.4 GB.
         resources:
           requests:
-            cpu: '4'
-            memory: 16Gi
+            cpu: '2'
+            memory: 4Gi
             ephemeral-storage: 50Gi
           limits:
-            cpu: '4'
-            memory: 16Gi
+            cpu: '2'
+            memory: 4Gi
             ephemeral-storage: 50Gi
       volumes:
       - name: rclone-config
