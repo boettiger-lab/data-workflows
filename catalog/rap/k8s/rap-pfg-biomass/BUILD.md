@@ -54,3 +54,27 @@ asserts its input is single-band before running — the guard the cover collecti
 `--h0-index` values are 12, 14, 20, 50, 71, 78 (the full CONUS set), resolved from the `i` column
 of `s3://public-grids/hex/h0-valid.parquet`. These are **not** H3 base cell numbers: the two
 0–121 numberings do not coincide, and index 20 is base cell 19. See #666.
+
+## Verification (run after the hex completes)
+
+`verify-biomass-build.sh` checks the #677 acceptance criteria against the **source**, not against
+the collection's own metadata. Result:
+
+| window | hex | upstream band 1 (annual) | upstream band 2 (perennial) |
+|---|---:|---:|---:|
+| Kansas (−99…−98, 39…40) | **880.1** | 184.4 | **879.1** ✅ |
+| Nevada (−118…−117, 40…41) | **132.3** | 458.2 | **132.2** ✅ |
+
+The two windows **disagree in opposite directions** — Kansas holds 4.8× more perennial than annual
+biomass, Nevada 3.5× more *annual* than perennial, the Great Basin's cheatgrass signature. Matching
+band 2 in both is therefore conclusive: a band-1 build would read 184 in Kansas and 458 in Nevada.
+
+⚠️ **Compare over windows that sit wholly inside one h0 cell.** An earlier check straddled two and
+sampled only the completed partition's sliver — 33,946 cells of an expected ~600,000 — which made a
+correct build look 2.3× off. The cell count is what exposes this; check it before trusting a mean.
+
+Continental gradient, as a coherence check: Pacific west 266.5 < northern Rockies 313.6 < Great
+Plains 678.9 < humid southeast 799.3 lbs/acre. Tracks precipitation and growing season, and is not
+something a mis-banded or mis-scaled build reproduces by accident.
+
+Published extent is **−124.736, 25.045, −67.041, 49.389**, measured from the hex.
