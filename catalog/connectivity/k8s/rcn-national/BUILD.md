@@ -73,12 +73,9 @@ remainder produce no output and are not worth a pod.
 
 ## Open
 
-- **Licence blocks publication, including the COG.** There is no grant to find: the CRCS landing
-  page carries no licence text, and of 50 TNC CRCS "Resilient and Connected" AGOL items, both
-  Nationally Consistent ones publish `licenseInfo: None` while the TNC Customized ones carry the
-  all-rights-reserved terms prohibiting distribution without TNC approval (#151, #606).
-  `public-connectivity` is public, so the COG write is already redistribution. Resolve before
-  running anything in the order above.
+- **Licence needs confirmation, and it blocks the COG, not just the STAC.** `public-connectivity`
+  is public, so the COG write is already redistribution. Resolve before running anything in the
+  order above. See #606.
 - **Acceptance criterion "dateline h0 `576707042908045311` present" does not apply.** That cell
   is Alaska's, and Alaska is out of scope (#684). Nothing in a CONUS-only product reaches the
   dateline.
