@@ -59,6 +59,33 @@ Canonical STAC/data live on NRP S3 (`s3://public-<bucket>/`, public URL `https:/
 - Read: `curl https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json`
 - Write: edit in `/tmp/`, then `rclone copyto /tmp/... nrp:<bucket>/...`
 
+### You publish to NRP. Downstream copies are NOT your job.
+
+NRP is where your work ends. **Backup and mirror tiers — source.coop, MinIO, and any other copy of
+this data anywhere — are owned by a different agent, and nothing about them is in scope for this
+repo.** You do not add buckets to a mirror list, decide which prefixes are excluded from one,
+record a redistribution verdict in an inventory, or open a PR against the repo that holds those
+scripts. Put the data in the bucket and let the other agent do its job.
+
+What *is* yours is the licence metadata on the collection: an accurate SPDX `license` and a
+`{"rel": "license"}` link (Step 7). The mirror tier reads those to make its own routing decisions.
+Getting the licence right is therefore the whole of your contribution to that question — the
+routing built on top of it is not yours to make.
+
+Two things will tempt you across this line, and both have:
+
+- **Old issue bodies.** Plenty of open issues still say "add to `REPOS`", "`EXCLUDES` sub-path",
+  "MinIO-only, exclude from source.coop", or name `gen-source-sync.sh` / `gen-minio-sync.sh`. They
+  were written when this *was* the repo's job. They are stale, those two script names no longer
+  exist, and #678 tracks purging them. Treat such an instruction as out of scope and say so in the
+  issue rather than acting on it.
+- **The sibling checkouts in `~`.** `geo-agent-ops` and friends sit next to this repo and are
+  readable, so going looking will always turn up the real machinery. Finding it is not
+  authorisation to touch it — Hard Boundary 2 covers every other repo, not just `cng-datasets`.
+
+If a task genuinely seems to require a mirror-side change, that is a signal to stop and hand it
+over, not to make the change.
+
 ## Git workflow
 
 **Use a worktree for every dataset task.** Sessions in this repo frequently open on a stale in-flight branch (e.g. last week's paused ingest); committing there silently mixes unrelated work and forces cherry-picks later. Before staging changes:
