@@ -301,7 +301,7 @@ spec:
           # so those must be floating point.
           OTYPE=('' '' Float32 Float32)
           # Measured in the staging job; asserted, never assumed.
-          EXPECT_ND=(-2147483648 -2147483648 __HUEXP_CONUS_ND__ -3.4028230607370965e+38)
+          EXPECT_ND=(-2147483648 -2147483648 -3.4028230607370965e+38 -3.4028230607370965e+38)
           # Alaska is clipped east of the antimeridian; CONUS needs no clip.
           TE=('' '-te -180 48.8 -129.0 71.6' '' '-te -180 48.8 -129.0 71.6')
           # DEFLATE predictor follows the OUTPUT dtype: 2 is horizontal differencing

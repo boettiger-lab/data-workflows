@@ -113,7 +113,7 @@ Every raster was opened in the staging pod (`grid_facts.py`) before upload.
 |---:|---|---|---:|---:|
 | 0 | `HURisk_CONUS` | `Int32` | −2147483648 | 7,294,316 |
 | 1 | `HURisk_AK` | `Int32` | −2147483648 | 512,290 |
-| 2 | `HUExposure_CONUS` | `Float32` | −3.4028230607370965e+38 | see build results |
+| 2 | `HUExposure_CONUS` | `Float32` | −3.4028230607370965e+38 | 0.12658333778381 |
 | 3 | `HUExposure_AK` | `Float32` | −3.4028230607370965e+38 | 0.017185440286994 |
 | 4 | `BuildingCount_CONUS` | **`UInt16`** | **255** | — |
 | 5 | `BuildingCount_AK` | **`Int16`** | **255** | 8.0 |
@@ -406,6 +406,49 @@ Value checks, via the duckdb-geo MCP:
 
 ## Build results
 
-### Stage raw (2026-09-16)
+### Stage raw (2026-09-16) — 20/20, every member byte-exact
+
+Job `wrc-2-pa-stage-raw`: `Complete=True`, `succeeded=20`, `failedIndexes` empty. Each pod asserted
+the member's uncompressed size from the live central directory before uploading, and every one
+matched. Verified again from S3 afterwards:
+
+| Raster | Staged bytes | S3 ETag |
+|---|---:|---|
+| `HURisk_CONUS` | 3,930,077,598 | `4f0ca4d2536cb36c67f6f16e405bd70b-59` |
+| `HURisk_AK` | 483,203,658 | `b06df1953c2f989261148414b67520d3-8` |
+| `HUExposure_CONUS` | 7,466,094,445 | `8558fb54268f6dea7ae16718e6f4d966-112` |
+| `HUExposure_AK` | 492,258,415 | `7a08c73c2f48443e985a28d46801c8ad-8` |
+| `BuildingCount_CONUS` | 489,285,478 | `870ed959ad217edcd06c28edde3414a0-8` |
+| `BuildingCount_AK` | 243,345,790 | `a65ad269da2996290f61eb0847bd7987-4` |
+| `PopCount_CONUS` | 1,291,805,345 | `7fc8a75c583f8cf0930d711f08ba5927-20` |
+| `PopCount_AK` | 414,967,801 | `e2f653351fa3c867ae4a78d726d0afd5-7` |
+| `HUCount_CONUS` | 1,267,733,949 | `92afe430e704544e374ec6263eb14dc0-19` |
+| `HUCount_AK` | 414,931,855 | `9ba959eda128f834fccf0e0fc4ac675a-7` |
+| `BuildingDensity_CONUS` | 1,633,170,834 | `8feab075bef86edc4a65060c45d283e2-25` |
+| `BuildingDensity_AK` | 186,230,848 | `1e00ac19dcf3756699300ef1cec77fad` |
+| `BuildingCover_CONUS` | 887,640,016 | `0f68d00864849da28e01046ae9dd5a52-14` |
+| `BuildingCover_AK` | 244,330,510 | `f77e908e4399a1fb07eb7eb4acce082c-4` |
+| `PopDen_CONUS` | 3,094,454,526 | `63069530b4cbb9e10be5a5859aaaa1b2-47` |
+| `PopDen_AK` | 231,003,574 | `820b672e5ef4a5ebcc619bf6bbf692d5-4` |
+| `HUDen_CONUS` | 2,825,789,724 | `6c085a25ccc257fefaf96f68e6d31c35-43` |
+| `HUDen_AK` | 255,173,556 | `e04f496f88fd49b457f13e6ae7cff4f6-4` |
+| `HUImpact_CONUS` | 5,783,361,566 | `9d3599c62f10e397977bceb17e6f8d0a-87` |
+| `HUImpact_AK` | 486,918,970 | `f359b7520f4e6d0226587ea0d012202d-8` |
+
+**32,121,778,458 bytes (29.92 GiB) staged, zero size drift.** The `.ovr` pyramids were never
+transferred — roughly 8 GB the ranged extraction skipped.
+
+Most of the twenty finished in under two minutes; the whole Alaska archive's ten members are
+small and deflate. The four Deflate64 members dominated the wall clock, and
+`HUExposure_CONUS` — 6.29 GB compressed, read in 8 MiB slices — took about 75 minutes on its own,
+with zero range retries. The 8 MiB chunk is a memory bound, not a throughput choice; if this ever
+needs to be faster, raise it and raise the pod's memory with it.
+
+**The failure worth remembering:** the first three attempts at each of the four Deflate64 members
+produced a file of exactly the *compressed* length, because the extractor treated "not method 8" as
+stored. Nothing about such a file looks wrong from the outside. The uncompressed-size assertion is
+the only thing that caught it, and that is the argument for keeping the assertion.
+
+### COGs
 
 Recorded below as the job completes.
