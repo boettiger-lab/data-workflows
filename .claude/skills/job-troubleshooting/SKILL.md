@@ -1,7 +1,7 @@
 ---
 name: job-troubleshooting
 description: >-
-  Diagnose failing or stuck Kubernetes jobs and DuckDB parquet errors: OOMKilled, evictions, ContainerStatusUnknown, flaky-node hangs, ephemeral-storage limits and PVC scratch, pod quota errors, 404s on convert, blank PMTiles in MapLibre, and the DuckDB httpfs stoi crash on oversized parquet column chunks. Use when a job fails or hangs, or when a published parquet will not read.
+  Diagnose failing or stuck Kubernetes jobs and DuckDB parquet errors: OOMKilled, evictions, ContainerStatusUnknown, flaky-node hangs, ephemeral-storage limits and PVC scratch, pod quota errors, 404s on convert, blank PMTiles in MapLibre, sha256 checksum failures when staging raw to Ceph RGW, and the DuckDB httpfs stoi crash on oversized parquet column chunks. Use when a job fails or hangs, or when a published parquet will not read.
 ---
 
 # Job Troubleshooting
@@ -108,6 +108,27 @@ kubectl -n geo-workflows describe pod <pod-name> | grep -A5 "Reason:\|Message:\|
 **Hex OOM** → regenerate with `--hex-memory 64Gi` and/or more `--max-completions`, delete failed job, reapply.
 
 **503 SlowDown (S3 throttle)** → transient, retry.
+
+**`hash unsupported: hash type not supported` on a staging job → Ceph RGW has no server-side sha256.**
+NRP S3 (Ceph RGW) exposes only MD5, via the object ETag, so `rclone hashsum sha256 nrp:<bucket>/<path>`
+always fails. Under `set -e` this kills the job on its *last* line, **after** the data has staged
+correctly — the job reports `Failed` while S3 holds a complete, valid object. Check what actually
+landed before re-running anything.
+
+Step 1b requires a checksum recomputed from the object (never transcribed), so compute it by
+streaming the staged object back:
+
+```bash
+rclone size   nrp:<bucket>/raw/<file>
+rclone md5sum nrp:<bucket>/raw/<file>          # ETag-derived
+rclone cat    nrp:<bucket>/raw/<file> | sha256sum
+```
+
+⚠️ **Prefer the streamed sha256 as the recorded checksum.** The workflow-namespace rclone config
+uses `chunk_size=64Mi`, so anything larger uploads multipart, and a multipart ETag is a digest *of
+the part digests* — not the MD5 of the whole object. It will not match a local `md5sum` of the same
+file, which reads as corruption when it is not. `rclone cat | sha256sum` is size-independent and
+always comparable.
 
 **PMTiles renders blank in MapLibre → wrong `source-layer`.** It's the last path segment of `--dataset`, NOT the GDB/source layer name. For `--dataset padus-4-1/fee`, it's `fee` (not `PADUS4_1Fee`).
 
