@@ -33,6 +33,35 @@ ogrinfo -ro -q "$SRC" -dialect SQLITE \
   `catalog/usgs-nhd/k8s/preflight-nhdplus-hr-vaa.yaml`.
 - ⛔ Never hand-write a coded domain from memory (#294) — this is how you get the real one.
 
+### Variant: the GDB is raster-only and the VAT will not attach (#606)
+
+A **raster-only** FileGDB defeats both halves of the trick above: OpenFileGDB will not open it as a
+vector source at all (zero layers), and it will not attach the raster attribute table to the band, so
+`band.GetDefaultRAT()` returns `None`. The pixels are readable as subdatasets; the class labels look
+unreachable.
+
+They are not. GDAL **will** open an individual `a********.gdbtable` member directly, so walk the
+members and read the VAT out as its own table:
+
+```bash
+# list every internal table, including the ones the driver hides
+OPENFILEGDB_LIST_ALL_TABLES=YES ogrinfo -ro -q /tmp/RCN.gdb | head -50
+# then dump the one you want by its internal name
+ogr2ogr -f CSV /vsistdout/ /tmp/RCN.gdb/a00000020.gdbtable
+```
+
+- Names follow a pattern: `fras_bnd_<name>` / `fras_blk_<name>` / `fras_aux_<name>` per raster, and
+  `vat_<name>` for its attribute table. A GDB with **generic** member names (`a0000000f` with no
+  `fras_ras_<name>`) is the case where the driver resolves **0 subdatasets** and the pixels really
+  are unreachable — see #683.
+- This got a 297-row VAT out of a 1.4 GB zip without unzipping the 49 GB geodatabase inside it, and
+  its `Count` column **is** the pixel histogram, so a class distribution costs nothing instead of a
+  25.8-billion-pixel scan.
+- ⚠️ When the VAT is the class source, the pixel value is usually **not** the class — RCN's values
+  are composite digit-position codes (`100000`–`404311`). Reclass through the VAT before hexing, and
+  check whether `0` is a real class before reusing a precedent's `-srcnodata 0` (in #606 it is
+  `Not in Network`, so nodata had to move to 255).
+
 ## Step 1c: Preprocessing multi-file zipped datasets
 
 **`cng-convert-to-parquet` rejects multiple .zip URLs.** For per-state/per-region zips, preprocess: download in parallel, unzip, pass shapefiles (the tool merges them automatically):
