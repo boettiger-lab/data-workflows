@@ -49,11 +49,34 @@ kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-pmti
 kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-hex.yaml
 kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-repartition.yaml
 
-# damage hex is 4,534 jobs; armada, not k8s
-armadactl submit damage/armada-ids-damage-1997-2025-pmtiles.yaml
-armadactl submit damage/armada-ids-damage-1997-2025-hex.yaml
-armadactl submit damage/armada-ids-damage-1997-2025-repartition.yaml
+# damage, after the survey-extent hex finishes (one k8s hex workflow at a time)
+kubectl apply -n geo-workflows -f damage/configmap.yaml
+kubectl apply -n geo-workflows -f damage/ids-damage-1997-2025-pmtiles.yaml
+kubectl apply -n geo-workflows -f damage/ids-damage-1997-2025-hex.yaml
+kubectl apply -n geo-workflows -f damage/ids-damage-1997-2025-repartition.yaml
 ```
+
+## Damage does not need Armada, because feature count is not the workload
+
+The obvious reading is that 4,533,015 damage polygons need Armada while 73,730 survey footprints
+fit k8s. Measured, it is the other way round. What drives hex cost is **covered area**, not feature
+count:
+
+| | features | total area | H3 r10 cells | cells per chunk |
+|---|---|---|---|---|
+| `ids-survey-extent-1999-2025` | 73,730 | 95.1M km2 | ~6.3B | ~86M at 74 chunks |
+| `ids-damage-1997-2025` | 4,533,015 | 2.39M km2 | ~0.16B | ~0.8M at 200 chunks |
+
+Damage carries 61x the features and about **1/40th the hex work**: they are small sketch polygons,
+while a survey footprint is a whole flight area. At 200 completions a damage chunk is roughly 100x
+lighter than a survey-extent chunk that k8s already runs at a 5.2Gi peak. So damage runs on the
+plain k8s backend at 200 completions x 22,666, and the 200-completion cap is not a constraint here.
+
+⚠️ **Do not measure this with `h3_polygon_wkt_to_cells_string`.** It returns **0 cells for
+MULTIPOLYGON** without erroring, and these datasets are 99.05% and 89.5% MULTIPOLYGON, so a naive
+per-feature cell count silently reports only the POLYGON remainder. The table above comes from
+`SUM(ST_Area(...))` converted at the mean latitude. (`ST_Area_Spheroid` returns `nan` on these
+geometries, which is a separate trap.)
 
 ## Gotchas already paid for
 
