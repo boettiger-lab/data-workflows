@@ -150,8 +150,13 @@ This bit `mesic-persistence-unmasked-2026-09`, whose prefix carried 34 manifests
 than the run started**, not just that there are N of them:
 
 ```bash
-rclone lsl nrp:public-mesic/<dataset>/hex-chunks/_manifest/ | sort -k2      # all 35 timestamps
+scripts/check-chunk-manifests.sh nrp:public-mesic/<dataset>/hex-chunks/ \
+  --expect 35 --since 2026-09-17T20:23:00Z      # the corrected run's start
 ```
+
+It exits non-zero on a stale or missing index and names them. It deliberately reads the
+manifests rather than the pods: Armada reaps failed pods (and k8s deletes them when
+`backoffLimitPerIndex` is set), but a missing completion record cannot be reaped.
 
 Data parts are safer but not self-evidently so: they are named `part-<res1-cell>.parquet`, so a
 re-run with the same chunk plan overwrites them in place, and a stale part can only survive if its
