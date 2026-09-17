@@ -451,15 +451,16 @@ the only thing that caught it, and that is the argument for keeping the assertio
 
 ### COGs (2026-09-16/17)
 
-Three of four built on the first pass; `HUExposure_CONUS` needed a memory fix (below).
+**4/4 built.** Three on the first pass; `HUExposure_CONUS` needed a memory fix (below) and built
+in 38 minutes on the retry, of which the warp itself was 30m17s.
 
-| | `hurisk-conus` | `hurisk-ak` | `huexposure-ak` |
-|---|---|---|---|
-| Warped size | 197,514 × 92,269 | 150,764 × 67,401 | 150,764 × 67,401 |
-| Pixel (deg) | 0.0003257129231020243 | 0.00033827704226473165 | 0.00033827704226473165 |
-| Dtype / nodata | Int32 / −9999 | Int32 / −9999 | Float32 / −9999 |
-| Overviews | 9, `BLOCKSIZE=512` | 9 | 9 |
-| Resampler | `near` | `near` | **`sum`** |
+| | `hurisk-conus` | `hurisk-ak` | `huexposure-conus` | `huexposure-ak` |
+|---|---|---|---|---|
+| Warped size | 197,514 × 92,269 | 150,764 × 67,401 | 197,514 × 92,269 | 150,764 × 67,401 |
+| Pixel (deg) | 0.0003257129231020243 | 0.00033827704226473165 | 0.0003257129231020243 | 0.00033827704226473165 |
+| Dtype / nodata | Int32 / −9999 | Int32 / −9999 | Float32 / −9999 | Float32 / −9999 |
+| Overviews | 9, `BLOCKSIZE=512` | 9 | 9 | 9 |
+| Resampler | `near` | `near` | **`sum`** | **`sum`** |
 
 The Alaska warps match the sibling `wrc-2-rps-ak` grid exactly (150,764 × 67,401), as they must —
 same source grid, same clip.
@@ -472,6 +473,7 @@ This is the evidence for the resampler split, and it is stronger than the synthe
 |---|---:|---:|---:|---:|---:|
 | `hurisk-conus` (`near`) | 1,586,774,801 | 1,659,303,050,581 | 1,396,313,753 | 1,419,524,640,175 | **−14.4%** |
 | `hurisk-ak` (`near`) | 3,926,732 | 12,498,413,361 | 5,275,836 | 17,776,728,265 | **+42.2%** |
+| `huexposure-conus` (**`sum`**) | 1,586,774,801 | 50484.404891164275 | 1,536,046,263 | 50484.37529216313 | **−5.9e-7** |
 | `huexposure-ak` (**`sum`**) | 3,926,732 | 325.4611482655238 | 5,793,024 | 325.46115222398214 | **+1.2e-8** |
 
 Three things to take from this.
@@ -481,26 +483,28 @@ while Alaska gains 42.2%. It is not a scale factor anyone could divide out, and 
 warped that way would be meaningless. HURisk is a `mean` layer, so this costs it nothing; had it
 been an amount it would have been a silent 14–42% error.
 
-**`-r sum` conserved the total to float32 rounding** — twelve significant figures on a real
-continental-scale raster, and it did so while the valid pixel count went from 3.93 M to 5.79 M.
+**`-r sum` conserved the total on both domains** — to seven significant figures over 1.5 billion
+CONUS pixels and to twelve over Alaska, under the same warp that moved `near` by −14.4% and +42.2%.
 That is the invariant #611 asks for, established at the COG step so the hex step can be checked
 against it.
+
+Note the direction of the pixel-count change differs between the two `sum` domains — CONUS
+1,586,774,801 → 1,536,046,263 (fewer, larger output pixels) and Alaska 3,926,732 → 5,793,024 (more,
+smaller ones) — and the total held either way. That is the point of an overlap-weighted resampler.
 
 **The Alaska dateline clip dropped no mass.** `huexposure-ak`'s source and COG sums agree, so the
 far-western Aleutians excluded by the −180..−129 clip contain no exposed housing units at all. That
 is now measured rather than argued.
 
 Also worth noting: **both `near` warps preserved the maximum exactly** (7,294,316 and 512,290), and
-the minimum is 0.0 with no sentinel leak on any of the three. `huexposure-ak`'s COG maximum is
-**lower** than its source maximum (0.011197708547115326 against 0.01718544028699398), which is
-correct and expected for a `sum` warp: each output pixel holds the amount within its own footprint,
-and the reprojected pixels at those latitudes are smaller than the 30 m source pixels. The published
-`raster:bands` statistics describe the COG, so that is the number recorded, with the reason stated
-in the asset description.
-
-`HUExposure_CONUS` source statistics, measured before the raw was deleted: 1,586,774,801 valid
-pixels, min 0.0, max 0.12658333778381348, mean 3.181573393990662e-05, **SUM 50484.404891164275**.
-That sum is the target the rebuilt COG and then the hex must reproduce.
+the minimum is 0.0 with no sentinel leak on any of the three. the two `sum` COGs' maxima move in
+opposite directions from their sources, and both are correct. `huexposure-ak` falls from
+0.01718544028699398 to 0.011197708547115326 and `huexposure-conus` rises from 0.12658333778381348 to
+0.14124265313148499. Each output pixel holds the amount within its own footprint, and the
+reprojected pixels are smaller than 30 m at Alaskan latitudes and larger at CONUS ones. The
+published `raster:bands` statistics describe the COG, so those are the numbers recorded, with the
+reason stated in the asset description. **A `sum` COG's per-pixel maximum is not the source's
+per-pixel maximum, and it is not supposed to be** — the total is what is conserved.
 
 The `gdalwarp` datum warning — *Several coordinate operations are going to be used* — appears on
 every warp here, as it did on wrc-2. Both source CRSs are NAD83 and the target is WGS84, PROJ has
@@ -533,4 +537,28 @@ without redoing the other three: `completions: 1` with `INDEX_OFFSET: '2'`.
 
 ### Hex
 
-Recorded below as the jobs complete.
+Run **one job at a time** (`AGENTS.md`), in this order. Recorded as each completes.
+
+| job | state |
+|---|---|
+| `wrc-2-pa-hurisk-conus-hex` | running since 2026-09-17 |
+| `wrc-2-pa-hurisk-ak-hex` | not started |
+| `wrc-2-pa-huexposure-conus-hex` | not started |
+| `wrc-2-pa-huexposure-ak-hex` | not started |
+
+**The h0 index → cell lookup is confirmed correct against the running job.** Completion 0 of
+`wrc-2-pa-hurisk-conus-hex` took h0-index 9 and reported cell `577903311559065599`, which is exactly
+what `s3://public-grids/hex/h0-valid.parquet` gives for `i = 9`. The explicit `H0S=(...)` fan-out is
+therefore reading the same mapping `cng-datasets` uses.
+
+#### The `sum` targets the hex must reproduce
+
+These are the COG pixel sums measured above. Hex `SUM(huexposure)` must equal them within rounding:
+
+| dataset | target |
+|---|---:|
+| `wrc-2-pa-huexposure-conus` | **50484.37529216313** |
+| `wrc-2-pa-huexposure-ak` | **325.46115222398214** |
+
+For the `mean` layers there is no such invariant; check instead that the hex mean sits inside the
+COG's exact range, that `MIN` is ≥ 0, and that no `-9999` leaked.
