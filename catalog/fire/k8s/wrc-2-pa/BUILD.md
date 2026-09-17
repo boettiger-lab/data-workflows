@@ -361,9 +361,26 @@ same table:
 | Alaska | 7 | 12, 28, 50, 59, 98, 104, 105 |
 
 This is a **superset** of the cells that will hold data — the intersection is against the h0 cell
-geometry, and a cell that does not actually overlap the raster is skipped by the tool in seconds —
-so it cannot drop a populated cell. It removes 110 of 122 pods per CONUS layer and 115 per Alaska
-layer.
+geometry — so it cannot drop a populated cell. It removes 110 of 122 pods per CONUS layer and 115
+per Alaska layer.
+
+⛔ **The superset is safe but it is NOT free, and the difference is measured.** There are two
+distinct empty cases and only one of them is cheap:
+
+| case | tool behaviour | measured cost |
+|---|---|---|
+| h0 does **not** intersect the raster | `No overlap between source raster and h0 cell N, skipping` | **0 min** (index 4, h0 42) |
+| h0 intersects but every pixel is nodata | full `exact_extract: 282475249 cells in 2825 chunks` pass, then `no cells produced values (all nodata)` | **136 min** (index 0, h0 9) |
+
+Per-pod cost is driven by the **enumeration**, not by how much data comes out — the same reason
+peak memory is flat at ~132 GiB across a 4.7x range in output cells. So an h0 that overlaps the
+COG's bounding geometry but holds no valid pixels costs a full res-10 enumeration and writes
+nothing.
+
+On `hurisk-conus` that is roughly 5 of 12 pods, about **10 pod-hours per CONUS layer**. It is the
+price of not guessing the populated set, and it is worth paying at four datasets. **At the sixteen
+datasets of #692 it is worth revisiting** — but only by *measuring* each theme's populated h0 from
+its COG, never by reusing another theme's set: `HUExposure`'s extent is not `HURisk`'s.
 
 For reference, the measured populated sets from the sibling `wrc-2-rps-*` build are CONUS
 {12, 14, 20, 50, 71, 78} and Alaska {12, 59, 98, 104, 105}; both are contained in the lists above,
