@@ -58,16 +58,16 @@ spec:
           cng-datasets merge-chunks \
             --chunks-dir s3://public-mesic/mesic-persistence-unmasked-2026-09/hex-chunks \
             --output-dir s3://public-mesic/mesic-persistence-unmasked-2026-09/hex \
-            --expect-chunks 34
+            --expect-chunks 35
         resources:
           requests:
             cpu: '4'
             memory: 8Gi
-            ephemeral-storage: 100Gi
+            ephemeral-storage: 50Gi
           limits:
             cpu: '4'
             memory: 8Gi
-            ephemeral-storage: 100Gi
+            ephemeral-storage: 50Gi
       volumes:
       - name: rclone-config
         secret:

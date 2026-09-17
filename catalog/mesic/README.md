@@ -110,7 +110,8 @@ coverage gate before treating a build as done:
 
 ```bash
 kubectl $N get job <name>-hex -o jsonpath='succeeded={.status.succeeded} failed={.status.failed} failedIndexes={.status.failedIndexes}{"\n"}'
-scripts/check-hex-coverage.sh nrp:public-mesic/<dataset>/hex/ --expect-h0 <the 5 h0 cells>
+scripts/check-hex-coverage.sh nrp:public-mesic/<dataset>/hex/ \
+  --expect-h0 576812596024311807,577164439745200127,577199624117288959,577692205326532607,577762574070710271
 ```
 
 ## Hex parameters
@@ -123,8 +124,46 @@ scripts/check-hex-coverage.sh nrp:public-mesic/<dataset>/hex/ --expect-h0 <the 5
 | `mesic-huc12-2026-09` | 8 | 0 | — | matches `usgs-wbd-hu12` (native 8 / `[0]`) so they join on `h8` |
 
 `Persistence` is a per-pixel intensive count — **never `sum`**. The hex fan-out uses
-`--chunk-resolution 1` (34 res-1 chunks over the 5 h0 cells the source touches: base cells
-9, 19, 20, 34, 36) so no pod carries a whole h0 at res 10.
+`--chunk-resolution 1` (35 res-1 chunks over the 5 h0 cells the source touches: base cells
+9, 19, 20, 34, 36 — none is a pentagon, so 5 x 7 = 35) so no pod carries a whole h0 at res 10.
+
+## ⛔ `--h0-subset` takes GRID INDICES, not H3 base cell numbers
+
+This silently built half the dataset once, and nothing in the build failed. **The values passed to
+`--h0-subset` are the `i` column of `s3://public-grids/hex/h0-valid.parquet` — a positional index
+into that 122-row grid — not the H3 base cell number.** The two are not the same, and the tool
+cannot tell you which you meant: every value 0-121 is legal in both readings.
+
+For this footprint the translation is:
+
+| h0 base cell | grid index `i` | h0 cell id |
+|---:|---:|---|
+| 9  | **12** | 576812596024311807 |
+| 34 | **14** | 577692205326532607 |
+| 19 | **20** | 577164439745200127 |
+| 20 | **50** | 577199624117288959 |
+| 36 | **71** | 577762574070710271 |
+
+So the correct argument is **`--h0-subset "12,14,20,50,71"`**.
+
+The first build passed the base cell numbers `"9,19,20,34,36"`. Those resolved to grid rows whose
+h0 cells are base cells **40, 63, 19, 90, 116** — four of which the raster does not touch at all.
+Only base cell 19 was processed, and only because `20` appears in both lists by coincidence. The
+job reported **34/34 succeeded with no failures**: 28 of the 34 chunks logged `No overlap between
+source raster and chunk, skipping` and exited 0. The entire Great Basin / Snake River Plain /
+Columbia Plateau half of the biome — Idaho, Nevada, Utah, Oregon, Washington, all in base cell 20 —
+was silently absent.
+
+Two things make this worth a permanent note. The tool's own docstring says "descendants of these h0
+**base cells**", which is what misled the first build; and a clean `succeeded` count proves nothing
+here, because a chunk that overlaps nothing is a success. **Verify the translation before
+submitting**, and always run the h0 coverage gate after:
+
+```sql
+-- what to pass, given the base cells the source touches
+SELECT i FROM read_parquet('s3://public-grids/hex/h0-valid.parquet')
+WHERE h3_get_base_cell_number(h0::UBIGINT) IN (9,19,20,34,36) ORDER BY i;
+```
 
 ## Never SUM these on hex
 

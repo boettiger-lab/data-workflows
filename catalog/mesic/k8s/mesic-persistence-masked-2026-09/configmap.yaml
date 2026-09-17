@@ -11,8 +11,8 @@ data:
       labels:
         k8s-app: mesic-persistence-masked-2026-09-hex
     spec:
-      completions: 34
-      parallelism: 34
+      completions: 35
+      parallelism: 35
       completionMode: Indexed
       backoffLimitPerIndex: 2
       maxFailedIndexes: 1
@@ -71,7 +71,7 @@ data:
             - |-
               set -e
 
-              cng-datasets raster --input "s3://public-mesic/mesic-persistence-masked-2026-09-cog.tif" --output-parquet s3://public-mesic/mesic-persistence-masked-2026-09/hex-chunks/ --chunk-resolution 1 --chunk-index ${JOB_COMPLETION_INDEX} --h0-subset "9,19,20,34,36" --resolution 10 --parent-resolutions 9,8,0 --value-column persistence --hex-resampling mean --nodata "0"
+              cng-datasets raster --input "s3://public-mesic/mesic-persistence-masked-2026-09-cog.tif" --output-parquet s3://public-mesic/mesic-persistence-masked-2026-09/hex-chunks/ --chunk-resolution 1 --chunk-index ${JOB_COMPLETION_INDEX} --h0-subset "12,14,20,50,71" --resolution 10 --parent-resolutions 9,8,0 --value-column persistence --hex-resampling mean --nodata "0"
             resources:
               requests:
                 cpu: '2'
@@ -155,16 +155,16 @@ data:
               cng-datasets merge-chunks \
                 --chunks-dir s3://public-mesic/mesic-persistence-masked-2026-09/hex-chunks \
                 --output-dir s3://public-mesic/mesic-persistence-masked-2026-09/hex \
-                --expect-chunks 34
+                --expect-chunks 35
             resources:
               requests:
                 cpu: '4'
                 memory: 8Gi
-                ephemeral-storage: 100Gi
+                ephemeral-storage: 50Gi
               limits:
                 cpu: '4'
                 memory: 8Gi
-                ephemeral-storage: 100Gi
+                ephemeral-storage: 50Gi
           volumes:
           - name: rclone-config
             secret:
