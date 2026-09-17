@@ -69,6 +69,22 @@
 # `sum` layers the clip necessarily drops that area's mass too, so each pod prints the source and
 # COG pixel sums and the difference between them -- that number is evidence, not an error.
 #
+# ⚠️ `-r sum` NEEDS A SMALL `-wm`, AND THE REASON IS ARITHMETIC RATHER THAN FLAKINESS.
+# The first run of this job OOMKilled index 2 (HUExposure_CONUS) three times at 24Gi, always at
+# 40-50% of the warp, while index 0 (HURisk_CONUS) -- the same 197,514 x 92,269 output grid, same
+# settings -- warped fine. The difference is the resampler.
+#
+# gdalwarp chunks the output by the `-wm` budget, and with `-multi` it processes chunks across
+# NUM_THREADS in parallel, so peak RSS is roughly NUM_THREADS x wm + GDAL_CACHEMAX. At the old
+# `-wm 2048` with 8 threads and a 4096 MB cache that is ~20 GB before Python and GDAL overhead --
+# i.e. right at the 24Gi limit. `-r near` survived it because nearest neighbour needs only one
+# source pixel per output pixel, so its source buffer is small; `-r sum` must hold the whole
+# overlapping source window for each chunk, so it actually spends the budget.
+#
+# So `-wm` is 512 and GDAL_CACHEMAX is 1024: ~8 x 512 + 1024 = ~5 GB, with 32Gi as headroom. The
+# chunks are smaller and there are more of them, which costs some wall clock against a tiled
+# source and nothing in correctness.
+#
 # ⚠️ STATISTICS ARE EXACT HERE, NOT approx_ok. wrc-2 used ComputeStatistics(True), which GDAL
 # answers from the AVERAGE-resampled overviews: it biased the published max low by 28% (CONUS) and
 # 53% (Alaska) and had to be re-measured afterwards. These rasters are small enough that a full
@@ -76,6 +92,10 @@
 #
 # Indexes 0-3 are the two themes #611 scoped first, so `completions: 4` builds exactly those. The
 # follow-up issue raises it to 20 after filling in RESAMPLE/OTYPE/EXPECT_ND for indexes 4-19.
+#
+# To rebuild ONE index without redoing the others, set INDEX_OFFSET and completions together --
+# e.g. index 2 alone is `completions: 1` with `INDEX_OFFSET: '2'`. Each COG is written to a fixed
+# S3 key, so a rebuild replaces it in place.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -270,8 +290,13 @@ spec:
           value: 'FALSE'
         # ⛔ Do NOT set PROJ_DATA / PROJ_LIB. The image ships 8 proj.db at differing layout
         # versions and a stale pick breaks -t_srs EPSG:4326 non-deterministically (#453).
+        # See the header: peak RSS is ~NUM_THREADS x wm + GDAL_CACHEMAX, and `-r sum` actually
+        # spends that budget where `-r near` does not.
         - name: GDAL_CACHEMAX
-          value: '4096'
+          value: '1024'
+        # 0 unless rebuilding a single index; see the header.
+        - name: INDEX_OFFSET
+          value: '0'
         - name: GDAL_NUM_THREADS
           value: ALL_CPUS
         - name: TMPDIR
@@ -310,7 +335,7 @@ spec:
           PRED=(2 2 3 3)
           DST_ND=-9999
 
-          i=${JOB_COMPLETION_INDEX}
+          i=$(( ${INDEX_OFFSET:-0} + JOB_COMPLETION_INDEX ))
           s=${SRC[$i]}; o=${OUT[$i]}; r=${RESAMPLE[$i]}; ot=${OTYPE[$i]}
           nd=${EXPECT_ND[$i]}; te=${TE[$i]}; pred=${PRED[$i]}
 
@@ -342,7 +367,7 @@ spec:
             ${ot:+-ot $ot} \
             -srcnodata "$nd" -dstnodata "$DST_ND" \
             $te \
-            -multi -wo NUM_THREADS=ALL_CPUS -wm 2048 \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 512 \
             -co COMPRESS=DEFLATE -co PREDICTOR=$pred -co BIGTIFF=YES \
             -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 \
             -co NUM_THREADS=ALL_CPUS \
@@ -387,11 +412,11 @@ spec:
           # wrc-2 needed 60Gi only because RPS_CONUS is 27 GB.
           requests:
             cpu: '8'
-            memory: 24Gi
+            memory: 32Gi
             ephemeral-storage: 50Gi
           limits:
             cpu: '8'
-            memory: 24Gi
+            memory: 32Gi
             ephemeral-storage: 50Gi
       volumes:
       - name: rclone-config

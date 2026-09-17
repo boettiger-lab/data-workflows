@@ -449,6 +449,88 @@ produced a file of exactly the *compressed* length, because the extractor treate
 stored. Nothing about such a file looks wrong from the outside. The uncompressed-size assertion is
 the only thing that caught it, and that is the argument for keeping the assertion.
 
-### COGs
+### COGs (2026-09-16/17)
 
-Recorded below as the job completes.
+Three of four built on the first pass; `HUExposure_CONUS` needed a memory fix (below).
+
+| | `hurisk-conus` | `hurisk-ak` | `huexposure-ak` |
+|---|---|---|---|
+| Warped size | 197,514 × 92,269 | 150,764 × 67,401 | 150,764 × 67,401 |
+| Pixel (deg) | 0.0003257129231020243 | 0.00033827704226473165 | 0.00033827704226473165 |
+| Dtype / nodata | Int32 / −9999 | Int32 / −9999 | Float32 / −9999 |
+| Overviews | 9, `BLOCKSIZE=512` | 9 | 9 |
+| Resampler | `near` | `near` | **`sum`** |
+
+The Alaska warps match the sibling `wrc-2-rps-ak` grid exactly (150,764 × 67,401), as they must —
+same source grid, same clip.
+
+#### The reprojection numbers, measured on the real rasters
+
+This is the evidence for the resampler split, and it is stronger than the synthetic test.
+
+| | source valid px | source SUM | COG valid px | COG SUM | SUM drift |
+|---|---:|---:|---:|---:|---:|
+| `hurisk-conus` (`near`) | 1,586,774,801 | 1,659,303,050,581 | 1,396,313,753 | 1,419,524,640,175 | **−14.4%** |
+| `hurisk-ak` (`near`) | 3,926,732 | 12,498,413,361 | 5,275,836 | 17,776,728,265 | **+42.2%** |
+| `huexposure-ak` (**`sum`**) | 3,926,732 | 325.4611482655238 | 5,793,024 | 325.46115222398214 | **+1.2e-8** |
+
+Three things to take from this.
+
+**The `near` drift reverses sign between the two domains** — CONUS loses 14.4% of the pixel total
+while Alaska gains 42.2%. It is not a scale factor anyone could divide out, and pooling two domains
+warped that way would be meaningless. HURisk is a `mean` layer, so this costs it nothing; had it
+been an amount it would have been a silent 14–42% error.
+
+**`-r sum` conserved the total to float32 rounding** — twelve significant figures on a real
+continental-scale raster, and it did so while the valid pixel count went from 3.93 M to 5.79 M.
+That is the invariant #611 asks for, established at the COG step so the hex step can be checked
+against it.
+
+**The Alaska dateline clip dropped no mass.** `huexposure-ak`'s source and COG sums agree, so the
+far-western Aleutians excluded by the −180..−129 clip contain no exposed housing units at all. That
+is now measured rather than argued.
+
+Also worth noting: **both `near` warps preserved the maximum exactly** (7,294,316 and 512,290), and
+the minimum is 0.0 with no sentinel leak on any of the three. `huexposure-ak`'s COG maximum is
+**lower** than its source maximum (0.011197708547115326 against 0.01718544028699398), which is
+correct and expected for a `sum` warp: each output pixel holds the amount within its own footprint,
+and the reprojected pixels at those latitudes are smaller than the 30 m source pixels. The published
+`raster:bands` statistics describe the COG, so that is the number recorded, with the reason stated
+in the asset description.
+
+`HUExposure_CONUS` source statistics, measured before the raw was deleted: 1,586,774,801 valid
+pixels, min 0.0, max 0.12658333778381348, mean 3.181573393990662e-05, **SUM 50484.404891164275**.
+That sum is the target the rebuilt COG and then the hex must reproduce.
+
+The `gdalwarp` datum warning — *Several coordinate operations are going to be used* — appears on
+every warp here, as it did on wrc-2. Both source CRSs are NAD83 and the target is WGS84, PROJ has
+more than one candidate transform, and the disagreement between candidates is 1–2 m against a 30 m
+pixel. Left at PROJ's default rather than pinned with `-to ONLY_BEST=YES`, which can fail outright
+when the best transform needs a grid file the image does not ship.
+
+#### ⛔ `-r sum` OOMKilled at 24Gi where `-r near` did not, and the cause is arithmetic
+
+`HUExposure_CONUS` was OOMKilled three times at 24Gi, always at 40–50% of the warp, while
+`HURisk_CONUS` — the same 197,514 × 92,269 output grid, the same job, the same settings — warped
+fine. Reproducible three times over, so not a flaky node.
+
+`gdalwarp` chunks the output by the `-wm` budget, and with `-multi` it processes chunks across
+`NUM_THREADS` in parallel, so peak RSS is roughly **NUM_THREADS × wm + GDAL_CACHEMAX**. At the
+original `-wm 2048` with 8 threads and a 4096 MB cache that is ~20 GB before Python and GDAL
+overhead — right at the limit. `-r near` survived it because nearest neighbour needs one source
+pixel per output pixel, so its source buffer stays small; `-r sum` must hold the whole overlapping
+source window for each chunk, so it actually spends the budget it is given.
+
+Fixed by making the budget match the arithmetic rather than by raising the wall: `-wm 512`,
+`GDAL_CACHEMAX 1024` (~5 GB expected), with the request raised to 32Gi as headroom. Smaller chunks
+mean more of them, which costs wall clock against a tiled source and nothing in correctness.
+
+**Generalise this to the follow-up:** the other three `sum` themes (`BuildingCount`, `PopCount`,
+`HUCount`) are all CONUS-scale and will hit the same wall if the `-wm` is raised back.
+
+`make-cogs.yaml` grew an `INDEX_OFFSET` knob for exactly this case, so one index can be rebuilt
+without redoing the other three: `completions: 1` with `INDEX_OFFSET: '2'`.
+
+### Hex
+
+Recorded below as the jobs complete.
