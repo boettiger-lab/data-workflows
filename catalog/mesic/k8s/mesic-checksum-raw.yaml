@@ -1,0 +1,98 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mesic-checksum-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: mesic-checksum-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: mesic-checksum-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: checksum-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # Provenance for STAC (issue #609, AGENTS.md Step 1b). mesic-stage-raw printed
+          # sha256 to its log, but a Job log is not a record: its TTL expired and the log
+          # is gone. AGENTS.md is explicit that a checksum must be recomputed from the
+          # object rather than transcribed, so this recomputes from the staged copies and
+          # writes the result beside the data, where it survives.
+          #
+          # S3 ETags here are multipart (suffixed -11/-9/-7), so they are NOT whole-object
+          # md5 and cannot substitute for this.
+          cd /tmp
+          OUT=/tmp/raw-checksums.txt
+          : > "$OUT"
+          for f in BIOME_Mesic_Persistence_unmasked.tif \
+                   BIOME_Mesic_Persistence_masked.tif \
+                   BIOME_HUC12_subwatershed_Table.gpkg; do
+            echo "=== $f ==="
+            rclone copyto "nrp:public-mesic/raw/$f" "/tmp/$f" -P
+            sz=$(stat -c%s "/tmp/$f")
+            sha=$(sha256sum "/tmp/$f" | awk '{print $1}')
+            echo "$sha  $sz  $f" | tee -a "$OUT"
+            rm -f "/tmp/$f"
+          done
+          echo
+          echo "=== recomputed checksums ==="
+          cat "$OUT"
+          rclone copyto "$OUT" nrp:public-mesic/raw/raw-checksums.txt
+          echo "published to s3://public-mesic/raw/raw-checksums.txt"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 5Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 5Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
