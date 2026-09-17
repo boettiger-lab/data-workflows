@@ -56,6 +56,29 @@ h8 is also the catalog's universal join key. The layer is a **full grid** over t
 cells outside the sagebrush biome read `0`, which is "no mesic pixels", not "no data". Clip to the
 biome footprint before computing totals.
 
+## ⛔ Do not compute mesic area by counting COG pixels
+
+The rasters are EPSG:4326 with a pixel size in **degrees** (0.000269494585236 deg), so a pixel is
+~30 m in latitude but ~30 x cos(lat) m in longitude. Its ground area is **~900 x cos(lat) m2, not
+900 m2**. Counting valid pixels and multiplying by 900 m2 overstates mesic extent by ~37% across
+this footprint.
+
+Measured on the published build:
+
+| method | mesic area |
+|---|---:|
+| `mesic-presence-2026-09` hex, `SUM(mesic_fraction * h3_cell_area(h8,'km^2'))` | **987,608 km2** |
+| naive COG pixel count (1,507,376,096) x 900 m2 | 1,356,638 km2 |
+
+The ratio is 0.728. The mesic-area-weighted mean latitude of the footprint is 42.814 deg and
+cos(42.814) = 0.7336, so the gap is entirely the cos(lat) term and nothing else (agreement within
+0.7%).
+
+**The hex figure is the correct one**, because H3 cells carry true spherical area while a
+geographic-CRS pixel does not. This is the substantive reason the presence layer exists: it is the
+only route to a defensible acreage from this source. State it in the hex asset description so a
+consumer does not "check" our number against a pixel count and conclude we are wrong.
+
 ## HUC12 carries no HUC code — we derive one
 
 The GeoPackage ships `name` (ambiguous: 28,978 WBD watersheds share only 23,626 names in this
