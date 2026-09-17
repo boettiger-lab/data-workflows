@@ -137,6 +137,29 @@ scripts/check-hex-coverage.sh nrp:public-mesic/<dataset>/hex/ \
   --expect-h0 576812596024311807,577164439745200127,577199624117288959,577692205326532607,577762574070710271
 ```
 
+## ⛔ Re-running a hex into a prefix that already holds an earlier run
+
+`merge-chunks --expect-chunks N` counts records under `hex-chunks/_manifest/`. Those objects are
+keyed by **chunk index**, so a re-run overwrites them one by one as each chunk finishes. If the
+prefix still holds a previous run's manifests, a chunk that fails in the new run leaves the **old**
+manifest in place and the gate counts it: `--expect-chunks` passes on an incomplete build. That is
+the #409 silent-partial-build failure wearing the gate's own badge.
+
+This bit `mesic-persistence-unmasked-2026-09`, whose prefix carried 34 manifests from the aborted
+`--h0-subset "9,19,20,34,36"` run. So **before merging a re-run, check that every manifest is newer
+than the run started**, not just that there are N of them:
+
+```bash
+rclone lsl nrp:public-mesic/<dataset>/hex-chunks/_manifest/ | sort -k2      # all 35 timestamps
+```
+
+Data parts are safer but not self-evidently so: they are named `part-<res1-cell>.parquet`, so a
+re-run with the same chunk plan overwrites them in place, and a stale part can only survive if its
+cell is absent from the new plan. Here the old plan's populated cells were all base-cell-19
+children, all present in the corrected plan, so the three surviving parts were rewritten rather
+than orphaned. **Purge the prefix instead if the chunk plan changed**, since a plan change is
+exactly the case where a stale part outlives its cell.
+
 ## Hex parameters
 
 | dataset | native | parents | reducer | why |
