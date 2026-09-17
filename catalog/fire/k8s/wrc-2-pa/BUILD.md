@@ -76,10 +76,12 @@ four layers whichever way it was applied.
 
 ### Scope of this pass
 
-**`HURisk` and `HUExposure`, CONUS and Alaska — four datasets.** The pair #611 names under "if built
-partially", and deliberately one `mean` layer and one `sum` layer so both reducer paths, and the
-mass-conservation invariant, are exercised and validated here rather than deferred. All twenty raw
-rasters are staged regardless, so the remaining eight themes start at the COG step.
+**`HURisk` and `HUExposure`, CONUS and Alaska — four datasets.** The pair #611 names under "if
+built partially", and deliberately one `mean` layer and one `sum` layer, so both reducer paths and
+the mass-conservation invariant are exercised and validated here rather than deferred.
+
+All twenty raw rasters are staged regardless, so **the remaining eight themes — #692 — start at the
+COG step** and never touch the upstream Box URLs again.
 
 | Dataset id | Theme | Domain | Native | Parents | Reducer | Column |
 |---|---|---|---|---|---|---|
@@ -378,6 +380,21 @@ as they must be.
 | node pinning | **none** | pinning a 192Gi/8cpu job serializes it — #307 turned a CONUS res-10 hex from hours into 30–50 h |
 | `backoffLimitPerIndex` / `maxFailedIndexes` | 3 / 0 | a partial indexed run must surface as `Failed`, not publish as complete (#409) |
 | `podFailurePolicy` | Ignore `DisruptionTarget` | a preemption is not a data error and should not spend the index's retry budget |
+
+### `cog-facts.yaml` — exact facts for the *published* COGs
+
+`make-cogs.yaml` prints exact statistics, but it measures the local file **before** upload, and
+three of its four pods have since been reaped. `cog-facts.yaml` re-measures all four COGs as they
+are actually published on S3, reusing `raster_stats.py` verbatim from the `wrc-2-pa-make-cogs-src`
+ConfigMap so the numbers come from the same gated code path. It emits one `FACTS <json>` line per
+dataset — statistics plus the bbox derived from the geotransform — so `facts.json` is transcribed
+from machine output rather than by eye, and a truncated or mis-uploaded COG would surface here and
+nowhere else.
+
+```bash
+kubectl apply -n geo-workflows -f cog-facts.yaml
+kubectl -n geo-workflows logs job/wrc-2-pa-cog-facts | grep '^FACTS '
+```
 
 ## Post-build verification
 
