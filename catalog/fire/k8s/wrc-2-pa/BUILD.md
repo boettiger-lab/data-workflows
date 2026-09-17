@@ -552,6 +552,34 @@ mean more of them, which costs wall clock against a tiled source and nothing in 
 `make-cogs.yaml` grew an `INDEX_OFFSET` knob for exactly this case, so one index can be rebuilt
 without redoing the other three: `completions: 1` with `INDEX_OFFSET: '2'`.
 
+#### Re-measured from the published objects (2026-09-17)
+
+`wrc-2-pa-cog-facts` read all four COGs back off S3 and re-ran the gate. **4/4 gate OK**, and every
+figure reproduces what `make-cogs` measured locally before upload — so the published objects are
+the objects that were gated, and `huexposure-ak`'s mean, never transcribed at build time, is
+recovered.
+
+| | `hurisk-conus` | `hurisk-ak` | `huexposure-conus` | `huexposure-ak` |
+|---|---:|---:|---:|---:|
+| valid px | 1,396,313,753 | 5,275,836 | 1,536,046,263 | 5,793,024 |
+| min | 0.0 | 0.0 | 0.0 | 0.0 |
+| max | 7,294,316 | 512,290 | 0.14124265313148499 | 0.011197708547115326 |
+| mean | 1016.6229739735293 | 3369.4618758050856 | 3.286644192184929e-05 | 5.6181564623930804e-05 |
+| std | 7370.024526278766 | 9114.890034386981 | 0.00019670021630628932 | 0.00013640385482651098 |
+| SUM | 1,419,524,640,175 | 17,776,728,265 | 50484.37529216313 | 325.46115222398214 |
+
+#### ⚠️ The COG grid extent is NOT the collection bbox
+
+The geotransform gives the reprojected **grid** extent, and an Albers → WGS84 warp bulges it well
+past the data — CONUS reaches `[-128.387, 22.428, -64.054, 52.482]`, hundreds of kilometres into
+the Gulf of Mexico and the Pacific, where these layers have no pixels at all. Alaska's is exactly
+the `-te -180 48.8 -129.0 71.6` clip window. Every sibling in this bucket publishes a **data**
+extent instead (`wrc-2-rps-conus` is `[-124.862, 24.395, -66.885, 49.385]`), and HURisk's is
+narrower still, since it exists only where housing-unit density is greater than zero.
+
+So `extent.spatial` is measured from the **hex output**, and the grid extent is kept in
+`facts.json` as `cog_grid_bbox` for the record only.
+
 ### Hex
 
 Run **one job at a time** (`AGENTS.md`), in this order. Recorded as each completes.

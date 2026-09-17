@@ -8,15 +8,23 @@ hand-carried statistics taken from GDAL's overview-backed `approx_ok` path reach
 
 Inputs:
   --cog-facts <file>   the `FACTS {...}` lines from `kubectl logs job/wrc-2-pa-cog-facts`
-                       (exact blockwise statistics + bbox, measured against the PUBLISHED COG)
-  --rows <file>        one `<dataset> <n>` line per dataset, the hex row counts measured with
-                       the duckdb-geo MCP
+                       (exact blockwise statistics, measured against the PUBLISHED COG)
+  --hex-facts <file>   JSON, `{<dataset>: {"rows": n, "bbox": [...], ...}}`, measured against the
+                       published hex parquet with the duckdb-geo MCP
+
+⚠️ The collection bbox comes from the HEX, not from the COG. A COG's geotransform gives the
+reprojected *grid* extent, and an Albers -> WGS84 warp bulges that box well past the data: the
+CONUS grid reaches 22.43N / 128.39W, hundreds of km into the Gulf of Mexico and the Pacific, where
+this layer has no pixels at all. The sibling collections in this bucket (`wrc-2-rps-*`,
+`whp-2023-*`) all publish a data extent, and HURisk's is narrower still since it is defined only
+where housing-unit density is greater than zero. The grid extent is kept as `cog_grid_bbox` for the
+record, and is not what `extent.spatial` is built from.
 
 Static per-dataset facts -- the staged raw's filename and the SOURCE nodata sentinel, which is
 what the provenance paragraph quotes -- live in STATIC below. They are properties of the upstream
 publication, not of a build, and each was measured in `wrc-2-pa-stage-raw`.
 
-    python3 make_facts.py --cog-facts /tmp/cog-facts.log --rows /tmp/rows.txt > facts.json
+    python3 make_facts.py --cog-facts /tmp/cog-facts.log --hex-facts /tmp/hex-facts.json > facts.json
 """
 from __future__ import annotations
 
@@ -65,21 +73,19 @@ REQUIRED = ("bbox", "cog_min", "cog_max", "cog_mean", "created", "raw_name", "ro
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cog-facts", required=True)
-    ap.add_argument("--rows", required=True)
+    ap.add_argument("--hex-facts", required=True)
     args = ap.parse_args()
 
     facts: dict = {}
     for line in open(args.cog_facts):
         if line.startswith("FACTS "):
             for ds, f in json.loads(line[len("FACTS "):]).items():
+                # The grid extent is recorded but is NOT the published bbox -- see the header.
+                f["cog_grid_bbox"] = f.pop("bbox")
                 facts.setdefault(ds, {}).update(f)
 
-    for line in open(args.rows):
-        line = line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        ds, n = line.split()
-        facts.setdefault(ds, {})["rows"] = int(n)
+    for ds, f in json.load(open(args.hex_facts)).items():
+        facts.setdefault(ds, {}).update(f)
 
     for ds, st in STATIC.items():
         facts.setdefault(ds, {}).update(st)
