@@ -586,10 +586,43 @@ Run **one job at a time** (`AGENTS.md`), in this order. Recorded as each complet
 
 | job | state |
 |---|---|
-| `wrc-2-pa-hurisk-conus-hex` | running since 2026-09-17 |
+| `wrc-2-pa-hurisk-conus-hex` | running since 2026-09-17, 5/12 at 3h23m |
 | `wrc-2-pa-hurisk-ak-hex` | not started |
 | `wrc-2-pa-huexposure-conus-hex` | not started |
 | `wrc-2-pa-huexposure-ak-hex` | not started |
+
+The three are submitted by a chain that applies the next job **only** when the previous reaches
+`Complete`, and stops on `Failed` — `maxFailedIndexes: 0` means a `Failed` job is a partial build
+that must not be published (#409).
+
+#### The explicit h0 fan-out is behaving exactly as designed, measured mid-run
+
+After 5 of 12 completions — h0 indexes 9, 12, 14, 20 and 42 — **three** partitions exist, at cells
+`576812596024311807`, `577164439745200127` and `577692205326532607`. Resolved against
+`s3://public-grids/hex/h0-valid.parquet` those are indexes **12, 14 and 20**; indexes **9 and 42
+completed and wrote nothing**, which is the superset design working as intended rather than a
+fault. The remaining seven indexes are 50, 71, 78, 89, 100, 104 and 120, of which 50, 71 and 78 are
+expected to populate, for **6 populated h0** — the same set `wrc-2-rps-conus` measured.
+
+⚠️ That equality is the *expectation*, not a gate. `HURisk` exists only where housing-unit density
+is greater than zero, so it may legitimately populate a subset of RPS's h0. A populated set that is
+a strict subset of {12, 14, 20, 50, 71, 78} is fine; one containing an index outside it is not, and
+would mean the fan-out list is wrong.
+
+#### Mid-run value checks on the three completed partitions
+
+| h0 | rows | distinct h10 | min | max | mean |
+|---|---:|---:|---:|---:|---:|
+| `576812596024311807` (i=12) | 665,493 | 665,493 | 0 | 208,932.03 | 1,480.69 |
+| `577164439745200127` (i=20) | 52,576,076 | 52,576,076 | 0 | 1,157,180.74 | 419.07 |
+| `577692205326532607` (i=14) | 26,064,832 | 26,064,832 | 0 | 5,334,818.96 | 1,069.15 |
+
+`rows == COUNT(DISTINCT h10)` on every partition, zero NULL in the value column and in `h9`, and
+`MIN` is 0 everywhere — so no `-9999` leaked. Every maximum sits below the COG's exact maximum of
+7,294,316, as an area-weighted mean of pixels must.
+
+Schema as published: `hurisk DOUBLE`, `h10/h9/h8 UBIGINT`, `h0 BIGINT` — matching the
+`table:columns` that `gen_stac.py` declares.
 
 **The h0 index → cell lookup is confirmed correct against the running job.** Completion 0 of
 `wrc-2-pa-hurisk-conus-hex` took h0-index 9 and reported cell `577903311559065599`, which is exactly
