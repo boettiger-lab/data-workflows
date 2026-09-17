@@ -19,9 +19,15 @@
 # count. Silently dropping them here would destroy that number. Python's datetime covers
 # year 1..9999, so every upstream value round-trips.
 #
-# Output is FlatGeobuf, not one giant GeoJSON FeatureCollection: 1.49M polygons (some with
-# 292 rings) would be a ~10 GB in-RAM document to build and re-parse. FGB streams both ways
-# and `cng-convert-to-parquet` accepts it.
+# Output is GeoPackage, not one giant GeoJSON FeatureCollection: 1.49M polygons (some with
+# 292 rings) would be a ~10 GB in-RAM document to build and re-parse.
+#
+# GPKG rather than FlatGeobuf, for one specific reason. FGB refuses NULL geometry while it
+# builds a spatial index, and exactly one TWIG record has none -- but writing FGB with
+# SPATIAL_INDEX=NO then produced a file DuckDB's bundled GDAL could not read at all
+# ("Skipping beyond end of binary data at position 1149", deterministic, right where the
+# index would start). GPKG stores NULL geometry natively AND keeps its index, so it is the
+# only staging format that satisfies both. Do not switch this back to FGB.
 #
 #   Source:  https://gis.reshapewildfire.org/arcgis/rest/services/Hosted/Treatment_Index_View/FeatureServer/0
 #   Docs:    https://reshapewildfire.org/resources/twig-data-resources/
@@ -88,7 +94,7 @@ spec:
           UA = {"User-Agent": "data-workflows/1.0 (boettiger-lab; issue 603)"}
           EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
           OUT_NDJSON = "/tmp/twig.geojsonl"
-          OUT_FGB = "/tmp/twig-treatment-index-2026-08.fgb"
+          OUT_GPKG = "/tmp/twig-treatment-index-2026-08.gpkg"
 
           def get(params, tries=6):
               url = BASE + "?" + urllib.parse.urlencode(params)
@@ -166,7 +172,10 @@ spec:
           # 292-ring multipolygons make the tail far heavier than the mean -- so a full backlog
           # of completed-but-unconsumed futures is what OOMKilled this pod at 4 Gi around 300k
           # features. Bounding the backlog caps peak RAM at BATCH pages regardless of page size.
-          BATCH = 24
+          # BATCH is 12 rather than 24 because the spike comes early, while the first batches
+          # are all in flight at once: a 45-second sampler read 1.53 Gi steady but missed that
+          # peak, and a 2 Gi pod sized off that reading was OOMKilled 48 seconds in.
+          BATCH = 12
           t0 = time.time()
           done = 0
           with ThreadPoolExecutor(max_workers=WORKERS) as ex:
@@ -232,52 +241,51 @@ spec:
           ls -la /tmp/twig.geojsonl
           df -h /tmp | tail -1
 
-          # NDJSON -> FlatGeobuf. GeoJSONSeq streams, so neither side is held in RAM.
+          # NDJSON -> GeoPackage. GeoJSONSeq streams, so neither side is held in RAM.
           # -if GeoJSONSeq is REQUIRED, not belt-and-braces: GDAL probes the plain GeoJSON
           # driver first on a .geojsonl file, which slurps the whole document and dies with
           # "JSON parsing error: buffer size overflow" on anything this size (12.4 GB here).
-          ogr2ogr -f FlatGeobuf /tmp/twig-treatment-index-2026-08.fgb \
+          ogr2ogr -f GPKG /tmp/twig-treatment-index-2026-08.gpkg \
             -if GeoJSONSeq /tmp/twig.geojsonl \
             -nln twig_treatment_index \
             -a_srs EPSG:4326 \
             -nlt PROMOTE_TO_MULTI \
-            -lco SPATIAL_INDEX=NO \
             --config OGR_ORGANIZE_POLYGONS ONLY_CCW
           rm -f /tmp/twig.geojsonl
 
-          ls -la /tmp/twig-treatment-index-2026-08.fgb
-          ogrinfo -so /tmp/twig-treatment-index-2026-08.fgb twig_treatment_index
+          ls -la /tmp/twig-treatment-index-2026-08.gpkg
+          ogrinfo -so /tmp/twig-treatment-index-2026-08.gpkg twig_treatment_index
 
-          # The NDJSON reconciled against the service; prove the FGB did not lose rows on the
+          # The NDJSON reconciled against the service; prove the GPKG did not lose rows on the
           # way through ogr2ogr, so a silent truncation cannot reach the convert step.
-          FGB_N=$(ogrinfo -so /tmp/twig-treatment-index-2026-08.fgb twig_treatment_index \
+          GPKG_N=$(ogrinfo -so /tmp/twig-treatment-index-2026-08.gpkg twig_treatment_index \
                   | sed -n 's/^Feature Count: //p')
-          echo "FGB feature count: $FGB_N"
-          if [ "$FGB_N" != "1491072" ]; then
-            echo "FAIL: FGB holds $FGB_N features, expected 1491072"; exit 1
+          echo "GPKG feature count: $GPKG_N"
+          if [ "$GPKG_N" != "1491072" ]; then
+            echo "FAIL: GPKG holds $GPKG_N features, expected 1491072"; exit 1
           fi
 
           # The staged raw + its checksum ARE the provenance: the service is live and
           # overwrites in place, so this edition is not otherwise recoverable (AGENTS.md
           # Step 1b). Recompute from the object, never transcribe.
-          sha256sum /tmp/twig-treatment-index-2026-08.fgb | tee /tmp/twig-treatment-index-2026-08.fgb.sha256
+          sha256sum /tmp/twig-treatment-index-2026-08.gpkg | tee /tmp/twig-treatment-index-2026-08.gpkg.sha256
           python3 - <<'PY'
           import json
           m = json.load(open("/tmp/twig-fetch-manifest.json"))
-          line = open("/tmp/twig-treatment-index-2026-08.fgb.sha256").read().split()[0]
+          line = open("/tmp/twig-treatment-index-2026-08.gpkg.sha256").read().split()[0]
           import os
-          m["raw_object"] = "s3://public-fire/raw/twig-treatment-index-2026-08.fgb"
+          m["raw_object"] = "s3://public-fire/raw/twig-treatment-index-2026-08.gpkg"
           m["raw_sha256"] = line
-          m["raw_bytes"] = os.path.getsize("/tmp/twig-treatment-index-2026-08.fgb")
+          m["raw_bytes"] = os.path.getsize("/tmp/twig-treatment-index-2026-08.gpkg")
           json.dump(m, open("/tmp/twig-fetch-manifest.json", "w"), indent=2)
           print(json.dumps(m, indent=2))
           PY
 
-          rclone copyto /tmp/twig-treatment-index-2026-08.fgb \
-            nrp:public-fire/raw/twig-treatment-index-2026-08.fgb --s3-no-check-bucket
+          rclone copyto /tmp/twig-treatment-index-2026-08.gpkg \
+            nrp:public-fire/raw/twig-treatment-index-2026-08.gpkg --s3-no-check-bucket
           rclone copyto /tmp/twig-fetch-manifest.json \
             nrp:public-fire/raw/twig-treatment-index-2026-08-fetch-manifest.json --s3-no-check-bucket
-          echo "staged raw -> s3://public-fire/raw/twig-treatment-index-2026-08.fgb"
+          echo "staged raw -> s3://public-fire/raw/twig-treatment-index-2026-08.gpkg"
         # MEASURED on the 2026-09-17 run, not estimated: memory sat flat at 1.53 Gi for the
         # whole 14-minute scrape and the conversion, and peak disk was 12.4 GB of NDJSON plus
         # the 5.25 GB FlatGeobuf. NRP's admission webhook scores the account on requested vs
@@ -286,12 +294,12 @@ spec:
         resources:
           requests:
             cpu: '1'
-            memory: 2Gi
-            ephemeral-storage: 25Gi
+            memory: 4Gi
+            ephemeral-storage: 35Gi
           limits:
             cpu: '1'
-            memory: 2Gi
-            ephemeral-storage: 25Gi
+            memory: 4Gi
+            ephemeral-storage: 35Gi
       volumes:
       - name: rclone-config
         secret:
