@@ -57,13 +57,13 @@ spec:
             --expect-features 1491072
         resources:
           requests:
-            cpu: '4'
-            memory: 16Gi
-            ephemeral-storage: 50Gi
+            cpu: '2'
+            memory: 12Gi
+            ephemeral-storage: 25Gi
           limits:
-            cpu: '4'
-            memory: 16Gi
-            ephemeral-storage: 50Gi
+            cpu: '2'
+            memory: 12Gi
+            ephemeral-storage: 25Gi
       volumes:
       - name: rclone-config
         secret:

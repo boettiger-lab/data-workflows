@@ -278,21 +278,20 @@ spec:
           rclone copyto /tmp/twig-fetch-manifest.json \
             nrp:public-fire/raw/twig-treatment-index-2026-08-fetch-manifest.json --s3-no-check-bucket
           echo "staged raw -> s3://public-fire/raw/twig-treatment-index-2026-08.fgb"
-        # Sized to what this actually uses, not to a neighbouring job's numbers: the scrape is
-        # network-bound (6 HTTP workers streaming straight to disk), and the only real memory
-        # is the 1.49M-element objectid set (~110 MB) plus FlatGeobuf's packed R-tree (~60 MB).
-        # NRP's admission webhook rejects an over-request outright ("resources utilization is
-        # too low"), so an inherited 4 CPU / 16 Gi does not merely waste a slot, it fails to
-        # schedule at all. Ephemeral storage is the one big ask: the NDJSON is 12.4 GB.
+        # MEASURED on the 2026-09-17 run, not estimated: memory sat flat at 1.53 Gi for the
+        # whole 14-minute scrape and the conversion, and peak disk was 12.4 GB of NDJSON plus
+        # the 5.25 GB FlatGeobuf. NRP's admission webhook scores the account on requested vs
+        # used, so an over-request here does not just waste a node slot, it blocks every later
+        # job on the account -- which is exactly what an 8 Gi request for 1.5 Gi of work did.
         resources:
           requests:
-            cpu: '2'
-            memory: 8Gi
-            ephemeral-storage: 50Gi
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 25Gi
           limits:
-            cpu: '2'
-            memory: 8Gi
-            ephemeral-storage: 50Gi
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 25Gi
       volumes:
       - name: rclone-config
         secret:
