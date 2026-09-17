@@ -63,10 +63,16 @@ spec:
             /tmp/twig-treatment-index-2026-08.gpkg
           ls -la /tmp/twig-treatment-index-2026-08.gpkg
 
+          # --trim-strings because TWIG ships categorical values that differ only by trailing
+          # whitespace, which silently breaks equality filters: 70,516 rows in activity and
+          # 96,713 in equipment. Trimming collapses activity from 236 distinct values to 234,
+          # exactly matching its 234 activity_code values, which confirms the stray-whitespace
+          # variants are duplicates of real categories rather than categories of their own.
           cng-convert-to-parquet \
             /tmp/twig-treatment-index-2026-08.gpkg \
             s3://public-fire/twig-treatment-index-2026-08.parquet \
             --row-group-size 2000 \
+            --trim-strings \
             --expect-features 1491072
         resources:
           requests:
