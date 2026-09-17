@@ -444,6 +444,50 @@ def build_collection(dataset: str, facts: dict) -> dict:
     return coll
 
 
+# The `public-fire` description enumerates the kinds of layer the bucket holds, and this
+# publication adds one it did not have: layers that know where housing units actually are. The
+# sentence replaced below said "Three kinds of layer"; leaving it would make the bucket collection
+# contradict its own children. Matched on an exact substring so a drifted description fails loudly
+# rather than being silently half-patched.
+BUCKET_DESC_OLD = (
+    "Three kinds of layer live here and they answer different questions."
+)
+BUCKET_DESC_NEW = (
+    "Four kinds of layer live here and they answer different questions."
+)
+BUCKET_DESC_INSERT_AFTER = (
+    "a modelled surface, and hazard rather than risk, since it does not account for what is "
+    "exposed to loss."
+)
+BUCKET_DESC_INSERT = (
+    " Risk to Potential Structures asks what a fire would do to a home at a location, whether or "
+    "not one stands there. The populated-areas layers, whose identifiers carry pa, are the ones "
+    "that know where housing units actually are: they come from a separate Wildfire Risk to "
+    "Communities publication that maps buildings, population and housing units, and they are "
+    "defined in terms of real housing units rather than a hypothetical structure."
+)
+
+
+def patch_bucket_description(cur: dict) -> bool:
+    """Widen the bucket description to cover the populated-areas layers. Idempotent."""
+    d = cur.get("description", "")
+    if BUCKET_DESC_INSERT.strip() in d:
+        print("  description   : already widened, left alone")
+        return False
+    if BUCKET_DESC_OLD not in d or BUCKET_DESC_INSERT_AFTER not in d:
+        raise SystemExit(
+            "FATAL: the public-fire description has drifted from what this script was written "
+            "against; re-read it and update BUCKET_DESC_* before publishing."
+        )
+    d = d.replace(BUCKET_DESC_OLD, BUCKET_DESC_NEW, 1)
+    d = d.replace(
+        BUCKET_DESC_INSERT_AFTER, BUCKET_DESC_INSERT_AFTER + BUCKET_DESC_INSERT, 1
+    )
+    cur["description"] = d
+    print("  description   : widened to four kinds of layer")
+    return True
+
+
 def patch_bucket(datasets: list) -> None:
     """Add child links for the new collections, preserving everything else.
 
@@ -452,6 +496,7 @@ def patch_bucket(datasets: list) -> None:
     """
     cur = json.loads(http_get(PARENT))
     before = len(cur.get("links", []))
+    patch_bucket_description(cur)
     have = {l.get("href") for l in cur.get("links", []) if l.get("rel") == "child"}
     added = []
     for ds in datasets:
@@ -476,8 +521,6 @@ def patch_bucket(datasets: list) -> None:
     print(f"  bucket collection: {before} -> {len(cur['links'])} links, added {added}")
     print(f"  assets preserved : {len(cur.get('assets', {}))}")
     print(f"  wrote {out}")
-    print("  ⚠️ the bucket description still needs widening by hand to mention the "
-          "populated-areas layers -- this script only adds child links.")
     print(f"  backup first:  rclone copyto nrp:{BUCKET}/stac-collection.json "
           f"/tmp/public-fire-stac-collection.backup.json")
     print(f"  then publish:   rclone copyto {out} nrp:{BUCKET}/stac-collection.json")
