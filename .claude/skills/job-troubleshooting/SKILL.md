@@ -124,11 +124,16 @@ rclone md5sum nrp:<bucket>/raw/<file>          # ETag-derived
 rclone cat    nrp:<bucket>/raw/<file> | sha256sum
 ```
 
-⚠️ **Prefer the streamed sha256 as the recorded checksum.** The workflow-namespace rclone config
-uses `chunk_size=64Mi`, so anything larger uploads multipart, and a multipart ETag is a digest *of
-the part digests* — not the MD5 of the whole object. It will not match a local `md5sum` of the same
-file, which reads as corruption when it is not. `rclone cat | sha256sum` is size-independent and
-always comparable.
+⚠️ **Prefer the streamed sha256 as the recorded checksum.** Above a size threshold rclone uploads
+an object in parts, and a multipart ETag is a digest *of the part digests*, suffixed `-N` for the
+part count — not the MD5 of the whole object, and not reproducible by a local `md5sum`. Comparing
+the two reads as corruption when nothing is wrong.
+
+Measured on NRP: a 103 MB object still carries a plain MD5 ETag, while a 262 MB one carries
+`"6b7f988beebe2ef040fc14dbe5919e84-51"`. rclone switches at `upload_cutoff` (200 MiB by default),
+which is a *different* setting from `chunk_size` — so **read the ETag rather than reasoning from
+the file size or the config**: a `-N` suffix means it is not an MD5 of anything you can reproduce.
+`rclone cat | sha256sum` sidesteps the question at any size.
 
 **PMTiles renders blank in MapLibre → wrong `source-layer`.** It's the last path segment of `--dataset`, NOT the GDB/source layer name. For `--dataset padus-4-1/fee`, it's `fee` (not `PADUS4_1Fee`).
 
