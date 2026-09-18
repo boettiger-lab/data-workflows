@@ -145,3 +145,51 @@ geometries, which is a separate trap.)
   armada manifests therefore request **8Gi**, not the 32Gi first generated. On Armada this is not
   a tidiness point: memory is what decides how many placement slots exist, and the
   `armada-pipeline` skill measured a 32Gi request leaving 4,231 of 4,233 jobs unschedulable.
+
+## The survey-extent hex failure, and what actually fixed it
+
+The first survey-extent hex run stranded **68 of 74 chunks**. Two things combined:
+
+- `maxFailedIndexes: 1` with `backoffLimitPerIndex: 2` aborts the whole job once **two** indexes
+  exhaust their 3 attempts, killing the in-flight ones;
+- `backoffLimitPerIndex` implies `podReplacementPolicy: Failed`, which deletes a failed pod before
+  its replacement, so **no logs survived** to say why.
+
+Chunks 4, 18, 24, 25, 35 and 73 were the failures. Raising `--hex-memory` 32Gi -> 64Gi did nothing,
+because it was never an OOM. Re-running with `backoffLimit: 0` kept a pod alive and showed the real
+error:
+
+```
+INTERNAL Error: Parquet writer: 2210203080 uncompressed page size out of range for type integer
+```
+
+A single **uncompressed parquet page** of the H3 cell column overflowing the int32 limit: the write
+side of the same family as the `stoi` cliff in AGENTS.md. `cng-datasets vector` exposes no
+row-group or page-size option, so the only available lever is fewer rows per output file.
+
+**Fix: `--chunk-size 1000` -> `100` for those 6 chunks only** (`ids-survey-extent-1999-2025-hex-subsplit.yaml`),
+which cuts rows per file ~10x and takes the page back under the limit. Sub-chunk id `m*10+k` covers
+exactly the feature range of original chunk `m`, so coverage is identical with no gaps or overlap.
+All 60 sub-chunks succeeded. Two of them (738, 739) write no file and that is correct: they address
+features 73800-74000, past the dataset's 73,730.
+
+⚠️ **Sub-splitting must not write into `chunks/`.** Output is named from the chunk id alone, so at
+`--chunk-size 100` sub-chunk 40 writes `chunk_000040.parquet` — the filename of the *good* chunk 40
+from the 1000-sized run. The sub-split writes to `rechunk-tmp/` and
+`ids-survey-extent-1999-2025-merge-subchunks.yaml` moves the files in as `chunk_1NNNNN`, which
+cannot collide with the originals' `chunk_000000..chunk_000073`.
+
+`--cleanup` is also removed from both repartition jobs: it deletes `chunks/` on success, and these
+chunks cost 9+ hours to rebuild. Remove them deliberately after the coverage gate passes.
+
+## Coverage gate results
+
+`COUNT(DISTINCT _cng_fid)` on the hex must equal the flat parquet's feature count (hex-tuning skill
+— a build can look complete while silently short).
+
+| dataset | hex rows | distinct features | flat parquet | match |
+|---|---|---|---|---|
+| `ids-damage-1997-2025` | 159,415,254 | 4,533,015 | 4,533,015 | yes |
+
+Hex carries `h10` (native) plus `h9`, `h8`, `h0`.
+

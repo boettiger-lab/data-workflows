@@ -8,8 +8,8 @@ metadata:
 spec:
   completions: 1
   parallelism: 1
-  backoffLimit: 1
-  ttlSecondsAfterFinished: 10800
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 172800
   template:
     metadata:
       labels:
@@ -50,9 +50,11 @@ spec:
         command:
         - bash
         - -c
-        - |
-          set -e
-          cng-datasets repartition --chunks-dir s3://public-usfs/ids-survey-extent-1999-2025/chunks --output-dir s3://public-usfs/ids-survey-extent-1999-2025/hex --source-parquet s3://public-usfs/ids-survey-extent-1999-2025.parquet --cleanup --memory-limit 27GiB
+        - 'set -e
+
+          cng-datasets repartition --chunks-dir s3://public-usfs/ids-survey-extent-1999-2025/chunks --output-dir s3://public-usfs/ids-survey-extent-1999-2025/hex --source-parquet s3://public-usfs/ids-survey-extent-1999-2025.parquet --memory-limit 27GiB
+
+          '
         resources:
           requests:
             cpu: '4'
