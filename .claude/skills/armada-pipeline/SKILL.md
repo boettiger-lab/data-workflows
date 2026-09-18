@@ -209,16 +209,23 @@ run set both explicitly and identically (`gen_armada_hex.py` takes separate `--q
 `--namespace`, each defaulting to `geo-workflows`), and the pods executed in `geo-workflows`,
 visible there as `armada-<jobid>-0`.
 
-⚠️ **`cng-datasets` derives the queue from `--namespace`**, passing `queue=namespace` for every
-converted step. So the queue follows whatever namespace you generated with — and
-`raster-workflow`/`workflow` still default `--namespace` to **`biodiversity`**. A generated Armada
-workflow with no `--namespace` therefore submits to the **`biodiversity`** queue, not
-`geo-workflows`, regardless of `convert_workflow_to_armada`'s own `geo-workflows` default, which
-the generators override. **Pass `--namespace geo-workflows` for data-workflows builds.**
+**`cng-datasets` derives the queue from `--namespace`** unless you override it, passing
+`queue=namespace` for every converted step. So the queue follows whatever namespace you generated
+with. Both `workflow` and `raster-workflow` now default `--namespace` to **`geo-workflows`**, so a
+generated Armada workflow lands in the `geo-workflows` queue without being told to
+(cng-datasets #210, landed 2026-09-12). Passing `--namespace geo-workflows` explicitly is still
+worth doing — it is what the manifest records, and it survives a future change of default.
 
-`cng_datasets/k8s/armada.py` now defaults to `queue="geo-workflows"` (it used to default to
-`biodiversity`, predating the migration), and the workflow generators pass the namespace
-explicitly in any case. Verified against cng-datasets `main`, 2026-09-11.
+To submit to a queue that is *not* named after the namespace the pods land in, pass
+`--armada-queue` — the two fields are independent, as above.
+
+⛔ **The `biodiversity` default survives on two other subcommands**: `cng-datasets k8s` and
+`cng-datasets sync-job` still default `--namespace` to `biodiversity`. Those are not the workflow
+generators, but they are one flag away from putting work in the legacy namespace.
+
+`cng_datasets/k8s/armada.py` defaults to `queue="geo-workflows"` (it used to default to
+`biodiversity`, predating the migration). Verified against cng-datasets `main` (`a0e0b28`,
+release 0.6.0), 2026-09-18.
 
 ## Priority classes
 
