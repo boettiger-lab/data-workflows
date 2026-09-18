@@ -1,3 +1,17 @@
+# ============================================================================
+# SUPERSEDED by rap-bands/rap-extract-bands.yaml -- DO NOT RUN (issue #666 defect 1).
+#
+# NOTE: this recipe is CORRECT. It passes `--band 4` below, and the tool ignored it. With a
+# single --input, cng-datasets never consults the band argument (cog.py:1101 -- it is applied
+# only on the 2+ input mosaic branch), so this produced the six-band stack whole, with no
+# warning and a zero exit. Reproduced in boettiger-lab/datasets#214: the identical command with
+# the input listed twice correctly yields one band.
+#
+# Consequences: the result could not render (TiTiler: "Source data must be 1 band") and, fed to
+# the hex step -- which has no band selector either -- silently produced band 1 instead of band 4.
+# Superseded rather than re-run because the replacement uses gdal_translate directly and so does
+# not depend on the tool fix landing.
+# ============================================================================
 apiVersion: batch/v1
 kind: Job
 metadata:

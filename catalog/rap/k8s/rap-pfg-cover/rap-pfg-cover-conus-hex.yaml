@@ -1,3 +1,11 @@
+# ============================================================================
+# SUPERSEDED by rap-bands/rap-pfg-hex.yaml -- DO NOT RUN (issue #666 defects 2 and 3).
+# Two defects in the block below:
+#   1. CHUNK_MAP=(12 20 50 71) is commented "CONUS-bounding" and is not. CONUS needs six
+#      h0 indices -- 12,14,20,50,71,78 -- so GA/FL and NC/VA/ME were never attempted.
+#   2. --input is the six-band COG with no band selection, so the hex read band 1 (annual
+#      forb & grass) and labelled it `pfg`. Those rows are now rap-afg-cover (#667).
+# ============================================================================
 apiVersion: batch/v1
 kind: Job
 metadata:
