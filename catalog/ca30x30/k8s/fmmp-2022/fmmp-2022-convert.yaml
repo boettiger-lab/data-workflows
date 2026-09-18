@@ -50,9 +50,9 @@ spec:
         - |
           set -e
           cng-convert-to-parquet \
-            https://s3-west.nrp-nautilus.io/public-ca30x30/raw/fmmp-2022.zip \
+            https://s3-west.nrp-nautilus.io/public-ca30x30/raw/fmmp-2022-featureserver-2026-08-25.zip \
             s3://public-ca30x30/fmmp-2022.parquet \
-            --row-group-size 100000
+            --row-group-size 2000
         resources:
           requests:
             cpu: '4'
