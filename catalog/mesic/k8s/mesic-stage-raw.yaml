@@ -1,0 +1,196 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mesic-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: mesic-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: mesic-stage-raw
+    spec:
+      restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          BASE='https://rangeland.ntsg.umt.edu/data/mesic'
+          mkdir -p /tmp/mesic && cd /tmp/mesic
+
+          # Upstream replaces these files in place and has renamed them four times
+          # (README changelog). There is no immutable archive and no version string in
+          # the filenames, so the staged copy plus its checksum IS the provenance --
+          # record Content-Length / Last-Modified / sha256 at fetch time, per issue #609.
+          # Expected sizes verified by HEAD on 2026-09-16; a mismatch means upstream
+          # replaced the file again mid-build and the run must stop rather than stage a
+          # different edition under this dataset id.
+          declare -A EXPECT=(
+            ['biome/BIOME_Mesic_Persistence_unmasked.tif']=722680300
+            ['biome/BIOME_Mesic_Persistence_masked.tif']=543256122
+            ['biome/BIOME_HUC12_subwatershed_Table.gpkg']=435589120
+          )
+
+          echo "=== Upstream README (the authority; staged alongside the data) ==="
+          curl -L --retry 8 --retry-all-errors --no-progress-meter -o README.upstream.txt "$BASE/README"
+          wc -c README.upstream.txt
+
+          for REL in "${!EXPECT[@]}"; do
+            F=$(basename "$REL")
+            WANT=${EXPECT[$REL]}
+            echo
+            echo "=== $F (expect $WANT bytes) ==="
+            curl -sI "$BASE/$REL" | tr -d '\r' | grep -iE 'content-length|last-modified' | tee "$F.headers.txt"
+            curl -L --retry 8 --retry-all-errors --no-progress-meter -o "$F" "$BASE/$REL"
+            GOT=$(stat -c%s "$F")
+            if [ "$GOT" != "$WANT" ]; then
+              echo "FATAL: $F is $GOT bytes, expected $WANT -- upstream replaced the file in place."
+              echo "Re-verify sizes, update issue #609 and the dataset id suffix, then re-run."
+              exit 1
+            fi
+            echo "size OK: $GOT"
+            sha256sum "$F" | tee "$F.sha256"
+          done
+
+          echo
+          echo "=== Provenance manifest ==="
+          {
+            echo "# Mesic Analysis Platform raw staging"
+            echo "# source: $BASE/biome/"
+            echo "# access date (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            for REL in "${!EXPECT[@]}"; do
+              F=$(basename "$REL")
+              echo "file: $F"
+              echo "  url: $BASE/$REL"
+              echo "  bytes: $(stat -c%s "$F")"
+              sed 's/^/  /' "$F.headers.txt"
+              echo "  sha256: $(cut -d' ' -f1 "$F.sha256")"
+              echo
+            done
+          } | tee PROVENANCE.txt
+
+          echo
+          echo "=== Uploading to s3://public-mesic/raw/ ==="
+          rclone copy /tmp/mesic nrp:public-mesic/raw/ -P --transfers 4 --checkers 8
+          rclone lsl nrp:public-mesic/raw/
+
+          echo "RAW STAGED -- pre-flight follows; a failure below does not lose the staging"
+          echo
+          set +e
+          echo "############ PRE-FLIGHT: rasters ############"
+          for F in BIOME_Mesic_Persistence_unmasked.tif BIOME_Mesic_Persistence_masked.tif; do
+            echo
+            echo "=================== $F ==================="
+            gdalinfo "/tmp/mesic/$F" | grep -vE '^\s+[0-9]+: [0-9]+,' | sed -n '1,80p'
+            echo "--- full-raster statistics (the validation truth for the hex step) ---"
+            gdalinfo -stats "/tmp/mesic/$F" | grep -E 'STATISTICS_|NoData'
+          done
+
+          echo
+          echo "############ PRE-FLIGHT: exact value histogram (settles 1-42 vs 0-100) ############"
+          python3 - <<'PY'
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          for path in ('/tmp/mesic/BIOME_Mesic_Persistence_unmasked.tif',
+                       '/tmp/mesic/BIOME_Mesic_Persistence_masked.tif'):
+              ds = gdal.Open(path)
+              b = ds.GetRasterBand(1)
+              counts = np.zeros(256, dtype=np.int64)
+              rows = 4096
+              for y in range(0, ds.RasterYSize, rows):
+                  h = min(rows, ds.RasterYSize - y)
+                  a = b.ReadAsArray(0, y, ds.RasterXSize, h)
+                  counts += np.bincount(a.ravel(), minlength=256)
+              nz = np.nonzero(counts)[0]
+              total = int(counts.sum())
+              valid = int(counts[1:].sum())
+              print()
+              print('===', path)
+              print('  nodata          :', b.GetNoDataValue())
+              print('  distinct values :', nz.tolist()[:60])
+              print('  min valid       :', int(nz[nz > 0].min()), ' max valid:', int(nz.max()))
+              print('  total pixels    :', total)
+              print('  valid (non-0)   :', valid, '(%.4f%% of grid)' % (100.0 * valid / total))
+              print('  %-6s %16s %10s' % ('value', 'pixels', 'share_of_valid'))
+              for v in nz:
+                  if v == 0:
+                      continue
+                  print('  %-6d %16d %9.4f%%' % (v, counts[v], 100.0 * counts[v] / valid))
+              ds = None
+          PY
+
+          echo
+          echo "############ PRE-FLIGHT: HUC12 GeoPackage ############"
+          ogrinfo -so -al /tmp/mesic/BIOME_HUC12_subwatershed_Table.gpkg
+          echo
+          echo "--- mgmt_code distribution + name uniqueness (there is NO huc12 code column) ---"
+          ogrinfo -dialect SQLite -sql "SELECT mgmt_code, COUNT(*) AS n FROM huc12_subwatershed_table GROUP BY mgmt_code ORDER BY mgmt_code" /tmp/mesic/BIOME_HUC12_subwatershed_Table.gpkg
+          ogrinfo -dialect SQLite -sql "SELECT COUNT(*) AS n_rows, COUNT(DISTINCT name) AS n_names FROM huc12_subwatershed_table" /tmp/mesic/BIOME_HUC12_subwatershed_Table.gpkg
+          echo "ALL DONE"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
