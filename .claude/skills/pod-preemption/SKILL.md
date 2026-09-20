@@ -2,11 +2,13 @@
 name: pod-preemption
 description: >-
   Diagnose and prevent preemption of long-running Kubernetes jobs: reading the succeeded-vs-failed
-  gap that reveals pod mortality, why priorityClassName opportunistic (-2000000000) is unsafe for
-  multi-hour pods, choosing a priority class and parallelism, and keeping failed pods inspectable
-  when backoffLimitPerIndex deletes them. Use when indexed job pods die and retry for no apparent
-  reason, when an index exhausts its retry budget, or before submitting a job whose pods run over
-  an hour.
+  gap that reveals pod mortality, how to tell it apart from by-design OOM-and-reroute which
+  produces the same shape, why priorityClassName opportunistic (-2000000000) is unsafe for
+  multi-hour pods, choosing a priority class and parallelism, keeping failed pods inspectable
+  when backoffLimitPerIndex deletes them, and why failedIndexes is the wrong input to a remap
+  list. Use when indexed job pods die and retry for no apparent reason, when an index exhausts
+  its retry budget, when reconciling which indexes actually need re-running, or before
+  submitting a job whose pods run over an hour.
 ---
 
 # Pod Preemption
@@ -33,6 +35,30 @@ killed underneath it.
 
 **A job can even report `Complete=True` while this is happening.** Retries hide it. Check the gap
 on every long job, not just failing ones.
+
+## ⛔ The gap is necessary, not sufficient — OOM-and-reroute looks identical
+
+A wide `failed` vs `failedIndexes` gap says *pods died and retried*. It does **not** say why. A
+pipeline with an expected-OOM tier — dense partitions that fail at the normal memory limit and are
+rerouted to a bigger companion job — produces exactly the same shape, which is also why such jobs
+carry a deliberately loose `maxFailedIndexes`.
+
+The GBIF 2026-09 consolidate (data-workflows [#662](https://github.com/boettiger-lab/data-workflows/issues/662#issuecomment-5753332199))
+read `succeeded=114 failed=47 failedIndexes=4,12,15,19-21,34` — near-identical to the #564
+signature below, **same `failed=47`**. It was not preemption. Do not let that number pattern-match
+you into the wrong answer; it cost a session here exactly that.
+
+Two checks settle it before you touch the data:
+
+- **A clean earlier stage in the same window rules preemption out.** Stage 1 of that job ran
+  `succeeded=200 failed=0` at default priority, same namespace, same node pool, same window as
+  Stage 2's 47 deaths. Preemption does not selectively spare one stage.
+- **Size correlation is the positive tell for OOM.** Every failed index was among the largest
+  partitions — the seven held 2.6B of 3.57B rows. Preemption hits indexes without regard to size;
+  OOM hits the big ones and only the big ones.
+
+So: check the priority class *and* a sibling stage *and* whether the failures track partition size.
+Read the pipeline's own README first — an expected-OOM tier is usually documented, and it was here.
 
 ## Why it happens
 
@@ -63,6 +89,10 @@ h0 then:
 The variable was the retry budget against a background death rate — not the cell, not the code,
 not parallelism. **Before investigating the data, re-run one failing index on its own.** If it
 succeeds unchanged, it was environmental.
+
+**The converse case is real too**, so run the discriminator above before concluding this: in the
+GBIF #662 job the failing indexes *were* special — they were the densest cells on Earth, and the
+single-pod re-run would have OOMed again. "Usually not special" is a prior, not a finding.
 
 ## Fixes, in order of preference
 
@@ -137,6 +167,39 @@ curl -s "https://s3-west.nrp-nautilus.io/<bucket>?list-type=2&prefix=<path>/hex/
 
 Do not publish or update STAC until every index is genuinely current.
 
+## ⛔ `failedIndexes` is the wrong input to a remap list
+
+An index that was **in flight when the job was suspended or deleted** appears in *neither*
+`completedIndexes` nor `failedIndexes`. Build a re-run list from `failedIndexes` and you silently
+skip it.
+
+Take the set difference against `completions` instead:
+
+```bash
+kubectl -n geo-workflows get job <name> \
+  -o jsonpath='{.spec.completions}{"\n"}{.status.completedIndexes}{"\n"}{.status.failedIndexes}{"\n"}'
+```
+
+Verified on the GBIF #662 job: `completions=122`, `completedIndexes` covering 114, `failedIndexes`
+7 — and index **95** in neither list, because it was running when someone suspended the job.
+114 + 7 = 121, not 122. The arithmetic is the check.
+
+## ⛔ Do not put a short TTL on a remediation job
+
+`ttlSecondsAfterFinished` garbage-collects the Job object, and with it the only in-cluster record
+that the remediation ever ran. For the job that *rescues* an expected-OOM tier this is actively
+harmful: the rescued parent is typically left `suspended` or `Failed` by design, so once the
+rescuer has aged out, the cluster shows a stalled build and nothing else.
+
+That is exactly what happened on GBIF #662 — the rechunk carried `ttlSecondsAfterFinished: 10800`,
+so three hours after it succeeded the only surviving evidence was **object timestamps on S3**
+(two write waves: 114 partitions ≤1.65 GB from 19:56–20:22, then eight of 8.4–26.8 GB from 21:15
+to 00:56, six of them written *after* the parent's 21:15:52 suspension). A healthy, complete build
+looked broken for eleven days.
+
+Give a remediation job a long TTL, **or** write one line to the issue when you apply it. Either
+makes the audit unnecessary.
+
 ## Checklist before submitting a long job
 
 - [ ] Estimate pod runtime. Over ~1 hour → do not use `opportunistic`.
@@ -144,4 +207,9 @@ Do not publish or update STAC until every index is genuinely current.
 - [ ] `backoffLimitPerIndex` + `maxFailedIndexes` so a partial run surfaces as `Failed`
       (AGENTS.md #409) — never `backoffLimit: 0` on a fan-out.
 - [ ] After it finishes, check the `succeeded` vs `failed` gap, not just the condition.
+- [ ] Before calling a gap preemption, check a sibling stage and whether failures track partition
+      size — an expected-OOM tier produces the same signature.
+- [ ] Build any re-run list from `completions` minus `completedIndexes` minus `failedIndexes`,
+      never from `failedIndexes` alone.
+- [ ] If the job has a remediation companion, give it a long TTL or record the run on the issue.
 - [ ] If any index failed, verify its output is current by timestamp before publishing.
