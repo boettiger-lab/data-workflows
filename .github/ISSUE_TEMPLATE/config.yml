@@ -1,0 +1,7 @@
+blank_issues_enabled: true
+contact_links:
+  - name: cng-datasets bug or missing capability
+    url: https://github.com/boettiger-lab/datasets/issues
+    about: >
+      Tool changes are made in boettiger-lab/datasets, never worked around in this repo.
+      Bug reports need a tested minimal reproducible example.
