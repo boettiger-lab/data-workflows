@@ -1,0 +1,98 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: twig-treatment-index-2026-08-convert
+  namespace: geo-workflows
+  labels:
+    k8s-app: twig-treatment-index-2026-08-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: twig-treatment-index-2026-08-convert
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-fire
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # Localize the GeoPackage before converting. cng-convert-to-parquet rewrites an
+          # s3:// source to the PUBLIC https endpoint and reads it through /vsicurl, which is
+          # pathological for GPKG specifically: GPKG is SQLite, so every page turns into a
+          # small random HTTP range read over the ~12 MB/s public endpoint. Measured: 14
+          # minutes at 76m CPU, i.e. essentially idle waiting on I/O.
+          #
+          # rclone pulls it over the INTERNAL endpoint instead, and the tool passes a local
+          # path straight through to GDAL. This mirrors what the tool already does for .gdb
+          # sources (cng_datasets _localize_gdb) and is the same reason.
+          rclone copyto nrp:public-fire/raw/twig-treatment-index-2026-08.gpkg \
+            /tmp/twig-treatment-index-2026-08.gpkg
+          ls -la /tmp/twig-treatment-index-2026-08.gpkg
+
+          # --trim-strings because TWIG ships categorical values that differ only by trailing
+          # whitespace, which silently breaks equality filters: 70,516 rows in activity and
+          # 96,713 in equipment. Trimming collapses activity from 236 distinct values to 234,
+          # exactly matching its 234 activity_code values, which confirms the stray-whitespace
+          # variants are duplicates of real categories rather than categories of their own.
+          cng-convert-to-parquet \
+            /tmp/twig-treatment-index-2026-08.gpkg \
+            s3://public-fire/twig-treatment-index-2026-08.parquet \
+            --row-group-size 2000 \
+            --trim-strings \
+            --expect-features 1491072
+        resources:
+          requests:
+            cpu: '2'
+            memory: 12Gi
+            ephemeral-storage: 30Gi
+          limits:
+            cpu: '2'
+            memory: 12Gi
+            ephemeral-storage: 30Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

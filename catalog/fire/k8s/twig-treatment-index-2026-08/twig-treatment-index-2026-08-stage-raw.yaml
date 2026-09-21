@@ -1,0 +1,318 @@
+# Stage raw TWIG treatment index from the ReSHAPE ArcGIS FeatureServer to S3.
+#
+# TWIG (Treatment and Wildfire Interagency Geodatabase, SWERI ReSHAPE) is the interagency
+# counterpart to our USFS-only `facts-common-attributes-2026-06`: FACTS *plus* NFPORS, NASF
+# and IFPRS. 1,491,072 treatment polygons, WGS84, 25 fields.
+#
+# The service exposes `Query` only -- no Extract -- so it has to be paged. Two notes on how:
+#
+#   1. We page by **objectid range**, not `resultOffset`. `objectid` runs 1..1,491,072
+#      contiguously (max == count, verified 2026-09-16), so ranges are stable against
+#      concurrent edits on a live service and are trivially parallelizable. Offset paging
+#      would silently skip or duplicate rows if upstream edits land mid-scrape.
+#   2. `f=geojson` returns ready-made GeoJSON, so no esri-rings -> GeoJSON conversion.
+#      Dates come back as epoch **milliseconds** and are converted to ISO `YYYY-MM-DD` here.
+#
+# ⚠️ Dates are dirty upstream and are deliberately NOT cleaned: 62,519 rows carry a future
+# `treatment_date`, 12 predate 1980, and the raw range spans 1201-2926. They are preserved
+# as-is so downstream can apply an explicit sane-date window and *report* the discarded
+# count. Silently dropping them here would destroy that number. Python's datetime covers
+# year 1..9999, so every upstream value round-trips.
+#
+# Output is GeoPackage, not one giant GeoJSON FeatureCollection: 1.49M polygons (some with
+# 292 rings) would be a ~10 GB in-RAM document to build and re-parse.
+#
+# GPKG rather than FlatGeobuf, for one specific reason. FGB refuses NULL geometry while it
+# builds a spatial index, and exactly one TWIG record has none -- but writing FGB with
+# SPATIAL_INDEX=NO then produced a file DuckDB's bundled GDAL could not read at all
+# ("Skipping beyond end of binary data at position 1149", deterministic, right where the
+# index would start). GPKG stores NULL geometry natively AND keeps its index, so it is the
+# only staging format that satisfies both. Do not switch this back to FGB.
+#
+#   Source:  https://gis.reshapewildfire.org/arcgis/rest/services/Hosted/Treatment_Index_View/FeatureServer/0
+#   Docs:    https://reshapewildfire.org/resources/twig-data-resources/
+#   Licence: CC-BY-4.0 (publisher's data-resources page; the service itself publishes none)
+#   Issue:   https://github.com/boettiger-lab/data-workflows/issues/603
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: twig-treatment-index-2026-08-stage-raw
+  labels:
+    k8s-app: twig-treatment-index-2026-08-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: twig-treatment-index-2026-08-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 21600
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts. Append
+      # public resolvers as a fallback; cluster DNS is still tried first so the internal
+      # rook-ceph-rgw-nautiluss3.rook rclone endpoint keeps resolving.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, threading, time, urllib.parse, urllib.request, urllib.error
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from datetime import datetime, timedelta, timezone
+
+          BASE = ("https://gis.reshapewildfire.org/arcgis/rest/services/Hosted/"
+                  "Treatment_Index_View/FeatureServer/0/query")
+          PAGE = 1000          # service maxRecordCount
+          WORKERS = 6          # polite concurrency against a live public service
+          UA = {"User-Agent": "data-workflows/1.0 (boettiger-lab; issue 603)"}
+          EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+          OUT_NDJSON = "/tmp/twig.geojsonl"
+          OUT_GPKG = "/tmp/twig-treatment-index-2026-08.gpkg"
+
+          def get(params, tries=6):
+              url = BASE + "?" + urllib.parse.urlencode(params)
+              for attempt in range(1, tries + 1):
+                  try:
+                      req = urllib.request.Request(url, headers=UA)
+                      with urllib.request.urlopen(req, timeout=300) as r:
+                          return json.load(r)
+                  except (urllib.error.HTTPError, urllib.error.URLError,
+                          TimeoutError, json.JSONDecodeError) as e:
+                      if attempt == tries:
+                          raise
+                      wait = min(60, 2 ** attempt)
+                      print(f"  retry {attempt}/{tries} after {type(e).__name__} ({e}); sleep {wait}s", flush=True)
+                      time.sleep(wait)
+
+          def count_now():
+              return get({"where": "1=1", "returnCountOnly": "true", "f": "json"})["count"]
+
+          # --- reconciliation, opening reading -------------------------------------------
+          count_before = count_now()
+          started = datetime.now(timezone.utc).isoformat()
+          print(f"returnCountOnly at start: {count_before}", flush=True)
+
+          oid = get({"where": "1=1", "f": "json",
+                     "outStatistics": json.dumps([
+                         {"statisticType": "min", "onStatisticField": "objectid",
+                          "outStatisticFieldName": "mn"},
+                         {"statisticType": "max", "onStatisticField": "objectid",
+                          "outStatisticFieldName": "mx"}])})["features"][0]["attributes"]
+          lo, hi = int(oid["mn"]), int(oid["mx"])
+          print(f"objectid range: {lo}..{hi}", flush=True)
+
+          def ms_to_iso(v):
+              # epoch ms -> ISO date. Upstream values span years 1201-2926; all are kept.
+              if v is None:
+                  return None
+              return (EPOCH + timedelta(milliseconds=v)).strftime("%Y-%m-%d")
+
+          DATE_FIELDS = ("treatment_date", "date_current")
+
+          lock = threading.Lock()
+          fh = open(OUT_NDJSON, "w")
+          written = 0
+          null_geom = 0
+          seen_oids = set()
+
+          def do_range(a, b):
+              """Fetch objectid in [a, b] -- one service page."""
+              fc = get({"where": f"objectid>={a} AND objectid<={b}",
+                        "outFields": "*", "outSR": "4326", "f": "geojson",
+                        "returnGeometry": "true"})
+              feats = fc.get("features") or []
+              lines, oids, nulls = [], [], 0
+              for ft in feats:
+                  p = ft.get("properties") or {}
+                  for d in DATE_FIELDS:
+                      p[d] = ms_to_iso(p.get(d))
+                  ft["properties"] = p
+                  oids.append(p.get("objectid"))
+                  # Some records carry no geometry, despite TWIG's metadata saying the index
+                  # holds only records with valid spatial polygons. They are KEPT: the
+                  # attributes are real data, and dropping them here would silently change
+                  # the row count the service reports. They cannot be hexed or tiled.
+                  if ft.get("geometry") is None:
+                      nulls += 1
+                  lines.append(json.dumps(ft, separators=(",", ":")))
+              return lines, oids, nulls
+
+          ranges = [(a, min(a + PAGE - 1, hi)) for a in range(lo, hi + 1, PAGE)]
+          print(f"{len(ranges)} ranges of {PAGE}", flush=True)
+
+          # Submit in bounded batches rather than queueing all 1,492 ranges at once. A page of
+          # 1000 features averages ~8 MB of JSON text but parses to several times that, and the
+          # 292-ring multipolygons make the tail far heavier than the mean -- so a full backlog
+          # of completed-but-unconsumed futures is what OOMKilled this pod at 4 Gi around 300k
+          # features. Bounding the backlog caps peak RAM at BATCH pages regardless of page size.
+          # BATCH is 12 rather than 24 because the spike comes early, while the first batches
+          # are all in flight at once: a 45-second sampler read 1.53 Gi steady but missed that
+          # peak, and a 2 Gi pod sized off that reading was OOMKilled 48 seconds in.
+          BATCH = 12
+          t0 = time.time()
+          done = 0
+          with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+              for i in range(0, len(ranges), BATCH):
+                  batch = ranges[i:i + BATCH]
+                  futs = {ex.submit(do_range, a, b): (a, b) for a, b in batch}
+                  for fut in as_completed(futs):
+                      lines, oids, nulls = fut.result()
+                      with lock:
+                          for ln in lines:
+                              fh.write(ln + "\n")
+                          written += len(lines)
+                          null_geom += nulls
+                          seen_oids.update(oids)
+                      del lines, oids
+                      done += 1
+                  if (i // BATCH) % 5 == 0 or done == len(ranges):
+                      el = time.time() - t0
+                      print(f"  {done}/{len(ranges)} ranges, {written} features, {el:.0f}s", flush=True)
+          fh.close()
+
+          # --- reconciliation, closing reading -------------------------------------------
+          count_after = count_now()
+          finished = datetime.now(timezone.utc).isoformat()
+          print(f"returnCountOnly at end:   {count_after}", flush=True)
+          print(f"features written:         {written}", flush=True)
+          print(f"distinct objectid:        {len(seen_oids)}", flush=True)
+          print(f"NULL geometry features:   {null_geom}", flush=True)
+
+          # objectid ranges tile [lo,hi] exactly, so a gap means the service dropped rows.
+          if written != len(seen_oids):
+              raise SystemExit(f"FAIL: {written} rows but {len(seen_oids)} distinct objectid -- duplicates")
+          if written != count_before or written != count_after:
+              raise SystemExit(
+                  f"FAIL: paged {written} but service reported {count_before} (start) / "
+                  f"{count_after} (end). Re-run; do not publish a short scrape.")
+          print("reconciled: paged count == returnCountOnly at both ends", flush=True)
+
+          manifest = {
+              "dataset": "twig-treatment-index-2026-08",
+              "issue": "https://github.com/boettiger-lab/data-workflows/issues/603",
+              "service": BASE.rsplit("/query", 1)[0],
+              "landing_page": "https://reshapewildfire.org/resources/twig-data-resources/",
+              "license": "CC-BY-4.0",
+              "fetch_started_utc": started,
+              "fetch_finished_utc": finished,
+              "access_date": started[:10],
+              "returnCountOnly_at_start": count_before,
+              "returnCountOnly_at_end": count_after,
+              "features_written": written,
+              "distinct_objectid": len(seen_oids),
+              "null_geometry_features": null_geom,
+              "objectid_min": lo,
+              "objectid_max": hi,
+              "page_size": PAGE,
+              "pages": len(ranges),
+          }
+          with open("/tmp/twig-fetch-manifest.json", "w") as f:
+              json.dump(manifest, f, indent=2)
+          print(json.dumps(manifest, indent=2), flush=True)
+          PY
+
+          ls -la /tmp/twig.geojsonl
+          df -h /tmp | tail -1
+
+          # NDJSON -> GeoPackage. GeoJSONSeq streams, so neither side is held in RAM.
+          # -if GeoJSONSeq is REQUIRED, not belt-and-braces: GDAL probes the plain GeoJSON
+          # driver first on a .geojsonl file, which slurps the whole document and dies with
+          # "JSON parsing error: buffer size overflow" on anything this size (12.4 GB here).
+          ogr2ogr -f GPKG /tmp/twig-treatment-index-2026-08.gpkg \
+            -if GeoJSONSeq /tmp/twig.geojsonl \
+            -nln twig_treatment_index \
+            -a_srs EPSG:4326 \
+            -nlt PROMOTE_TO_MULTI \
+            --config OGR_ORGANIZE_POLYGONS ONLY_CCW
+          rm -f /tmp/twig.geojsonl
+
+          ls -la /tmp/twig-treatment-index-2026-08.gpkg
+          ogrinfo -so /tmp/twig-treatment-index-2026-08.gpkg twig_treatment_index
+
+          # The NDJSON reconciled against the service; prove the GPKG did not lose rows on the
+          # way through ogr2ogr, so a silent truncation cannot reach the convert step.
+          GPKG_N=$(ogrinfo -so /tmp/twig-treatment-index-2026-08.gpkg twig_treatment_index \
+                  | sed -n 's/^Feature Count: //p')
+          echo "GPKG feature count: $GPKG_N"
+          if [ "$GPKG_N" != "1491072" ]; then
+            echo "FAIL: GPKG holds $GPKG_N features, expected 1491072"; exit 1
+          fi
+
+          # The staged raw + its checksum ARE the provenance: the service is live and
+          # overwrites in place, so this edition is not otherwise recoverable (AGENTS.md
+          # Step 1b). Recompute from the object, never transcribe.
+          sha256sum /tmp/twig-treatment-index-2026-08.gpkg | tee /tmp/twig-treatment-index-2026-08.gpkg.sha256
+          python3 - <<'PY'
+          import json
+          m = json.load(open("/tmp/twig-fetch-manifest.json"))
+          line = open("/tmp/twig-treatment-index-2026-08.gpkg.sha256").read().split()[0]
+          import os
+          m["raw_object"] = "s3://public-fire/raw/twig-treatment-index-2026-08.gpkg"
+          m["raw_sha256"] = line
+          m["raw_bytes"] = os.path.getsize("/tmp/twig-treatment-index-2026-08.gpkg")
+          json.dump(m, open("/tmp/twig-fetch-manifest.json", "w"), indent=2)
+          print(json.dumps(m, indent=2))
+          PY
+
+          rclone copyto /tmp/twig-treatment-index-2026-08.gpkg \
+            nrp:public-fire/raw/twig-treatment-index-2026-08.gpkg --s3-no-check-bucket
+          rclone copyto /tmp/twig-fetch-manifest.json \
+            nrp:public-fire/raw/twig-treatment-index-2026-08-fetch-manifest.json --s3-no-check-bucket
+          echo "staged raw -> s3://public-fire/raw/twig-treatment-index-2026-08.gpkg"
+        # MEASURED on the 2026-09-17 run, not estimated: memory sat flat at 1.53 Gi for the
+        # whole 14-minute scrape and the conversion, and peak disk was 12.4 GB of NDJSON plus
+        # the 5.25 GB FlatGeobuf. NRP's admission webhook scores the account on requested vs
+        # used, so an over-request here does not just waste a node slot, it blocks every later
+        # job on the account -- which is exactly what an 8 Gi request for 1.5 Gi of work did.
+        resources:
+          requests:
+            cpu: '1'
+            memory: 4Gi
+            ephemeral-storage: 35Gi
+          limits:
+            cpu: '1'
+            memory: 4Gi
+            ephemeral-storage: 35Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      # No priorityClassName: this pod runs for hours, and `opportunistic` (-2000000000)
+      # makes a long pod a preemption magnet (skill `pod-preemption`). Default priority 0
+      # is admitted in geo-workflows.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
