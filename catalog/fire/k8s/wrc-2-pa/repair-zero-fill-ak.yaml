@@ -1,0 +1,190 @@
+# Rebuild a `sum` hex from the coverage mask -- the fix decided on #611 (2026-09-21).
+#
+# TEMPLATE. Both domain manifests are generated from it so the join, the gates and the swap cannot
+# drift between them. See BUILD.md for the command that writes repair-zero-fill-{ak,conus}.yaml.
+#
+# Consumes `_mask/` (coverage-mask-*.yaml) and the currently published `hex/`, and writes the hex
+# that both should have been:
+#
+#   mask LEFT JOIN hex ON h10, huexposure = COALESCE(hex.huexposure, 0.0)
+#
+# One expression covers both domains, which is why it is written this way rather than as two:
+#   * Alaska -- `hex/` is raw tool output and holds EVERY enumerated cell, so the mask is a subset
+#               and the join matches everything. Effect: drop the nodata fill.
+#   * CONUS  -- `hex/` was already filtered to `huexposure > 0` by drop-zero-rows.yaml, so the mask
+#               cells the join does not match are exactly the measured zeros that filter removed.
+#               Effect: put them back. Every cell with sum > 0 necessarily has coverage, so the
+#               published rows are a strict subset of the mask and none is lost.
+#
+# SAFETY. Everything is staged to `hex-repaired/` and gated before any published object is touched,
+# and the swap is then done ONE OBJECT AT A TIME:
+#   * a partition present in the mask is replaced by a single-object move into hex/
+#   * a published partition ABSENT from the mask had no covered cell at all, and its one object is
+#     removed by name -- on Alaska that is h0 indexes 28, 50 and 98, three partitions holding
+#     282,475,249 zeros each
+# No prefix-wide purge happens at any point, so a pod that dies mid-swap leaves hex/ as a mixture
+# of old and new partitions rather than an empty prefix, and re-running finishes the job.
+#
+# Gates, all of which must pass before anything is replaced:
+#   1. SUM preserved against the COG pixel sum measured in cog-facts.yaml (rel <= 1e-9). Dropping
+#      nodata fill and adding measured zeros both leave a sum unchanged, so this must hold exactly
+#      -- it is the #611 invariant and it is what proves no real cell was lost.
+#   2. staged row count == mask row count, per partition. The join is a left join on the mask, so
+#      any other number means a duplicated or dropped row.
+#   3. h10/h9/h8 UBIGINT, h0 BIGINT (boettiger-lab/datasets#102).
+#   4. every mask partition produced output.
+#
+#   kubectl apply -n geo-workflows -f repair-zero-fill-ak.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-pa-huexposure-ak-repair
+  namespace: geo-workflows
+  labels: {k8s-app: wrc-2-pa-huexposure-repair}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata: {labels: {k8s-app: wrc-2-pa-huexposure-repair}}
+    spec:
+      restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      activeDeadlineSeconds: 28800
+      containers:
+      - name: repair
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        - {name: DS,   value: wrc-2-pa-huexposure-ak}
+        - {name: WANT, value: '325.46115222398214'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "=== $DS  (target SUM $WANT) ==="
+
+          mapfile -t PARTS < <(rclone lsf "nrp:public-fire/${DS}/_mask/" --dirs-only 2>/dev/null | sed 's#/$##')
+          echo "mask partitions: ${#PARTS[@]}  ${PARTS[*]}"
+          [ "${#PARTS[@]}" -gt 0 ] || { echo "FATAL: no mask partitions -- run coverage-mask first"; exit 1; }
+
+          mapfile -t HEXPARTS < <(rclone lsf "nrp:public-fire/${DS}/hex/" --dirs-only 2>/dev/null | sed 's#/$##')
+          echo "published hex partitions: ${#HEXPARTS[@]}  ${HEXPARTS[*]}"
+
+          rm -f /tmp/parts.jsonl
+
+          for p in "${PARTS[@]}"; do
+            echo "--- $p ---"
+            rclone copyto "nrp:public-fire/${DS}/_mask/${p}/data_0.parquet" /tmp/mask.parquet --retries 6
+            # A mask partition with no published counterpart is not an error: on CONUS the >0
+            # filter may have removed a partition entirely if every covered cell measured zero.
+            # Feed the join an empty relation in that case.
+            if rclone lsf "nrp:public-fire/${DS}/hex/${p}/data_0.parquet" >/dev/null 2>&1; then
+              rclone copyto "nrp:public-fire/${DS}/hex/${p}/data_0.parquet" /tmp/hex.parquet --retries 6
+            else
+              echo "  (no published partition for ${p} -- all covered cells were measured zeros)"
+              rm -f /tmp/hex.parquet
+            fi
+            python3 - "$p" <<'PY'
+          import duckdb, json, os, sys
+          part = sys.argv[1]
+          c = duckdb.connect()
+          have_hex = os.path.exists("/tmp/hex.parquet")
+          hex_rel = ("read_parquet('/tmp/hex.parquet')" if have_hex else
+                     "(SELECT NULL::UBIGINT AS h10, NULL::DOUBLE AS huexposure WHERE FALSE)")
+          # Column order and types are the published ones: huexposure, h10, h0, h8, h9.
+          c.execute(f"""
+            COPY (
+              SELECT COALESCE(x.huexposure, 0.0)::DOUBLE AS huexposure,
+                     m.h10::UBIGINT AS h10,
+                     m.h0::BIGINT   AS h0,
+                     m.h8::UBIGINT  AS h8,
+                     m.h9::UBIGINT  AS h9
+              FROM read_parquet('/tmp/mask.parquet') m
+              LEFT JOIN {hex_rel} x USING (h10)
+            ) TO '/tmp/out.parquet' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880)
+          """)
+          n_mask = c.execute("SELECT COUNT(*) FROM read_parquet('/tmp/mask.parquet')").fetchone()[0]
+          n_hex  = c.execute(f"SELECT COUNT(*) FROM {hex_rel}").fetchone()[0]
+          n_out, s_out, n_zero, n_neg = c.execute("""
+            SELECT COUNT(*), SUM(huexposure),
+                   SUM(CASE WHEN huexposure = 0 THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN huexposure < 0 THEN 1 ELSE 0 END)
+            FROM read_parquet('/tmp/out.parquet')""").fetchone()
+          types = dict(c.execute(
+              "DESCRIBE SELECT * FROM read_parquet('/tmp/out.parquet')").fetchall())
+          want_types = {"huexposure": "DOUBLE", "h10": "UBIGINT", "h0": "BIGINT",
+                        "h8": "UBIGINT", "h9": "UBIGINT"}
+          assert types == want_types, f"{part}: schema drift {types}"
+          assert n_out == n_mask, f"{part}: wrote {n_out} rows, mask has {n_mask}"
+          assert n_neg == 0, f"{part}: {n_neg} negative values -- sentinel leak"
+          json.dump({"part": part, "mask": n_mask, "hex": n_hex, "out": n_out,
+                     "zero": n_zero, "sum": s_out or 0.0}, open("/tmp/part.json", "w"))
+          print(f"  mask {n_mask:,} | published {n_hex:,} -> out {n_out:,} "
+                f"({n_zero:,} measured zeros)  sum={s_out!r}")
+          PY
+            rclone copyto /tmp/out.parquet "nrp:public-fire/${DS}/hex-repaired/${p}/data_0.parquet" --retries 6
+            cat /tmp/part.json >> /tmp/parts.jsonl; echo >> /tmp/parts.jsonl
+            rm -f /tmp/mask.parquet /tmp/hex.parquet /tmp/out.parquet /tmp/part.json
+          done
+
+          # GATE -----------------------------------------------------------------------------
+          python3 - "$WANT" "${#PARTS[@]}" <<'PY'
+          import json, sys
+          want, n_parts = float(sys.argv[1]), int(sys.argv[2])
+          rows = [json.loads(l) for l in open("/tmp/parts.jsonl") if l.strip()]
+          assert len(rows) == n_parts, f"{len(rows)} partitions written, {n_parts} in the mask"
+          got = sum(r["sum"] for r in rows)
+          n_out = sum(r["out"] for r in rows); n_zero = sum(r["zero"] for r in rows)
+          rel = abs(got - want) / want
+          print(f"  partitions {len(rows)}   rows {n_out:,}   measured zeros {n_zero:,}")
+          print(f"  SUM staged {got!r}  vs COG {want!r}   rel {rel:.3e}")
+          if rel > 1e-9:
+              print("FATAL: the total moved. NOT replacing the published hex.")
+              sys.exit(1)
+          print("  gate OK -- total preserved, row counts match the mask, safe to swap")
+          PY
+
+          # SWAP, one object at a time -------------------------------------------------------
+          echo "--- swapping partitions present in the mask ---"
+          for p in "${PARTS[@]}"; do
+            rclone moveto "nrp:public-fire/${DS}/hex-repaired/${p}/data_0.parquet" \
+                          "nrp:public-fire/${DS}/hex/${p}/data_0.parquet" --retries 6
+            echo "  replaced ${p}"
+          done
+
+          echo "--- removing partitions with no covered cell ---"
+          for h in "${HEXPARTS[@]}"; do
+            keep=no
+            for p in "${PARTS[@]}"; do [ "$h" = "$p" ] && keep=yes; done
+            if [ "$keep" = no ]; then
+              rclone deletefile "nrp:public-fire/${DS}/hex/${h}/data_0.parquet"
+              echo "  removed ${h} (no covered cell)"
+            fi
+          done
+          echo "DONE $DS"
+        resources:
+          requests: {cpu: '4', memory: 48Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 48Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org,
+                         nautilus-it-cpu05.fullerton.edu, nautilus-it-cpu13.fullerton.edu,
+                         nautilus-it-cpu15.fullerton.edu, nautilus-it-cpu16.fullerton.edu]}
