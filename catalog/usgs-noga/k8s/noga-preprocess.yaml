@@ -1,0 +1,104 @@
+# USGS NOGA Assessment Units - stage raw + merge the 57 US releases (issue #700).
+#
+# The script and the pinned release manifest are mounted from a ConfigMap, built
+# from the committed files:
+#
+#   kubectl -n geo-workflows create configmap noga-preprocess \
+#     --from-file=noga-preprocess.py=catalog/usgs-noga/k8s/noga-preprocess.py \
+#     --from-file=manifest.json=catalog/usgs-noga/manifest.json \
+#     -o yaml --dry-run=client | kubectl apply -n geo-workflows -f -
+#   kubectl apply -n geo-workflows -f catalog/usgs-noga/k8s/noga-preprocess.yaml
+#
+# Output: s3://public-usgs/raw/noga-assessment-units/<sciencebase-id>/ (staged raw),
+#         s3://public-usgs/raw/noga-assessment-units.gpkg (merged, WGS84),
+#         s3://public-usgs/raw/noga-assessment-units/build-report.json.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: noga-preprocess
+  namespace: geo-workflows
+  labels:
+    k8s-app: noga-preprocess
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: noga-preprocess
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      # Keep ClusterFirst so the INTERNAL S3 endpoint (rook-ceph-rgw-nautiluss3.rook)
+      # still resolves via CoreDNS; the public resolvers are a fallback for the
+      # ScienceBase downloads on nodes whose CoreDNS upstream is flaky.
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "2"
+            ephemeral-storage: "10Gi"
+          limits:
+            memory: "8Gi"
+            cpu: "2"
+            ephemeral-storage: "10Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-usgs"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: noga-preprocess
+          mountPath: /config
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 /config/noga-preprocess.py
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: noga-preprocess
+        configMap:
+          name: noga-preprocess
