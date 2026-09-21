@@ -29,6 +29,7 @@ Every decision that defines *what* a dataset task delivers — **spatial extent*
 - **When the user tells you a fact only they hold** — a dataset's origin, why a licence is what it is, who contributed something, what an upstream field means — **write it into the issue in the same turn, before using it.** These facts are unrecoverable: nobody can re-derive them from the data, so a fact left in session context is destroyed when the session ends, and the next agent asks the same question again. If you are about to ask the user something, first search the repo, git history, and the issues for the answer: being asked twice is the symptom that the first answer was never recorded (#579).
 - **Never infer scope** from the bucket name, an existing clipped COG, or a prior build's resolution. Those are artifacts of how an earlier (possibly wrong) pass happened to run, not statements of intent.
 - A reviewer (human or agent) must be able to read the issue alone and know exactly what to build. If you found yourself reconstructing scope from code, S3 layout, or memory, that is the signal the issue needs updating.
+- **Scope is WHAT, never HOW.** The issue states extent, resolution, source, target, licence and acceptance criteria — *not* which scripts to write, not `cng-datasets` vs a custom job, not what to model the pipeline on, not whether to wait on another repo's issue. Implementation is decided by whoever builds it, against the tooling as it stands that day. An agent-authored directive in an issue body is indistinguishable from a considered decision and outlives the session that guessed it: #669 carried a fabricated *"do not wait on it and do not implement it in the tool repo"* that sent a later session off to hand-roll a Zarr reader. File new dataset issues with `gh issue create --template dataset-import.yml` — the form is this rule in field form. (A `--body`/`--body-file` create bypasses the form entirely, so the rule, not the template, is what binds you.)
 
 ## ⛔ HARD BOUNDARY 0: Big-data compute runs on the cluster, NOT your laptop
 
@@ -536,7 +537,7 @@ Each submission: `app`, `timestamp`, plus user fields (dataset name, description
 
 Triage:
 1. Review; decide if in scope.
-2. If yes: file a GitHub issue on `boettiger-lab/data-workflows` with the dataset import template (source URL, deliverables, bucket).
+2. If yes: file a GitHub issue on `boettiger-lab/data-workflows` with `gh issue create --template dataset-import.yml` (source, extent, resolutions, target, licence, acceptance criteria).
 3. Tag with the `app` if it came from a specific form.
 
 Form deployment: `dataset-requests/` — see `dataset-requests/README.md` for adding routes / redeploying.

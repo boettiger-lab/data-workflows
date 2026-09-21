@@ -1,0 +1,118 @@
+name: Dataset import
+description: Request a dataset be converted to cloud-native formats and published
+title: "<bucket>/<dataset>: <short description>"
+labels: ["type: data"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This issue defines WHAT to deliver. It does not decide HOW to build it.**
+
+        Scope belongs here because it survives the session that wrote it — sessions are
+        disposable, the issue is the source of truth. Implementation does not belong here: it
+        goes stale, and a reader cannot tell a considered decision from a guess typed in passing.
+
+        So do **not** write: which scripts or jobs to create, where to put them, whether to use
+        `cng-datasets` or a custom job, what to model the pipeline on, k8s vs armada, chunk sizes,
+        memory, parallelism, or whether to wait on another repo's issue. Those are the
+        implementer's to decide, with the tooling as it is on the day they build it.
+
+        If a missing tool capability blocks this, say **what capability is missing** and link the
+        `boettiger-lab/datasets` issue. Do not prescribe a workaround — tool gaps are fixed in the
+        tool, not routed around here.
+
+        Keep it short. Facts and links, not prose.
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Source
+      description: >
+        Landing page (stable, not a fragile direct-download link), edition label if upstream
+        publishes one, and the access date. Say how you verified it resolves.
+      placeholder: |
+        Landing page: https://...
+        Edition: ...   Accessed: 2026-09-20
+        Verified: curl -I ... -> 200 / ogrinfo ... -> N features
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What the data is, and what it is for
+      description: A few sentences. Include the consuming app or analysis if there is one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: extent
+    attributes:
+      label: Spatial extent
+      description: >
+        Default is the FULL upstream extent. A clip to a region needs a stated reason — the app
+        that requested the data wanting less is not by itself a reason.
+      value: "Full upstream extent."
+    validations:
+      required: true
+
+  - type: input
+    id: h3
+    attributes:
+      label: H3 native and parent resolutions
+      description: >
+        Native must match the source pixel or feature size. `h0` always; `h8` is the catalog's
+        universal join key, so anything finer than 8 must carry it. If the source is too coarse
+        to carry `h8`, say so here — that is a sanctioned case but must be stated.
+      placeholder: "native 7, parents 6, 0 — source pixel is 3 km, too coarse for h8"
+    validations:
+      required: true
+
+  - type: input
+    id: reducer
+    attributes:
+      label: Reducer (rasters only)
+      description: >
+        sum / mean / mode / max / min. Follows the source UNITS, not the conceptual quantity —
+        summing a density is the recurring error.
+      placeholder: "mean — source is degC, an intensive quantity"
+
+  - type: input
+    id: target
+    attributes:
+      label: Target bucket and dataset path
+      placeholder: "s3://public-<bucket>/, dataset <group>/<name>  (no dots in the name)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: licence
+    attributes:
+      label: Licence, with evidence
+      description: >
+        SPDX id plus the terms URL it came from, quoted or linked. If no grant can be located,
+        say that plainly — do not assert an id upstream did not grant.
+      placeholder: |
+        CC-BY-4.0 — stated in https://.../readme.txt: "..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >
+        Checkable statements about the published product. A reviewer must be able to read this
+        issue alone and know whether the result is correct. State outcomes, not steps.
+      value: |
+        - [ ] `scripts/verify-stac.py --bucket <bucket> --dataset <dataset>` exits 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: blockers
+    attributes:
+      label: Known blockers
+      description: >
+        Missing tool capabilities (link the `boettiger-lab/datasets` issue), upstream access
+        problems, or inputs not yet in hand. Name the gap; do not design around it.
