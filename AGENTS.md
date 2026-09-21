@@ -16,7 +16,7 @@ directly if it has no skill support.
 | `job-troubleshooting` | a job fails, hangs, or a published parquet will not read |
 | `dataset-recipes` | starting an ingest that resembles a worked example |
 | `armada-pipeline` | `armadactl` will not authenticate, a k8s job hits the 200-completion cap, or you are choosing between the k8s and Armada pathways |
-| `pod-preemption` | indexed-job pods die and retry for no apparent reason, or before submitting any job whose pods run over an hour |
+| `pod-preemption` | indexed-job pods die and retry for no apparent reason, you are working out which indexes actually need re-running, or before submitting any job whose pods run over an hour |
 
 Everything below is always in force, skill or no skill.
 
