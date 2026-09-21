@@ -1,0 +1,185 @@
+# Reclassify the TNC RCN nationally-consistent raster and publish a WGS84 COG.
+#
+# The pixel value is NOT the class. RCN_National_2024 stores composite
+# digit-position codes (Value 100000..404311: leading digit = methods region,
+# then Resilience / Recognized Biodiversity / Secured / Climate Connectivity /
+# Marsh Migration flags). The class lives in the VAT field RCN_DESC_NEW, whose
+# numeric code is carried separately in the VAT column `Vals`. Hexing the raw
+# band with `mode` would return composite codes, not RCN classes (issue #606,
+# pre-flight part 3).
+#
+# Band `rcn_class`, uint8:
+#     10,20,30,40,50,60,70,80,90,91,92,93  VAT `Vals`, as-is
+#     0                                    Not in Network            (VAT, no `Vals`)
+#     1                                    Resilient Not in Network  (VAT, no `Vals`)
+#     255                                  nodata (no VAT row: off-CONUS background)
+#
+# Differences from the precedent this is copied from (catalog/cwhr/k8s/reclassify-fveg.yaml):
+#   - band.GetDefaultRAT() returns None here (OpenFileGDB does not attach the
+#     CONUS VAT), so the LUT is built from the VAT dumped to raw/vat/ at pre-flight.
+#   - LUT sized 404312, not 65536: the source is Int32.
+#   - nodata is 255, NOT 0. `0` is the real class `Not in Network`, so the
+#     precedent's `-srcnodata 0 -dstnodata 0` would silently merge off-CONUS
+#     background into it.
+#   - ~25.8e9 pixels: scratch is the rechunk-scratch PVC, not ephemeral storage.
+#   - namespace geo-workflows, and no `priorityClassName: opportunistic` - this
+#     pod runs for hours (skill pod-preemption).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rcn-national-reclassify
+  namespace: geo-workflows
+  labels: {k8s-app: rcn-national-reclassify}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rcn-national-reclassify}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: reclassify
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_CACHEMAX,       value: '4096'}
+        - {name: CPL_TMPDIR,          value: /scratch/tmp}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          [ -n "$PROJ_DB" ] && export PROJ_DATA="$(dirname $PROJ_DB)" PROJ_LIB="$(dirname $PROJ_DB)"
+          mkdir -p /scratch/tmp && cd /scratch
+
+          echo "=== 1. fetch staged raw + VAT ==="
+          rclone copyto nrp:public-connectivity/raw/Resilient_and_Connected_Network_National_2024.zip \
+            /scratch/rcn-national.zip -P
+          rclone copyto nrp:public-connectivity/raw/vat/a00000020_vat_RCN_National_2024.csv \
+            /scratch/vat.csv -P
+          unzip -q -o /scratch/rcn-national.zip -d /scratch/src
+          GDB=$(find /scratch/src -maxdepth 3 -name '*.gdb' -type d | head -1)
+          echo "GDB: $GDB"
+
+          echo "=== 2. reclassify composite Value -> rcn_class (block-wise, uint8) ==="
+          python3 - "$GDB" <<'PY'
+          import csv, sys
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+
+          gdb = sys.argv[1]
+
+          # --- locate the CONUS subdataset. The GDB also holds RCN_Alaska and
+          # --- RCN_Hawaii, which are different grids, CRSs and class schemes (#684).
+          ds = gdal.Open(gdb)
+          subs = [v for k, v in ds.GetSubDatasets()]
+          name = next(s for s in subs if "RCN_National_2024" in s)
+          print("subdataset:", name, flush=True)
+          src = gdal.Open(name)
+          band = src.GetRasterBand(1)
+
+          # --- LUT from the VAT. `Vals` carries the RCN_DESC_NEW code; the two
+          # --- out-of-network classes have no code and are assigned 0 / 1.
+          NO_CODE = {"Not in Network": 0, "Resilient Not in Network": 1}
+          NODATA = 255
+          LUT_SIZE = 404312                      # max VAT Value 404311, +1
+          lut = np.full(LUT_SIZE, NODATA, dtype=np.uint8)
+          expected = {}                          # class code -> pixel count from the VAT
+          rows = 0
+          with open("/scratch/vat.csv", newline="") as fh:
+              for r in csv.DictReader(fh):
+                  v = int(r["Value"])
+                  vals = (r.get("Vals") or "").strip()
+                  if vals:
+                      code = int(float(vals))
+                  else:
+                      label = (r["RCN_DESC_NEW"] or "").strip()
+                      if label not in NO_CODE:
+                          raise SystemExit(f"VAT row {v}: no `Vals` and unmapped label {label!r}")
+                      code = NO_CODE[label]
+                  if not 0 <= v < LUT_SIZE:
+                      raise SystemExit(f"VAT Value {v} outside LUT range 0..{LUT_SIZE - 1}")
+                  lut[v] = code
+                  expected[code] = expected.get(code, 0) + int(r["Count"])
+                  rows += 1
+          if rows != 297:
+              raise SystemExit(f"VAT has {rows} rows, expected 297 (pre-flight, #606)")
+          print("VAT rows:", rows, "classes:", sorted(expected), flush=True)
+
+          xs, ys = src.RasterXSize, src.RasterYSize
+          gt, proj = src.GetGeoTransform(), src.GetProjection()
+          drv = gdal.GetDriverByName("GTiff")
+          out = drv.Create("/scratch/rcn-albers.tif", xs, ys, 1, gdal.GDT_Byte,
+                           options=["COMPRESS=DEFLATE", "ZLEVEL=9", "TILED=YES",
+                                    "BIGTIFF=YES", "BLOCKXSIZE=512", "BLOCKYSIZE=512",
+                                    "NUM_THREADS=ALL_CPUS"])
+          out.SetGeoTransform(gt); out.SetProjection(proj)
+          ob = out.GetRasterBand(1); ob.SetNoDataValue(NODATA)
+          ob.SetDescription("rcn_class")
+
+          observed = np.zeros(256, dtype=np.int64)
+          step_y = 1024
+          for y0 in range(0, ys, step_y):
+              ny = min(step_y, ys - y0)
+              arr = band.ReadAsArray(0, y0, xs, ny)
+              # Values outside the VAT range (incl. any negative fill) -> nodata.
+              idx = np.where((arr >= 0) & (arr < LUT_SIZE), arr, 0).astype(np.int32, copy=False)
+              mapped = np.take(lut, idx)
+              mapped[(arr < 0) | (arr >= LUT_SIZE)] = NODATA
+              ob.WriteArray(mapped, 0, y0)
+              observed += np.bincount(mapped.ravel(), minlength=256)
+              if (y0 // step_y) % 20 == 0:
+                  print(f"  rows {y0}/{ys}", flush=True)
+          ob.FlushCache(); out.FlushCache(); out = None
+
+          # --- the VAT `Count` column IS the source histogram, so this is an exact check.
+          print("=== histogram: reclassified vs VAT ===", flush=True)
+          bad = []
+          for code in sorted(expected):
+              got, want = int(observed[code]), expected[code]
+              print(f"  {code:>3}  {got:>13,}  expected {want:>13,}  {'OK' if got == want else 'MISMATCH'}")
+              if got != want:
+                  bad.append(code)
+          print(f"  255  {int(observed[NODATA]):>13,}  nodata (no VAT row)")
+          stray = [i for i in range(256) if observed[i] and i != NODATA and i not in expected]
+          if stray:
+              raise SystemExit(f"non-canonical class codes in output: {stray}")
+          if bad:
+              raise SystemExit(f"histogram does not match the VAT for codes {bad}")
+          print("histogram matches the VAT exactly", flush=True)
+          PY
+
+          echo "=== 3. reproject NAD83 Albers -> WGS84 (-r near) + COG ==="
+          gdalwarp -t_srs EPSG:4326 -r near -of COG \
+            -srcnodata 255 -dstnodata 255 \
+            -multi -wo NUM_THREADS=ALL_CPUS \
+            -co COMPRESS=DEFLATE -co BIGTIFF=YES -co BLOCKSIZE=512 \
+            -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS \
+            /scratch/rcn-albers.tif /scratch/rcn-national-cog.tif
+          gdalinfo /scratch/rcn-national-cog.tif | grep -iE "Size is|Pixel Size|NoData|Type=|Upper Left|Lower Right"
+
+          echo "=== 4. publish ==="
+          rclone copyto /scratch/rcn-national-cog.tif nrp:public-connectivity/rcn-national-cog.tif -P
+          echo "DONE"
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scratch, mountPath: /scratch, subPath: rcn-national-reclassify}
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
