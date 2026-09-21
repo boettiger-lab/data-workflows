@@ -1,0 +1,113 @@
+# GBIF 2026-09 Stage 2 RECHUNK — the dense h0 partitions that OOM the standard
+# 120Gi consolidate job.
+#
+# REMAP and `completions` are filled from THIS build's failed indices:
+#   kubectl -n geo-workflows get job gbif-2026-09-consolidate \
+#     -o jsonpath='{.status.failedIndexes}{"\n"}'
+# cross-checked against the h0 dirs actually present under 2026-09/hex/, since a job's
+# failedIndexes lags its last pod: index 95 was still on a retry when the first batch was
+# applied and only failed afterwards, so this build ran 4..34 first and 95 as a separate
+# single-index job. The 8 here is the set a rebuild should use. The 2026-06 build needed 11 indices
+# (4,12,15,19,20,21,34,39,68,76,95); this one needs fewer, so never reuse that list:
+# the indices are positions in a build's own sorted h0 list and the OOM set moves
+# with the snapshot.
+#
+# Fix per project guidance: BIG RAM is the primary lever (in-memory dedup+sort is
+# much faster than PVC spill); fewer threads keeps peak memory efficient; the
+# rechunk-scratch PVC is only a spill backstop (per-pod /scratch/<index> subdir).
+# REMAP maps this job's completion index -> the original sorted-h0 index.
+# Preemption: NO priorityClassName (default priority 0). The 2026-06 build ran these
+# at `opportunistic` (-2000000000); pods over ~1 hour are a large preemption target and
+# die repeatedly at that priority (skill `pod-preemption`, data-workflows#564).
+# Parallelism stays at 3: these are the 480Gi pods and the claim is already large.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gbif-2026-09-consolidate-rechunk
+  namespace: geo-workflows
+  labels:
+    k8s-app: gbif-2026-09-consolidate-rechunk
+spec:
+  completions: 8
+  parallelism: 3
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 8
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: gbif-2026-09-consolidate-rechunk
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: consolidate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+        - name: scratch
+          mountPath: /scratch
+        env:
+        - name: REMAP
+          # This build's OOM'd indices, from gbif-2026-09-consolidate .status.failedIndexes
+          # cross-checked against the h0 partitions actually present under 2026-09/hex/.
+          value: "4,12,15,19,20,21,34,95"
+        - name: DUCKDB_MEMORY_LIMIT
+          value: "440GB"
+        - name: DUCKDB_THREADS
+          value: "8"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: JOB_COMPLETION_INDEX
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+        resources:
+          requests: {cpu: "8", memory: 480Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: "8", memory: 480Gi, ephemeral-storage: 50Gi}
+        command:
+        - bash
+        - -lc
+        - |
+          set -e
+          export DUCKDB_TEMP=/scratch/consolidate-$JOB_COMPLETION_INDEX
+          mkdir -p "$DUCKDB_TEMP"
+          rm -rf "$DUCKDB_TEMP"/* || true
+          pip install -q boto3
+          python3 -u /scripts/consolidate_h0_partitions.py
+      volumes:
+      - name: scripts
+        configMap:
+          name: gbif-2026-09-scripts
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch
