@@ -1,57 +1,42 @@
-name: Dataset import
-description: Request a dataset be converted to cloud-native formats and published
+name: Dataset ingest
+description: Ingest one dataset into the CNG catalog
 title: "<bucket>/<dataset>: <short description>"
 labels: ["type: data"]
 body:
   - type: markdown
     attributes:
       value: |
-        **This issue defines WHAT to deliver. It does not decide HOW to build it.**
+        This issue defines **what** to deliver, not **how** to build it. Scope belongs here
+        because it outlives the session that wrote it. Implementation does not: it goes stale,
+        and a reader cannot tell a considered decision from a guess typed in passing.
 
-        Scope belongs here because it survives the session that wrote it — sessions are
-        disposable, the issue is the source of truth. Implementation does not belong here: it
-        goes stale, and a reader cannot tell a considered decision from a guess typed in passing.
+        Rules for filling this in:
 
-        So do **not** write: which scripts or jobs to create, where to put them, whether to use
-        `cng-datasets` or a custom job, what to model the pipeline on, k8s vs armada, chunk sizes,
-        memory, parallelism, or whether to wait on another repo's issue. Those are the
-        implementer's to decide, with the tooling as it is on the day they build it.
+        1. One line per field. Two only if the second changes what gets built.
+        2. Under 200 words total. No background, no build plan, no summary, no restating
+           the source in prose. Nothing outside these fields.
+        3. Do not write which scripts or jobs to create, k8s vs armada, chunk sizes, memory,
+           or parallelism. Those belong to whoever builds it, with the tooling as it is that day.
+        4. Unknown -> write `UNKNOWN: <the question>`. Never speculate, and never synthesize a
+           version, edition, or license you did not verify.
+        5. Scope changes later are edits to this issue, not comments and not memory.
 
-        If a missing tool capability blocks this, say **what capability is missing** and link the
-        `boettiger-lab/datasets` issue. Do not prescribe a workaround — tool gaps are fixed in the
-        tool, not routed around here.
-
-        Keep it short. Facts and links, not prose.
-
-  - type: textarea
-    id: source
+  - type: input
+    id: dataset
     attributes:
-      label: Source
-      description: >
-        Landing page (stable, not a fragile direct-download link), edition label if upstream
-        publishes one, and the access date. Say how you verified it resolves.
-      placeholder: |
-        Landing page: https://...
-        Edition: ...   Accessed: 2026-09-20
-        Verified: curl -I ... -> 200 / ogrinfo ... -> N features
+      label: Dataset
+      description: What it is, in one line.
     validations:
       required: true
 
-  - type: textarea
-    id: what
-    attributes:
-      label: What the data is, and what it is for
-      description: A few sentences. Include the consuming app or analysis if there is one.
-    validations:
-      required: true
-
-  - type: textarea
+  - type: input
     id: extent
     attributes:
-      label: Spatial extent
+      label: Geographic scope
       description: >
-        Default is the FULL upstream extent. A clip to a region needs a stated reason — the app
-        that requested the data wanting less is not by itself a reason.
+        Process the full upstream extent whenever it is feasible. If the request named a subset
+        of a larger dataset, ingest the whole thing and say so here. One catalog-wide dataset
+        serves every downstream clip, where a bespoke ingest per geographic scope does not.
       value: "Full upstream extent."
     validations:
       required: true
@@ -59,12 +44,12 @@ body:
   - type: input
     id: h3
     attributes:
-      label: H3 native and parent resolutions
+      label: H3 resolutions
       description: >
         Native must match the source pixel or feature size. `h0` always; `h8` is the catalog's
-        universal join key, so anything finer than 8 must carry it. If the source is too coarse
-        to carry `h8`, say so here — that is a sanctioned case but must be stated.
-      placeholder: "native 7, parents 6, 0 — source pixel is 3 km, too coarse for h8"
+        universal join key, so anything finer than 8 must carry it. A source too coarse for `h8`
+        is a sanctioned case, but say so here. Do not guess: ask, and leave `UNKNOWN` until answered.
+      placeholder: "native 7, parents 6, 0 (source pixel is 3 km, too coarse for h8)"
     validations:
       required: true
 
@@ -73,46 +58,45 @@ body:
     attributes:
       label: Reducer (rasters only)
       description: >
-        sum / mean / mode / max / min. Follows the source UNITS, not the conceptual quantity —
-        summing a density is the recurring error.
-      placeholder: "mean — source is degC, an intensive quantity"
+        sum / mean / mode / max / min. Follows the source UNITS, not the conceptual quantity.
+        Summing a density is the recurring error. Do not guess.
+      placeholder: "mean (source is degC, an intensive quantity)"
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Source
+      description: >
+        The about page, the description page carrying the metadata that will inform the STAC
+        (abstract, methods, units, edition), not a direct-download link. Then where the bytes
+        come from, and the date you pulled them.
+      placeholder: |
+        About: https://...
+        Download: https://...
+        Accessed: 2026-09-22
+    validations:
+      required: true
+
+  - type: textarea
+    id: license
+    attributes:
+      label: License
+      description: >
+        Describe the data's license: what upstream actually grants, and where it says so.
+        If no terms can be found, say that plainly rather than naming a license upstream never gave.
+      placeholder: |
+        CC-BY-4.0, stated at https://.../terms
+    validations:
+      required: true
 
   - type: input
     id: target
     attributes:
       label: Target bucket and dataset path
-      placeholder: "s3://public-<bucket>/, dataset <group>/<name>  (no dots in the name)"
+      description: >
+        Copy the convention from the most recent ingests rather than inventing one. Check
+        `gh issue list --label "type: data"` and the live catalog. The last path segment becomes
+        the S3 prefix, the PMTiles source-layer, and the k8s job prefix. No dots in the name.
+      placeholder: "s3://public-<bucket>/, dataset <group>/<name>"
     validations:
       required: true
-
-  - type: textarea
-    id: licence
-    attributes:
-      label: Licence, with evidence
-      description: >
-        SPDX id plus the terms URL it came from, quoted or linked. If no grant can be located,
-        say that plainly — do not assert an id upstream did not grant.
-      placeholder: |
-        CC-BY-4.0 — stated in https://.../readme.txt: "..."
-    validations:
-      required: true
-
-  - type: textarea
-    id: acceptance
-    attributes:
-      label: Acceptance criteria
-      description: >
-        Checkable statements about the published product. A reviewer must be able to read this
-        issue alone and know whether the result is correct. State outcomes, not steps.
-      value: |
-        - [ ] `scripts/verify-stac.py --bucket <bucket> --dataset <dataset>` exits 0
-    validations:
-      required: true
-
-  - type: textarea
-    id: blockers
-    attributes:
-      label: Known blockers
-      description: >
-        Missing tool capabilities (link the `boettiger-lab/datasets` issue), upstream access
-        problems, or inputs not yet in hand. Name the gap; do not design around it.
