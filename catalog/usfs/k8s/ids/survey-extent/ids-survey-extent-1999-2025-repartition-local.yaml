@@ -1,0 +1,164 @@
+# Survey-extent repartition, node-local scratch. This is the manifest that worked.
+#
+# History, because two earlier shapes of this job both crawled and the reason was neither of the
+# obvious ones:
+#
+#  1. The generated `ids-survey-extent-1999-2025-repartition.yaml` cannot run at all:
+#     `cng-datasets repartition` stages each partition under a hardcoded /tmp/hex and sorts by
+#     _cng_fid, and this dataset's chunks/ is 63.45 GB over 6,230,445,420 rows.
+#  2. A second attempt moved scratch to the rechunk-scratch PVC (not committed: a manifest
+#     that does not work is a trap). It ran at 0.18 of 8 CPU
+#     cores and took ~2 hours for a 310-million-row partition, with 25 GB of sort spill.
+#  3. Dropping the ORDER BY removed the spill entirely (0 bytes) and changed the speed not at all,
+#     still 0.18 CPU. So the sort was never the bottleneck.
+#
+# The actual cause was the PVC itself. Measured inside that same running pod, on the same node:
+#
+#   dd 512 MB -> /scratch (rechunk-scratch, CephFS):   4.3 MB/s
+#   dd 512 MB -> /tmp     (node-local ephemeral):    114 MB/s
+#
+# 26x, same pod, same moment. The node's local disk is fine and the read path was never slow
+# either — the same join over the same chunks returns in seconds from cluster metal through the
+# duckdb-geo MCP. DuckDB sat at 0.18 CPU waiting on CephFS writes.
+#
+# So: node-local ephemeral scratch instead of the PVC. Each partition is written, uploaded and
+# deleted in turn, and the largest is ~19 GB, well inside the 50Gi cap. The PVC is the right tool
+# only when scratch genuinely exceeds 50Gi; here it never did once the sort was gone.
+# Sorting by _cng_fid (datasets#103) is left out: it costs a spilling sort over billions of rows
+# and buys little, because chunks/ is already feature-range-partitioned, so reading the files in
+# order arrives near-sorted by _cng_fid anyway.
+#
+# Partitions 576707042908045311, 576812596024311807 and 576988517884755967 were written by the
+# PVC run before it was stopped and are NOT rebuilt here; this job covers the remaining five.
+#
+# chunks/ is NOT purged on success. Remove it deliberately once the coverage gate has passed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ids-survey-extent-1999-2025-repartition-local
+  namespace: geo-workflows
+  labels:
+    k8s-app: ids-survey-extent-1999-2025-repartition-local
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ids-survey-extent-1999-2025-repartition-local
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: repartition
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '8', memory: 48Gi, ephemeral-storage: 50Gi}
+          limits: {cpu: '8', memory: 48Gi, ephemeral-storage: 50Gi}
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: TMPDIR
+          value: /tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/out
+          echo "write throughput on this node:"
+          dd if=/dev/zero of=/tmp/out/wtest bs=1M count=512 conv=fsync 2>&1 | tail -1
+          rm -f /tmp/out/wtest
+          python3 - <<'PY'
+          import os, subprocess, duckdb
+
+          CHUNKS = "s3://public-usfs/ids-survey-extent-1999-2025/chunks/*.parquet"
+          SRC    = "s3://public-usfs/ids-survey-extent-1999-2025.parquet"
+          DEST   = "nrp:public-usfs/ids-survey-extent-1999-2025/hex"
+          ID     = "_cng_fid"
+          # The three partitions the earlier PVC run completed; already on S3.
+          DONE   = {576707042908045311, 576812596024311807, 576988517884755967}
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET memory_limit='38GB'")
+          con.execute("SET threads=8")
+          con.execute("SET temp_directory='/tmp'")
+          con.execute("SET max_temp_directory_size='20GB'")
+          con.execute("SET http_timeout=1200")
+          con.execute("SET http_retries=30")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'")
+          con.execute("SET s3_url_style='path'")
+          con.execute("SET s3_use_ssl=false")
+          con.execute("SET s3_region='us-east-1'")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}'")
+          con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}'")
+
+          # Attribute columns = everything but the geometry, matching cng-datasets repartition.
+          desc = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{SRC}')").fetchall()
+          geom = next(c for c, t, *_ in desc if t.upper().startswith("GEOMETRY"))
+          attrs = ", ".join(f'"{c}"' for c, *_ in desc if c != geom)
+          con.execute(f"CREATE OR REPLACE VIEW src AS SELECT {attrs} FROM read_parquet('{SRC}')")
+
+          # Completeness gate (datasets#170) before writing anything, folded into the same scan
+          # as the h0 enumeration: each pass over 6.23 billion rows is expensive.
+          n_src = con.execute(
+              f'SELECT COUNT(*) FROM read_parquet(\'{SRC}\') WHERE "{geom}" IS NOT NULL').fetchone()[0]
+          n_hex, h0_list = con.execute(
+              f'SELECT COUNT(DISTINCT "{ID}"), list(DISTINCT h0) FROM read_parquet(\'{CHUNKS}\')'
+          ).fetchone()
+          print(f"completeness: {n_hex:,} of {n_src:,} source features hexed", flush=True)
+          if n_hex < n_src:
+              raise SystemExit(f"hex incomplete: {n_src - n_hex:,} features missing")
+
+          todo = sorted(h for h in h0_list if h not in DONE)
+          print(f"{len(h0_list)} h0 partitions, {len(todo)} to build, {len(DONE)} already on S3",
+                flush=True)
+
+          for h0 in todo:
+              local = "/tmp/out/data_0.parquet"
+              con.execute(f"""
+                COPY (
+                  SELECT s.*, c.* EXCLUDE ("{ID}")
+                  FROM read_parquet('{CHUNKS}') c
+                  INNER JOIN src s ON c."{ID}" = s."{ID}"
+                  WHERE c.h0 = {h0}
+                ) TO '{local}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+              """)
+              size = os.path.getsize(local)
+              subprocess.run(
+                  ["rclone", "copyto", local, f"{DEST}/h0={h0}/data_0.parquet",
+                   "--s3-upload-concurrency", "16", "--s3-chunk-size", "64M"], check=True)
+              os.remove(local)
+              print(f"  h0={h0} done ({size/1e9:.2f} GB)", flush=True)
+
+          # H3 index columns must stay UBIGINT through the consumer glob (datasets#102).
+          glob = "s3://public-usfs/ids-survey-extent-1999-2025/hex/h0=*/data_0.parquet"
+          types = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{glob}')").fetchall()
+          bad = [(c, t) for c, t, *_ in types
+                 if c.startswith("h") and c[1:].isdigit() and int(c[1:]) >= 1 and t != "UBIGINT"]
+          if bad:
+              raise SystemExit(f"non-UBIGINT H3 columns: {bad}")
+          print("=== repartition complete ===", flush=True)
+          PY
+          echo "chunks/ left in place on purpose; purge only after the coverage gate passes."
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
