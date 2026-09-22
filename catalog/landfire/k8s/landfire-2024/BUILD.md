@@ -395,7 +395,7 @@ because it mixes lifeforms (`mean(115, 215) = 165` decodes as "tree cover 65%").
 first, then average percent within lifeform** — a derived product, not a reducer flag. EVC's
 repeated failure is the pipeline reporting a semantic problem as a resource one.
 
-### FBFM40 — two failures that remain UNEXPLAINED
+### FBFM40: two failures, explained (preemption)
 
 FBFM40 lost h0-index 71 and 78 to exit 137. It is not the EVC mechanism: FBFM40 sits at 2.14
 distinct values per cell, second-lowest of the four. Two hypotheses were tested and **both are
@@ -414,14 +414,31 @@ The failures carry *lower* data load than the slices that merely never ran, and 
 succeeded) against h0-71 (46.3%, failed) is nearly identical load with opposite outcomes. So it is
 neither the layer nor the cell's own workload.
 
-**The most likely remaining explanation is node-level co-tenancy** — those slices ran late in the
-first job, concurrently with EVC pods ballooning toward 192 Gi, and a node under memory pressure
-lets the kernel OOM-killer take a victim that is within its own cgroup limit. **This is not
-verified**: the pods were reaped, and `nodes/proxy` is forbidden for this user, so node metrics are
-unreadable. It is a hypothesis, recorded as one.
+**⛔ CORRECTION (2026-09-22, #623): these were preemptions, not OOM kills.** An earlier version of
+this section proposed node-level co-tenancy with ballooning EVC pods, and recorded it as an
+unverified hypothesis. That hypothesis is **not needed**, and the memory framing was wrong.
 
-The practical implication is testable and cheap: **run FBFM40 without EVC alongside.** Four of its
-six slices behaved normally, and nothing intrinsic to the layer suggests it should fail.
+The job ran at `priorityClassName: opportunistic`, which is priority **-2000000000**. These slices
+take ~7 h, so each one is a large, long-lived preemption target (`.claude/skills/pod-preemption`:
+do not run long pods at opportunistic). Exit 137 is what a preempted pod reports, and it is
+indistinguishable from an OOM kill once the pod is reaped, which is why this read as a memory
+problem for as long as it did.
+
+The evidence is that removing `opportunistic` removes the failures, at **one third of the memory**:
+
+| | priority | memory | `CNG_HEX_WORKERS` | outcome on h0 20/50/71/78 |
+|---|---|---|---|---|
+| this build | opportunistic (-2e9) | 192 Gi | 8 | 71 and 78 lost to exit 137 |
+| fbfm13 (PR #657) | default (0) | **64 Gi** | 8 | **all four completed**, peak ~37 GiB |
+
+fbfm13 is the nearest analogue: same product family, same `--nodata "-9999,32767"`, same res-10
+`mode`. It cleared the exact four cells that failed or never ran here, on a quarter of the request.
+So the 192 Gi request was never the thing keeping these slices alive, and the **~160 Gi sizing
+figure recorded elsewhere in this document is superseded**. See the FBFM40 finish job
+(`hex/fbfm40/landfire-2024-fbfm40-hex-finish.yaml`), which requests 64 Gi at default priority.
+
+The practical implication still held, and was acted on: **run FBFM40 without EVC alongside**, which
+is what the finish job does.
 
 **Fix applied:** `CNG_HEX_WORKERS=4` for EVC only, 8 elsewhere, via a per-layer `WORKERS` array —
 halving chunks in flight halves the working set. Memory was *not* raised: 192 Gi already competes
