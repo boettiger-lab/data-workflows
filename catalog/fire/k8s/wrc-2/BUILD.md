@@ -874,3 +874,82 @@ little number is strong evidence that both the footprint selection and the parti
 Per-pod memory, self-reported against the generator's model: predicted 1.10–1.66 GiB, peak
 1.74–3.01 GiB (1.43–2.21×) against the **8Gi** request. Comfortable, and far from the 192Gi the
 res-0 layout needed.
+
+## Hex build results (2026-09-22) — 2,181/2,181 chunks, six layers
+
+| layer | chunks | populated h0 | rows | hex max | hex mean | exact zeros |
+|---|---:|---:|---:|---:|---:|---:|
+| `wrc-2-bp-conus` | 343 | 6 | 520,962,613 | 0.1351564548 | 0.003099106048 | 11.017% |
+| `wrc-2-bp-ak` | 384 | 5 | 120,349,584 | 0.04581446435 | 0.002703587576 | 18.174% |
+| `wrc-2-cfl-conus` | 343 | 6 | 520,960,899 | 235.9835807 | 3.678287289 | 14.644% |
+| `wrc-2-cfl-ak` | 384 | 5 | 120,349,584 | 316.4854818 | 2.501109063 | 21.723% |
+| `wrc-2-exposure-conus` | 343 | 6 | 520,962,613 | 1.0 | 0.7695237048 | 11.016% |
+| `wrc-2-exposure-ak` | 384 | 5 | 120,349,584 | 1.0 | 0.7530048091 | 18.174% |
+
+### The result worth checking first: these reproduce #592 exactly
+
+Four independent quantities came out identical to the published RPS pair, which was built from a
+different theme through a completely different pipeline (one 192Gi pod per h0 at chunk-resolution
+0, versus res-2 chunks merged):
+
+| | #592 RPS | #627 BP / Exposure |
+|---|---|---|
+| CONUS rows | 520,962,613 | **520,962,613** |
+| Alaska rows | 120,349,584 | **120,349,584** |
+| CONUS bbox | `[-124.8616429, 24.39506098, -66.88468074, 49.38491788]` | **identical to 6 dp** |
+| Alaska bbox | `[-179.2283357, 51.15942105, -129.9739204, 71.43962069]` | **identical to 6 dp** |
+| CONUS exact-zero fraction | 11.02% | **11.017% / 11.016%** |
+| Alaska exact-zero fraction | 18.2% | **18.174%** |
+| the 1,957-cell Alaska sliver partition | 1,957 | **1,957** |
+
+`cfl` differs slightly and correctly: 520,960,899 CONUS rows (1,714 fewer) because `CFL_CONUS` has
+31,427 fewer valid pixels than the other two, and a higher zero fraction. That the *only* layer
+that differs is the one whose COG valid-pixel count differs is the point.
+
+### Structural checks — all six clean
+
+| check | result |
+|---|---|
+| `rows == COUNT(DISTINCT h10)` | equal on all six, **0 duplicates** |
+| NULL `h9` / `h8` / `h0` / value | 0 / 0 / 0 / 0 on all six |
+| `-9999` leak | **0** on all six |
+| `min` | exactly 0.0 on all six |
+| hex max ≤ COG exact max | holds on all six |
+| `check-hex-coverage.sh --expect-h0` | **PASS, exit 0**, 6/6 CONUS and 5/5 Alaska |
+| Alaska dateline h0 `576707042908045311` | populated on all three |
+| `verify-stac.py --bucket public-fire` | **0 hard**, 18 advisory (all pre-existing, on `fire-perimeters`) |
+
+Zero duplicates matters more here than it did on #592. At chunk-resolution 0 one pod owned a whole
+h0, so a cell could not be produced twice; with res-2 chunks merged into one file per partition, a
+cell double-counted across a chunk boundary is a *new* failure mode, and `rows ==
+COUNT(DISTINCT h10)` is the check that rules it out.
+
+The hex max sits **below** the COG max on every continuous layer (`cfl-conus` 235.98 against the
+COG's 861.65) because a cell carries the area-weighted **mean** of roughly 17 pixels and cannot
+reach a single pixel's extremum. `exposure` is the exception at exactly 1.0, which is correct
+rather than suspicious: direct exposure is a *plateau* of 1.0, so a cell wholly inside it averages
+to 1.0.
+
+### The h0 superset was right, and cost almost nothing
+
+The fan-out used 7 CONUS / 8 Alaska h0, derived from each COG's own valid-pixel footprint. The
+merge found **6 CONUS / 5 Alaska** populated — the extra cells (CONUS 100; Alaska 24, 28, 121) hold
+no data, exactly as a superset should behave. Being wrong in that direction cost a handful of
+chunk pods that exited in seconds. Being wrong the other way would have shipped a hole that
+`check-hex-coverage.sh` could not detect.
+
+### Three chunks needed a gap-fill
+
+2,178 of 2,181 chunks recorded completion on the first pass. `wrc-2-bp-conus` 9 and 276 and
+`wrc-2-cfl-conus` 208 did not, and left **no part file either**, so they died before writing
+anything — nothing partial to clean up. Armada had already reaped the pods, so no logs survive;
+preemption is the likely cause, and the NRP docs state that *"preempted jobs will not be
+automatically rescheduled"*.
+
+They were re-run by `gapfill-chunks.yaml` as a 3-pod k8s Job rather than through
+`cng-datasets gapfill`, which emits an Armada job set: three units is far below anything needing a
+queue, and each `armadactl` invocation costs a human a 60-second device-code approval.
+
+**This is the failure the completion markers exist for.** Every chunk writes a marker whether or
+not it produces data, so "ran and found nothing" is distinguishable from "never ran", and
+`merge-chunks --expect-chunks` would have refused to publish either way (#409).
