@@ -6,24 +6,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        This issue defines **what** to deliver, not **how** to build it. Scope belongs here
-        because it outlives the session that wrote it. Implementation does not: it goes stale,
-        and a reader cannot tell a considered decision from a guess typed in passing.
-
-        Rules for filling this in:
-
-        1. Keep it concise.
-        2. Do not write which scripts or jobs to create, k8s vs armada, chunk sizes, memory,
-           or parallelism. Those belong to whoever builds it, with the tooling as it is that day.
-        3. Unknown -> write `UNKNOWN: <the question>`. Never speculate, and never synthesize a
-           version, edition, or license you did not verify.
-        4. Scope changes later are edits to this issue, not comments and not memory.
-
+        
   - type: input
     id: dataset
     attributes:
       label: Dataset
-      description: What it is, in one line.
+      description: Name or description of the dataset.
     validations:
       required: true
 
