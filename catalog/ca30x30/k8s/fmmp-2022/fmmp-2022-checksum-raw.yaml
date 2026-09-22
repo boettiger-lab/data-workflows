@@ -1,0 +1,57 @@
+# Recompute the staged raw's size and MD5 from the object itself, for the STAC
+# provenance block (#615, Step 1b / #417).
+#
+# The S3 ETag is NOT usable here: rclone uploads this file multipart, and a multipart
+# ETag is a hash of part hashes, not the whole-object MD5. Read the bytes and hash them.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fmmp-2022-checksum-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: fmmp-2022-checksum-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        k8s-app: fmmp-2022-checksum-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: checksum
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command: [bash, -c]
+        args:
+        - |
+          set -euo pipefail
+          RAW=raw/fmmp-2022-featureserver-2026-08-25.zip
+          rclone copyto "nrp:public-ca30x30/$RAW" /tmp/raw.zip -v
+          echo "=== PROVENANCE ==="
+          echo "path: s3://public-ca30x30/$RAW"
+          echo "size_bytes: $(stat -c %s /tmp/raw.zip)"
+          echo "md5: $(md5sum /tmp/raw.zip | awk '{print $1}')"
+          echo "sha256: $(sha256sum /tmp/raw.zip | awk '{print $1}')"
+          echo "=================="
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 8Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 8Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
