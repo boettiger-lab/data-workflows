@@ -1,0 +1,127 @@
+# Gate A for issue #606: prove the VAT is the COMPLETE value set of RCN_National_2024.
+#
+# The reclass in rcn-national-cog.yaml is a VRT ComplexSource <LUT>, which interpolates
+# linearly between its entries. That is exact only if every pixel is either 0 (the mask
+# background) or one of the 297 codes the VAT lists — a source value the VAT omitted
+# would silently receive an interpolated class instead of nodata.
+#
+# The VAT is ArcGIS's own attribute table for this raster, so that should hold by
+# construction. This job verifies it over the full 193419x133487 grid rather than
+# assuming it: each of 16 pods bincounts a horizontal stripe of the NATIVE Int32 band
+# and writes its nonzero bins as JSON. It also reads the PER_DATASET mask, so the
+# aggregate can prove that the mask-valid set is exactly the VAT-coded set and that
+# every background pixel (0, or an out-of-range ESRI sentinel) is mask-invalid.
+# Aggregate and compare with:
+#
+#   catalog/connectivity/rcn-national-vat-audit.py
+#
+# Native grid on purpose: warping to WGS84 resamples, so per-value pixel counts are only
+# comparable to the VAT's `Count` column before the warp.
+#
+#   kubectl apply -n geo-workflows -f catalog/connectivity/k8s/rcn-national/rcn-national-vat-audit.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rcn-national-vat-audit
+  namespace: geo-workflows
+  labels: {k8s-app: rcn-national-vat-audit}
+spec:
+  completions: 16
+  parallelism: 16
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0        # every stripe must land: a gap is not a pass
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: rcn-national-vat-audit}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: audit
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /tmp}
+        - {name: GDAL_CACHEMAX, value: '2048'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          ZIP=Resilient_and_Connected_Network_National_2024.zip
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          rclone copy nrp:public-connectivity/raw/$ZIP /tmp/ -P $R
+          python3 -c "import zipfile; zipfile.ZipFile('/tmp/$ZIP').extractall('/tmp/src')"
+          rm -f /tmp/$ZIP
+
+          python3 - <<'PY'
+          import json, os
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+
+          IDX, N = int(os.environ["JOB_COMPLETION_INDEX"]), 16
+          GDB = "/tmp/src/Resilient_and_Connected_Network_National_2024/RCN.gdb"
+          ds = gdal.Open(f'OpenFileGDB:"{GDB}":RCN_National_2024')
+          band = ds.GetRasterBand(1)
+          nx, ny = ds.RasterXSize, ds.RasterYSize
+          assert (nx, ny) == (193419, 133487), (nx, ny)
+
+          mask = band.GetMaskBand()
+          y0 = (ny * IDX) // N
+          y1 = (ny * (IDX + 1)) // N
+          MAXV = 404311
+          hist = np.zeros(MAXV + 1, dtype=np.int64)
+          oor = {}                           # values outside 0..MAXV -> count
+          valid_from_mask = 0                # pixels the PER_DATASET mask calls valid
+          valid_not_in_vat = 0               # ... that are not a VAT code: must be 0
+          STRIPE = 128                       # == the source block height
+          for y in range(y0, y1, STRIPE):
+              h = min(STRIPE, y1 - y)
+              a = band.ReadAsArray(0, y, nx, h).ravel()
+              m = mask.ReadAsArray(0, y, nx, h).ravel() > 0
+              valid_from_mask += int(m.sum())
+              bad = (a < 0) | (a > MAXV)
+              if bad.any():
+                  v, c = np.unique(a[bad], return_counts=True)
+                  for vv, cc in zip(v.tolist(), c.tolist()):
+                      oor[vv] = oor.get(vv, 0) + cc
+              # a mask-valid pixel must carry a VAT code; 0 and the out-of-range
+              # sentinel are background and must be mask-invalid.
+              valid_not_in_vat += int((m & (bad | (a == 0))).sum())
+              a = a[~bad]
+              hist += np.bincount(a, minlength=MAXV + 1)
+              if ((y - y0) // STRIPE) % 10 == 0:
+                  print(f"[{IDX}] rows {y}-{y+h} of {y0}-{y1}", flush=True)
+
+          nz = np.nonzero(hist)[0]
+          res = {
+              "index": IDX, "y0": y0, "y1": y1,
+              "pixels": (y1 - y0) * nx,
+              "out_of_range": int(sum(oor.values())),
+              "out_of_range_hist": {str(k): v for k, v in sorted(oor.items())},
+              "valid_from_mask": valid_from_mask,
+              "valid_not_in_vat": valid_not_in_vat,
+              "hist": {int(v): int(hist[v]) for v in nz},
+          }
+          open(f"/tmp/part-{IDX:02d}.json", "w").write(json.dumps(res))
+          print(f"[{IDX}] {len(nz)} VAT values, out-of-range {res['out_of_range']} in {len(oor)} distinct, "
+                f"mask-valid {valid_from_mask}, mask-valid-but-not-a-code {valid_not_in_vat}")
+          PY
+
+          P=part-$(printf '%02d' ${JOB_COMPLETION_INDEX}).json
+          rclone copyto /tmp/$P nrp:public-connectivity/raw/vat-audit/$P $R
+          echo "=== stripe ${JOB_COMPLETION_INDEX} done ==="
+        resources:
+          requests: {cpu: '4', memory: 8Gi, ephemeral-storage: 12Gi}
+          limits:   {cpu: '4', memory: 8Gi, ephemeral-storage: 12Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
