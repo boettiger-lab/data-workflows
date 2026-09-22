@@ -83,11 +83,12 @@ is absent from the hex — documented in the hex asset description, which is wha
 
 ## A generation footgun worth remembering
 
-`--max-completions` is a **coverage budget**, not just a pod cap. With no row count available
-(the source is a remote GeoJSON that `ogrinfo` could not count), the generator assumes
-`total_rows = max_completions × 1000`. A first pass with `--max-completions 50` produced a hex job
-covering only 50,000 of 101,585 features. The CLI does warn ("defaults cover at most N features"),
-so read that line. Use `--max-completions >= ceil(n_features / 1000)`.
+`--max-completions` is a **coverage budget**, not just a pod cap (skill `hex-tuning`,
+data-workflows #494). With no row count available — the source is a remote GeoJSON that `ogrinfo`
+could not count — the generator assumes `total_rows = max_completions × 1000`. A first pass with
+`--max-completions 50` produced a hex job covering only 50,000 of 101,585 features. The CLI does
+print `Warning: feature count unknown — defaults cover at most N features`, so read that line.
+Use `--max-completions >= ceil(n_features / 1000)`; 102 here.
 
 ## Provenance
 
