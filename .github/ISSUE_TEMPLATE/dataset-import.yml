@@ -12,14 +12,12 @@ body:
 
         Rules for filling this in:
 
-        1. One line per field. Two only if the second changes what gets built.
-        2. Under 200 words total. No background, no build plan, no summary, no restating
-           the source in prose. Nothing outside these fields.
-        3. Do not write which scripts or jobs to create, k8s vs armada, chunk sizes, memory,
+        1. Keep it concise.
+        2. Do not write which scripts or jobs to create, k8s vs armada, chunk sizes, memory,
            or parallelism. Those belong to whoever builds it, with the tooling as it is that day.
-        4. Unknown -> write `UNKNOWN: <the question>`. Never speculate, and never synthesize a
+        3. Unknown -> write `UNKNOWN: <the question>`. Never speculate, and never synthesize a
            version, edition, or license you did not verify.
-        5. Scope changes later are edits to this issue, not comments and not memory.
+        4. Scope changes later are edits to this issue, not comments and not memory.
 
   - type: input
     id: dataset
@@ -28,39 +26,6 @@ body:
       description: What it is, in one line.
     validations:
       required: true
-
-  - type: input
-    id: extent
-    attributes:
-      label: Geographic scope
-      description: >
-        Process the full upstream extent whenever it is feasible. If the request named a subset
-        of a larger dataset, ingest the whole thing and say so here. One catalog-wide dataset
-        serves every downstream clip, where a bespoke ingest per geographic scope does not.
-      value: "Full upstream extent."
-    validations:
-      required: true
-
-  - type: input
-    id: h3
-    attributes:
-      label: H3 resolutions
-      description: >
-        Native must match the source pixel or feature size. `h0` always; `h8` is the catalog's
-        universal join key, so anything finer than 8 must carry it. A source too coarse for `h8`
-        is a sanctioned case, but say so here. Do not guess: ask, and leave `UNKNOWN` until answered.
-      placeholder: "native 7, parents 6, 0 (source pixel is 3 km, too coarse for h8)"
-    validations:
-      required: true
-
-  - type: input
-    id: reducer
-    attributes:
-      label: Reducer (rasters only)
-      description: >
-        sum / mean / mode / max / min. Follows the source UNITS, not the conceptual quantity.
-        Summing a density is the recurring error. Do not guess.
-      placeholder: "mean (source is degC, an intensive quantity)"
 
   - type: textarea
     id: source
