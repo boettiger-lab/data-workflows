@@ -360,6 +360,14 @@ The PMTiles `source-layer` that MapLibre needs = last segment of `--dataset`. It
 
 **⚠️ No dots in dataset names.** k8s pod names must match `[a-z0-9][a-z0-9-]*[a-z0-9]`. `cng-datasets` rejects dotted names at YAML generation. Encode versions without dots (e.g. `overture-2026-02-18`, not `2026-02-18.0`). Pre-existing dotted YAMLs fail pod scheduling — rename before applying.
 
+**Underscores are allowed, and the two names then differ.** Unlike a dot, an underscore in
+`--dataset` is fine: `cng-datasets` hyphenates it for the k8s job names while the S3 path, the
+`--layer` value and the PMTiles `source-layer` keep it verbatim. So `--dataset a/csb_struct`
+produces the job `a-csb-struct-workflow` alongside `s3://…/a/csb_struct.parquet`. Useful when a
+source's own layer names carry underscores and you want the published name to match them — but
+derive the job name with `tr '_' '-'` in any script that waits on it, or `kubectl wait` reports
+`NotFound` on a job that is running perfectly well.
+
 ### Step 3: Apply to the cluster
 
 One-time RBAC (likely already done): `kubectl apply -f catalog/<dataset>/k8s/<name>/workflow-rbac.yaml`
