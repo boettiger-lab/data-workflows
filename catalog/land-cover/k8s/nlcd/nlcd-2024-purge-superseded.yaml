@@ -1,0 +1,116 @@
+# Purge the superseded standalone public-land-cover/nlcd-2024 collection (#686).
+#
+# The multi-year ingest (#453, PR #517) replaced this single-year C1V1 collection
+# with the unified public-land-cover/nlcd (19 map years, C1V2). The parent catalog's
+# child link was repointed then, so nlcd-2024 is already orphaned: reachable by
+# direct URL, listed by no catalog path. Consumer migration closed in
+# geo-agent-ops#105 and was re-verified across the org on 2026-09-22 (zero repos
+# resolve to nlcd-2024; the wyoming apps read public-wyoming/nlcd-2024, a
+# different clip in a different bucket).
+#
+# This is NOT recoverable from the unified collection: the standalone is C1V1 and
+# nlcd/nlcd-2024-cog.tif is C1V2 after MRLC reprocessing. Anything wanting the exact
+# C1V1 pixels must re-derive from upstream. The NRP -> MinIO mirror propagates
+# deletes, so this is a single NRP-side delete.
+#
+# The job refuses to act unless every precondition still holds, and is safe to
+# re-run: a second run finds nothing and exits on the idempotency branch.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nlcd-2024-purge-superseded
+  labels: {k8s-app: nlcd-2024-purge-superseded}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: nlcd-2024-purge-superseded}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: purge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command: [bash, -c]
+        args:
+        - |
+          set -euo pipefail
+          B=nrp:public-land-cover
+          OLD_DIR="$B/nlcd-2024"
+          OLD_COG="$B/nlcd-2024-cog.tif"
+
+          echo "=== inventory: what is about to be removed ==="
+          rclone lsl "$OLD_DIR" --recursive || true
+          rclone lsl "$B" --include 'nlcd-2024-cog.tif' || true
+
+          n_dir=$(rclone lsf "$OLD_DIR" --recursive 2>/dev/null | wc -l)
+          n_cog=$(rclone lsf "$B" --include 'nlcd-2024-cog.tif' 2>/dev/null | wc -l)
+          echo "objects under nlcd-2024/ = $n_dir ; root nlcd-2024-cog.tif = $n_cog"
+
+          if [ "$n_dir" -eq 0 ] && [ "$n_cog" -eq 0 ]; then
+            echo "Nothing left to remove. Already done; treating as success."
+            exit 0
+          fi
+
+          echo "=== precondition 1: expected inventory (13 objects + 1 COG) ==="
+          # Audited 2026-09-22: 6 hex + 6 hex-fractions + 1 stac-collection.json.
+          # A different count means the prefix changed since the audit, so stop.
+          if [ "$n_dir" -ne 13 ] || [ "$n_cog" -ne 1 ]; then
+            echo "REFUSING: inventory is not the audited 13 + 1. Re-audit first."
+            exit 1
+          fi
+
+          echo "=== precondition 2: the unified replacement is intact ==="
+          n_new=$(rclone lsf "$B/nlcd" --recursive 2>/dev/null | wc -l)
+          n_cogs=$(rclone lsf "$B/nlcd" --include 'nlcd-*-cog.tif' 2>/dev/null | wc -l)
+          echo "objects under nlcd/ = $n_new ; COG years = $n_cogs"
+          if [ "$n_new" -lt 300 ] || [ "$n_cogs" -ne 19 ]; then
+            echo "REFUSING: unified nlcd/ is not intact (expect ~344 objects, 19 COG years)."
+            exit 1
+          fi
+          if ! rclone lsf "$B/nlcd" --include 'stac-collection.json' | grep -q stac-collection.json; then
+            echo "REFUSING: unified nlcd/stac-collection.json is missing."
+            exit 1
+          fi
+
+          echo "=== precondition 3: nlcd-2024 is orphaned in the parent catalog ==="
+          rclone cat "$B/stac-collection.json" > /tmp/parent.json
+          if grep -q 'nlcd-2024/stac-collection.json' /tmp/parent.json; then
+            echo "REFUSING: parent catalog still links nlcd-2024 as a child. Repoint it first."
+            exit 1
+          fi
+          echo "parent children:"
+          python3 -c "import json;d=json.load(open('/tmp/parent.json'));[print(' ',l.get('href')) for l in d.get('links',[]) if l.get('rel')=='child']"
+
+          echo "=== all preconditions green: removing 9.72 GB ==="
+          rclone purge "$OLD_DIR" -v --stats 15s
+          rclone deletefile "$OLD_COG" -v
+
+          echo "=== verify ==="
+          a=$(rclone lsf "$OLD_DIR" --recursive 2>/dev/null | wc -l)
+          b=$(rclone lsf "$B" --include 'nlcd-2024-cog.tif' 2>/dev/null | wc -l)
+          echo "remaining under nlcd-2024/ = $a ; remaining root COG = $b"
+          if [ "$a" -ne 0 ] || [ "$b" -ne 0 ]; then echo "FAILED: objects remain"; exit 1; fi
+
+          echo "=== verify the replacement survived ==="
+          after=$(rclone lsf "$B/nlcd" --recursive 2>/dev/null | wc -l)
+          echo "objects under nlcd/ after = $after"
+          if [ "$after" -ne "$n_new" ]; then echo "FAILED: unified nlcd/ changed"; exit 1; fi
+
+          echo "=== bucket root after ==="
+          rclone lsf "$B" --max-depth 1
+          echo "=== done ==="
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
