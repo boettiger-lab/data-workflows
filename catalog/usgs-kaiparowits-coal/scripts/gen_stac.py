@@ -184,54 +184,50 @@ COLUMNS = {
     "PTID": dict(type="string", description=(
         "Point identifier for the drill hole or measured section, as used in Hettinger and "
         "others (1996).")),
-    "DEPTHCOALTOP": dict(type="int32", description=(
-        "Depth in feet to the top of the first coal. -99 is a no-data marker.")),
-    "DEPTHCOALBOT": dict(type="int32", description=(
-        "Depth in feet to the bottom of the lowest coal. -99 is a no-data marker.")),
-    "TOTALCOAL": dict(type="int32", description=(
-        "Total thickness in feet of coal beds more than 1 ft thick in the Calico and "
-        "A-sequences at this point. -99 is a no-data marker.")),
-    "SURFELEV": dict(type="int32", description=(
-        "Surface elevation in feet at the point. -99 is a no-data marker.")),
-    "ELEVCSB": dict(type="int32", description=(
-        "Elevation in feet of the Calico sequence boundary, derived as SURFELEV minus "
+    "DEPTHCOALTOP": dict(type="int32", description=("Depth in feet to the top of the first coal. -99 is a no-data marker on 51 of the "
+        "209 points.")),
+    "DEPTHCOALBOT": dict(type="int32", description=("Depth in feet to the bottom of the lowest coal. -99 is a no-data marker on 51 of "
+        "the 209 points.")),
+    "TOTALCOAL": dict(type="int32", description=("Total thickness in feet of coal beds more than 1 ft thick in the Calico and "
+        "A-sequences at this point, ranging 0 to 164. No point carries the -99 no-data "
+        "marker here, so a 0 is a measured absence of coal rather than a missing value.")),
+    "SURFELEV": dict(type="int32", description=("Surface elevation in feet at the point. -99 is a no-data marker on 45 of the 209 "
+        "points.")),
+    "ELEVCSB": dict(type="int32", description=("Elevation in feet of the Calico sequence boundary, derived as SURFELEV minus "
         "DEPTHCSB, or minus ESTDEPTHCSB where the boundary was not reached. -99 is a "
-        "no-data marker.")),
-    "DEPTHCSB": dict(type="int32", description=(
-        "Depth in feet to the Calico sequence boundary. -99 is a no-data marker.")),
-    "ESTDEPTHCSB": dict(type="int32", description=(
-        "Estimated depth in feet to the Calico sequence boundary, inferred by correlation "
-        "to nearby drill holes where the boundary was not reached. -99 is a no-data marker.")),
-    "THKC_D": dict(type="int32", description=(
-        "Thickness in feet of the Calico and A-sequences. Source item name THKC-D. -99 is a "
-        "no-data marker.")),
-    "THKDT": dict(type="int32", description=(
-        "Thickness in feet of the Drip Tank Member. -99 is a no-data marker.")),
-    "NUMBEDSTOTALC": dict(type="int32", description=(
-        "Number of coal beds more than 1 ft thick in the total coal-bearing interval. -99 "
-        "is a no-data marker.")),
-    "THK7_14": dict(type="int32", description=(
-        "Net thickness in feet of coal beds 7.5 to 14 ft thick. Source item name THK7-14. "
-        "-99 is a no-data marker.")),
-    "NUM7_14": dict(type="int32", description=(
-        "Number of coal beds 7.5 to 14 ft thick. Source item name NUM7-14. -99 is a no-data "
-        "marker.")),
-    "THK14_20": dict(type="int32", description=(
-        "Net thickness in feet of coal beds 14.1 to 20 ft thick. Source item name THK14-20. "
-        "-99 is a no-data marker.")),
-    "NUM14_20": dict(type="int32", description=(
-        "Number of coal beds 14.1 to 20 ft thick. Source item name NUM14-20. -99 is a "
-        "no-data marker.")),
-    "THK20_40": dict(type="int32", description=(
-        "Net thickness in feet of coal beds 20 to 40 ft thick. Source item name THK20-40. "
-        "-99 is a no-data marker.")),
-    "NUM20_40": dict(type="int32", description=(
-        "Number of coal beds 20 to 40 ft thick. Source item name NUM20-40. -99 is a no-data "
-        "marker.")),
-    "MAP_NO": dict(type="int32", description=(
-        "Identification number for the point on the location map and cross sections of "
-        "Plate 1 in Hettinger and others (1996). Source item name MAP#. -99 is a no-data "
-        "marker.")),
+        "no-data marker on 51 of the 209 points.")),
+    "DEPTHCSB": dict(type="int32", description=("Depth in feet to the Calico sequence boundary. -99 is a no-data marker on 154 of "
+        "the 209 points, which is most of them: the boundary was reached in only 55 "
+        "holes, and ESTDEPTHCSB carries the inferred value elsewhere.")),
+    "ESTDEPTHCSB": dict(type="int32", description=("Estimated depth in feet to the Calico sequence boundary, inferred by correlation "
+        "to nearby drill holes where the boundary was not reached. -99 is a no-data "
+        "marker on 106 of the 209 points.")),
+    "THKC_D": dict(type="int32", description=("Thickness in feet of the Calico and A-sequences. Source item name THKC-D. -99 is "
+        "a no-data marker on 174 of the 209 points.")),
+    "THKDT": dict(type="int32", description=("Thickness in feet of the Drip Tank Member. Source item name THKDT. -99 is a "
+        "no-data marker on 196 of the 209 points, so this column is populated at only "
+        "13 of them.")),
+    "NUMBEDSTOTALC": dict(type="int32", description=("Number of coal beds more than 1 ft thick in the total coal-bearing interval, "
+        "ranging 0 to 30. No point carries the -99 no-data marker here, so a 0 means "
+        "no qualifying beds rather than a missing value.")),
+    "THK7_14": dict(type="int32", description=("Net thickness in feet of coal beds 7.5 to 14 ft thick, ranging 0 to 66. Source "
+        "item name THK7-14. No point carries the -99 no-data marker here, so a 0 means "
+        "no coal in this thickness class rather than a missing value.")),
+    "NUM7_14": dict(type="int32", description=("Number of coal beds 7.5 to 14 ft thick, ranging 0 to 7. Source item name NUM7-14. "
+        "No point carries the -99 no-data marker here, so a 0 is a real count.")),
+    "THK14_20": dict(type="int32", description=("Net thickness in feet of coal beds 14.1 to 20 ft thick, ranging 0 to 71. Source "
+        "item name THK14-20. No point carries the -99 no-data marker here, so a 0 means "
+        "no coal in this thickness class rather than a missing value.")),
+    "NUM14_20": dict(type="int32", description=("Number of coal beds 14.1 to 20 ft thick, ranging 0 to 4. Source item name "
+        "NUM14-20. No point carries the -99 no-data marker here, so a 0 is a real count.")),
+    "THK20_40": dict(type="int32", description=("Net thickness in feet of coal beds 20 to 40 ft thick, ranging 0 to 76. Source "
+        "item name THK20-40. No point carries the -99 no-data marker here, so a 0 means "
+        "no coal in this thickness class rather than a missing value.")),
+    "NUM20_40": dict(type="int32", description=("Number of coal beds 20 to 40 ft thick, ranging 0 to 3. Source item name NUM20-40. "
+        "No point carries the -99 no-data marker here, so a 0 is a real count.")),
+    "MAP_NO": dict(type="int32", description=("Identification number for the point on the location map and cross sections of "
+        "Plate 1 in Hettinger and others (1996), ranging 1 to 225. Source item name "
+        "MAP#. No point carries the -99 no-data marker here.")),
 }
 
 # Column meanings that differ from the shared text above, keyed by coverage.
@@ -424,14 +420,21 @@ COVERAGES = {
             "This is the measured data; the `allcoal`, `kjh_thk` and `csb_struct` coverages "
             "are surfaces gridded from it. Where the two disagree, these points are the "
             "observation.\n\n"
-            "**`-99` marks no data in every numeric field**, as the source metadata states. "
-            "It is not a depth, a thickness or a count, and it poisons an unfiltered average:\n\n"
+            "**`-99` marks no data**, and it poisons an unfiltered average because it is not a "
+            "depth or a thickness. It occurs in eight of the seventeen numeric columns: "
+            "`DEPTHCOALTOP` and `ELEVCSB` (51 of 209 points each), `DEPTHCOALBOT` (51), "
+            "`SURFELEV` (45), `DEPTHCSB` (154), `ESTDEPTHCSB` (106), `THKC_D` (174) and "
+            "`THKDT` (196).\n\n"
             "```sql\n"
             "-- correct: exclude the no-data marker before averaging\n"
-            "SELECT AVG(TOTALCOAL) FROM read_parquet(\n"
+            "SELECT AVG(DEPTHCSB) FROM read_parquet(\n"
             "  's3://public-usgs/kaiparowits-coal-resources/kaipcoal.parquet')\n"
-            "WHERE TOTALCOAL <> -99;\n"
+            "WHERE DEPTHCSB <> -99;\n"
             "```\n\n"
+            "The other nine columns never use it: `TOTALCOAL`, `NUMBEDSTOTALC` and the six "
+            "per-class thickness and bed-count columns hold a real 0 where there is no coal "
+            "in that class, and `MAP_NO` is populated on every point. Filtering those on a "
+            "sign test would discard measurements.\n\n"
             "**The coverage ships fewer fields than its own metadata describes.** The FGDC "
             "record defines net thickness and bed counts for the 1 to 2.4, 2.5 to 3.4, 3.5 "
             "to 7 and more than 40 ft classes as well; none of them is present in the "
