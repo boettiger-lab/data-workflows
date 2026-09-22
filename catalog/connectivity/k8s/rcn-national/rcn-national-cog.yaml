@@ -63,7 +63,10 @@ spec:
           ls -la /tmp/stripes/
           test "$(ls /tmp/stripes/native-*.tif | wc -l)" -eq 12
 
-          gdalbuildvrt -overwrite /tmp/native.vrt /tmp/stripes/native-*.tif
+          # -srcnodata/-vrtnodata explicitly: gdalbuildvrt does not reliably carry a
+          # source band's nodata onto the mosaic, and the warp needs it to fill 255.
+          gdalbuildvrt -overwrite -resolution highest -srcnodata 255 -vrtnodata 255 \
+            /tmp/native.vrt /tmp/stripes/native-*.tif
           python3 - <<'PY'
           from osgeo import gdal
           gdal.UseExceptions()

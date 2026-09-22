@@ -29,7 +29,7 @@ VAT_URL = f"{BUCKET}/raw/vat/a00000020_vat_RCN_National_2024.csv"
 
 # --- MEASURED ---------------------------------------------------------------------
 # rcn-national-validate.yaml, "data bbox" (the COG frame is larger and mostly nodata).
-BBOX = [-124.759118, 24.419866, -59.675510, 52.665687]
+BBOX = [-124.752861, 24.429265, -59.664909, 52.661374]
 # rcn-national-validate.yaml, "staged raw": stat + sha256sum of the object on S3.
 RAW_BYTES = 1470642324
 RAW_SHA256 = "6993d6c4a5d2b244b8a26b880a48201f3666d8e18720002fde21978a98a4b45a"
