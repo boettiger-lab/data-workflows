@@ -3,8 +3,9 @@
 
     kubectl -n geo-workflows logs job/wrc-2-make-cogs-rest --all-containers \
       | grep '^FOOTPRINT ' > footprints.jsonl
-    python3 h0_select.py footprints.jsonl            # prints the SQL to run
-    python3 h0_select.py footprints.jsonl --boxes    # prints the boxes, for eyeballing
+    python3 h0_select.py footprints.jsonl > h0-selection.json   # what gen_hex_yaml.py reads
+    python3 h0_select.py footprints.jsonl --boxes               # the boxes, for eyeballing
+    python3 h0_select.py footprints.jsonl --sql                 # the equivalent MCP query
 
 WHY THIS EXISTS. At H3 resolution 10 an h0 index that holds no data is NOT free: `cng-datasets`
 prunes only h0 cells whose footprint misses the raster's BOUNDING BOX, and every surviving cell
@@ -42,9 +43,48 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 H0_GRID = "s3://public-grids/hex/h0-valid.parquet"
+GRID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "h0-grid.txt")
+
+
+def load_grid(path: str = GRID_FILE) -> list:
+    """The 122 h0 cells as (i, h0, lat_min, lat_max, [(lon_lo, lon_hi), ...]).
+
+    Read from a committed file rather than queried live: it is 122 fixed rows describing the H3
+    base-cell grid, so it cannot drift, and keeping it here makes the selection reproducible and
+    reviewable without an MCP round trip. BUILD.md carries the query that produced it.
+    """
+    out = []
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            i, h0, miny, maxy, lon = line.split("|")
+            ivals = []
+            for part in lon.split(";"):
+                lo, hi = part.split(",")
+                ivals.append((float(lo), float(hi)))
+            out.append((int(i), int(h0), float(miny), float(maxy), ivals))
+    if len(out) != 122:
+        sys.exit(f"FATAL: {path} has {len(out)} cells, expected 122")
+    return out
+
+
+def select(bx: list, grid: list) -> list:
+    """Every h0 whose footprint meets any valid-pixel box. Superset-safe by construction."""
+    hits = []
+    for i, h0, miny, maxy, ivals in grid:
+        for xlo, ylo, xhi, yhi in bx:
+            if yhi < miny or ylo > maxy:
+                continue
+            if any(not (xhi < lo or xlo > hi) for lo, hi in ivals):
+                hits.append((i, h0))
+                break
+    return hits
 
 
 def boxes(fp: dict) -> list:
@@ -113,7 +153,9 @@ GROUP BY ALL ORDER BY c.i;"""
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("footprints", help="file of FOOTPRINT <json> lines from the COG job's logs")
-    ap.add_argument("--boxes", action="store_true", help="print the boxes instead of the SQL")
+    ap.add_argument("--boxes", action="store_true", help="print the boxes, for eyeballing")
+    ap.add_argument("--sql", action="store_true",
+                    help="print the equivalent duckdb-geo MCP query instead of selecting locally")
     ap.add_argument("--dataset", action="append", default=[], help="limit to these datasets")
     a = ap.parse_args()
 
@@ -134,6 +176,9 @@ def main() -> int:
     if not seen:
         sys.exit("FATAL: no FOOTPRINT lines found")
 
+    grid = load_grid()
+    out = {"_grid": GRID_FILE.rsplit("/", 1)[-1], "_h0_grid_source": H0_GRID, "datasets": {}}
+
     for ds in sorted(seen):
         if a.dataset and ds not in a.dataset:
             continue
@@ -146,9 +191,25 @@ def main() -> int:
         if a.boxes:
             for b in bx:
                 print(f"{ds}\t" + "\t".join(f"{v:.6f}" for v in b))
-        else:
+        elif a.sql:
             print(sql_for(ds, bx))
             print()
+        else:
+            hits = select(bx, grid)
+            out["datasets"][ds] = {
+                "h0_indexes": [i for i, _ in hits],
+                "h0_cells": [h0 for _, h0 in hits],
+                "valid_tiles": tiles,
+                "tile_px": seen[ds]["tile"],
+                "boxes": len(bx),
+                "footprint_bbox": [lon[0], lat[0], lon[1], lat[1]],
+                "cog_size": seen[ds]["size"],
+            }
+            print(f"{ds}: {len(hits)} h0 -> {[i for i, _ in hits]}", file=sys.stderr)
+
+    if not (a.boxes or a.sql):
+        json.dump(out, sys.stdout, indent=1)
+        print()
     return 0
 
 
