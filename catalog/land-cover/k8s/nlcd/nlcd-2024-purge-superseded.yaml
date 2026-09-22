@@ -49,11 +49,17 @@ spec:
           OLD_COG="$B/nlcd-2024-cog.tif"
 
           echo "=== inventory: what is about to be removed ==="
-          rclone lsl "$OLD_DIR" --recursive || true
-          rclone lsl "$B" --include 'nlcd-2024-cog.tif' || true
+          # `lsl` is already recursive and rejects --recursive.
+          rclone lsl "$OLD_DIR" || true
+          # Anchor the pattern with a leading / so it matches ONLY the root COG.
+          # Unanchored, it also matches the replacement at nlcd/nlcd-2024-cog.tif,
+          # which must survive; that is what inflated this count to 5 on run 1.
+          rclone lsl "$B" --include '/nlcd-2024-cog.tif' || true
 
-          n_dir=$(rclone lsf "$OLD_DIR" --recursive 2>/dev/null | wc -l)
-          n_cog=$(rclone lsf "$B" --include 'nlcd-2024-cog.tif' 2>/dev/null | wc -l)
+          # --files-only: `lsf -R` also emits directory entries, which counted the
+          # hex/ + 12 h0=* dirs and made the inventory look like 27 on run 1.
+          n_dir=$(rclone lsf "$OLD_DIR" -R --files-only 2>/dev/null | wc -l)
+          n_cog=$(rclone lsf "$B" --files-only --include '/nlcd-2024-cog.tif' 2>/dev/null | wc -l)
           echo "objects under nlcd-2024/ = $n_dir ; root nlcd-2024-cog.tif = $n_cog"
 
           if [ "$n_dir" -eq 0 ] && [ "$n_cog" -eq 0 ]; then
@@ -70,14 +76,14 @@ spec:
           fi
 
           echo "=== precondition 2: the unified replacement is intact ==="
-          n_new=$(rclone lsf "$B/nlcd" --recursive 2>/dev/null | wc -l)
-          n_cogs=$(rclone lsf "$B/nlcd" --include 'nlcd-*-cog.tif' 2>/dev/null | wc -l)
+          n_new=$(rclone lsf "$B/nlcd" -R --files-only 2>/dev/null | wc -l)
+          n_cogs=$(rclone lsf "$B/nlcd" --files-only --include '/nlcd-*-cog.tif' 2>/dev/null | wc -l)
           echo "objects under nlcd/ = $n_new ; COG years = $n_cogs"
-          if [ "$n_new" -lt 300 ] || [ "$n_cogs" -ne 19 ]; then
-            echo "REFUSING: unified nlcd/ is not intact (expect ~344 objects, 19 COG years)."
+          if [ "$n_new" -ne 344 ] || [ "$n_cogs" -ne 19 ]; then
+            echo "REFUSING: unified nlcd/ is not intact (expect 344 objects, 19 COG years)."
             exit 1
           fi
-          if ! rclone lsf "$B/nlcd" --include 'stac-collection.json' | grep -q stac-collection.json; then
+          if ! rclone lsf "$B/nlcd" --files-only --include '/stac-collection.json' | grep -q stac-collection.json; then
             echo "REFUSING: unified nlcd/stac-collection.json is missing."
             exit 1
           fi
@@ -96,13 +102,13 @@ spec:
           rclone deletefile "$OLD_COG" -v
 
           echo "=== verify ==="
-          a=$(rclone lsf "$OLD_DIR" --recursive 2>/dev/null | wc -l)
-          b=$(rclone lsf "$B" --include 'nlcd-2024-cog.tif' 2>/dev/null | wc -l)
+          a=$(rclone lsf "$OLD_DIR" -R --files-only 2>/dev/null | wc -l)
+          b=$(rclone lsf "$B" --files-only --include '/nlcd-2024-cog.tif' 2>/dev/null | wc -l)
           echo "remaining under nlcd-2024/ = $a ; remaining root COG = $b"
           if [ "$a" -ne 0 ] || [ "$b" -ne 0 ]; then echo "FAILED: objects remain"; exit 1; fi
 
           echo "=== verify the replacement survived ==="
-          after=$(rclone lsf "$B/nlcd" --recursive 2>/dev/null | wc -l)
+          after=$(rclone lsf "$B/nlcd" -R --files-only 2>/dev/null | wc -l)
           echo "objects under nlcd/ after = $after"
           if [ "$after" -ne "$n_new" ]; then echo "FAILED: unified nlcd/ changed"; exit 1; fi
 
