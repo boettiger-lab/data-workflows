@@ -1,0 +1,121 @@
+# Exact facts for the four PUBLISHED wrc-2-pa COGs, for facts.json / `raster:bands`.
+#
+# Why this exists as its own job rather than being scraped from make-cogs.yaml's logs: three of
+# the four COGs were built by a pod that has since been reaped, and `huexposure-ak`'s mean was
+# never transcribed. Re-measuring is cheaper than reconstructing, and it is *better* evidence --
+# make-cogs measured the local file before upload, whereas this reads the object that is actually
+# published, so a truncated or mis-uploaded COG would show up here and nowhere else.
+#
+# Reuses raster_stats.py verbatim from the make-cogs ConfigMap (`wrc-2-pa-make-cogs-src`), so the
+# numbers are produced by the same code path that gated the build: full-resolution blockwise read,
+# float64 with Kahan compensation, never `ComputeStatistics(True)` (which answers from the
+# AVERAGE-resampled overviews and biased wrc-2's published max by 28%).
+#
+# One pod, sequential, deleting each COG before localizing the next, so the ephemeral peak is the
+# largest single COG (huexposure-conus, 7.64 GiB) rather than the 13 GiB total.
+#
+#   kubectl apply -n geo-workflows -f cog-facts.yaml
+#   kubectl -n geo-workflows logs job/wrc-2-pa-cog-facts | grep '^FACTS '
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-pa-cog-facts
+  namespace: geo-workflows
+  labels:
+    k8s-app: wrc-2-pa-cog-facts
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: wrc-2-pa-cog-facts
+    spec:
+      restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      activeDeadlineSeconds: 10800
+      containers:
+      - name: cog-facts
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_CACHEMAX
+          value: '1024'
+        - name: TMPDIR
+          value: /tmp
+        - name: CPL_TMPDIR
+          value: /tmp
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: src, mountPath: /src, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          OUT=(wrc-2-pa-hurisk-conus wrc-2-pa-hurisk-ak wrc-2-pa-huexposure-conus wrc-2-pa-huexposure-ak)
+
+          for o in "${OUT[@]}"; do
+            echo "=== $o ==="
+            rclone copyto "nrp:public-fire/${o}-cog.tif" "/tmp/${o}-cog.tif" \
+              --transfers 4 --retries 6 --stats-one-line --stats 30s
+            ls -la "/tmp/${o}-cog.tif"
+            # --gate re-applies the published-COG checks (nodata present, sentinel did not leak
+            # into the valid range, range non-degenerate, min >= 0) against the S3 object.
+            python3 /src/raster_stats.py --label COG --gate --expect-nodata -9999 \
+              "/tmp/${o}-cog.tif" | tee "/tmp/${o}.stats"
+            # Re-emit as one JSON line keyed by dataset, with the bbox derived from the
+            # geotransform, so facts.json is transcribed from machine output rather than by eye.
+            python3 - "$o" "/tmp/${o}.stats" <<'PY'
+          import ast, json, sys
+          ds, path = sys.argv[1], sys.argv[2]
+          st = None
+          for line in open(path):
+              if line.startswith("COGSTATS "):
+                  st = ast.literal_eval(line[len("COGSTATS "):].strip())
+          assert st is not None, f"no COGSTATS line for {ds}"
+          gt, (nx, ny) = st["gt"], st["size"]
+          # North-up affine: gt[2] and gt[4] are zero, gt[5] is negative.
+          assert gt[2] == 0.0 and gt[4] == 0.0, f"{ds}: rotated geotransform {gt}"
+          x0, y0 = gt[0], gt[3]
+          x1, y1 = x0 + nx * gt[1], y0 + ny * gt[5]
+          bbox = [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+          print("FACTS " + json.dumps({ds: {
+              "cog_min": st["min"], "cog_max": st["max"], "cog_mean": st["mean"],
+              "cog_std": st["std"], "cog_sum": st["sum"], "cog_valid_px": st["count"],
+              "cog_size": st["size"], "cog_dtype": st["dtype"], "cog_nodata": st["nodata"],
+              "cog_overviews": st["overviews"], "bbox": bbox,
+          }}, sort_keys=True))
+          PY
+            rm -f "/tmp/${o}-cog.tif"
+          done
+          echo "ALL FOUR MEASURED"
+        resources:
+          requests: {cpu: '4', memory: 8Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 8Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: src, configMap: {name: wrc-2-pa-make-cogs-src}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org,
+                         nautilus-it-cpu05.fullerton.edu, nautilus-it-cpu13.fullerton.edu,
+                         nautilus-it-cpu15.fullerton.edu, nautilus-it-cpu16.fullerton.edu]}

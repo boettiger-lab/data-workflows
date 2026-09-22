@@ -1,0 +1,144 @@
+# MRE for a cng-datasets bug report (AGENTS.md Hard Boundary 2: report, never patch).
+#
+# Claim: with `--hex-resampling sum`, `cng-datasets raster` emits a row valued 0 for H3 cells whose
+# source pixels are ALL nodata, where `--hex-resampling mean` correctly emits nothing. The zero rows
+# are indistinguishable from cells whose data genuinely sums to zero.
+#
+# Built on a SYNTHETIC raster so the expected answer is known exactly and no catalog data is
+# involved: a small WGS84 COG where a known rectangle holds value 1.0 and the entire remainder is
+# the nodata sentinel. Run twice over the same h0, changing only --hex-resampling.
+#
+# Expected: both reducers emit rows only for cells overlapping the data rectangle.
+# Observed on the #611 build at scale: `sum` emits rows across the whole h0.
+#
+#   kubectl apply -n geo-workflows -f mre-sum-nodata.yaml
+#   kubectl -n geo-workflows logs job/wrc-2-pa-mre-sum-nodata
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-pa-mre-sum-nodata
+  namespace: geo-workflows
+  labels: {k8s-app: wrc-2-pa-mre-sum-nodata}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata: {labels: {k8s-app: wrc-2-pa-mre-sum-nodata}}
+    spec:
+      restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      activeDeadlineSeconds: 7200
+      containers:
+      - name: mre
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        - {name: CNG_HEX_WORKERS, value: '4'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+          echo "=== versions ==="
+          gdalinfo --version
+          python3 -c "import cng_datasets; print('cng-datasets', getattr(cng_datasets,'__version__','(no __version__)'))" || true
+          pip show cng-datasets 2>/dev/null | grep -iE '^(Name|Version)' || true
+
+          # ── 1. synthetic COG: 1.0 inside a small rectangle, -9999 everywhere else ────────────
+          # The behaviour under test is the reducer's treatment of an all-nodata cell, which is
+          # resolution-independent.
+          python3 - <<'PY'
+          import numpy as np
+          from osgeo import gdal, osr
+          gdal.UseExceptions()
+          NX, NY, ND = 2000, 2000, -9999.0
+          a = np.full((NY, NX), ND, dtype=np.float32)
+          a[900:1100, 900:1100] = 1.0          # 200x200 pixels of value 1.0, nothing else
+          drv = gdal.GetDriverByName("GTiff")
+          ds = drv.Create("/tmp/mre-src.tif", NX, NY, 1, gdal.GDT_Float32,
+                          ["TILED=YES", "COMPRESS=DEFLATE"])
+          # Put it over open land in the western US, well inside one h0.
+          ds.SetGeoTransform([-110.0, 0.001, 0.0, 42.0, 0.0, -0.001])
+          srs = osr.SpatialReference(); srs.ImportFromEPSG(4326)
+          ds.SetProjection(srs.ExportToWkt())
+          b = ds.GetRasterBand(1); b.SetNoDataValue(ND); b.WriteArray(a)
+          b.FlushCache(); ds = None
+          print(f"synthetic: {NX}x{NY}, {200*200} valid pixels of 1.0, rest {ND}")
+          print(f"EXPECTED total over any correct hexing = {200*200*1.0} (area-weighted)")
+          PY
+          gdal_translate /tmp/mre-src.tif /tmp/mre-cog.tif -of COG \
+            -co COMPRESS=DEFLATE -co BLOCKSIZE=512 >/dev/null
+          rclone copyto /tmp/mre-cog.tif nrp:public-fire/raw/wrc-2-pa/mre/mre-cog.tif
+
+          # ── 2. hex the SAME cog twice, changing ONLY --hex-resampling ───────────────────────
+          # h0 index 20 is the cell containing 41N/109W -- resolved from
+          # s3://public-grids/hex/h0-valid.parquet with h3_latlng_to_cell(41,-109,0), not guessed.
+          # Resolution 8 is the catalog join key and enumerates 7^8 = 5,764,801 cells, so the
+          # whole test runs in minutes.
+          for R in mean sum; do
+            echo "=== --hex-resampling $R ==="
+            rm -rf /tmp/out-$R
+            cng-datasets raster \
+              --input  "s3://public-fire/raw/wrc-2-pa/mre/mre-cog.tif" \
+              --output-parquet "s3://public-fire/raw/wrc-2-pa/mre/out-$R/" \
+              --h0-index 20 \
+              --resolution 8 --parent-resolutions 0 \
+              --value-column v --hex-resampling "$R" --nodata -9999 || echo "  (exited $?)"
+          done
+
+          # ── 3. compare ──────────────────────────────────────────────────────────────────────
+          echo "=== RESULT ==="
+          python3 - <<'PY'
+          import duckdb
+          c = duckdb.connect(); c.execute("INSTALL httpfs; LOAD httpfs;")
+          c.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'; SET s3_use_ssl=false;")
+          c.execute("SET s3_url_style='path';")
+          import os
+          c.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';")
+          c.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+          for r in ("mean", "sum"):
+              p = f"s3://public-fire/raw/wrc-2-pa/mre/out-{r}/h0=*/data_0.parquet"
+              try:
+                  row = c.execute(
+                      f"SELECT COUNT(*), SUM(CASE WHEN v=0 THEN 1 ELSE 0 END), "
+                      f"SUM(CASE WHEN v>0 THEN 1 ELSE 0 END), MIN(v), MAX(v) "
+                      f"FROM read_parquet('{p}')").fetchone()
+                  print(f"  {r:>4}: rows={row[0]:,}  zero={row[1]:,}  nonzero={row[2]:,}  "
+                        f"min={row[3]}  max={row[4]}")
+              except Exception as e:
+                  print(f"  {r:>4}: no output ({type(e).__name__})")
+          print()
+          print("  EXPECTED: both reducers emit rows ONLY for cells overlapping the 200x200")
+          print("            rectangle of valid pixels. Every other cell is entirely nodata.")
+          print("  BUG     : `sum` emits rows valued 0 for all-nodata cells; `mean` does not.")
+          PY
+
+          # ── 4. clean up the scratch prefix ──────────────────────────────────────────────────
+          rclone purge nrp:public-fire/raw/wrc-2-pa/mre/ || true
+          echo "MRE DONE"
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org,
+                         nautilus-it-cpu05.fullerton.edu, nautilus-it-cpu13.fullerton.edu,
+                         nautilus-it-cpu15.fullerton.edu, nautilus-it-cpu16.fullerton.edu]}

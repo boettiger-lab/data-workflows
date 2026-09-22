@@ -1,0 +1,146 @@
+# Drop the zero-fill rows from the `huexposure` hex (decided on #611, 2026-09-18).
+#
+# `cng-datasets raster --hex-resampling sum` emits a row valued 0 for H3 cells whose source pixels
+# are ALL nodata. On `wrc-2-pa-huexposure-conus` that is 2,370,329,630 of 2,495,198,033 rows (95%),
+# and the COG's 1,536,046,263 valid pixels cannot back 2.495 billion cells at ~17 pixels per cell,
+# so at least 959,151,770 of them have no data behind them at all. Three whole h0 partitions
+# (indexes 9, 89, 100) are 282M rows summing to exactly zero. Reported separately against
+# `cng-datasets`; this job fixes what we publish, it does not patch the tool.
+#
+# Dropping them is exact for a `sum` layer: SUM over any region is unchanged, so the conservation
+# invariant this ingest exists to establish survives bit-for-bit. What is lost is the distinction
+# between "zero expected exposure" and "no data" -- which the output does not carry anyway.
+#
+# ⛔ SAFETY: never overwrite `hex/` in place. Filtered output is staged to `hex-nonzero/`, the
+# preserved SUM is asserted against the COG pixel sum, and only then is `hex/` purged and replaced.
+# A pod that dies at any point leaves the published `hex/` untouched.
+#
+#   kubectl apply -n geo-workflows -f drop-zero-rows.yaml      # INDEX_OFFSET selects the dataset
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-pa-drop-zero-rows
+  namespace: geo-workflows
+  labels: {k8s-app: wrc-2-pa-drop-zero-rows}
+spec:
+  completions: 1
+  parallelism: 1
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata: {labels: {k8s-app: wrc-2-pa-drop-zero-rows}}
+    spec:
+      restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      activeDeadlineSeconds: 28800
+      containers:
+      - name: drop-zeros
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        # 0 = huexposure-conus, 1 = huexposure-ak.
+        - {name: INDEX_OFFSET, value: '0'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          DS_ALL=(wrc-2-pa-huexposure-conus wrc-2-pa-huexposure-ak)
+          # COG pixel sums, measured in make-cogs.yaml and re-measured in cog-facts.yaml.
+          SUM_ALL=(50484.37529216313 325.46115222398214)
+          i=$(( ${INDEX_OFFSET:-0} + JOB_COMPLETION_INDEX ))
+          DS=${DS_ALL[$i]}; WANT=${SUM_ALL[$i]}
+          echo "=== $DS  (target SUM $WANT) ==="
+
+          # Partitions present, discovered rather than assumed.
+          mapfile -t PARTS < <(rclone lsf "nrp:public-fire/${DS}/hex/" --dirs-only 2>/dev/null | sed 's#/$##')
+          echo "partitions: ${#PARTS[@]}  ${PARTS[*]}"
+          [ "${#PARTS[@]}" -gt 0 ] || { echo "FATAL: no partitions found"; exit 1; }
+
+          rclone purge "nrp:public-fire/${DS}/hex-nonzero/" 2>/dev/null || true
+
+          KEPT=0; DROPPED=0
+          for p in "${PARTS[@]}"; do
+            cell=${p#h0=}
+            rclone copyto "nrp:public-fire/${DS}/hex/${p}/data_0.parquet" /tmp/in.parquet --retries 6
+            python3 - "$cell" <<'PY'
+          import duckdb, sys, os, json
+          cell = sys.argv[1]
+          c = duckdb.connect()
+          n_all, n_pos = c.execute(
+              "SELECT COUNT(*), SUM(CASE WHEN huexposure > 0 THEN 1 ELSE 0 END) "
+              "FROM read_parquet('/tmp/in.parquet')").fetchone()
+          n_pos = n_pos or 0
+          if n_pos:
+              # PRESERVE COLUMN ORDER: the published schema is huexposure, h10, h0, h8, h9 and
+              # consumers read it positionally in places. SELECT * keeps it as written.
+              c.execute(
+                  "COPY (SELECT * FROM read_parquet('/tmp/in.parquet') WHERE huexposure > 0) "
+                  "TO '/tmp/out.parquet' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880)")
+              s = c.execute("SELECT SUM(huexposure) FROM read_parquet('/tmp/out.parquet')").fetchone()[0]
+          else:
+              s = 0.0
+          json.dump({"cell": cell, "all": n_all, "pos": n_pos, "sum": s}, open("/tmp/part.json", "w"))
+          print(f"  h0={cell}  {n_all:,} -> {n_pos:,} rows  sum={s!r}")
+          PY
+            pos=$(python3 -c "import json;print(json.load(open('/tmp/part.json'))['pos'])")
+            if [ "$pos" -gt 0 ]; then
+              rclone copyto /tmp/out.parquet "nrp:public-fire/${DS}/hex-nonzero/${p}/data_0.parquet" --retries 6
+              KEPT=$((KEPT+1))
+            else
+              echo "    partition is entirely zero -- dropped, not written"
+              DROPPED=$((DROPPED+1))
+            fi
+            cat /tmp/part.json >> /tmp/parts.jsonl; echo >> /tmp/parts.jsonl
+            rm -f /tmp/in.parquet /tmp/out.parquet /tmp/part.json
+          done
+          echo "kept $KEPT partitions, dropped $DROPPED entirely-zero partitions"
+
+          # ── GATE: the staged output must preserve the SUM before anything is replaced ───────
+          python3 - "$WANT" <<'PY'
+          import json, sys
+          want = float(sys.argv[1])
+          rows = [json.loads(l) for l in open("/tmp/parts.jsonl") if l.strip()]
+          got = sum(r["sum"] or 0.0 for r in rows)
+          n_all = sum(r["all"] for r in rows); n_pos = sum(r["pos"] for r in rows)
+          rel = abs(got - want) / want
+          print(f"  rows {n_all:,} -> {n_pos:,}   ({100.0*(n_all-n_pos)/n_all:.3f}% dropped)")
+          print(f"  SUM  staged {got!r}  vs COG {want!r}   rel {rel:.3e}")
+          if rel > 1e-9:
+              print("FATAL: filtering changed the total. NOT replacing the published hex.")
+              sys.exit(1)
+          print("  gate OK -- the total is preserved, safe to swap")
+          PY
+
+          # ── swap: only reached if the gate passed ──────────────────────────────────────────
+          echo "--- replacing hex/ ---"
+          rclone purge "nrp:public-fire/${DS}/hex/"
+          rclone move  "nrp:public-fire/${DS}/hex-nonzero/" "nrp:public-fire/${DS}/hex/" \
+            --transfers 8 --retries 6 --stats-one-line --stats 30s
+          rclone purge "nrp:public-fire/${DS}/hex-nonzero/" 2>/dev/null || true
+          echo "DONE $DS"
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 32Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org,
+                         nautilus-it-cpu05.fullerton.edu, nautilus-it-cpu13.fullerton.edu,
+                         nautilus-it-cpu15.fullerton.edu, nautilus-it-cpu16.fullerton.edu]}

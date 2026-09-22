@@ -1,0 +1,106 @@
+# Publish the four wrc-2-pa collections and the patched public-fire bucket collection to NRP S3.
+#
+# In-cluster because STAC is canonical on NRP S3 (AGENTS.md Hard Boundary 1) and the laptop has no
+# `nrp` rclone remote -- its AWS_* environment points at MinIO, a different store entirely. The
+# `rclone-config` secret in geo-workflows holds the only `nrp` remote.
+#
+# The JSON is NOT in this repo and NOT in this manifest: Hard Boundary 1 says the repo contains no
+# STAC JSON. The payload is loaded into a ConfigMap straight from the generated files, and only
+# this Job is tracked. Recreate the ConfigMap before applying:
+#
+#   cd catalog/fire/k8s/wrc-2-pa
+#   python3 make_facts.py --cog-facts <facts.log> --hex-facts <hex.json> > facts.json
+#   python3 gen_stac.py && python3 gen_stac.py --bucket-patch
+#   kubectl create configmap wrc-2-pa-stac -n geo-workflows \
+#     --from-file=/tmp/wrc-2-pa-hurisk-conus-stac-collection.json \
+#     --from-file=/tmp/wrc-2-pa-hurisk-ak-stac-collection.json \
+#     --from-file=/tmp/wrc-2-pa-huexposure-conus-stac-collection.json \
+#     --from-file=/tmp/wrc-2-pa-huexposure-ak-stac-collection.json \
+#     --from-file=/tmp/public-fire-stac-collection.json \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f publish-stac.yaml
+#
+# The bucket collection is copied to nrp:public-fire/stac-collection.backup.json before it is
+# replaced. It carries 15 assets and 24 child links for the whole bucket, so replacing it with a
+# bad file would delist every dataset under public-fire, not only these four.
+#
+# Idempotent: re-running publishes the same bytes.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-pa-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: wrc-2-pa-publish-stac}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: wrc-2-pa-publish-stac}}
+    spec:
+      restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: stac, mountPath: /stac, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # A ConfigMap volume mounts each key as a SYMLINK into ..data/, and rclone does not
+          # follow those -- it reports "not a directory" and copies nothing. Dereference into a
+          # real directory first. This also makes the size check below measure the JSON rather
+          # than the length of a symlink target.
+          mkdir -p /work
+          cp -L /stac/*.json /work/
+
+          # Every file must parse before anything is uploaded: a truncated key would otherwise
+          # replace a live collection with an unparseable one, and pystac fails a whole
+          # collection eagerly rather than degrading.
+          for f in /work/*.json; do
+            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f"
+            sz=$(stat -c%s "$f")
+            [ "$sz" -gt 2000 ] || { echo "FATAL: $(basename "$f") is only $sz bytes"; exit 1; }
+            echo "  valid JSON: $(basename "$f") ($sz bytes)"
+          done
+
+          echo "--- copying the bucket collection aside first ---"
+          rclone copyto "nrp:public-fire/stac-collection.json" \
+                        "nrp:public-fire/stac-collection.backup.json" --retries 6
+          echo "  kept at nrp:public-fire/stac-collection.backup.json"
+
+          echo "--- publishing the four dataset collections ---"
+          for ds in wrc-2-pa-hurisk-conus wrc-2-pa-hurisk-ak \
+                    wrc-2-pa-huexposure-conus wrc-2-pa-huexposure-ak; do
+            rclone copyto "/work/${ds}-stac-collection.json" \
+                          "nrp:public-fire/${ds}/stac-collection.json" --retries 6
+            echo "  published ${ds}/stac-collection.json"
+          done
+
+          echo "--- publishing the patched bucket collection ---"
+          rclone copyto "/work/public-fire-stac-collection.json" \
+                        "nrp:public-fire/stac-collection.json" --retries 6
+          echo "  published public-fire/stac-collection.json"
+
+          echo "--- reading each back from S3 ---"
+          for p in wrc-2-pa-hurisk-conus/ wrc-2-pa-hurisk-ak/ \
+                   wrc-2-pa-huexposure-conus/ wrc-2-pa-huexposure-ak/ ""; do
+            rclone cat "nrp:public-fire/${p}stac-collection.json" \
+              | python3 -c "import json,sys; d=json.load(sys.stdin); \
+                  print('  ok', d.get('id'), '--', len(d.get('links', [])), 'links,', \
+                        len(d.get('assets', {})), 'assets')"
+          done
+          echo "DONE"
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: stac, configMap: {name: wrc-2-pa-stac}}
