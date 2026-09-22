@@ -1,0 +1,81 @@
+# Reshapes the ARC/INFO coverages of USGS OFR 97-709 into one GeoPackage, one layer per
+# in-scope coverage, reprojected NAD27/UTM 12N (EPSG:26712) -> EPSG:4326. Consumed by
+# preprocess-kaiparowits.yaml; see issue #707 for the scope and attribute policy.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kaiparowits-preprocess-scripts
+  namespace: geo-workflows
+data:
+  build-gpkg.sh: |
+    set -euo pipefail
+    
+    SRC=${SRC:?}        # extracted archive root (contains kaip/coverages/...)
+    OUT=${OUT:?}        # output GeoPackage
+    
+    # 14 in-scope coverages: <layer>|<coverage path>|<sublayer>|<geom>|<kept fields>
+    # Bookkeeping (AREA, PERIMETER, <COV>#, <COV>-ID, ArcIds, UserId, ValueId, PolyId,
+    # FNODE_, TNODE_, LPOLY_, RPOLY_, LENGTH) is dropped everywhere; so are kaipcoal's
+    # X/Y, which are NAD27 UTM coordinates redundant with the published WGS84 geometry.
+    # kdak_dd is excluded: it is kdak in NAD27 geographic degrees (issue #707).
+    COVERAGES='
+    allcoal|scale125k/allcoal|PAL|MULTIPOLYGON|QUAD,CNTY,OVERB,SURF,COAL_OWN,TR,REL,DIP,INT,THICK,SHTONS_MIL
+    fig22|scale125k/fig22|PAL|MULTIPOLYGON|QUAD,CNTY,OVERB,SURF,COAL_OWN,TR,REL,DIP,INT
+    kjh_thk|scale125k/kjh_thk|PAL|MULTIPOLYGON|THICK
+    csb_struct|scale125k/csb_struct|PAL|MULTIPOLYGON|ELEV
+    dip|scale125k/dip|PAL|MULTIPOLYGON|DIP
+    cb_int|scale125k/cb_int|PAL|MULTIPOLYGON|INT
+    csb|scale125k/csb|PAL|MULTIPOLYGON|
+    kdak|scale125k/kdak|PAL|MULTIPOLYGON|LINK
+    kjh_bkw|scale125k/kjh_bkw|PAL|MULTIPOLYGON|
+    kjh_kdt|scale125k/kjh_kdt|PAL|MULTIPOLYGON|
+    structure|scale125k/structure|ARC|MULTILINESTRING|
+    m_adit|scale125k/m_adit|ARC|MULTILINESTRING|
+    kaipcoal|scale24k/kaipcoal|LAB|POINT|PTID,DEPTHCOALTOP,DEPTHCOALBOT,TOTALCOAL,SURFELEV,ELEVCSB,DEPTHCSB,ESTDEPTHCSB,THKC-D,THKDT,NUMBEDSTOTALC,THK7-14,NUM7-14,THK14-20,NUM14-20,THK20-40,NUM20-40,MAP#
+    twnshp|scale24k/twnshp|PAL|MULTIPOLYGON|TR_ID,QUAD
+    '
+    
+    # kaipcoal source names carrying "-" or "#" are not usable as parquet/SQL identifiers.
+    rename_expr() {
+      case "$1" in
+        THKC-D)   echo 'THKC_D' ;;
+        THK7-14)  echo 'THK7_14' ;;
+        NUM7-14)  echo 'NUM7_14' ;;
+        THK14-20) echo 'THK14_20' ;;
+        NUM14-20) echo 'NUM14_20' ;;
+        THK20-40) echo 'THK20_40' ;;
+        NUM20-40) echo 'NUM20_40' ;;
+        'MAP#')   echo 'MAP_NO' ;;
+        *)        echo "$1" ;;
+      esac
+    }
+    
+    rm -f "$OUT"
+    first=1
+    echo "$COVERAGES" | grep -v '^$' | while IFS='|' read -r layer cov sub geom fields; do
+      path="$SRC/kaip/coverages/$cov"
+      [ -d "$path" ] || { echo "MISSING coverage $path" >&2; exit 1; }
+    
+      # -select cannot rename, so build an explicit SQL projection when any name changes.
+      sel=""
+      if [ -n "$fields" ]; then
+        cols=""
+        IFS=','; for f in $fields; do
+          to=$(rename_expr "$f")
+          if [ "$to" = "$f" ]; then cols="$cols, \"$f\""; else cols="$cols, \"$f\" AS \"$to\""; fi
+        done; unset IFS
+        sel="SELECT ${cols#, } FROM $sub"
+      else
+        sel="SELECT FID FROM $sub"     # geometry only; FID is dropped below
+      fi
+    
+      if [ $first -eq 1 ]; then mode=""; first=0; else mode="-update -append"; fi
+      # shellcheck disable=SC2086
+      ogr2ogr -f GPKG $mode "$OUT" "$path" \
+        -dialect OGRSQL -sql "$sel" \
+        -nln "$layer" -nlt "$geom" \
+        -s_srs EPSG:26712 -t_srs EPSG:4326 \
+        -lco SPATIAL_INDEX=NO
+      [ -n "$fields" ] || ogrinfo "$OUT" -sql "ALTER TABLE $layer DROP COLUMN FID" >/dev/null 2>&1 || true
+      printf '  %-12s %s\n' "$layer" "$(ogrinfo -so "$OUT" "$layer" | sed -n 's/^Feature Count: //p')"
+    done
