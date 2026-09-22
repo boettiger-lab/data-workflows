@@ -79,14 +79,94 @@ geographic-CRS pixel does not. This is the substantive reason the presence layer
 only route to a defensible acreage from this source. State it in the hex asset description so a
 consumer does not "check" our number against a pixel count and conclude we are wrong.
 
+## HUC12 ships 1,179 exact duplicate rows — dedup before anything else
+
+Grouping the GeoPackage on geometry **and every attribute** collapses 20,032 rows to **18,853
+distinct watersheds**:
+
+| rows sharing one identical record | watersheds | rows |
+|---:|---:|---:|
+| 1 | 17,700 | 17,700 |
+| 2 | 1,129 | 2,258 |
+| 3 | 22 | 66 |
+| 4 | 2 | 8 |
+
+No group differs in `name`, `mgmt_code`, `area_vb_m2`, `prHuc_vb` or `prV_For` — they are copies,
+differing only in `fid`. They are **not** multipart pieces: for a code carrying two rows the summed
+polygon area is **1.998×** the WBD watershed area, so each row is a whole watershed.
+
+Leaving them in makes an unguarded `SUM(area_vb_m2)` over-count by about 6%, and makes a 1:1 `huc12`
+key impossible. **The 20,032 figure in issue #609 is a correct count of upstream rows and was never
+a count of watersheds** — do not treat it as a deliverable target. Scope corrected 2026-09-21
+([comment](https://github.com/boettiger-lab/data-workflows/issues/609#issuecomment-5769248942)).
+
+`enrich` dedups on the full record, not on geometry alone: if upstream ever ships rows sharing a
+geometry but differing in an attribute, both survive and the 1:1 gate fails loudly rather than
+silently discarding real data.
+
 ## HUC12 carries no HUC code — we derive one
 
 The GeoPackage ships `name` (ambiguous: 28,978 WBD watersheds share only 23,626 names in this
-footprint) and `fid`, and no HUC12 code at all. `mesic-huc12-2026-09-enrich` recovers it by
-**max-overlap spatial join against `s3://public-usgs-wbd/wbd/hu12.parquet`** — which is what upstream
-built these polygons from, so the match is near-identity. The job **gates on a 1:1 match** (every
-feature matched, no duplicate codes, every overlap ≥90% of the mesic polygon's area) and refuses to
-publish an ambiguous key. The column is documented in STAC as **derived by us, not shipped upstream**.
+footprint) and `fid`, and no HUC12 code at all. `mesic-huc12-2026-09-enrich` recovers it by spatial
+join against `s3://public-usgs-wbd/wbd/hu12.parquet` — which is what upstream built these polygons
+from, so the match is near-identity: **19,808 of 20,032 rows overlap their matched watershed by
+≥99.9%**.
+
+Assignment runs in **two phases, overlap first and name only as a rescue**.
+
+**Phase 1 — greedy on overlap, majority floor 0.5.** Candidates where no watershed contains half
+the mesic polygon are discarded; the rest are assigned strongest-claim-first, and a weaker claimant
+falls through to its next free code. This is what stops a near-duplicate from displacing the real
+owner.
+
+**Phase 2 — exact name rescue.** Only a watershed phase 1 could *not* place is reconsidered, only
+onto a code still free, and only on an exact and unambiguous name match. This recovers
+`Carter Creek-South Fork Shoshone River`, whose MAP polygon puts 0.749 of its area in the adjacent
+Buffalo Bill watershed and only 0.251 in the WBD watershed carrying its own name — it clears no
+majority floor anywhere, but the name is decisive and `100800130303` is free.
+
+⛔ **Name must not be a phase-1 ranking key — this was tried and is wrong.** Ranking by exact `name`
+match ahead of overlap lets a *sliver* overlap outrank a near-perfect one. It stole codes from the
+only genuine claimant in two places: `Lone Tree Creek-Redwater River` (0.9999 into `100600020808`)
+and `Lower Eighteenmile Creek` (0.9999 into `140401030309`) were both left unassigned while a record
+whose name happened to match took their code on a fraction of a percent of overlap. Name is
+evidence, but only about a record overlap could not place at all.
+
+The job **gates on uniqueness**: a duplicate code fails the run and leaves the pre-enrich parquet in
+place. A **low overlap is reported but does not fail** — the MAP export and the WBD edition differ
+slightly along some watershed boundaries, which changes the overlap without making the code
+ambiguous. Unassigned watersheds are expected in small numbers and fail the run above 5.
+
+**Three watersheds carry a NULL `huc12`**, and each is a MAP polygon that does not correspond to any
+one WBD watershed:
+
+| `_cng_fid` | `name` | best candidate |
+|---:|---|---|
+| 6241 | `Upper Battle Creek` | spans four watersheds, 0.39 / 0.31 / 0.27 / 0.03 |
+| 6323 | `Middle Battle Creek` | spans many, best 0.37 |
+| 8654 | `100500060000` | straddles two, 0.51 / 0.47, and its "name" is a HUC code |
+
+None has a name match to rescue it. Their geometry and attributes are published unchanged; only the
+derived code is empty.
+
+The column is documented in STAC as **derived by us, not shipped upstream**.
+
+### ⛔ Re-running `enrich` — the snapshot must stay create-only
+
+`enrich` publishes over its own input: it reads `mesic-huc12-2026-09.parquet` and writes the
+enriched table back to that same key, keeping a pre-enrich copy under
+`staging/mesic-huc12-2026-09.preenrich.parquet`. An **unconditional** `rclone copyto` of published →
+staging is re-entrant-unsafe, and this bit once: re-running enrich after a *successful* run copied
+the already-enriched parquet over the pristine snapshot, destroying the only pre-enrich copy and
+forcing a convert re-run.
+
+The job now snapshots **only when the published parquet still lacks a `huc12` column**, i.e. when it
+is still the convert output. The `FATAL: source already has a huc12 column` guard is the second line
+of defence and is what stopped the run before anything worse happened — but it fires *after* the
+copy, so it cannot protect the snapshot on its own.
+
+To rebuild from scratch, re-run `convert` first (it reads `raw/`, which is immutable and checksummed)
+and then `enrich`.
 
 ## Build order
 
