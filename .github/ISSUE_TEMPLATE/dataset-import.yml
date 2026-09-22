@@ -35,7 +35,7 @@ body:
         Describe the data's license: what upstream actually grants, and where it says so.
         If no terms can be found, say that plainly rather than naming a license upstream never gave.
       placeholder: |
-        CC-BY-4.0, stated at https://.../terms
+        eg. CC-BY-4.0, stated at https://.../terms
     validations:
       required: true
 
