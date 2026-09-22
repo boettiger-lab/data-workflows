@@ -1,0 +1,185 @@
+# Stage raw BLM National Grazing Allotment Polygons from the ArcGIS MapServer to S3.
+#
+# The source is a live map service, not a downloadable file, so this job pages the REST
+# endpoint (21,252 polygon features, maxRecordCount 2000) into a single GeoJSON and stages
+# it under s3://public-blm/raw/. That staged copy plus its checksum IS the provenance: the
+# service publishes no version or release date, so the access date is the only edition marker.
+#
+# Attribute handling (see issue for the full rationale):
+#   - outSR=4326 so the staged raw is already WGS84. The service publishes in EPSG:3857 but
+#     its sourceSpatialReference is EPSG:4269 (NAD83); requesting 4326 avoids a reproject step.
+#   - geometryPrecision=7 (~1.1e-7 deg) matches the source xyTolerance exactly, so it trims
+#     the JSON without discarding anything the source resolves.
+#   - Drop SHAPE / SHAPE_Length / SHAPE_Area. `SHAPE` collides with cng-datasets'
+#     geometry-column auto-detection (_find_geometry_column matches SHAPE/GEOMETRY/GEOM),
+#     which would alias it as `geom` and crash the hex step on ST_GeometryType(VARCHAR);
+#     the two measures are decimal-degree junk (real area is GIS_ACRES).
+#   - ACTIVE_DT arrives as epoch-MILLISECONDS even in GeoJSON output -> ISO YYYY-MM-DD.
+#     The impossible sentinels 9999-09-09 (11,886 features) and 0999-09-09 (1) become null.
+#   - LAST_EDITED_EPOCH_TIME -> ISO LAST_EDITED_DATE; the raw integer is dropped.
+#
+#   Source: https://gis.blm.gov/arcgis/rest/services/range/BLM_Natl_Grazing_Allotment/MapServer/12
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/709
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grazing-allotments-stage-raw
+  labels:
+    k8s-app: grazing-allotments-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: grazing-allotments-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts
+      # (gis.blm.gov). Append public resolvers as a fallback; cluster DNS is still tried
+      # first so the internal rook-ceph-rgw-nautiluss3.rook rclone endpoint keeps resolving.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, time, urllib.parse, urllib.request, urllib.error
+          from datetime import datetime, timedelta, timezone
+
+          BASE = ("https://gis.blm.gov/arcgis/rest/services/range/"
+                  "BLM_Natl_Grazing_Allotment/MapServer/12/query")
+          PAGE = 2000
+          EXPECTED = 21252
+          OUT = "/tmp/grazing-allotments.geojson"
+          EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)  # ACTIVE_DT runs negative (pre-1970)
+          # gis.blm.gov 403s the default python-urllib User-Agent -- send an explicit one
+          UA = {"User-Agent": "data-workflows/1.0 (boettiger-lab; issue 709)"}
+
+          def fetch_page(url, tries=6):
+              # the MapServer intermittently returns 503/timeouts; retry each page with
+              # exponential backoff so one transient blip does not lose the whole scrape.
+              for attempt in range(1, tries + 1):
+                  try:
+                      req = urllib.request.Request(url, headers=UA)
+                      with urllib.request.urlopen(req, timeout=180) as r:
+                          return json.load(r)
+                  except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+                      if attempt == tries:
+                          raise
+                      wait = min(60, 2 ** attempt)
+                      print(f"  retry {attempt}/{tries} after {type(e).__name__} ({e}); sleep {wait}s", flush=True)
+                      time.sleep(wait)
+
+          def ms_to_iso(v, fmt="%Y-%m-%d"):
+              if v is None:
+                  return None
+              return (EPOCH + timedelta(milliseconds=v)).strftime(fmt)
+
+          def clean(p):
+              # ACTIVE_DT: epoch-ms -> ISO, with the impossible sentinels nulled. 1899-12-30,
+              # 1934-06-28 (Taylor Grazing Act) and 1946-01-01 are kept -- they are plausible
+              # dates used as placeholders, and nulling them would erase a real distinction.
+              d = ms_to_iso(p.pop("ACTIVE_DT", None))
+              if d is not None:
+                  year = int(d[:4])
+                  if year < 1800 or year > 2100:
+                      d = None
+              p["ACTIVE_DT"] = d
+              p["LAST_EDITED_DATE"] = ms_to_iso(p.pop("LAST_EDITED_EPOCH_TIME", None))
+              for k in ("SHAPE", "Shape", "SHAPE_Length", "SHAPE_Area",
+                        "Shape__Length", "Shape__Area"):
+                  p.pop(k, None)
+              return p
+
+          n = 0
+          with open(OUT, "w") as out:
+              out.write('{"type": "FeatureCollection", "crs": {"type": "name", '
+                        '"properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}}, '
+                        '"features": [')
+              offset = 0
+              while True:
+                  q = {
+                      "where": "1=1",
+                      "outFields": "*",
+                      "outSR": "4326",             # WGS84 lon/lat (source is NAD83 / WKID 4269)
+                      "geometryPrecision": "7",    # == source xyTolerance 1.117e-07 deg
+                      "f": "geojson",
+                      "resultOffset": offset,
+                      "resultRecordCount": PAGE,
+                      "orderByFields": "OBJECTID",  # stable pagination order
+                  }
+                  fc = fetch_page(BASE + "?" + urllib.parse.urlencode(q))
+                  batch = fc.get("features", [])
+                  for feat in batch:
+                      feat["properties"] = clean(feat.get("properties") or {})
+                      if n:
+                          out.write(",")
+                      out.write(json.dumps(feat))
+                      n += 1
+                  print(f"offset {offset}: +{len(batch)} (total {n})", flush=True)
+                  more = (fc.get("properties", {}).get("exceededTransferLimit")
+                          or fc.get("exceededTransferLimit"))
+                  if not batch or (len(batch) < PAGE and not more):
+                      break
+                  offset += len(batch)
+              out.write("]}")
+
+          print(f"WROTE {n} features", flush=True)
+          # fail loudly if the MapServer under-delivered vs the known count
+          assert n == EXPECTED, f"expected {EXPECTED} features, got {n}"
+          PY
+          ls -la /tmp/grazing-allotments.geojson
+          sha256sum /tmp/grazing-allotments.geojson
+          rclone copyto /tmp/grazing-allotments.geojson \
+            nrp:public-blm/raw/grazing-allotments.geojson --s3-no-check-bucket
+          echo "staged raw -> s3://public-blm/raw/grazing-allotments.geojson"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
