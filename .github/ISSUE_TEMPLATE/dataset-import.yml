@@ -3,10 +3,7 @@ description: Ingest one dataset into the CNG catalog
 title: "<bucket>/<dataset>: <short description>"
 labels: ["type: data"]
 body:
-  - type: markdown
-    attributes:
-      value: |
-        
+
   - type: input
     id: dataset
     attributes:
