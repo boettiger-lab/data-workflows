@@ -54,6 +54,13 @@ TEMPORAL = ["2014-01-01T00:00:00Z", "2014-12-31T23:59:59Z"]
 # ---------------------------------------------------------------------------
 THEMES = {
     "rps": dict(
+        support=(
+            "This layer is the product of conditional risk, modelled at 30 metres, and burn "
+            "probability, which the USDA Forest Service fire simulator produced at 270 metres "
+            "and the publication upsampled to the 30 metre LANDFIRE grid by cubic convolution. "
+            "The 30 metre grid is therefore finer than the independent information content of "
+            "the burn probability component."
+        ),
         column="rps",
         label="Risk to Potential Structures",
         webapp="Risk to Homes",
@@ -73,6 +80,14 @@ THEMES = {
         ),
     ),
     "bp": dict(
+        support=(
+            "Burn probability was produced by the USDA Forest Service fire simulator at a 270 "
+            "metre cell size and upsampled to the 30 metre LANDFIRE fuel and vegetation grid by "
+            "cubic convolution, with additional smoothing to spread values into developed areas "
+            "that the fuels data treats as non-burnable. The 30 metre grid is therefore finer "
+            "than the independent information content of this layer, which is the one layer in "
+            "this publication where that gap is largest."
+        ),
         column="bp",
         label="Burn Probability",
         webapp="Wildfire Likelihood",
@@ -90,6 +105,11 @@ THEMES = {
         ),
     ),
     "cfl": dict(
+        support=(
+            "Unlike burn probability, conditional flame length was modelled natively at 30 "
+            "metres, from a comprehensive set of fire behaviour runs spanning the weather "
+            "conditions of a fire season. It is not an upsampled 270 metre product."
+        ),
         column="cfl",
         label="Conditional Flame Length",
         webapp=None,
@@ -107,6 +127,14 @@ THEMES = {
         ),
     ),
     "exposure": dict(
+        support=(
+            "This layer starts from the 30 metre LANDFIRE fuel and vegetation grid, as a binary "
+            "burnable mask, and is then smoothed by three successive 510 metre focal means to "
+            "spread exposure into adjacent non-burnable land. Values in the indirect range "
+            "therefore describe a neighbourhood several hundred metres across rather than the "
+            "30 metre pixel they are stored on, and whether a non-burnable pixel is indirect or "
+            "non-exposed also depends on the upsampled burn probability layer."
+        ),
         column="exposure",
         label="Exposure Type",
         webapp="Exposure Type",
@@ -249,12 +277,9 @@ def build_collection(dataset: str, facts: dict) -> dict:
                 "Wildfire Hazard Potential."
             ),
             (
-                "The burn probability and fire intensity inputs were modelled at 270 metres and "
-                "upsampled to the 30 metre resolution of the LANDFIRE fuel and vegetation grid, "
-                "so the 30 metre grid is finer than the independent information content of "
-                "those inputs. The data reflect landscape conditions as of the end of 2014, "
-                "from LANDFIRE 2020 version 2.2.0, which is why the temporal extent is 2014 "
-                "rather than the 2024 publication date."
+                f"{theme['support']} The data reflect landscape conditions as of the end of "
+                f"2014, from LANDFIRE 2020 version 2.2.0, which is why the temporal extent is "
+                f"2014 rather than the 2024 publication date."
             ),
             (
                 f"To compare this layer against inventoried roadless areas or the "

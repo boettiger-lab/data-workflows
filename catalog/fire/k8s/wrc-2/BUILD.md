@@ -635,3 +635,321 @@ before patching.
 (13.194 for CONUS, not 9.466). See the COG section above for why that distinction matters.
 
 Temporal extent is **2014**, the LANDFIRE landscape date, not the 2024 publication date.
+
+---
+
+# #627 — BP, CFL and Exposure (the remaining six layers)
+
+#592 shipped RPS and staged the raw for the other three themes. This part of the file records
+what #627 built on top of that, and the three places it deliberately does **not** copy #592.
+
+## The h0 index map, which does not have to be harvested from pod logs
+
+#592 ended with a plan to read the `--h0-index` → h0 cell mapping out of the Alaska pods' logs,
+on the grounds that the mapping "belongs to `cng-datasets`" and guessing it risks silently
+skipping a populated cell. The premise is wrong, and it matters because those logs are gone
+(`ttlSecondsAfterFinished: 10800`).
+
+The map is a **published lookup table**. `cng_datasets/raster/cog.py:3255`:
+
+```python
+h0_result = self.con.execute(f"""
+    SELECT h0, ST_AsText(geom) as geom_wkt
+    FROM read_parquet('{self.h0_grid_path}')
+    WHERE i = {h0_index}
+""").fetchdf()
+```
+
+with `DEFAULT_H0_GRID_PATH = "s3://public-grids/hex/h0-valid.parquet"` (`cog.py:1218`). So
+`--h0-index` is a row position in a 122-row table anyone can read:
+
+```sql
+SELECT i, h0 FROM read_parquet('s3://public-grids/hex/h0-valid.parquet') ORDER BY i;
+```
+
+Checked against every `(index, cell)` pair #592 observed a pod actually write — the six CONUS
+slices and the five Alaska ones — **11 of 11 agree**. Nothing needs harvesting.
+
+### ⛔ The antimeridian, which a plain envelope test gets wrong in both directions
+
+**17 of the 122 h0 cells straddle the antimeridian**, including Alaska's index 105 — which on
+#592's RPS build was Alaska's *densest* partition at 107.8 M cells. Their polygons are stored in
+planar lat/lon, so a straddling cell's raw bounding box is about 360° wide. That box
+
+- **never prunes**, because it covers the globe; and simultaneously
+- **excludes the ±180 strip where the cell's data actually lives**.
+
+`cog.py:_cell_footprint` handles this by unwrapping: negative longitudes +360, and a span > 180°
+means the footprint is *two* intervals on [-180, 180]. Anything selecting h0 cells locally has to
+do the same, or it disagrees with the tool about where a cell is. Measured difference against the
+Alaska clip box `-180 48.8 -129.0 71.6`:
+
+| method | indexes |
+|---|---|
+| `ST_Intersects` on the stored polygon | `12 28 50 59 98 104 105` |
+| unwrapped, as `cog.py` does | `12 24 28 50 59 98 104 105 121` — **two more** |
+
+and against the CONUS extent the unwrap *drops* `42`, `104` and `120`, none of which reach CONUS.
+`h0_select.py` reproduces the unwrap. Reported on #611, whose `gen_hex_yaml.py` has the planar
+form.
+
+## Two corrections to the source metadata reading
+
+### 1. Only BP is a 270 m upsample — CFL is native 30 m
+
+#592's published description, on both RPS collections, said the "burn probability **and fire
+intensity inputs** were modelled at 270 metres and upsampled". The FGDC process steps say
+otherwise:
+
+> **1.** Downscale the nationally-available FSim Burn Probability (BP) data to 30-m resolution
+> using a raster upsampling process. […] resampled to 30-m using cubic convolution
+>
+> **3.** Simulate wildfire intensity characteristics using WildEST […] produces landscape-scale
+> spatial data representing flame-front characteristics **at 30-m spatial resolution**
+
+| theme | native support | in STAC |
+|---|---|---|
+| `BP` | **270 m** FSim, cubic-convolution upsample + smoothing into developed areas | oversampled, and this is where the gap is largest |
+| `CFL` | **30 m** WildEST/FlamMap | *not* an upsampled 270 m product |
+| `Exposure` | 30 m LANDFIRE 2.2.0 fuels as a binary burnable mask, then **three iterative 510 m focal means**; the indirect class also depends on the upsampled BP | neighbourhood support of several hundred metres, not 270 m upsampling |
+| `RPS` | cRPS (30 m) × BP (270 m-derived) | inherits BP's coarse support, not CFL's |
+
+`gen_stac.py`'s provenance paragraph is now per theme, and the two RPS collections were
+regenerated and republished with the corrected sentence. **Their `facts.json` entries were not
+touched**, so every published number is byte-identical to what #592 measured; only the prose
+changed.
+
+### 2. The FGDC `Logical_Consistency_Report` ranges are STALE — use the file index
+
+The two source documents disagree about every value range, and a future reader comparing a
+measured maximum against the "authoritative" metadata record would conclude the build leaked.
+
+| theme | FGDC `Logical_Consistency_Report` | `_fileindex_` | measured |
+|---|---|---|---|
+| RPS | 0 – 12.3 | **0 – 13.2** | CONUS exact max **13.194137573242188** (#592) |
+| BP | 0 – 0.13 | **0 – 0.14** | below |
+| CFL | 0 – 408.2 | **0 – 861.7** | below |
+| Exposure | 0 – 1 | 0 – 1 | below |
+
+The measurement settles it: 13.194 fits `0–13.2` and violates `0–12.3`. The FGDC figures look like
+1st-edition leftovers. **Use the file index.** #592 and #627 both did.
+
+## The h0 fan-out is measured from each layer's own pixels
+
+#592 left two incompatible lessons. Its Alaska run proved that **a neighbouring product's
+populated h0 set is not a safe trim** — RPS Alaska populates five h0 where `whp-2023-classified-ak`
+over the identical clip box populates three, so trimming to the borrowed set would have dropped
+4.25 M cells across two partitions, and `check-hex-coverage.sh` could not have caught it (it
+verifies that expected partitions are PRESENT, never that unexpected ones are ABSENT). But it also
+showed that running all 122 completions is ruinous at res 10.
+
+The way out is to stop borrowing. `make-cogs-bp-cfl-exposure.yaml` is already reading every pixel
+of each COG for its exact statistics; while it does, it records which **512×512 tiles hold at least
+one valid pixel**. A tile is recorded if ANY pixel in it is valid, so the union of tiles contains
+every valid pixel, and an h0 that misses that union **provably** holds none. The trim is a proof
+about this layer, not an inference from another one.
+
+`h0_select.py` turns those tiles into lon/lat boxes and intersects them with `h0-grid.txt`. Cost:
+one boolean reduce per block, nothing extra read.
+
+| domain | h0 the COG footprint meets | clip-box superset | #592's RPS populated |
+|---|---|---|---|
+| CONUS | **7** — `12 14 20 50 71 78 100` | 10 | 6 — `12 14 20 50 71 78` |
+| Alaska | **8** — `12 24 28 59 98 104 105 121` | 9 | 5 — `12 59 98 104 105` |
+
+Both are strict supersets of what RPS populated and tighter than the bounding box, because the
+footprint is a union of tiles rather than one rectangle. The extra cells are polar and western
+edges where RPS held nothing — a measurement about RPS, not a fact about BP, CFL or Exposure.
+
+## Armada and sub-h0 chunking — what made this build hours instead of 30 h
+
+#592's cost model was: every surviving h0 enumerates all **282,475,249** res-10 children whatever
+its data content, so memory is flat at ~133 GiB and each slice runs ~5 h. Six layers at one k8s hex
+job at a time is ~30 h.
+
+`cng-datasets` has since implemented the two-tier chunking this file recorded as an upstream
+proposal (`boettiger-lab/datasets#173`):
+
+- `--chunk-resolution 2` splits each h0 into its res-2 descendants, so a unit enumerates
+  **5,764,801** cells rather than 282 M;
+- `--window-reads` (automatic above chunk-resolution 0) reads only that chunk's window instead of
+  localizing the whole COG — decisive when the CONUS COGs are 23–26 GB;
+- `merge-chunks` consolidates `part-{cell}.parquet` back into `hex/h0=*/data_0.parquet`, and
+  `--expect-chunks N` **refuses to publish unless N chunks recorded completion** — the #409
+  protection, restated for the sub-h0 layout;
+- `gapfill` emits an Armada job set for any chunk that never recorded completion.
+
+Once a unit is that small, the ~200-completion k8s cap is the only thing forcing them back
+together, which is exactly the case the `armada-pipeline` skill says Armada is for.
+
+### ⚠️ Smoke-tested before 2,205 jobs were submitted on the assumption it works
+
+`--chunk-resolution` had never been used in this repo. 13 chunk indexes were run as an ordinary
+k8s Job first, chosen to hit all eight of `wrc-2-bp-ak`'s h0 including the pentagon and the
+dateline cell. Three things it established:
+
+```
+Processing chunk 334 of 384 (res-2 cell 585709294360461311, h0 grid position 105)...
+  h0 cell: 576707042908045311 (h3 800dfffffffffff, H3 base cell 6)
+  ℹ chunk straddles the antimeridian; reading the source directly
+  ✓ 853,136 of 5,764,801 cells reach the source (14.8% of the chunk)
+  exact_extract: 853136 cells in 9 chunks (size 100000) × 2 workers
+```
+
+- the enumeration really is divided by 49;
+- the tool handles the antimeridian **at chunk granularity**, resolving position 105 to the right
+  base cell — the reason a local h0 selection must unwrap the same way;
+- an empty chunk writes `_manifest/chunk-N.parquet` (545 bytes) and no part file, so "completed
+  with no data" is distinguishable from "never ran". 7 of the 13 were empty and recorded it.
+
+**h0 grid position 59 is a PENTAGON: 41 res-2 children, not 49.** So a layer's chunk count is not
+`len(h0) × 49`. Alaska's eight h0 give **384**, not 392. Never compute `--expect-chunks` by hand —
+take it from `enumerate_chunk_cells`, which is what the generator does.
+
+### ⛔ 8Gi, not the generator's 32Gi default
+
+Armada queues carry no concurrency limit, so what limits throughput is how many pods of your shape
+the cluster can hold — an oversized request throttles your own queue. The `armada-pipeline` skill
+measured a 32Gi/8-core job set as **2 scheduled, 4,231 "does not fit on any node"**. The generator
+estimates peak here at **0.6 GiB**, so 8Gi / 2 cpu carries an order of magnitude of headroom and
+still fits nearly anywhere.
+
+### ⛔ One submit per approval: fuse the job sets
+
+`armadactl` re-authenticates on **every** invocation. It caches through `go-keyring`, which needs a
+D-Bus Secret Service, and this image has `dbus-run-session` but no `dbus-launch`, so
+`cacheRefreshToken: true` silently does nothing. Authentik's device code expires in **60 seconds**,
+so each separate submit costs a human a timed approval.
+
+One job set can carry thousands of jobs and has exactly one queue and one jobSetId, and all six
+layers share the `geo-workflows` queue — so `gen_armada.py` fuses the six hex job sets into one and
+the six merge jobs into another. Seven approvals become two.
+
+### A silent-success trap worth repeating
+
+The first smoke attempt ran `/usr/bin/time -v cng-datasets raster ... | tail -40`. `/usr/bin/time`
+is not in the image, so every pod exited 127 — and every pod reported **Completed**, because a
+pipeline's exit status is the last command's and `tail` succeeded. All 13 "passed" having done
+nothing; only the absence of objects on S3 gave it away. Use `set -euo pipefail`, and do not pipe
+the step whose exit code is the gate.
+
+## Measured COG statistics (2026-09-22) — 6/6, exact
+
+Job `wrc-2-make-cogs-rest`, `Complete`, `succeeded=6`, `failedIndexes` empty. Every figure below is
+`raster_stats.py`'s full-resolution blockwise pass, not `ComputeStatistics(True)`.
+
+| layer | grid | valid px | min | max | mean |
+|---|---|---:|---:|---:|---:|
+| `wrc-2-bp-conus` | 197,514 × 92,269 | 8,008,820,936 | 0.0 | 0.1351630985736847 | 0.0031033898770667975 |
+| `wrc-2-bp-ak` | 150,764 × 67,401 | 2,702,616,604 | 0.0 | 0.045817237347364426 | 0.0028071538673345034 |
+| `wrc-2-cfl-conus` | 197,514 × 92,269 | 8,008,789,509 | 0.0 | 861.6509399414062 | 3.7297114381819867 |
+| `wrc-2-cfl-ak` | 150,764 × 67,401 | 2,702,616,604 | 0.0 | 655.9505004882812 | 2.6373161041707713 |
+| `wrc-2-exposure-conus` | 197,514 × 92,269 | 8,008,820,936 | 0.0 | 1.0 | 0.7679420154397165 |
+| `wrc-2-exposure-ak` | 150,764 × 67,401 | 2,702,616,604 | 0.0 | 1.0 | 0.7782759188709507 |
+
+Both grids match the published RPS pair exactly, so all eight `wrc-2` layers share a domain grid.
+
+**The strongest single piece of evidence that the warp is faithful:** `cfl-conus`'s exact maximum
+is **861.6509**, against the file index's published **861.7** — agreement to four significant
+figures, the same kind of match #592 got between its Alaska RPS maximum and the source percentile
+table. It also settles the metadata contradiction above in the file index's favour, because the
+FGDC record claims CFL tops out at 408.2 and the measurement is more than twice that.
+
+`bp-conus`'s 0.13516 likewise sits inside the file index's `0–0.14` and *outside* the FGDC's
+`0–0.13`. `min` is exactly 0.0 on all six: no −9999 leaked into the valid range.
+
+Alaska's three layers share an identical valid-pixel count (2,702,616,604), and CONUS's BP and
+Exposure do too (8,008,820,936); `cfl-conus` is 31,427 pixels smaller. So the themes are very
+nearly co-extensive within a domain, but **not exactly** — which is the whole reason each layer's
+h0 list is derived from its own footprint rather than a sibling's.
+
+## Independent confirmation from the hex chunks
+
+`wrc-2-bp-ak` wrote `h0=576882964768489471/part-585860477209280511.parquet` with **1,957 cells** —
+exactly the count #592 measured for that partition on RPS Alaska, the 5,583-byte sliver that
+clears `check-hex-coverage.sh`'s 4,096-byte threshold by only 36%. Two different themes, built by
+two different pipelines (one h0 per pod at res 0; res-2 chunks merged) reproducing the same odd
+little number is strong evidence that both the footprint selection and the partitioning are right.
+
+Per-pod memory, self-reported against the generator's model: predicted 1.10–1.66 GiB, peak
+1.74–3.01 GiB (1.43–2.21×) against the **8Gi** request. Comfortable, and far from the 192Gi the
+res-0 layout needed.
+
+## Hex build results (2026-09-22) — 2,181/2,181 chunks, six layers
+
+| layer | chunks | populated h0 | rows | hex max | hex mean | exact zeros |
+|---|---:|---:|---:|---:|---:|---:|
+| `wrc-2-bp-conus` | 343 | 6 | 520,962,613 | 0.1351564548 | 0.003099106048 | 11.017% |
+| `wrc-2-bp-ak` | 384 | 5 | 120,349,584 | 0.04581446435 | 0.002703587576 | 18.174% |
+| `wrc-2-cfl-conus` | 343 | 6 | 520,960,899 | 235.9835807 | 3.678287289 | 14.644% |
+| `wrc-2-cfl-ak` | 384 | 5 | 120,349,584 | 316.4854818 | 2.501109063 | 21.723% |
+| `wrc-2-exposure-conus` | 343 | 6 | 520,962,613 | 1.0 | 0.7695237048 | 11.016% |
+| `wrc-2-exposure-ak` | 384 | 5 | 120,349,584 | 1.0 | 0.7530048091 | 18.174% |
+
+### The result worth checking first: these reproduce #592 exactly
+
+Four independent quantities came out identical to the published RPS pair, which was built from a
+different theme through a completely different pipeline (one 192Gi pod per h0 at chunk-resolution
+0, versus res-2 chunks merged):
+
+| | #592 RPS | #627 BP / Exposure |
+|---|---|---|
+| CONUS rows | 520,962,613 | **520,962,613** |
+| Alaska rows | 120,349,584 | **120,349,584** |
+| CONUS bbox | `[-124.8616429, 24.39506098, -66.88468074, 49.38491788]` | **identical to 6 dp** |
+| Alaska bbox | `[-179.2283357, 51.15942105, -129.9739204, 71.43962069]` | **identical to 6 dp** |
+| CONUS exact-zero fraction | 11.02% | **11.017% / 11.016%** |
+| Alaska exact-zero fraction | 18.2% | **18.174%** |
+| the 1,957-cell Alaska sliver partition | 1,957 | **1,957** |
+
+`cfl` differs slightly and correctly: 520,960,899 CONUS rows (1,714 fewer) because `CFL_CONUS` has
+31,427 fewer valid pixels than the other two, and a higher zero fraction. That the *only* layer
+that differs is the one whose COG valid-pixel count differs is the point.
+
+### Structural checks — all six clean
+
+| check | result |
+|---|---|
+| `rows == COUNT(DISTINCT h10)` | equal on all six, **0 duplicates** |
+| NULL `h9` / `h8` / `h0` / value | 0 / 0 / 0 / 0 on all six |
+| `-9999` leak | **0** on all six |
+| `min` | exactly 0.0 on all six |
+| hex max ≤ COG exact max | holds on all six |
+| `check-hex-coverage.sh --expect-h0` | **PASS, exit 0**, 6/6 CONUS and 5/5 Alaska |
+| Alaska dateline h0 `576707042908045311` | populated on all three |
+| `verify-stac.py --bucket public-fire` | **0 hard**, 18 advisory (all pre-existing, on `fire-perimeters`) |
+
+Zero duplicates matters more here than it did on #592. At chunk-resolution 0 one pod owned a whole
+h0, so a cell could not be produced twice; with res-2 chunks merged into one file per partition, a
+cell double-counted across a chunk boundary is a *new* failure mode, and `rows ==
+COUNT(DISTINCT h10)` is the check that rules it out.
+
+The hex max sits **below** the COG max on every continuous layer (`cfl-conus` 235.98 against the
+COG's 861.65) because a cell carries the area-weighted **mean** of roughly 17 pixels and cannot
+reach a single pixel's extremum. `exposure` is the exception at exactly 1.0, which is correct
+rather than suspicious: direct exposure is a *plateau* of 1.0, so a cell wholly inside it averages
+to 1.0.
+
+### The h0 superset was right, and cost almost nothing
+
+The fan-out used 7 CONUS / 8 Alaska h0, derived from each COG's own valid-pixel footprint. The
+merge found **6 CONUS / 5 Alaska** populated — the extra cells (CONUS 100; Alaska 24, 28, 121) hold
+no data, exactly as a superset should behave. Being wrong in that direction cost a handful of
+chunk pods that exited in seconds. Being wrong the other way would have shipped a hole that
+`check-hex-coverage.sh` could not detect.
+
+### Three chunks needed a gap-fill
+
+2,178 of 2,181 chunks recorded completion on the first pass. `wrc-2-bp-conus` 9 and 276 and
+`wrc-2-cfl-conus` 208 did not, and left **no part file either**, so they died before writing
+anything — nothing partial to clean up. Armada had already reaped the pods, so no logs survive;
+preemption is the likely cause, and the NRP docs state that *"preempted jobs will not be
+automatically rescheduled"*.
+
+They were re-run by `gapfill-chunks.yaml` as a 3-pod k8s Job rather than through
+`cng-datasets gapfill`, which emits an Armada job set: three units is far below anything needing a
+queue, and each `armadactl` invocation costs a human a 60-second device-code approval.
+
+**This is the failure the completion markers exist for.** Every chunk writes a marker whether or
+not it produces data, so "ran and found nothing" is distinguishable from "never ran", and
+`merge-chunks --expect-chunks` would have refused to publish either way (#409).
