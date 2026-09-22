@@ -807,3 +807,20 @@ whole bucket, so a bad write would delist every dataset under `public-fire`.
 The bucket collection went from 20 to 24 child links with its description widened and 15 assets
 preserved. No per-dataset `README.md` is published: no sibling in this bucket has one, and the
 collection descriptions carry the documentation.
+
+### The `_mask/` prefixes are left in place
+
+`s3://public-fire/wrc-2-pa-huexposure-ak/_mask/` (4 files, under 1 MiB) and
+`.../wrc-2-pa-huexposure-conus/_mask/` (6 files, **1.39 GiB**) hold the coverage masks.
+
+They are **safe to remove** and nothing reads them: `_mask` does not match the `hex/h0=*` glob the
+collections publish, and the mirror-scope auditor keys its backup exclusions on STAC asset hrefs, so
+an unreferenced prefix is not mirrored. They are kept because they cost 4h27m across 12 pods (CONUS)
+and 5h07m across 7 (Alaska) to produce, and they are the evidence behind the published row counts —
+a re-repair or an audit of these datasets is instant with them and half a day without.
+
+If [datasets#232](https://github.com/boettiger-lab/datasets/issues/232) lands and the `sum` reducer
+drops its own empty cells, these become dead weight and should go.
+
+`stac-collection.backup.json` at the bucket root is the pre-patch bucket collection, kept by
+`publish-stac.yaml` for the same reason.
