@@ -122,8 +122,11 @@ spec:
                    SUM(CASE WHEN huexposure = 0 THEN 1 ELSE 0 END),
                    SUM(CASE WHEN huexposure < 0 THEN 1 ELSE 0 END)
             FROM read_parquet('/tmp/out.parquet')""").fetchone()
-          types = dict(c.execute(
-              "DESCRIBE SELECT * FROM read_parquet('/tmp/out.parquet')").fetchall())
+          # DESCRIBE yields six columns; name and type are the only two wanted, and dict()
+          # over the raw rows fails on the other four.
+          types = dict(c.execute("""
+              SELECT column_name, column_type
+              FROM (DESCRIBE SELECT * FROM read_parquet('/tmp/out.parquet'))""").fetchall())
           want_types = {"huexposure": "DOUBLE", "h10": "UBIGINT", "h0": "BIGINT",
                         "h8": "UBIGINT", "h9": "UBIGINT"}
           assert types == want_types, f"{part}: schema drift {types}"
