@@ -60,6 +60,9 @@ kubectl apply -n geo-workflows -f damage/configmap.yaml
 kubectl apply -n geo-workflows -f damage/ids-damage-1997-2025-pmtiles.yaml
 kubectl apply -n geo-workflows -f damage/ids-damage-1997-2025-hex.yaml
 kubectl apply -n geo-workflows -f damage/ids-damage-1997-2025-repartition.yaml
+
+# 5. once the coverage gate passes: drop the superseded survey-extent chunks
+kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-cleanup-chunks.yaml
 ```
 
 ## Survey-extent repartition: three manifests, and why only the third works
@@ -196,6 +199,11 @@ cannot collide with the originals' `chunk_000000..chunk_000073`.
 `--cleanup` is also removed from both repartition jobs: it deletes `chunks/` on success, and these
 chunks cost 9+ hours to rebuild. Remove them deliberately after the coverage gate passes.
 
+That removal is `ids-survey-extent-1999-2025-cleanup-chunks.yaml`, run 2026-09-22: 126 files,
+63.45 GB. It re-asserts the published side first and exits non-zero without deleting anything if
+`hex/` is not 8 partitions, if the parquet, PMTiles or STAC collection is missing, or if `chunks/`
+holds a name that is not `chunk_NNNNNN.parquet`. Damage's `chunks/` is already gone.
+
 ## Coverage gate results
 
 `COUNT(DISTINCT _cng_fid)` on the hex must equal the flat parquet's feature count (hex-tuning skill
@@ -210,7 +218,11 @@ Hex carries `h10` (native) plus `h9`, `h8`, `h0`, with no nulls in any of them o
 
 Survey extent is 39x the damage hex over 61x fewer features, which is the covered-area point again:
 one flight footprint can blanket a whole region at resolution 10. Its eight `h0` partitions total
-61.99 GB, the largest being 18.48 GB.
+63.99 GB, the largest being 18.48 GB.
+
+The gate is also what licenses deleting `chunks/`, so survey extent was checked partition by
+partition before that delete: the same eight `h0` values on both sides, identical row counts on
+every one, 6,230,445,420 rows each side.
 
 Both collections are published and registered in the `public-usfs` sub-catalog, and both pass
 `scripts/verify-stac.py --bucket public-usfs --dataset <id>`.
