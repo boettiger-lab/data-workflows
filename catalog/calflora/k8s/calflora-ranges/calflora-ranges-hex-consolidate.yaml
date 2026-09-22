@@ -1,0 +1,123 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: calflora-ranges-hex-consolidate
+  namespace: geo-workflows
+  labels: {k8s-app: calflora-ranges-hex-consolidate}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 172800
+  activeDeadlineSeconds: 7200
+  template:
+    metadata: {labels: {k8s-app: calflora-ranges-hex-consolidate}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: consolidate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          # Fold the per-species hex fan-out into ONE long-form table partitioned by h0.
+          # Issue #668.  The app filters a single table by species_code; it does not want
+          # 109 collections, and it does not want species_code to be a partition either --
+          # h0 is the partition key the rest of the catalog uses.
+          cd /tmp
+          echo "=== fetch parts ==="
+          rclone copy nrp:public-ca-ccca5/calflora-ranges/hex-parts/ /tmp/parts/ --transfers 16 --retries 5
+          NSP=$(ls -d /tmp/parts/species_code=* | wc -l)
+          echo "$NSP species trees"
+          test "$NSP" -eq 109 || { echo "expected 109 species, found $NSP"; exit 1; }
+
+          python3 - <<'PY'
+          import duckdb, os, json
+          con = duckdb.connect()
+          con.execute("SET memory_limit = '24GiB'")
+          con.execute("INSTALL h3 FROM community; LOAD h3;")
+
+          # Read WITHOUT hive partitioning.  The parts live under
+          # hex-parts/species_code=CODE/h0=CELL/, but species_code is also a real column
+          # inside each file, so hive parsing would try to supply a second column of that
+          # name.  h0 is not in the files (it was the partition key upstream), and it does
+          # not need to be recovered from the path: it is h8's resolution-0 ancestor.
+          rel = "read_parquet('/tmp/parts/**/*.parquet', hive_partitioning=false, union_by_name=true)"
+
+          cols = [r[0] for r in con.execute(f'DESCRIBE SELECT * FROM {rel}').fetchall()]
+          print('columns in parts:', cols)
+          for need in ('species_code', 'h8', 'h7', 'n_observations'):
+              assert need in cols, f'missing {need}; got {cols}'
+
+          os.makedirs('/tmp/out', exist_ok=True)
+          con.execute(f"""
+            COPY (SELECT species_code,
+                         h3_cell_to_parent(h8, 0) AS h0,
+                         h7, h8,
+                         CAST(n_observations AS TINYINT) AS n_observations
+                  FROM {rel} ORDER BY species_code, h8)
+            TO '/tmp/out' (FORMAT PARQUET, PARTITION_BY h0, COMPRESSION zstd,
+                           ROW_GROUP_SIZE 2000, OVERWRITE_OR_IGNORE true)
+          """)
+
+          # h7 must genuinely be h8's parent, and h0 the ancestor we just derived --
+          # a mismatch would mean the parent columns came from somewhere unexpected.
+          bad = con.execute(f"""
+            SELECT count(*) FROM {rel}
+            WHERE h3_cell_to_parent(h8, 7) <> h7""").fetchone()[0]
+          assert bad == 0, f'{bad} rows where h7 is not h8 rolled up to resolution 7'
+
+          out = ("read_parquet('/tmp/out/**/*.parquet', hive_partitioning=true, "
+                 "union_by_name=true)")
+          n, nsp, nz, npos, mx, ndup = con.execute(f"""
+            SELECT count(*), count(DISTINCT species_code),
+                   sum(CASE WHEN n_observations = 0 THEN 1 ELSE 0 END),
+                   sum(CASE WHEN n_observations > 0 THEN 1 ELSE 0 END),
+                   max(n_observations),
+                   count(*) - count(DISTINCT (species_code, h8))
+            FROM {out}""").fetchone()
+          print(f'rows          : {n:,}')
+          print(f'species       : {nsp}')
+          print(f'zero rows     : {nz:,} ({100.0 * nz / n:.2f}%)')
+          print(f'positive rows : {npos:,} ({100.0 * npos / n:.2f}%)')
+          print(f'max count     : {mx}')
+          print(f'dup (sp,h8)   : {ndup}')
+          assert nsp == 109, 'not all species present'
+          assert nz > 0, 'zero rows were suppressed -- that deletes the range'
+          assert ndup == 0, 'duplicate (species_code, h8) rows'
+          assert mx is not None and mx <= 9, f'max {mx} exceeds the saturating bin'
+          # The range must be overwhelmingly zeros; if it is not, the NaN mask was misread.
+          assert nz / n > 0.90, f'only {100.0*nz/n:.1f}% zeros -- expected ~98%'
+          json.dump(dict(rows=n, species=nsp, zero=nz, positive=npos, max=mx),
+                    open('/tmp/hex-stats.json', 'w'), indent=1)
+          PY
+
+          echo "=== publish ==="
+          ls /tmp/out | head
+          rclone copy /tmp/out/ nrp:public-ca-ccca5/calflora-ranges/hex/ --transfers 16 --retries 5
+          rclone copyto /tmp/hex-stats.json nrp:public-ca-ccca5/calflora-ranges/hex-stats.json --retries 5
+          echo "partitions published: $(rclone lsf nrp:public-ca-ccca5/calflora-ranges/hex/ | wc -l)"
+          echo "CONSOLIDATE COMPLETE"
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
