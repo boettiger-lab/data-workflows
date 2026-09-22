@@ -168,6 +168,20 @@ copy, so it cannot protect the snapshot on its own.
 To rebuild from scratch, re-run `convert` first (it reads `raw/`, which is immutable and checksummed)
 and then `enrich`.
 
+## Step 6: register in the root catalog
+
+`public-mesic` is a **new top-level bucket**, so its bucket-level collection needs one `child` link
+in `s3://public-data/stac/catalog.json` — the one case AGENTS.md sanctions touching the root.
+
+```bash
+kubectl apply -n geo-workflows -f catalog/mesic/k8s/mesic-register-root-catalog.yaml
+```
+
+The read-modify-write happens **inside the job**, not on a workstation, so the read sits as close to
+the write as possible: that file is shared by every dataset in the catalog, and a copy edited hours
+earlier would silently drop whatever another build added in between. The job is idempotent, and it
+refuses to write if any pre-existing link or non-link field changed.
+
 ## Build order
 
 `public-mesic` does not exist until setup-bucket runs, and `rclone --s3-no-check-bucket` will
