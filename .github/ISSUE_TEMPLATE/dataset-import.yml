@@ -54,14 +54,3 @@ body:
     validations:
       required: true
 
-  - type: input
-    id: target
-    attributes:
-      label: Target bucket and dataset path
-      description: >
-        Copy the convention from the most recent ingests rather than inventing one. Check
-        `gh issue list --label "type: data"` and the live catalog. The last path segment becomes
-        the S3 prefix, the PMTiles source-layer, and the k8s job prefix. No dots in the name.
-      placeholder: "s3://public-<bucket>/, dataset <group>/<name>"
-    validations:
-      required: true
