@@ -94,18 +94,28 @@ and was the error in this note's first draft. Using `main` alone costs seven mor
 reports 3.31 TiB / 65 buckets, ~198 GiB low — `public-obis` (99.2 GiB) has 35 references in
 PR #661 and none on `main`.
 
-**"Referenced" is not "has a build manifest"**, and the two must be tracked separately:
-`public-population` passes the first test and fails the second.
+**A bucket-name grep does not find the manifest that builds that bucket.** `public-population` is the worked example: its manifests exist on `main` but name a *different* bucket, so no amount of grepping for `public-population` reaches them. Name-based discovery can tell you a bucket exists; it cannot tell you whether anything still builds it. That needs reading each manifest's target.
 
 ### The disagreements are diagnostic
 
-- **Published, in STAC, with no committed build recipe.** `public-population` (30.5 GiB, 126
-  objects) appears on `main` only in `catalog/audit/pregate-verify-sweep/RESULTS-2026-08-*.txt`
-  — an audit log recording that we *checked* it — with **no manifest anywhere under
-  `catalog/`**. Nothing in the repo says how to rebuild it. This is the #678 drift class.
-- **Built and staged, never published.** `public-mesic` (5.2 GiB, 112 objects, PR #691) and
-  `public-ca-ccca5` (73.1 MiB, 516 objects, PR #676) hold real data with no STAC entry. An
-  unmerged PR says nothing about whether the bucket has data — check the bucket.
+- **Published under a bucket its own manifests no longer name.** `public-population`
+  (30.5 GiB, 126 objects) holds the `ghs-pop-2020` collection, and its build manifests **do
+  exist on `main`** — `catalog/high-seas/k8s/population/`, seven files, added in `32648a4`
+  (#75). They target **`public-high-seas`**. The collection was later relocated to its own
+  bucket and the manifests never followed; nothing remains under `ghs-pop*` in
+  `public-high-seas`, so this was a move rather than a copy. Same class as
+  `public-ecoregions` below — a manifest aimed at the wrong bucket — and invisible for the
+  same reason: the STAC gate derives its targets from *changed* `catalog/**` YAMLs, so a
+  manifest nobody edits is never re-checked against reality.
+  *(An earlier draft of this note said `public-population` had no manifest at all. It does;
+  the grep missed it because the manifest names the old bucket.)*
+- **Data landed, STAC not yet written — normal in-flight PR state, not drift.**
+  `public-mesic` (5.2 GiB, 112 objects, PR #691) and `public-ca-ccca5` (73.1 MiB, 516
+  objects, PR #676) hold real data with no STAC entry. That is what an open ingest PR looks
+  like partway through: manifests committed, data landing, STAC published once the build
+  passes. The measurement lesson stands and is the only lesson here — an unmerged PR says
+  nothing about whether the bucket has data, so check the bucket. Do **not** read these as
+  defects; the S3 data rides along with the PR much as code does.
 - **Stale references (5).** `public-biodiversity`, `public-nwi`, `public-redlining` and
   `public-x` are dead names in docs and scripts. **`public-ecoregions` is the one that bites:**
   it does not exist, and the `ecoregion` workflow pointed at it from live code. Three
