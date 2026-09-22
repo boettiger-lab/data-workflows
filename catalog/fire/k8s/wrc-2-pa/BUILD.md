@@ -601,12 +601,15 @@ So `extent.spatial` is measured from the **hex output**, and the grid extent is 
 
 Run **one job at a time** (`AGENTS.md`), in this order. Recorded as each completes.
 
-| job | state |
-|---|---|
-| `wrc-2-pa-hurisk-conus-hex` | running since 2026-09-17, 5/12 at 3h23m |
-| `wrc-2-pa-hurisk-ak-hex` | not started |
-| `wrc-2-pa-huexposure-conus-hex` | not started |
-| `wrc-2-pa-huexposure-ak-hex` | not started |
+| job | state | published rows |
+|---|---|---:|
+| `wrc-2-pa-hurisk-conus-hex` | complete 2026-09-17 | 126,907,264 |
+| `wrc-2-pa-hurisk-ak-hex` | complete 2026-09-18 | 365,704 |
+| `wrc-2-pa-huexposure-conus-hex` | complete 2026-09-18, **then repaired** (below) | 134,660,659 |
+| `wrc-2-pa-huexposure-ak-hex` | complete 2026-09-18, **then repaired** (below) | 389,749 |
+
+Both `sum` datasets needed a second pass: the reducer wrote a zero row for every cell it
+enumerated, whether or not the cell had data behind it. The two `mean` datasets are as first built.
 
 The three are submitted by a chain that applies the next job **only** when the previous reaches
 `Complete`, and stops on `Failed` — `maxFailedIndexes: 0` means a `Failed` job is a partial build
@@ -657,3 +660,150 @@ These are the COG pixel sums measured above. Hex `SUM(huexposure)` must equal th
 
 For the `mean` layers there is no such invariant; check instead that the hex mean sits inside the
 COG's exact range, that `MIN` is ≥ 0, and that no `-9999` leaked.
+
+## The `sum` reducer wrote a zero row for every cell it enumerated
+
+Both `sum` datasets were published, measured, and found to be carrying rows for cells the source
+raster never covered. `cng-datasets`' only empty-cell filter is a null test, and an empty `sum` is
+`0.0` rather than `NaN` — so `mean`, `max` and `min` drop their empty cells and `sum` keeps them.
+Filed as [boettiger-lab/datasets#232](https://github.com/boettiger-lab/datasets/issues/232) with an
+MRE: a 10×10 raster holding four valid pixels emits **1** cell under `mean` and **2,401** under
+`sum`, 2,400 of them fabricated zeros, with `SUM` identical either way.
+
+That last clause is the reason this survived the build gates. **The conservation invariant cannot
+see it** — adding zeros does not change a total, so `SUM(huexposure)` matched the COG pixel sum on
+both domains while Alaska carried 1.93 billion rows for 389,749 cells that have data.
+
+### What each domain looked like
+
+| | rows as first published | correct rows | what was wrong |
+|---|---:|---:|---|
+| `huexposure-ak` | 1,930,247,535 | 389,749 | raw output: a complete res-10 enumeration of all 7 h0, three of them **entirely zero** |
+| `huexposure-conus` | 124,868,403 | 134,660,659 | already filtered by `drop-zero-rows.yaml`, which removed 9,792,256 **real** measured zeros along with the fill |
+
+Alaska's three all-zero partitions were h0 indexes 28, 50 and 98. Sampling index 98 put its cells
+at **160°E–168°E, 52–56°N** — Kamchatka and the western Bering Sea, outside the COG's −180..−129
+extent entirely, each asserting "no housing units exposed" for ground the raster never saw.
+
+⚠️ This is the cost model correction from `aca31c0` taken one step further. An empty-but-overlapping
+h0 costs a full enumeration for a `mean` layer and writes nothing; for a `sum` layer it costs the
+enumeration **and** writes all 282,475,249 rows. The review's note that the dateline-generous h0
+intersections "cost three idle pods, not correctness" holds for `mean` and not for `sum` — there
+those pods each produced a 535 MB partition of zeros.
+
+### Why `WHERE value > 0` is the wrong fix
+
+`drop-zero-rows.yaml` used it on CONUS, and it cannot distinguish the fill from a measurement: for
+a `sum` layer both are `0.0`. Measured zeros are real and they are common — **9,792,256 on CONUS,
+7.3% of the correct dataset**, and 1,916 on Alaska. The CONUS COG reads exactly `0.0` over central
+Los Angeles, which is mapped ground with no expected exposure, not missing data. A missing cell and
+a zero cell also answer an `h8` join differently.
+
+### The fix: a coverage mask, and no second `sum` campaign
+
+`mean` returns `NaN` exactly where coverage is empty, so a `mean` pass over the **same COG**, at the
+same resolution and parents and over the same h0 list, returns precisely the cells that have data
+behind them. `coverage-mask-{ak,conus}.yaml` writes that set to `_mask/`, which does not match the
+`hex/h0=*` glob consumers read. Their h0 lists are extracted from the `*-hex.yaml` manifests rather
+than retyped, so the mask cannot enumerate a different cell set than the pass it corrects.
+
+`repair-zero-fill-{ak,conus}.yaml` then writes `mask LEFT JOIN hex ON h10` with
+`COALESCE(huexposure, 0.0)`. One expression fixes both domains, which is why neither needed the
+res-10 `sum` hex re-run:
+
+- **Alaska** — `hex/` held every enumerated cell, so the mask is a subset and the join matches
+  everything. Effect: the fill is dropped.
+- **CONUS** — `hex/` held only `> 0` cells. Every cell with `sum > 0` necessarily has coverage, so
+  the published rows are a *strict subset* of the mask, and the mask cells the join does not match
+  are exactly the measured zeros the filter removed. Effect: they come back.
+
+Cost: one `mean` pass per domain (Alaska 7 completions in 5h07m, CONUS 12 in 4h27m) plus a
+single-pod join, against ~20 pod-hours for a fresh CONUS `sum` campaign.
+
+### Measured, per partition
+
+| h0 | covered cells | nonzero | measured zeros |
+|---|---:|---:|---:|
+| **Alaska** | | | |
+| 576707042908045311 | 356,228 | 354,380 | 1,848 |
+| 576812596024311807 | 30,639 | 30,630 | 9 |
+| 576988517884755967 | 2,700 | 2,688 | 12 |
+| 577094071001022463 | 182 | 135 | 47 |
+| **CONUS** | | | |
+| 577164439745200127 | 56,376,005 | 49,601,784 | 6,774,221 |
+| 577234808489377791 | 33,910,473 | 32,260,073 | 1,650,400 |
+| 577692205326532607 | 27,436,519 | 26,989,884 | 446,635 |
+| 577199624117288959 | 10,564,281 | 9,814,916 | 749,365 |
+| 577762574070710271 | 5,664,424 | 5,502,664 | 161,760 |
+| 576812596024311807 | 708,957 | 699,082 | 9,875 |
+
+An anti-join checked the direction that matters before the join was trusted: no mask cell is absent
+from Alaska's raw output, and no published CONUS cell is absent from the mask.
+
+### Gates, and what they caught
+
+Each repair staged to `hex-repaired/`, gated, and only then replaced `hex/` one object at a time —
+no prefix-wide purge, so a pod dying mid-swap leaves a mixture rather than an empty prefix.
+
+| gate | Alaska | CONUS |
+|---|---|---|
+| hex `SUM` vs COG pixel sum | 325.46115221495535 vs 325.46115222398214, **rel 2.774e-11** | 50484.375292026125 vs 50484.37529216313, **rel 2.714e-12** |
+| rows == mask rows, per partition | 4/4 | 6/6 |
+| `h10`/`h9`/`h8` UBIGINT, `h0` BIGINT | pass | pass |
+| every mask partition written | 4/4 | 6/6 |
+
+**The schema gate earned its place by failing first.** Its first version built a dict from
+`DESCRIBE`, which returns six columns, so it raised `ValueError` on the first partition — before the
+gate ran and before anything was staged. The published hex was verified untouched from S3 (7
+partitions, `hex-repaired/` empty) before the re-run. A gate that dies early is the cheap outcome;
+the expensive one is a swap that proceeds on an unchecked schema.
+
+### Verified from S3 after the swap
+
+| | rows | = distinct h10 | partitions | SUM | min / max | measured zeros | extent |
+|---|---:|---|---:|---:|---|---:|---|
+| `huexposure-ak` | 389,749 | yes | 4 | 325.4611522 | 0 / 0.1073 | 1,916 | −176.64..−130.02, 51.87..71.33 |
+| `huexposure-conus` | 134,660,659 | yes | 6 | 50484.37529 | 0 / 1.7794 | 9,792,256 | −124.68..−66.95, 24.54..49.37 |
+
+Zero negatives and zero NULL parents on both, no partition entirely zero, and every cell inside its
+COG extent. `huexposure-conus`'s hex maximum of 1.7794 exceeds the COG's per-pixel maximum of
+0.14124, as it must: a res-10 cell gathers roughly 17 pixels and the value is an amount.
+
+## STAC
+
+`facts.json` is assembled by `make_facts.py` from `cog-facts.yaml`'s `FACTS` lines plus hex facts
+measured against the published parquet. The original `cog-facts` job had been reaped past its TTL,
+so it was **re-run** rather than transcribed from this file — 4/4 gates passing, and every sum
+reproducing what is recorded above.
+
+Collection `bbox` is measured from the hex over **every published cell**, by `h3_cell_to_lng`/`lat`,
+following `wrc-2`. Now that the `sum` layers carry measured zeros, "published cells" and "cells with
+a positive value" differ; the extent describes what is in the file, and the difference here is under
+a thousandth of a degree.
+
+| dataset | rows | bbox |
+|---|---:|---|
+| `wrc-2-pa-hurisk-conus` | 126,907,264 | −124.6811344, 24.54265695, −66.94937587, 49.36907384 |
+| `wrc-2-pa-hurisk-ak` | 365,704 | −176.6430384, 51.86767981, −130.0193411, 71.32702844 |
+| `wrc-2-pa-huexposure-conus` | 134,660,659 | −124.6811344, 24.54259308, −66.94918218, 49.36907384 |
+| `wrc-2-pa-huexposure-ak` | 389,749 | −176.6430384, 51.86767981, −130.0193411, 71.32791926 |
+
+The `sum` hex asset description states the zero-cell semantics, since the distinction only exists
+because of this fix: a cell valued zero is mapped ground with no expected exposure, and ground the
+mapping does not cover has no row at all.
+
+Published by `publish-stac.yaml`, in-cluster because STAC is canonical on NRP S3 and the laptop has
+no `nrp` remote — its `AWS_*` environment points at MinIO, a different store. The JSON rides in a
+ConfigMap rather than this repo (Hard Boundary 1), and the bucket collection is copied to
+`stac-collection.backup.json` before being replaced: it carries 15 assets and 24 child links for the
+whole bucket, so a bad write would delist every dataset under `public-fire`.
+
+> ⚠️ **A ConfigMap volume mounts each key as a symlink**, and `rclone` does not follow them — the
+> first attempt reported `not a directory` and copied nothing, while `stat -c%s` reported ~50 bytes
+> because it was measuring symlink targets rather than truncated JSON. The job now dereferences with
+> `cp -L` first and hard-fails any file under 2 KB.
+
+`verify-stac.py --bucket public-fire --dataset <ds>` exits 0 with no hard findings on all four.
+The bucket collection went from 20 to 24 child links with its description widened and 15 assets
+preserved. No per-dataset `README.md` is published: no sibling in this bucket has one, and the
+collection descriptions carry the documentation.

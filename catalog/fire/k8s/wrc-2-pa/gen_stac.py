@@ -102,6 +102,8 @@ THEMES = {
 DOMAINS = {
     "conus": dict(
         label="continental United States",
+        # Carries its own article: "Coverage is the continental United States", "Coverage is Alaska".
+        article="the ",
         short="CONUS",
         src_crs="EPSG:5070 (NAD83 / Conus Albers)",
         src_size="156,335 by 101,538 pixels",
@@ -109,6 +111,7 @@ DOMAINS = {
     ),
     "ak": dict(
         label="Alaska",
+        article="",
         short="Alaska",
         src_crs="EPSG:3338 (NAD83 / Alaska Albers)",
         src_size="124,603 by 66,861 pixels",
@@ -199,7 +202,8 @@ def build_collection(dataset: str, facts: dict) -> dict:
 
     if is_sum:
         reducer_para = (
-            f"Coverage is the {domain['label']} at a 30 metre source pixel size, from the "
+            f"Coverage is {domain['article']}{domain['label']} at a 30 metre source pixel "
+            f"size, from the "
             f"second edition of Wildfire Risk to Communities. Hexed to H3 resolution 10 using a "
             f"coverage-weighted sum of the source pixels in each cell, with rollup columns at "
             f"resolutions 9, 8 and 0. Resolution 10 cells are about 0.015 square kilometres, so "
@@ -210,7 +214,8 @@ def build_collection(dataset: str, facts: dict) -> dict:
         )
     else:
         reducer_para = (
-            f"Coverage is the {domain['label']} at a 30 metre source pixel size, from the "
+            f"Coverage is {domain['article']}{domain['label']} at a 30 metre source pixel "
+            f"size, from the "
             f"second edition of Wildfire Risk to Communities. Hexed to H3 resolution 10 using an "
             f"area-weighted mean of the source pixels in each cell, with rollup columns at "
             f"resolutions 9, 8 and 0. Resolution 10 cells are about 0.015 square kilometres, so "
@@ -285,7 +290,10 @@ def build_collection(dataset: str, facts: dict) -> dict:
             f"cell, as a coverage-weighted sum of the source pixels, with rollup columns at "
             f"resolutions 9, 8 and 0. One row per cell. The value is an amount rather than an "
             f"intensity, so cells add: sum the column to total an area, and roll up to a coarser "
-            f"resolution with a sum rather than an average.\n\n"
+            f"resolution with a sum rather than an average. A cell is present only where the "
+            f"source raster holds data, so a cell whose value is zero is a measured zero, "
+            f"meaning mapped ground with no expected exposure, while ground the mapping does "
+            f"not cover has no row at all.\n\n"
             f"```sql\n"
             f"-- expected housing units exposed per year inside inventoried roadless areas\n"
             f"SELECT SUM(w.{theme['column']}) AS {theme['column']}_total\n"
