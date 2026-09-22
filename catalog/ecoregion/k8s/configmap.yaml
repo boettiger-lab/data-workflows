@@ -411,4 +411,4 @@ data:
 kind: ConfigMap
 metadata:
   name: ecoregion-yamls
-  namespace: biodiversity
+  namespace: geo-workflows
