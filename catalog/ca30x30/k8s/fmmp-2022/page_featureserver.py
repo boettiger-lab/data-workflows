@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Page the FMMP 2022 ArcGIS FeatureServer into GeoJSON pages (#615).
+"""Page the FMMP "Most Recent" ArcGIS FeatureServer into GeoJSON pages (#615).
 
-The ArcGIS Hub export API for this item serves a truncated cached artifact
-(45,285 of 127,133 features, 13 of 38 counties), so the service itself is the
-only usable source. Paging is ordered by OBJECTID so offsets are stable, and the
+CaliforniaImportantFarmland_mostrecent is DOC's own composite of the most recent
+edition per county (2022 for most, 2020 where 2022 is not released), and is what
+the California Important Farmland Finder displays. Paging is ordered by OBJECTID so offsets are stable, and the
 assembled total is checked against the service's own returnCountOnly before
 anything is written -- a short read must fail the job, not produce a small file.
 """
@@ -18,11 +18,12 @@ import urllib.request
 
 SERVICE = (
     "https://gis.conservation.ca.gov/server/rest/services/DLRP/"
-    "CaliforniaImportantFarmland_2022/FeatureServer/0/query"
+    "CaliforniaImportantFarmland_mostrecent/FeatureServer/0/query"
 )
 PAGE_SIZE = 2000  # the service's maxRecordCount
 OUT_DIR = "/tmp/pages"
 COUNT_FILE = "/tmp/expected_count.txt"
+AREAS_FILE = "/tmp/expected_areas.txt"
 RETRIES = 6
 TIMEOUT = 300
 
@@ -97,6 +98,13 @@ def main():
 
     with open(COUNT_FILE, "w") as fh:
         fh.write(str(expected))
+
+    # Distinct survey areas the service reports, for the job's unit-count check.
+    areas = fetch({"where": "1=1", "outFields": "county_nam", "returnDistinctValues": "true",
+                   "returnGeometry": "false", "f": "json"})["features"]
+    with open(AREAS_FILE, "w") as fh:
+        fh.write(str(len(areas)))
+    print(f"Service reports {len(areas)} distinct county_nam values")
 
 
 if __name__ == "__main__":

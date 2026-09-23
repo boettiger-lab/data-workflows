@@ -1,22 +1,22 @@
-# Stage FMMP 2022 raw from the authoritative ArcGIS FeatureServer (#615).
+# Stage FMMP "Most Recent" raw from DOC's ArcGIS FeatureServer (#615).
 #
-# The previous raw (raw/fmmp-2022.zip) came from the ArcGIS Hub export API, which
-# serves a truncated cached artifact: 45,285 of 127,133 features, 13 of 38 counties.
-# Hub is therefore NOT a usable source for this dataset. This job pages the
-# FeatureServer directly (supportsPagination, maxRecordCount 2000) and refuses to
-# publish anything unless the assembled feature count matches the service's own
-# returnCountOnly. That assertion is the whole point of the job — without it the
-# same silent truncation can recur.
+# Source: https://gis.conservation.ca.gov/server/rest/services/DLRP/CaliforniaImportantFarmland_mostrecent/FeatureServer/0
+# DOC's own composite of the most recent edition per county (2022 for 44 counties, 2020 for
+# Merced, San Benito, San Diego, San Luis Obispo and Sierra Valley as of 2026-09-23). It is what
+# the California Important Farmland Finder displays. Do not rebuild it from the year services:
+# CaliforniaImportantFarmland_2020 holds every feature of those 5 areas twice.
 #
-# The paging script is mounted from a configMap, so create it before applying this job:
+# page_featureserver.py fails the job unless the paged total equals the service's own
+# returnCountOnly; this job then checks the GeoPackage against that count and against the
+# service's distinct county_nam count. The script is mounted from a configMap:
 #
 #   kubectl create configmap fmmp-2022-stage-raw-script -n geo-workflows \
 #     --from-file=page_featureserver.py=catalog/ca30x30/k8s/fmmp-2022/page_featureserver.py \
 #     --dry-run=client -o yaml | kubectl apply -n geo-workflows -f -
 #   kubectl apply -n geo-workflows -f catalog/ca30x30/k8s/fmmp-2022/fmmp-2022-stage-raw.yaml
 #
-# This job is NOT part of the orchestrator DAG in workflow.yaml -- it stages raw/ and must
-# finish before the convert step runs, exactly as Step 1b describes for a stage-raw job.
+# This job is NOT part of the orchestrator DAG in workflow.yaml. It must finish before the
+# convert step runs.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -27,7 +27,7 @@ metadata:
 spec:
   completions: 1
   parallelism: 1
-  backoffLimit: 3
+  backoffLimit: 2
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
@@ -35,6 +35,11 @@ spec:
         k8s-app: fmmp-2022-stage-raw
     spec:
       restartPolicy: Never
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
       containers:
       - name: stage-raw
         image: ghcr.io/boettiger-lab/datasets:latest
@@ -67,48 +72,40 @@ spec:
         args:
         - |
           set -euo pipefail
+          RAW=fmmp-mostrecent-featureserver-2026-09-23
+
+          echo "read_start: $(date -u +%FT%TZ)"
           python3 /script/page_featureserver.py
+          echo "read_end: $(date -u +%FT%TZ)"
 
           echo "==> Building single-layer GeoPackage from pages"
           rm -f /tmp/fmmp-2022.gpkg
           first=1
           for f in /tmp/pages/page_*.geojson; do
             if [ "$first" = 1 ]; then
-              ogr2ogr -f GPKG -nln fmmp_2022 -a_srs EPSG:4326 /tmp/fmmp-2022.gpkg "$f"
+              ogr2ogr -f GPKG -nln fmmp_2022 -nlt MULTIPOLYGON -a_srs EPSG:4326 /tmp/fmmp-2022.gpkg "$f"
               first=0
             else
-              ogr2ogr -f GPKG -nln fmmp_2022 -append /tmp/fmmp-2022.gpkg "$f"
+              ogr2ogr -f GPKG -nln fmmp_2022 -nlt MULTIPOLYGON -append /tmp/fmmp-2022.gpkg "$f"
             fi
           done
 
-          echo "==> Verifying GeoPackage against the service count"
+          echo "==> Verifying GeoPackage against the service"
           expected=$(cat /tmp/expected_count.txt)
+          areas=$(cat /tmp/expected_areas.txt)
           got=$(ogrinfo -al -so /tmp/fmmp-2022.gpkg fmmp_2022 | awk -F': ' '/^Feature Count/ {print $2}')
-          echo "expected=$expected gpkg=$got"
-          [ "$got" = "$expected" ] || { echo "FATAL: GeoPackage has $got features, expected $expected"; exit 1; }
-
           counties=$(ogrinfo -sql "SELECT COUNT(DISTINCT county_nam) AS n FROM fmmp_2022" /tmp/fmmp-2022.gpkg \
                      | awk -F'= ' '/n \(Integer/ {print $2}')
-          echo "distinct counties = $counties"
-          [ "$counties" = "38" ] || { echo "FATAL: expected 38 counties, got $counties"; exit 1; }
-
-          ogrinfo -al -so /tmp/fmmp-2022.gpkg fmmp_2022
+          echo "expected=$expected gpkg=$got service_areas=$areas gpkg_areas=$counties"
+          [ "$got" = "$expected" ] || { echo "FATAL: GeoPackage has $got features, expected $expected"; exit 1; }
+          [ "$counties" = "$areas" ] || { echo "FATAL: GeoPackage has $counties areas, service has $areas"; exit 1; }
+          ogrinfo -sql "SELECT upd_year, COUNT(*) AS n FROM fmmp_2022 GROUP BY upd_year" /tmp/fmmp-2022.gpkg | grep -E 'upd_year|n \('
 
           echo "==> Zipping and staging to s3://public-ca30x30/raw/"
           # The datasets image has no zip(1); python's zipfile module is always present.
-          cd /tmp && python3 -m zipfile -c fmmp-2022-featureserver-2026-08-25.zip fmmp-2022.gpkg
-          ls -l /tmp/fmmp-2022-featureserver-2026-08-25.zip
-          rclone copyto /tmp/fmmp-2022-featureserver-2026-08-25.zip \
-            nrp:public-ca30x30/raw/fmmp-2022-featureserver-2026-08-25.zip -v
-
-          echo "==> Quarantining the truncated Hub export so it cannot be mistaken for source"
-          if rclone lsf nrp:public-ca30x30/raw/fmmp-2022.zip >/dev/null 2>&1; then
-            rclone moveto nrp:public-ca30x30/raw/fmmp-2022.zip \
-              nrp:public-ca30x30/raw/fmmp-2022-hub-truncated-2025-10-24.zip -v
-          else
-            echo "  raw/fmmp-2022.zip already absent — nothing to quarantine"
-          fi
-
+          cd /tmp && python3 -m zipfile -c $RAW.zip fmmp-2022.gpkg
+          ls -l /tmp/$RAW.zip
+          rclone copyto /tmp/$RAW.zip nrp:public-ca30x30/raw/$RAW.zip -v
           echo "Done."
         resources:
           requests:
@@ -126,7 +123,6 @@ spec:
       - name: script
         configMap:
           name: fmmp-2022-stage-raw-script
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
