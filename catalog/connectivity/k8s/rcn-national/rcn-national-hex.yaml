@@ -1,0 +1,80 @@
+# TNC RCN CONUS (issue #606) — H3 res-10 `mode` hex from the published COG.
+#
+# Native resolution 10 with parents 9,8,7,6,5,0, matching land-cover/nlcd: the same 30 m
+# CONUS categorical raster. (The sibling connectivity layers are native 9, parents [0],
+# so this dataset shares only h0 with them — h8 is the catalog-wide join key and is
+# present here.) 30 m pixels are 0.001 km2 against an h10 cell's 0.015 km2, so h10 is a
+# slight UNDERsample: it is the finest resolution the catalog carries, which is the
+# accepted floor for 30 m sources.
+#
+# `mode` because rcn_class holds ordinal class codes — summing or averaging them is
+# meaningless. mode keeps only each cell's dominant class and discards the mix, so the
+# per-class fractional companion (rcn-national-hex-fractions.yaml) is published beside
+# it for area accounting.
+#
+# nodata 255. Classes 0 (Not in Network) and 1 (Resilient Not in Network) are REAL
+# classes and must survive into the hex — do not "fix" this by excluding 0.
+#
+# One h0 cell per index, sparse: only populated h0 partitions are written, so a
+# ~122-index run produces far fewer directories. Verify coverage before publishing:
+#   scripts/check-hex-coverage.sh nrp:public-connectivity/rcn-national/hex/ \
+#       --reference nrp:public-connectivity/rcn-national/hex-fractions/
+#
+#   kubectl apply -n geo-workflows -f catalog/connectivity/k8s/rcn-national/rcn-national-hex.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rcn-national-hex
+  namespace: geo-workflows
+  labels: {k8s-app: rcn-national-hex}
+spec:
+  completions: 122
+  parallelism: 12
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0        # a partial run must surface as Failed (#409)
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: rcn-national-hex}}
+    spec:
+      restartPolicy: Never
+      # No priorityClassName: the CONUS h0 cells run for hours at res 10 and
+      # `opportunistic` (-2000000000) makes them preemption targets (skill
+      # pod-preemption). Most of the 122 indexes are empty and exit in seconds.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          echo "=== RCN CONUS res-10 mode, h0-index ${JOB_COMPLETION_INDEX} ==="
+          cng-datasets raster \
+            --input "s3://public-connectivity/rcn-national-cog.tif" \
+            --output-parquet "s3://public-connectivity/rcn-national/hex/" \
+            --h0-index ${JOB_COMPLETION_INDEX} --resolution 10 --parent-resolutions 9,8,7,6,5,0 \
+            --value-column rcn_class --hex-resampling mode --resampling near --nodata "255"
+        resources:
+          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
