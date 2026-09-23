@@ -110,6 +110,39 @@ Measured on CHELSA bio1 (stored UInt16, `Scale=0.1 Offset=-273.15`), Amazon h0 a
   path needs the explicit transform. Two scripts in the same build can legitimately differ on
   this; check which reader each uses before "fixing" one to match the other.
 
+## ⚠️ Never warp straight out of an ESRI FileGDB raster — materialize a native COG first
+
+`gdalwarp` walks its **output** grid. When the source is a GDB raster (`OpenFileGDB:"…":<name>`,
+Int32, 128x128 blocks), the reprojected traversal order keeps revisiting source blocks that have
+already fallen out of the block cache, so the same blocks are inflated over and over. Measured on
+the TNC RCN CONUS ingest (193419x133487 @ 30 m, data-workflows #606): **~20 MB/s on 1.7 of 16
+cores, 16 GB of reads against a 1.5 GB file, 83 MB of output in 10 minutes** — a run that projected
+to many hours and showed no progress, because gdalwarp's progress bar is block-buffered and prints
+nothing until it finishes.
+
+Reading the same GDB **sequentially, in full-width row stripes**, has none of that amplification.
+So split the build in two:
+
+1. **Reclassify/translate in the NATIVE grid**, one full-width row stripe per pod
+   (`gdal_translate -srcwin 0 <y0> <nx> <h>`), writing tiled Byte GeoTIFFs. Each source block is
+   touched exactly once. Make the stripe height a whole multiple of the output tile height so the
+   stripes mosaic on tile boundaries.
+2. **Warp the mosaic** (`gdalbuildvrt` over the stripes → `gdalwarp -of COG`). No reprojection
+   happened in step 1, so the stripes share the source geotransform and stack seamlessly; the
+   mosaic is small, 512-tiled and cache-friendly.
+
+Same machine, same output: **12 stripes in ~15 min, then a 6m22s warp**, against a projected
+multi-hour single pass. Assert in step 2 that the VRT reconstructs the source's exact
+`RasterXSize`/`RasterYSize`/pixel size before warping — a missing or misplaced stripe still builds
+a valid VRT and would silently shift or drop rows.
+
+Two related traps from the same build:
+- **`gdalbuildvrt` does not reliably carry a source band's nodata onto the mosaic.** Pass
+  `-srcnodata`/`-vrtnodata` explicitly, or the warp has nothing to fill with.
+- **Don't clip the warp to a footprint bbox derived from an overview mask.** The extra frame is
+  all nodata and DEFLATE flattens it, whereas a clip risks silently cutting a small outlying area.
+  Measure the published data bbox off the finished COG instead, and put *that* in the STAC.
+
 ## ⚠️ Mosaicking a MANY-tile source (thousands of 1° tiles) into one global COG — two traps
 
 For a source shipped as thousands of small tiles (Copernicus GLO-30/90 DEM = 26,475 tiles; many
