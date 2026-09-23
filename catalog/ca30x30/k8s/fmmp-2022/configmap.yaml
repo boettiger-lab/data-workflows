@@ -246,7 +246,7 @@ data:
               # container's default soft nofile limit (often 1024) and aborts with
               # "Too many open files". `|| true` keeps going if the limit can't be raised.
               ulimit -n 65536 || true
-              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --coalesce-densest-as-needed --drop-densest-as-needed --detect-shared-borders --simplification=4 --maximum-tile-bytes=2000000 -z 11 --force /tmp/$DATASET.geojsonl
+              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --coalesce-densest-as-needed --drop-densest-as-needed --detect-shared-borders --simplification=4 --maximum-tile-bytes=2000000 -x PopupInfo -x MetadataLink -z 11 --force /tmp/$DATASET.geojsonl
 
               # Upload to S3 using rclone
               rclone copy /tmp/$DATASET.pmtiles nrp:public-ca30x30/
