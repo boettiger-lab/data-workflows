@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: fmmp-2022-setup-bucket
+  namespace: geo-workflows
   labels:
     k8s-app: fmmp-2022-setup-bucket
 spec:
@@ -67,7 +68,6 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

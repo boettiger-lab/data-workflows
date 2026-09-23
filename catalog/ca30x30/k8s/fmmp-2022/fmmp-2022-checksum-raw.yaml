@@ -33,14 +33,16 @@ spec:
         args:
         - |
           set -euo pipefail
-          RAW=raw/fmmp-2022-featureserver-2026-08-25.zip
-          rclone copyto "nrp:public-ca30x30/$RAW" /tmp/raw.zip -v
-          echo "=== PROVENANCE ==="
-          echo "path: s3://public-ca30x30/$RAW"
-          echo "size_bytes: $(stat -c %s /tmp/raw.zip)"
-          echo "md5: $(md5sum /tmp/raw.zip | awk '{print $1}')"
-          echo "sha256: $(sha256sum /tmp/raw.zip | awk '{print $1}')"
-          echo "=================="
+          for RAW in raw/fmmp-2022-fgdb-2026-09-23.zip raw/fmmp-2022-fgdb-2026-09-23-merged.zip; do
+            rclone copyto "nrp:public-ca30x30/$RAW" /tmp/raw.zip -v
+            echo "=== PROVENANCE ==="
+            echo "path: s3://public-ca30x30/$RAW"
+            echo "size_bytes: $(stat -c %s /tmp/raw.zip)"
+            echo "md5: $(md5sum /tmp/raw.zip | awk '{print $1}')"
+            echo "sha256: $(sha256sum /tmp/raw.zip | awk '{print $1}')"
+            echo "=================="
+            rm /tmp/raw.zip
+          done
         resources:
           requests:
             cpu: '1'
