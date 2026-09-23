@@ -27,7 +27,16 @@ BASE = f"https://s3-west.nrp-nautilus.io/{BUCKET}"
 ROOT = "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
 LANDING = "https://landfire.gov/data/FullExtentDownloads"
 EDITION = "LF 2024 (2.5.0)"
-ACCESSED = "2026-09-07"
+ACCESSED = "2026-09-07"   # the seven structure/fuels layers, staged in one pass
+# FBFM40 was staged in an earlier pass (#623). The access date must be the date WE pulled
+# the archive, and the staged raw object's mtime is exactly that -- upstream republishes
+# the full-extent downloads in place, so a wrong date makes the provenance chain point at
+# an edition that may no longer be what is at the URL (AGENTS.md Step 1b).
+ACCESSED_BY_LAYER = {"fbfm40": "2026-08-25"}
+
+
+def accessed(layer):
+    return ACCESSED_BY_LAYER.get(layer, ACCESSED)
 BBOX = [-128.3873, 22.4283, -64.0541, 52.4816]
 TEMPORAL = ["2024-01-01T00:00:00Z", "2024-12-31T23:59:59Z"]
 FILL = [-9999, 32767]
@@ -39,6 +48,7 @@ MEASURED = {
     "cc":     dict(cells=267118010, lo=15, hi=95,          mean=53.7778),
     "ch":     dict(cells=267118010, lo=30, hi=509.3253167, mean=165.3252),
     "fbfm13": dict(cells=566661014, lo=2,  hi=99,          mean=None),
+    "fbfm40": dict(cells=566661014, lo=91, hi=204,         mean=None),
     "fvc":    dict(cells=566661014, lo=11, hi=129,         mean=None),
     "fvh":    dict(cells=566661014, lo=11, hi=651,         mean=None),
     "fvt":    dict(cells=566661014, lo=11, hi=2969,        mean=None),
@@ -50,6 +60,7 @@ RAW = {  # staged pristine upstream zip: bytes + sha256 recomputed from the obje
     "cc":     (1986573231, "694b88a888f340d5924d8730f42b071ff3bcc23810a21d58f3b6c16be704bf12"),
     "ch":     (1909386732, "d1b050a124ad07959a64eae04ae2e42259e69a466a14fa3f410100c9c00f27b8"),
     "fbfm13": (2552370712, "cc02ff3f5e87c3cff312f24e2c691ea1e07572e994a387372e446b2712c099ef"),
+    "fbfm40": (3358372323, "bb770e8792cd15525f671fc50821c3f09c87952cf74797e0906edc1dc8ac13e2"),
     "fvc":    (4146626612, "e75bccdbc26d6d46ab5088e662ff10ee3371892f0beb22b7a37fb67355a07c0f"),
     "fvh":    (3535211143, "e77136958c99d4da8729565bc928a55203d2add2f109057f8903d201fbb2207d"),
     "fvt":    (3719631490, "11413880c3642d951756f5bcaaabf19362838611f051db8a27884c27563b6fa5"),
@@ -59,14 +70,23 @@ COG_CREATED = {  # object mtime on S3 -- which conversion produced which asset (
     "cbd": "2026-09-07T18:43:20Z", "cbh": "2026-09-07T18:43:32Z",
     "cc":  "2026-09-07T18:52:12Z", "ch":  "2026-09-07T18:53:28Z",
     "fbfm13": "2026-09-07T19:06:37Z", "fvc": "2026-09-07T18:44:30Z",
+    "fbfm40": "2026-08-25T23:39:22Z",
     "fvh": "2026-09-07T18:44:06Z", "fvt": "2026-09-07T18:45:00Z",
 }
 COG_BYTES = {"cbd":2089104183,"cbh":2605634917,"cc":2087722356,"ch":1998245444,
-             "fbfm13":2657139827,"fvc":4322553564,"fvh":3744772364,"fvt":4009625884}
+             "fbfm13":2657139827,"fvc":4322553564,"fvh":3744772364,"fvt":4009625884,
+             "fbfm40":3610453580}
 
 # values actually present in the published hex (measured, not from the legend)
 PRESENT = {
     "fbfm13": [2,3,4,5,6,7,8,9,10,11,12,13,91,92,93,98,99],
+    "fbfm40": [91,92,93,98,99,
+               101,102,103,104,105,106,107,108,
+               121,122,123,124,
+               141,142,143,144,145,146,147,148,149,
+               161,162,163,164,165,
+               181,182,183,184,185,186,187,188,189,
+               201,202,203,204],
     "fvc": [11,12,13,14,15,16,17,22,23,24,25,31,32,61,63,64,65,68,69,82,
             100,101,102,103,104,105,106,107,108,109,111,112,113,114,115,116,117,118,119,
             121,122,123,124,125,126,127,128,129],
@@ -74,8 +94,9 @@ PRESENT = {
             100,425,475,499,502,507,520,530,603,607,611,615,619,623,627,631,635,639,643,651],
 }
 
-PRESENT["fvt"] = [int(v) for v in
-    pathlib.Path("/tmp/fvt-present-list.txt").read_text().strip().split(",")]
+_FVT_LIST = pathlib.Path("/tmp/fvt-present-list.txt")
+if _FVT_LIST.exists():
+    PRESENT["fvt"] = [int(v) for v in _FVT_LIST.read_text().strip().split(",")]
 
 CONT = {
     "cbd": dict(
@@ -126,6 +147,20 @@ CAT = {
                "types that fire behaviour models use to predict rate of spread and flame length. "
                "Codes 91 to 99 mark land that does not carry a surface fire: urban, snow and ice, "
                "agriculture, open water and barren ground.")),
+    "fbfm40": dict(
+        code="FBFM40", csv="LF2024_FBFM40.csv", name_col="FBFM40",
+        title="LANDFIRE 2024 40 Scott and Burgan Fire Behavior Fuel Models (CONUS, 30 m)",
+        short="40 Scott and Burgan Fire Behavior Fuel Models",
+        blurb=("The 40 Scott and Burgan fire behaviour fuel models classify surface fuels into "
+               "forty types, grouped by the fuel that carries the fire: grass (GR1 to GR9), "
+               "grass-shrub (GS1 to GS4), shrub (SH1 to SH9), timber-understory (TU1 to TU5), "
+               "timber litter (TL1 to TL9) and slash-blowdown (SB1 to SB4). Fire behaviour models "
+               "use them to predict rate of spread and flame length, at finer fuel discrimination "
+               "than the 13 Anderson models. Codes 91, 92, 93, 98 and 99 are the non-burnable "
+               "classes NB1, NB2, NB3, NB8 and NB9: urban and developed, snow and ice, "
+               "agriculture, open water and bare ground. They are real mapped classes rather than "
+               "missing data, so a hazardous-fuels statistic should exclude them from its "
+               "denominator rather than count them as fuel or treat them as nodata.")),
     "fvc": dict(
         code="FVC", csv="LF2024_FVC.csv", name_col="CLASSNAMES",
         title="LANDFIRE 2024 Fuel Vegetation Cover (CONUS, 30 m)",
@@ -194,7 +229,7 @@ def nav(dsid):
 def provenance(layer):
     b, sha = RAW[layer]
     code = (CONT.get(layer) or CAT[layer])["code"]
-    return (f"Source edition {EDITION}, accessed {ACCESSED} from the LANDFIRE Full Extent Downloads "
+    return (f"Source edition {EDITION}, accessed {accessed(layer)} from the LANDFIRE Full Extent Downloads "
             f"page. The pristine upstream archive is retained at "
             f"s3://{BUCKET}/raw/LF2024_{code}_CONUS.zip ({b:,} bytes, "
             f"sha256 {sha}), and the shipped class table at "
@@ -213,7 +248,7 @@ def common(layer, dsid, cfg, description, assets):
         "license": "public-domain",
         "sci:citation": (f"LANDFIRE {EDITION}, {cfg['short']}, conterminous United States. "
                          f"US Geological Survey and US Department of Agriculture Forest Service. "
-                         f"Accessed {ACCESSED}."),
+                         f"Accessed {accessed(layer)}."),
         "extent": {"spatial": {"bbox": [BBOX]}, "temporal": {"interval": [TEMPORAL]}},
         "providers": [
             {"name": "LANDFIRE (USGS / USDA Forest Service)", "roles": ["producer", "licensor"],
@@ -380,6 +415,7 @@ PUBLISHED_ALL = [
     ("landfire-2024-cc",     "LANDFIRE 2024 Forest Canopy Cover (CONUS, 30 m)"),
     ("landfire-2024-ch",     "LANDFIRE 2024 Forest Canopy Height (CONUS, 30 m)"),
     ("landfire-2024-fbfm13", "LANDFIRE 2024 13 Anderson Fire Behavior Fuel Models (CONUS, 30 m)"),
+    ("landfire-2024-fbfm40", "LANDFIRE 2024 40 Scott and Burgan Fire Behavior Fuel Models (CONUS, 30 m)"),
     ("landfire-2024-fvc",    "LANDFIRE 2024 Fuel Vegetation Cover (CONUS, 30 m)"),
     ("landfire-2024-fvh",    "LANDFIRE 2024 Fuel Vegetation Height (CONUS, 30 m)"),
     ("landfire-2024-fvt",    "LANDFIRE 2024 Fuel Vegetation Type (CONUS, 30 m)"),
@@ -397,12 +433,12 @@ def bucket_collection():
             "conterminous United States: vegetation condition class and existing vegetation type; "
             "the four forest canopy layers used as crown fire inputs, which are bulk density, base "
             "height, cover and height; and three fuel layers, the 13 Anderson fire behaviour fuel "
-            "models with fuel vegetation cover and height. Each is published as a cloud-optimized "
-            "GeoTIFF and as an H3 hex table at resolution 10. The four canopy layers describe "
-            "forested ground only, because the value marking non-forested land is excluded from "
-            "their hex tables; the other five cover all mapped land. Existing vegetation cover, "
-            "existing vegetation height and the 40 Scott and Burgan fire behaviour fuel models are "
-            "not yet published."),
+            "models and the 40 Scott and Burgan fire behaviour fuel models, with fuel vegetation "
+            "cover and height. Each is published as a cloud-optimized GeoTIFF and as an H3 hex "
+            "table at resolution 10. The four canopy layers describe forested ground only, because "
+            "the value marking non-forested land is excluded from their hex tables; the others "
+            "cover all mapped land. Existing vegetation cover and existing vegetation height are "
+            "published as cloud-optimized GeoTIFFs without a hex table."),
         "license": "public-domain",
         "extent": {"spatial": {"bbox": [BBOX]}, "temporal": {"interval": [TEMPORAL]}},
         "links": [
@@ -423,9 +459,20 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--legends", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--only", default=None,
+                    help="comma-separated layers to build; default builds every layer")
     a = ap.parse_args()
     out = pathlib.Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    for layer in list(CONT) + list(CAT):
+    layers = list(CONT) + list(CAT)
+    if a.only:
+        want = [s.strip() for s in a.only.split(",") if s.strip()]
+        unknown = [w for w in want if w not in layers]
+        if unknown:
+            raise SystemExit(f"--only: unknown layer(s) {unknown}; known: {layers}")
+        layers = want
+    for layer in layers:
+        if layer not in PRESENT and layer in CAT:
+            raise SystemExit(f"{layer}: no measured PRESENT list; cannot build its collection")
         coll, n = (build_continuous if layer in CONT else build_categorical)(layer, a.legends)
         p = out / f"landfire-2024-{layer}.json"
         p.write_text(json.dumps(coll, indent=2))
