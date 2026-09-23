@@ -32,7 +32,7 @@ ACCESSED = "2026-09-07"   # the seven structure/fuels layers, staged in one pass
 # the archive, and the staged raw object's mtime is exactly that -- upstream republishes
 # the full-extent downloads in place, so a wrong date makes the provenance chain point at
 # an edition that may no longer be what is at the URL (AGENTS.md Step 1b).
-ACCESSED_BY_LAYER = {"fbfm40": "2026-08-25"}
+ACCESSED_BY_LAYER = {"fbfm40": "2026-08-25", "evc": "2026-08-25"}
 
 
 def accessed(layer):
@@ -61,6 +61,10 @@ RAW = {  # staged pristine upstream zip: bytes + sha256 recomputed from the obje
     "ch":     (1909386732, "d1b050a124ad07959a64eae04ae2e42259e69a466a14fa3f410100c9c00f27b8"),
     "fbfm13": (2552370712, "cc02ff3f5e87c3cff312f24e2c691ea1e07572e994a387372e446b2712c099ef"),
     "fbfm40": (3358372323, "bb770e8792cd15525f671fc50821c3f09c87952cf74797e0906edc1dc8ac13e2"),
+    # Recomputed from the objects by landfire-2024-evc-evh-checksum (#623), not transcribed.
+    # EVC reproduced the sha256 already recorded in BUILD.md; EVH had none on record.
+    "evc":    (9209843324, "7a537f853e2e3ccc6fb1b7adc14f86087be77c6d13726e61ca109596943a4ac8"),
+    "evh":    (5899286638, "454cf8658a43d5d8b8a05931e9447c75980338a2896d08f6ae8ef31519de3e75"),
     "fvc":    (4146626612, "e75bccdbc26d6d46ab5088e662ff10ee3371892f0beb22b7a37fb67355a07c0f"),
     "fvh":    (3535211143, "e77136958c99d4da8729565bc928a55203d2add2f109057f8903d201fbb2207d"),
     "fvt":    (3719631490, "11413880c3642d951756f5bcaaabf19362838611f051db8a27884c27563b6fa5"),
@@ -71,11 +75,13 @@ COG_CREATED = {  # object mtime on S3 -- which conversion produced which asset (
     "cc":  "2026-09-07T18:52:12Z", "ch":  "2026-09-07T18:53:28Z",
     "fbfm13": "2026-09-07T19:06:37Z", "fvc": "2026-09-07T18:44:30Z",
     "fbfm40": "2026-08-25T23:39:22Z",
+    "evc": "2026-08-26T00:12:32Z", "evh": "2026-09-07T18:45:55Z",
     "fvh": "2026-09-07T18:44:06Z", "fvt": "2026-09-07T18:45:00Z",
 }
 COG_BYTES = {"cbd":2089104183,"cbh":2605634917,"cc":2087722356,"ch":1998245444,
              "fbfm13":2657139827,"fvc":4322553564,"fvh":3744772364,"fvt":4009625884,
-             "fbfm40":3610453580}
+             "fbfm40":3610453580,
+             "evc":8496397389,"evh":5870709255}
 
 # values actually present in the published hex (measured, not from the legend)
 PRESENT = {
@@ -136,6 +142,37 @@ CONT = {
         blurb=("Forest Canopy Height is the average height of the top of the tree canopy for a "
                "stand. With canopy base height it describes the vertical extent of the crown fuel "
                "layer.")),
+}
+
+# COG-ONLY (evc, evh) -- published as a raster with NO hex table, on purpose (#623).
+# These are the one shape in the tranche where `mode` is not available: EVC codes are canopy
+# cover percent in 10% bins, so pixels of one stand fall in different codes, and the modal
+# class holds a minority of the cell in 63% of cells (median share 0.33, measured on #515).
+# A mode value would describe a third of the cell while presenting as a per-cell measurement.
+# The collection has to SAY this, or a reader takes the missing hex for an incomplete build.
+COGONLY = {
+    "evc": dict(
+        code="EVC", csv="LF2024_EVC.csv", name_col="CLASSNAMES",
+        title="LANDFIRE 2024 Existing Vegetation Cover (CONUS, 30 m)",
+        short="Existing Vegetation Cover", quantity="a canopy cover percentage",
+        blurb=("Existing Vegetation Cover gives the vertically projected canopy cover of the live "
+               "vegetation, banded by life form: tree, shrub and herb cover occupy separate code "
+               "ranges, and further codes mark water, snow and ice, developed land, barren ground "
+               "and agriculture."),
+        instead=("Forest canopy cover as a continuous percentage is available hexed, as the Forest "
+                 "Canopy Cover collection (landfire-2024-cc), and the categorical fuels cut as "
+                 "Fuel Vegetation Cover (landfire-2024-fvc).")),
+    "evh": dict(
+        code="EVH", csv="LF2024_EVH.csv", name_col="CLASSNAMES",
+        title="LANDFIRE 2024 Existing Vegetation Height (CONUS, 30 m)",
+        short="Existing Vegetation Height", quantity="a vegetation height",
+        blurb=("Existing Vegetation Height gives the average height of the dominant live "
+               "vegetation, banded by life form: tree, shrub and herb height occupy separate code "
+               "ranges, and further codes mark water, snow and ice, developed land, barren ground "
+               "and agriculture."),
+        instead=("Forest canopy height as a continuous measurement is available hexed, as the "
+                 "Forest Canopy Height collection (landfire-2024-ch), and the categorical fuels "
+                 "cut as Fuel Vegetation Height (landfire-2024-fvh).")),
 }
 
 CAT = {
@@ -228,12 +265,12 @@ def nav(dsid):
 
 def provenance(layer):
     b, sha = RAW[layer]
-    code = (CONT.get(layer) or CAT[layer])["code"]
+    code = (CONT.get(layer) or CAT.get(layer) or COGONLY[layer])["code"]
     return (f"Source edition {EDITION}, accessed {accessed(layer)} from the LANDFIRE Full Extent Downloads "
             f"page. The pristine upstream archive is retained at "
             f"s3://{BUCKET}/raw/LF2024_{code}_CONUS.zip ({b:,} bytes, "
             f"sha256 {sha}), and the shipped class table at "
-            f"s3://{BUCKET}/raw/landfire-2024/{code}/{code and ''}{(CONT.get(layer) or CAT[layer])['csv']}.")
+            f"s3://{BUCKET}/raw/landfire-2024/{code}/{code and ''}{(CONT.get(layer) or CAT.get(layer) or COGONLY[layer])['csv']}.")
 
 
 def common(layer, dsid, cfg, description, assets):
@@ -400,6 +437,51 @@ def build_categorical(layer, legends_dir):
     return coll, len(classes)
 
 
+def build_cog_only(layer, legends_dir):
+    """A raster with no hex table. The absence is a decision, so it is stated."""
+    cfg = COGONLY[layer]
+    dsid = f"landfire-2024-{layer}"
+    lg = legend(cfg["code"], cfg["csv"], cfg["name_col"], legends_dir)
+
+    no_hex = (
+        f"No H3 hex table is published for this layer, and that is a deliberate decision rather "
+        f"than an incomplete build. {cfg['short']} is a quasi-continuous surface encoded as "
+        f"categorical bins: the codes band {cfg['quantity']} into intervals within each life "
+        f"form, so two pixels of one stand can carry different codes. Reducing to the "
+        f"dominant class per cell was measured against this tranche and rejected: across "
+        f"resolution-10 cells the modal class holds a minority of the cell in 63 per cent of "
+        f"cases, with a median share of one third, so a dominant-class value would describe about "
+        f"a third of what the cell contains while presenting as a confident per-cell measurement. "
+        f"{cfg['instead']} A decoded surface for this layer, averaging within life form after "
+        f"decoding the bins to a number, is buildable at known cost if a use for it is stated.")
+
+    desc = (f"{cfg['blurb']} Published as a cloud-optimized GeoTIFF at 30 metres covering the "
+            f"conterminous United States. {no_hex} {provenance(layer)}")
+
+    classes = [{"value": v, "name": lg[v][0],
+                "description": f"{cfg['short']} class {v}: {lg[v][0]}.",
+                "color_hint": lg[v][1]}
+               for v in sorted(lg)]
+
+    assets = {
+        f"{layer}-cog": {
+            "href": f"{BASE}/{dsid}/{dsid}-cog.tif",
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "title": f"{cfg['short']} 2024, cloud-optimized GeoTIFF, 30 m", "roles": ["data"],
+            "description": (f"LANDFIRE 2024 {cfg['short']}, conterminous United States, 30 metres, "
+                            f"reprojected to WGS84. Retains the fill codes "
+                            f"{', '.join(str(f) for f in FILL)}."),
+            "created": COG_CREATED[layer], "file:size": COG_BYTES[layer],
+            "raster:bands": [{"name": layer, "data_type": "int16", "nodata": -9999,
+                              "classification:classes": classes}],
+        },
+    }
+    coll = common(layer, dsid, cfg, desc, assets)
+    coll["stac_extensions"].append(
+        "https://stac-extensions.github.io/classification/v2.0.0/schema.json")
+    return coll, len(classes)
+
+
 # ---------------------------------------------------------------------------
 # Bucket collection
 # ---------------------------------------------------------------------------
@@ -419,6 +501,8 @@ PUBLISHED_ALL = [
     ("landfire-2024-fvc",    "LANDFIRE 2024 Fuel Vegetation Cover (CONUS, 30 m)"),
     ("landfire-2024-fvh",    "LANDFIRE 2024 Fuel Vegetation Height (CONUS, 30 m)"),
     ("landfire-2024-fvt",    "LANDFIRE 2024 Fuel Vegetation Type (CONUS, 30 m)"),
+    ("landfire-2024-evc",    "LANDFIRE 2024 Existing Vegetation Cover (CONUS, 30 m)"),
+    ("landfire-2024-evh",    "LANDFIRE 2024 Existing Vegetation Height (CONUS, 30 m)"),
 ]
 
 
@@ -463,7 +547,7 @@ def main():
                     help="comma-separated layers to build; default builds every layer")
     a = ap.parse_args()
     out = pathlib.Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    layers = list(CONT) + list(CAT)
+    layers = list(CONT) + list(CAT) + list(COGONLY)
     if a.only:
         want = [s.strip() for s in a.only.split(",") if s.strip()]
         unknown = [w for w in want if w not in layers]
@@ -473,10 +557,15 @@ def main():
     for layer in layers:
         if layer not in PRESENT and layer in CAT:
             raise SystemExit(f"{layer}: no measured PRESENT list; cannot build its collection")
-        coll, n = (build_continuous if layer in CONT else build_categorical)(layer, a.legends)
+        builder = (build_continuous if layer in CONT
+                   else build_cog_only if layer in COGONLY
+                   else build_categorical)
+        coll, n = builder(layer, a.legends)
         p = out / f"landfire-2024-{layer}.json"
         p.write_text(json.dumps(coll, indent=2))
-        kind = "continuous" if layer in CONT else f"{n} classes"
+        kind = ("continuous" if layer in CONT
+                else f"{n} classes, COG only" if layer in COGONLY
+                else f"{n} classes")
         print(f"  {p.name}  {kind}  {p.stat().st_size/1024:.0f} KiB")
     b = out / "landfire-bucket.json"
     b.write_text(json.dumps(bucket_collection(), indent=2))
