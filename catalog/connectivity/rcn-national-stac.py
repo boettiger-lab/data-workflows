@@ -77,8 +77,9 @@ CLASSES = sorted(VAT)
 assert set(CLASSES) == set(COLORS), (CLASSES, sorted(COLORS))
 
 # MEASURED: the column type and the distinct values the hex build actually wrote,
-# read back from the published parquet (not assumed from the COG's Byte band).
-CLASS_TYPE = "uint8"
+# read back from the published parquet. cng-datasets writes the reduced value as a
+# DOUBLE even though the COG band is Byte, so do not infer this from the raster.
+CLASS_TYPE = "double"
 
 VALUES_TEXT = ", ".join(f"{c}={VAT[c][0]}" for c in CLASSES)
 
