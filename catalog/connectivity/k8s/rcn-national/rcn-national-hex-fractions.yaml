@@ -25,7 +25,13 @@ spec:
   parallelism: 12
   completionMode: Indexed
   backoffLimitPerIndex: 2
-  maxFailedIndexes: 0        # a partial run must surface as Failed (#409)
+  # NOT 0, unlike the mode build: boettiger-lab/datasets#238 makes an all-nodata h0
+  # exit non-zero after its (empty) work is done, and the in-pod handler below only
+  # converts that to success on a fresh run. A job already in flight when the defect
+  # was found was patched to this value so the multi-hour populated indexes could
+  # finish. Coverage is therefore NOT implied by the job condition here — it is
+  # proven separately against the mode layer's populated h0 set.
+  maxFailedIndexes: 20
   ttlSecondsAfterFinished: 604800
   template:
     metadata: {labels: {k8s-app: rcn-national-hex-fractions}}
@@ -59,13 +65,39 @@ spec:
         - bash
         - -c
         - |-
-          set -e
+          set -uo pipefail
+          OUT=public-connectivity/rcn-national/hex-fractions
           echo "=== RCN CONUS res-10 FRACTIONS, h0-index ${JOB_COMPLETION_INDEX} ==="
           cng-datasets raster \
             --input "s3://public-connectivity/rcn-national-cog.tif" \
-            --output-parquet "s3://public-connectivity/rcn-national/hex-fractions/" \
+            --output-parquet "s3://$OUT/" \
             --h0-index ${JOB_COMPLETION_INDEX} --resolution 10 --parent-resolutions 9,8,7,6,5,0 \
-            --value-column rcn_class --hex-resampling fractions --resampling near --nodata "255"
+            --value-column rcn_class --hex-resampling fractions --resampling near --nodata "255" \
+            2>&1 | tee /tmp/hex.log
+          rc=${PIPESTATUS[0]}
+
+          # Upstream defect boettiger-lab/datasets#238. When an h0 overlaps the raster
+          # but holds only nodata, the fractions reducer filters every row, then tries
+          # to delete the 0-row partition it just wrote with os.remove() — which is
+          # local-filesystem only, so on an s3:// output it raises instead. The h0 is
+          # genuinely empty and there is no data to recover; the only damage is the
+          # stray empty partition, which we purge here so it cannot fake a populated
+          # h0 for the coverage gate or pollute a ** glob.
+          #
+          # This traceback is the ONLY call site of os.remove(output_path), and it is
+          # reached only when the written row count is zero, so matching it is exact.
+          # Every other failure still fails the pod.
+          if [ "$rc" -ne 0 ]; then
+            P=$(grep -oE "s3://$OUT/h0=[0-9]+/data_0\.parquet" /tmp/hex.log | tail -1)
+            if [ -n "$P" ] && grep -q 'os\.remove(output_path)' /tmp/hex.log \
+                           && grep -q 'FileNotFoundError' /tmp/hex.log; then
+              echo "h0 ${JOB_COMPLETION_INDEX} is all nodata; purging the stray 0-row partition (datasets#238)"
+              rclone deletefile "nrp:${P#s3://}"
+              rclone rmdir "nrp:$(dirname "${P#s3://}")" || true
+              exit 0
+            fi
+            exit "$rc"
+          fi
         resources:
           requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
           limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
