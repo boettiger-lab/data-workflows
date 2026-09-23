@@ -1,0 +1,98 @@
+# Step 5: publish the EVC and EVH collections, COG only, no hex (#623).
+#
+# The script is supplied as a ConfigMap so the committed file is the single source:
+#   kubectl create configmap landfire-2024-stac-script -n geo-workflows \
+#     --from-file=make-stac-structure.py=catalog/landfire/k8s/landfire-2024/make-stac-structure.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# These two ship as a raster with NO hex table, and the collections say so: `mode` is not a
+# usable reducer for a quasi-continuous surface in categorical clothing (modal class holds a
+# minority of the cell in 63% of cells). Recording the decision is what stops a later reader
+# taking the absence for an incomplete build.
+#
+# Writes exactly three objects:
+#   public-landfire/landfire-2024-evc/stac-collection.json      (new)
+#   public-landfire/landfire-2024-evh/stac-collection.json      (new)
+#   public-landfire/stac-collection.json                        (11 -> 13 children)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landfire-2024-evc-evh-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: landfire-2024-evc-evh-publish-stac
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: landfire-2024-evc-evh-publish-stac
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {memory: "4Gi", cpu: "1", ephemeral-storage: "8Gi"}
+          limits:   {memory: "4Gi", cpu: "1", ephemeral-storage: "8Gi"}
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: "rook-ceph-rgw-nautiluss3.rook"}
+        - {name: AWS_PUBLIC_ENDPOINT, value: "s3-west.nrp-nautilus.io"}
+        - {name: AWS_HTTPS,           value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script,        mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # Class legends come from the CSV shipped in each product zip, staged beside the raw.
+          rclone copy nrp:public-landfire/raw/landfire-2024/ /tmp/legends/ --include '*.csv'
+          test -s /tmp/legends/EVC/LF2024_EVC.csv
+          test -s /tmp/legends/EVH/LF2024_EVH.csv
+
+          python3 /script/make-stac-structure.py \
+            --legends /tmp/legends --out /tmp/stac --only evc,evh
+
+          # Gate before writing anything. A silent shape change here republishes the bucket
+          # collection, so the child count and the measured values are both checked.
+          python3 - <<'PY'
+          import json
+          for lyr in ('evc', 'evh'):
+              c = json.load(open(f'/tmp/stac/landfire-2024-{lyr}.json'))
+              assert c['id'] == f'landfire-2024-{lyr}', c['id']
+              # The whole point of these two: a COG asset and no hex asset.
+              assert list(c['assets']) == [f'{lyr}-cog'], list(c['assets'])
+              assert 'No H3 hex table is published' in c['description'], 'no-hex rationale missing'
+          b = json.load(open('/tmp/stac/landfire-bucket.json'))
+          kids = [l['id'] for l in b['links'] if l['rel'] == 'child']
+          assert len(kids) == 13, kids
+          assert {'landfire-2024-evc', 'landfire-2024-evh'} <= set(kids), kids
+          print('gate OK:', len(kids), 'children, both COG-only')
+          PY
+
+          # Child first, then the root, so the new collection is never advertised before it exists.
+          for lyr in evc evh; do
+            rclone copyto /tmp/stac/landfire-2024-$lyr.json \
+              nrp:public-landfire/landfire-2024-$lyr/stac-collection.json
+          done
+          rclone copyto /tmp/stac/landfire-bucket.json \
+            nrp:public-landfire/stac-collection.json
+
+          echo "=== published ==="
+          rclone lsl nrp:public-landfire/landfire-2024-evc/stac-collection.json
+          rclone lsl nrp:public-landfire/landfire-2024-evh/stac-collection.json
+          rclone lsl nrp:public-landfire/stac-collection.json
+          echo OK
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: landfire-2024-stac-script}}
