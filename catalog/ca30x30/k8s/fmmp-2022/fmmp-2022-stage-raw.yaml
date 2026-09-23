@@ -1,21 +1,17 @@
-# Stage FMMP 2022 raw from DOC's "2022 FMMP File Geodatabase" portal item (#615).
+# Stage FMMP "Most Recent" raw from DOC's ArcGIS FeatureServer (#615).
 #
-# Source: https://gis.conservation.ca.gov/portal/home/item.html?id=35847d8050fc498a9c4614d745e05c2e
-# DOC adds counties to this edition in place (the zip is named
-# Important_Farmland_2022_in_progress.zip), so the staged copy is the provenance anchor.
+# Source: https://gis.conservation.ca.gov/server/rest/services/DLRP/CaliforniaImportantFarmland_mostrecent/FeatureServer/0
+# DOC's own composite of the most recent edition per county (2022 for 44 counties, 2020 for
+# Merced, San Benito, San Diego, San Luis Obispo and Sierra Valley as of 2026-09-23). It is what
+# the California Important Farmland Finder displays. Do not rebuild it from the year services:
+# CaliforniaImportantFarmland_2020 holds every feature of those 5 areas twice.
 #
-# Writes two objects to s3://public-ca30x30/raw/:
-#   fmmp-2022-fgdb-2026-09-23.zip         the download, unmodified
-#   fmmp-2022-fgdb-2026-09-23-merged.zip  the 44 per-county layers merged into one
-#                                         GeoPackage layer; this is the convert input
-# plus fmmp-2022-fgdb-2026-09-23-counts.json (per-layer and per-county counts).
-#
-# merge_fgdb.py fails the job unless the merged count equals both the FGDB layer sum and
-# the CaliforniaImportantFarmland_2022 FeatureServer count. The script is mounted from a
-# configMap, so create it before applying this job:
+# page_featureserver.py fails the job unless the paged total equals the service's own
+# returnCountOnly; this job then checks the GeoPackage against that count and against the
+# service's distinct county_nam count. The script is mounted from a configMap:
 #
 #   kubectl create configmap fmmp-2022-stage-raw-script -n geo-workflows \
-#     --from-file=merge_fgdb.py=catalog/ca30x30/k8s/fmmp-2022/merge_fgdb.py \
+#     --from-file=page_featureserver.py=catalog/ca30x30/k8s/fmmp-2022/page_featureserver.py \
 #     --dry-run=client -o yaml | kubectl apply -n geo-workflows -f -
 #   kubectl apply -n geo-workflows -f catalog/ca30x30/k8s/fmmp-2022/fmmp-2022-stage-raw.yaml
 #
@@ -76,28 +72,40 @@ spec:
         args:
         - |
           set -euo pipefail
-          SRC=https://gis.conservation.ca.gov/portal/sharing/rest/content/items/35847d8050fc498a9c4614d745e05c2e/data
-          RAW=fmmp-2022-fgdb-2026-09-23
+          RAW=fmmp-mostrecent-featureserver-2026-09-23
 
-          echo "==> Downloading the 2022 FMMP File Geodatabase"
           echo "read_start: $(date -u +%FT%TZ)"
-          curl -sSfL --retry 8 --retry-delay 5 --retry-all-errors -o /tmp/$RAW.zip "$SRC"
+          python3 /script/page_featureserver.py
           echo "read_end: $(date -u +%FT%TZ)"
-          ls -l /tmp/$RAW.zip
 
-          echo "==> Merging per-county layers"
-          mkdir -p /tmp/src && cd /tmp/src && python3 -m zipfile -e /tmp/$RAW.zip .
-          GDB=$(ls -d /tmp/src/*.gdb)
-          echo "gdb: $GDB"
-          OGR_ORGANIZE_POLYGONS=SKIP python3 /script/merge_fgdb.py "$GDB" /tmp/fmmp-2022.gpkg /tmp/$RAW-counts.json
-          cat /tmp/$RAW-counts.json
+          echo "==> Building single-layer GeoPackage from pages"
+          rm -f /tmp/fmmp-2022.gpkg
+          first=1
+          for f in /tmp/pages/page_*.geojson; do
+            if [ "$first" = 1 ]; then
+              ogr2ogr -f GPKG -nln fmmp_2022 -nlt MULTIPOLYGON -a_srs EPSG:4326 /tmp/fmmp-2022.gpkg "$f"
+              first=0
+            else
+              ogr2ogr -f GPKG -nln fmmp_2022 -nlt MULTIPOLYGON -append /tmp/fmmp-2022.gpkg "$f"
+            fi
+          done
 
-          echo "==> Staging to s3://public-ca30x30/raw/"
+          echo "==> Verifying GeoPackage against the service"
+          expected=$(cat /tmp/expected_count.txt)
+          areas=$(cat /tmp/expected_areas.txt)
+          got=$(ogrinfo -al -so /tmp/fmmp-2022.gpkg fmmp_2022 | awk -F': ' '/^Feature Count/ {print $2}')
+          counties=$(ogrinfo -sql "SELECT COUNT(DISTINCT county_nam) AS n FROM fmmp_2022" /tmp/fmmp-2022.gpkg \
+                     | awk -F'= ' '/n \(Integer/ {print $2}')
+          echo "expected=$expected gpkg=$got service_areas=$areas gpkg_areas=$counties"
+          [ "$got" = "$expected" ] || { echo "FATAL: GeoPackage has $got features, expected $expected"; exit 1; }
+          [ "$counties" = "$areas" ] || { echo "FATAL: GeoPackage has $counties areas, service has $areas"; exit 1; }
+          ogrinfo -sql "SELECT upd_year, COUNT(*) AS n FROM fmmp_2022 GROUP BY upd_year" /tmp/fmmp-2022.gpkg | grep -E 'upd_year|n \('
+
+          echo "==> Zipping and staging to s3://public-ca30x30/raw/"
           # The datasets image has no zip(1); python's zipfile module is always present.
-          cd /tmp && python3 -m zipfile -c $RAW-merged.zip fmmp-2022.gpkg
+          cd /tmp && python3 -m zipfile -c $RAW.zip fmmp-2022.gpkg
+          ls -l /tmp/$RAW.zip
           rclone copyto /tmp/$RAW.zip nrp:public-ca30x30/raw/$RAW.zip -v
-          rclone copyto /tmp/$RAW-merged.zip nrp:public-ca30x30/raw/$RAW-merged.zip -v
-          rclone copyto /tmp/$RAW-counts.json nrp:public-ca30x30/raw/$RAW-counts.json -v
           echo "Done."
         resources:
           requests:

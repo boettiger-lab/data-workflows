@@ -1,6 +1,6 @@
 # Auto-generated ConfigMap containing job definitions
 # Generated from: fmmp-2022-setup-bucket.yaml, fmmp-2022-convert.yaml, fmmp-2022-pmtiles.yaml, fmmp-2022-hex.yaml, fmmp-2022-repartition.yaml
-# Generation command: cng-datasets workflow --dataset fmmp-2022 --source-url https://s3-west.nrp-nautilus.io/public-ca30x30/raw/fmmp-2022-fgdb-2026-09-23-merged.zip --bucket public-ca30x30 --h3-resolution 8 --parent-resolutions "0"
+# Generation command: cng-datasets workflow --dataset fmmp-2022 --source-url https://s3-west.nrp-nautilus.io/public-ca30x30/raw/fmmp-mostrecent-featureserver-2026-09-23.zip --bucket public-ca30x30 --h3-resolution 8 --parent-resolutions "0"
 #
 # This ConfigMap is equivalent to running:
 #   kubectl create configmap fmmp-2022-yamls \
@@ -67,7 +67,7 @@ data:
             - |
               set -e
               cng-convert-to-parquet \
-                https://s3-west.nrp-nautilus.io/public-ca30x30/raw/fmmp-2022-fgdb-2026-09-23-merged.zip \
+                https://s3-west.nrp-nautilus.io/public-ca30x30/raw/fmmp-mostrecent-featureserver-2026-09-23.zip \
                 s3://public-ca30x30/fmmp-2022.parquet \
                 --row-group-size 2000
             resources:

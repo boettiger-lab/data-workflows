@@ -33,7 +33,7 @@ spec:
         args:
         - |
           set -euo pipefail
-          for RAW in raw/fmmp-2022-fgdb-2026-09-23.zip raw/fmmp-2022-fgdb-2026-09-23-merged.zip; do
+          for RAW in raw/fmmp-mostrecent-featureserver-2026-09-23.zip; do
             rclone copyto "nrp:public-ca30x30/$RAW" /tmp/raw.zip -v
             echo "=== PROVENANCE ==="
             echo "path: s3://public-ca30x30/$RAW"
