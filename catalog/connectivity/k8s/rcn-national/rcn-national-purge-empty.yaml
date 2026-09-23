@@ -41,20 +41,38 @@ spec:
           for LAYER in hex hex-fractions; do
             BASE="nrp:public-connectivity/rcn-national/$LAYER"
             echo "=== $LAYER ==="
-            rclone lsf "$BASE/" --recursive --files-only --format "sp" --separator " " \
-              > /tmp/$LAYER.txt || true
-            awk -v m=$MIN '{ if ($NF+0 < m) print "EMPTY", $0; else print "keep ", $0 }' \
-              /tmp/$LAYER.txt
-            awk -v m=$MIN '$NF+0 < m { $NF=""; sub(/[ ]+$/,""); print }' /tmp/$LAYER.txt \
-              > /tmp/$LAYER.empty
-            while read -r f; do
-              [ -z "$f" ] && continue
-              d=$(dirname "$f")
-              echo "purging $BASE/$d/"
-              rclone purge "$BASE/$d/"
+            # lsjson, not lsf --format: the field ORDER of --format is easy to get
+            # backwards, and reading the path as if it were the size makes every
+            # object look empty. Structured output plus the layout guard below means
+            # a parse mistake cannot turn into a delete.
+            rclone lsjson --recursive --files-only "$BASE/" > /tmp/$LAYER.json
+            python3 - "$LAYER" "$MIN" > /tmp/$LAYER.empty <<'PY'
+          import json, re, sys
+          layer, minb = sys.argv[1], int(sys.argv[2])
+          rows = json.load(open(f"/tmp/{layer}.json"))
+          empty = []
+          for r in rows:
+              path, size = r["Path"], r["Size"]
+              # Refuse to delete anything that is not exactly a hive partition file.
+              if not re.fullmatch(r"h0=\d+/data_0\.parquet", path):
+                  sys.exit(f"unexpected object under {layer}, refusing to purge: {path}")
+              if size < minb:
+                  empty.append(path)
+          print("\n".join(empty), end="")
+          sys.stderr.write(f"{layer}: {len(rows)} objects, {len(empty)} below {minb} bytes\n")
+          PY
+            # `|| [ -n "$f" ]`: a bare `read` returns non-zero at EOF, so without it
+            # the last line of a file with no trailing newline is silently skipped.
+            while read -r f || [ -n "$f" ]; do
+              if [ -n "$f" ]; then
+                echo "  deleting $f"
+                rclone deletefile "$BASE/$f"
+                rclone rmdir "$BASE/$(dirname "$f")" || true
+              fi
             done < /tmp/$LAYER.empty
             echo "--- after ---"
-            rclone lsf "$BASE/" --recursive --files-only --format "sp" --separator " "
+            rclone lsjson --recursive --files-only "$BASE/" \
+              | python3 -c "import json,sys; [print(r['Size'], r['Path']) for r in json.load(sys.stdin)]"
           done
           echo done
         resources:
