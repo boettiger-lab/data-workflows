@@ -1,0 +1,58 @@
+# Publish the Paradox Basin Assessment Units STAC + README (issue #722). STAC and README are
+# canonical on NRP S3 and never committed to this repo, so they are generated locally
+# by catalog/usgs-paradox/make-stac.py, verified with scripts/verify-stac.py --no-data,
+# and uploaded from a ConfigMap by this job:
+#
+#   kubectl -n geo-workflows create configmap paradox-stac \
+#     --from-file=stac-collection.json=/tmp/stac-collection.json \
+#     --from-file=README.md=/tmp/README.md \
+#     --from-file=parent-stac-collection.json=/tmp/parent.json \
+#     --from-file=bucket-README.md=/tmp/bucket-readme.md \
+#     -o yaml --dry-run=client | kubectl apply -n geo-workflows -f -
+#   kubectl apply -n geo-workflows -f catalog/usgs-paradox/k8s/paradox-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: paradox-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: paradox-publish-stac}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels: {k8s-app: paradox-publish-stac}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: upload
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: stac, mountPath: /stac, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # ConfigMap keys mount as symlinks (key -> ..data/key) and rclone copyto does
+          # not follow a symlink source, so dereference through cat first.
+          publish() {
+            cat "/stac/$1" > "/tmp/$1"
+            case "$1" in *.json) python3 -c "import json,sys; json.load(open('/tmp/$1'))";; esac
+            rclone copyto "/tmp/$1" "nrp:$2"
+            echo "uploaded $2"
+          }
+          publish stac-collection.json        public-usgs/paradox-basin-assessment-units/stac-collection.json
+          publish README.md                   public-usgs/paradox-basin-assessment-units/README.md
+          publish parent-stac-collection.json public-usgs/stac-collection.json
+          publish bucket-README.md            public-usgs/README.md
+          echo done
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: stac, configMap: {name: paradox-stac}}

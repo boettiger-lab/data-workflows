@@ -1,0 +1,388 @@
+{
+  "sciencebase_id": "60c78b5ed34e86b9389aecf4",
+  "title": "National Assessment of Oil and Gas Project - Paradox Basin (021) Assessment Units",
+  "doi": "https://doi.org/10.5066/P9PAEXLB",
+  "citation": "United States Geological Survey, 2011, National Assessment of Oil and Gas Project - Paradox Basin (021) Assessment Units: U.S. Geological Survey data release, https://doi.org/10.5066/P9PAEXLB.",
+  "dates": [
+    {
+      "type": "Publication",
+      "dateString": "2021-06-14",
+      "label": "Publication Date"
+    },
+    {
+      "type": "Info",
+      "dateString": "2011",
+      "label": "Time Period"
+    },
+    {
+      "type": "Release",
+      "dateString": "2011",
+      "label": "Release Date"
+    }
+  ],
+  "accessed": "2026-09-24",
+  "files": [
+    {
+      "name": "au21g.png",
+      "size": 5124,
+      "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__61%2Fe0%2Fdc%2F61e0dc15cd342a00f74be92ae7c8b9ebd3dd515f"
+    },
+    {
+      "name": "au21g.xml",
+      "size": 42588,
+      "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__48%2F80%2Fac%2F4880acd1df6260fe2fc7b738f8523e685fd561e9"
+    }
+  ],
+  "shapefiles": [
+    {
+      "name": "au210301",
+      "parts": [
+        {
+          "name": "au210301.dbf",
+          "size": 3030,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__34%2Fa6%2Fb0%2F34a6b087c1f4adcc501e79e31d68df6486b38c87"
+        },
+        {
+          "name": "au210301.prj",
+          "size": 145,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__ff%2F98%2F21%2Fff98216238c186592c68e269d459265ad2a1ccb8"
+        },
+        {
+          "name": "au210301.sbn",
+          "size": 132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__b2%2Fe7%2F15%2Fb2e7153a3ae8880f6aade2506ab530602f2e0bae"
+        },
+        {
+          "name": "au210301.sbx",
+          "size": 116,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__7b%2Fc8%2F91%2F7bc8911a772897bf228ba2137f6bab2303545743"
+        },
+        {
+          "name": "au210301.shp",
+          "size": 940,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__45%2Fa8%2Fd2%2F45a8d24a3de082658ed78bac25ebfa5ea6fe99ee"
+        },
+        {
+          "name": "au210301.shx",
+          "size": 108,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__13%2F4f%2Fb1%2F134fb11407e9821356e478f0a2fb96cb8e67c233"
+        }
+      ]
+    },
+    {
+      "name": "au210302",
+      "parts": [
+        {
+          "name": "au210302.dbf",
+          "size": 3030,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__2f%2Ff5%2Fe5%2F2ff5e5298faeb8ce5cf0d7ea57cd768d585a69fd"
+        },
+        {
+          "name": "au210302.prj",
+          "size": 145,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__03%2F82%2Fdf%2F0382dfb70d3c3d5b2cced9bb1bda3f2761f3750c"
+        },
+        {
+          "name": "au210302.sbn",
+          "size": 132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__d3%2Ff8%2F07%2Fd3f807d7959e79cccd3ca40a43b9c26f59fa5dce"
+        },
+        {
+          "name": "au210302.sbx",
+          "size": 116,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__4a%2F9e%2F69%2F4a9e69fd20f8bd94afd0ce71c8340e743667d92f"
+        },
+        {
+          "name": "au210302.shp",
+          "size": 2236,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__81%2F29%2F7c%2F81297c07ec009a16db3221b4a4f7e577f28ffd0d"
+        },
+        {
+          "name": "au210302.shx",
+          "size": 108,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__13%2F8b%2Fc4%2F138bc47e60032562689d5a1983d2db92de6c7463"
+        }
+      ]
+    },
+    {
+      "name": "au210303",
+      "parts": [
+        {
+          "name": "au210303.dbf",
+          "size": 3030,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__ba%2Fdb%2F2f%2Fbadb2f1f78bfe073b84fd7d22c4c8198f95d8537"
+        },
+        {
+          "name": "au210303.prj",
+          "size": 145,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__ac%2Fc1%2F31%2Facc1313d15e868c39be1ad6a50c25febf9ed4242"
+        },
+        {
+          "name": "au210303.sbn",
+          "size": 132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__f7%2F39%2F42%2Ff7394201c82c416f47f84b6303b55530bcade2b7"
+        },
+        {
+          "name": "au210303.sbx",
+          "size": 116,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__9e%2F75%2F61%2F9e75611657b3f9666e4c1ceb957aa5fd73945bd0"
+        },
+        {
+          "name": "au210303.shp",
+          "size": 6876,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__b6%2F0c%2F3d%2Fb60c3d15f8f7f04f8cbed3ac343ca5f36e794102"
+        },
+        {
+          "name": "au210303.shx",
+          "size": 108,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__d2%2F94%2F15%2Fd29415b20335a8d580061e295a22949adb60cb90"
+        }
+      ]
+    },
+    {
+      "name": "au210361",
+      "parts": [
+        {
+          "name": "au210361.dbf",
+          "size": 3030,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__95%2F6c%2F0c%2F956c0cee1599cba9c523bffffa4b55bbddb73934"
+        },
+        {
+          "name": "au210361.prj",
+          "size": 145,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__36%2F60%2Fdc%2F3660dc13a4cb9877370a6d174e4901f2b6310c4f"
+        },
+        {
+          "name": "au210361.sbn",
+          "size": 132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__62%2F0a%2F7c%2F620a7cc3c4027513f0960c782225d76baf69feac"
+        },
+        {
+          "name": "au210361.sbx",
+          "size": 116,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__89%2F85%2Fe5%2F8985e52edfd9f9ae91c4d6a5739443041ef0920a"
+        },
+        {
+          "name": "au210361.shp",
+          "size": 2348,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__0a%2F1e%2F73%2F0a1e730eef0986a2d9ba44661a8c2dc4c43badb2"
+        },
+        {
+          "name": "au210361.shx",
+          "size": 108,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__5e%2F08%2F04%2F5e0804e9a9b3ec0c3f6f8b7458aa2286cd7b1181"
+        }
+      ]
+    },
+    {
+      "name": "au210362",
+      "parts": [
+        {
+          "name": "au210362.dbf",
+          "size": 3030,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__a7%2Ff0%2F2f%2Fa7f02f377135c234a5d9b599475c6d2726f7f1b9"
+        },
+        {
+          "name": "au210362.prj",
+          "size": 145,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__c6%2Fed%2F6f%2Fc6ed6f0358984d5909b44ea2de11d61e02a54e53"
+        },
+        {
+          "name": "au210362.sbn",
+          "size": 132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__db%2Fe3%2F32%2Fdbe3328535715e34ef602bb4909146a50140a13a"
+        },
+        {
+          "name": "au210362.sbx",
+          "size": 116,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__38%2Fba%2F2d%2F38ba2d6027694166a477f02dec16d6c57e04329c"
+        },
+        {
+          "name": "au210362.shp",
+          "size": 11824,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__a9%2Fbc%2F89%2Fa9bc8939f511d9b6c83ec747b44312f3899b1ce9"
+        },
+        {
+          "name": "au210362.shx",
+          "size": 108,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__0c%2F55%2Ff8%2F0c55f88446f9041d9e53667d138258d7cb1f0bc6"
+        }
+      ]
+    },
+    {
+      "name": "au210363",
+      "parts": [
+        {
+          "name": "au210363.dbf",
+          "size": 3030,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__38%2Fa3%2F76%2F38a3765d8f3e686df5b61b069d479bf74ab42335"
+        },
+        {
+          "name": "au210363.prj",
+          "size": 145,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__58%2F71%2F19%2F587119a9a4f4de85e88c5299336f931a9a16e9af"
+        },
+        {
+          "name": "au210363.sbn",
+          "size": 132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__56%2Fd6%2F99%2F56d6991f5ea5932c7e72695771b5172ecfa72c55"
+        },
+        {
+          "name": "au210363.sbx",
+          "size": 116,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__9f%2F21%2Fd2%2F9f21d2e5e2896d8aa47e4bc2821070f2b5f369fb"
+        },
+        {
+          "name": "au210363.shp",
+          "size": 19228,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__8f%2F48%2Fe0%2F8f48e05367fb15c6c6bbebcb972cf064c5de342c"
+        },
+        {
+          "name": "au210363.shx",
+          "size": 108,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__36%2F7d%2F48%2F367d48ae9956a57b5e25f567ddaf1f8d9fa7027e"
+        }
+      ]
+    },
+    {
+      "name": "au210364",
+      "parts": [
+        {
+          "name": "au210364.dbf",
+          "size": 3030,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__ad%2Ff6%2F87%2Fadf687dc28375317e47f5bce5b20bc4a739b07ef"
+        },
+        {
+          "name": "au210364.prj",
+          "size": 145,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__9a%2F9f%2Fb3%2F9a9fb37056ec8b91a963e7d1ad568c60e7a486bc"
+        },
+        {
+          "name": "au210364.sbn",
+          "size": 132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__0c%2Ff5%2F79%2F0cf57985f49a495e0639b804368de7a31acbff08"
+        },
+        {
+          "name": "au210364.sbx",
+          "size": 116,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__c7%2F6b%2F07%2Fc76b0736eba506df5f7be8f8498dfd9c26deaab3"
+        },
+        {
+          "name": "au210364.shp",
+          "size": 19564,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__e0%2F7e%2F4a%2Fe07e4a7b14fe53fba7cfab9839a4990759c0d2d3"
+        },
+        {
+          "name": "au210364.shx",
+          "size": 108,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__16%2F97%2F2f%2F16972f8ffee91e084f08a562511e44ec91bda929"
+        }
+      ]
+    },
+    {
+      "name": "au210401",
+      "parts": [
+        {
+          "name": "au210401.dbf",
+          "size": 3030,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__b6%2Fbe%2Fcf%2Fb6becfebc202f8362c7f74f0eb30d3b09da40436"
+        },
+        {
+          "name": "au210401.prj",
+          "size": 145,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__e6%2Fad%2F28%2Fe6ad286e48b1f20677f38300c636930f026b354d"
+        },
+        {
+          "name": "au210401.sbn",
+          "size": 132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__bf%2Fd6%2F96%2Fbfd69669fc17f12024a5afc294bd0a5ba688cbcc"
+        },
+        {
+          "name": "au210401.sbx",
+          "size": 116,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__bd%2F63%2F04%2Fbd6304d169ab449f56ddfdbba451ee6d20ac791c"
+        },
+        {
+          "name": "au210401.shp",
+          "size": 29020,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__ee%2F7a%2F16%2Fee7a16ffb3125a4f9a50999fe35f0fd9258b50e5"
+        },
+        {
+          "name": "au210401.shx",
+          "size": 108,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__9b%2Fc8%2F53%2F9bc85370025f4ce94c3ba79d2bdc0332a8efb036"
+        }
+      ]
+    },
+    {
+      "name": "au210461",
+      "parts": [
+        {
+          "name": "au210461.dbf",
+          "size": 3030,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__61%2F71%2F98%2F6171981472faf636c30cab8fec5e36af9b06db78"
+        },
+        {
+          "name": "au210461.prj",
+          "size": 145,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__8f%2F18%2F2b%2F8f182be928b13831dc2bd1eeec6de3a3cd2c50cb"
+        },
+        {
+          "name": "au210461.sbn",
+          "size": 132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__4b%2F8f%2F9e%2F4b8f9ee07674b436395d01c195f247f91803096e"
+        },
+        {
+          "name": "au210461.sbx",
+          "size": 116,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__e8%2Fe2%2F39%2Fe8e239e8ca1c633b47b2910b06baf8ef1cc660f6"
+        },
+        {
+          "name": "au210461.shp",
+          "size": 1580,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__c1%2F03%2Ffe%2Fc103fe3cdf71218866dde57d39033245483de122"
+        },
+        {
+          "name": "au210461.shx",
+          "size": 108,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__dd%2Fda%2Fb3%2Fdddab32908dc3ff10cff55471241c97a824b8311"
+        }
+      ]
+    },
+    {
+      "name": "au210581",
+      "parts": [
+        {
+          "name": "au210581.dbf",
+          "size": 3030,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__43%2F87%2F98%2F4387981e8dac64c04f7c3f497be5cd2bdf40d2ae"
+        },
+        {
+          "name": "au210581.prj",
+          "size": 145,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__18%2Fee%2Ff9%2F18eef9ed668c3de57cb8132ff3407c8f60b060b1"
+        },
+        {
+          "name": "au210581.sbn",
+          "size": 132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__93%2Fd7%2Faf%2F93d7af8e2c1eb78cbd7c9f63815a1e5fb2f8ecc2"
+        },
+        {
+          "name": "au210581.sbx",
+          "size": 116,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__38%2Fe8%2F82%2F38e8824227b122aa9fcefa451a3782e9b15ee133"
+        },
+        {
+          "name": "au210581.shp",
+          "size": 11132,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__49%2Fe1%2F83%2F49e1836997730e1f200d33f60fa89d84ecc52c58"
+        },
+        {
+          "name": "au210581.shx",
+          "size": 108,
+          "url": "https://www.sciencebase.gov/catalog/file/get/60c78b5ed34e86b9389aecf4?f=__disk__71%2Ff1%2Fe9%2F71f1e94919b90f546cb8ef6835ed921488d93dea"
+        }
+      ]
+    }
+  ]
+}
