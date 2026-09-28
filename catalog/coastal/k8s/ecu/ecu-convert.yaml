@@ -62,11 +62,11 @@ spec:
           requests:
             cpu: '4'
             memory: 16Gi
-            ephemeral-storage: 10Gi
+            ephemeral-storage: 50Gi
           limits:
             cpu: '4'
             memory: 16Gi
-            ephemeral-storage: 10Gi
+            ephemeral-storage: 50Gi
       volumes:
       - name: rclone-config
         secret:
