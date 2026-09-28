@@ -18,7 +18,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: repartition-task
-        image: ghcr.io/boettiger-lab/datasets:latest
+        image: ghcr.io/boettiger-lab/datasets:0.8.1
         imagePullPolicy: Always
         env:
         - name: AWS_ACCESS_KEY_ID
