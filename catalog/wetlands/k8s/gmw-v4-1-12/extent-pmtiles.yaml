@@ -1,0 +1,59 @@
+# GMW v4.1.12 (data-workflows #443): one PMTiles per epoch from extent.parquet (WHERE year = Y).
+# Same ogr2ogr + tippecanoe recipe as the cng-datasets generated pmtiles job; source-layer = extent-<YYYY>.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gmw-v4-1-12-extent-pmtiles
+  namespace: geo-workflows
+  labels:
+    k8s-app: gmw-v4-1-12-extent-pmtiles
+spec:
+  completions: 9
+  parallelism: 9
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: gmw-v4-1-12-extent-pmtiles
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      activeDeadlineSeconds: 21600
+      containers:
+      - name: pmtiles
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          YEARS=(1985 1990 1995 2000 2005 2010 2015 2020 2025)
+          Y=${YEARS[$JOB_COMPLETION_INDEX]}
+          NAME=extent-$Y
+          cd /tmp
+          rclone copy nrp:public-wetlands/global-mangrove-watch-v4-1-12/extent.parquet /tmp/ --s3-no-check-bucket
+          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$NAME.geojsonl /tmp/extent.parquet \
+            -where "year = $Y"
+          rm /tmp/extent.parquet
+          echo "features: $(wc -l < /tmp/$NAME.geojsonl)"
+          export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          ulimit -n 65536 || true
+          tippecanoe -o /tmp/$NAME.pmtiles -l $NAME --coalesce-densest-as-needed --drop-densest-as-needed \
+            -z 13 --force /tmp/$NAME.geojsonl
+          rclone copy /tmp/$NAME.pmtiles nrp:public-wetlands/global-mangrove-watch-v4-1-12/ --s3-no-check-bucket
+          rm /tmp/$NAME.geojsonl /tmp/$NAME.pmtiles
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

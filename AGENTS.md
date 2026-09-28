@@ -32,6 +32,21 @@ Every decision that defines *what* a dataset task delivers — **spatial extent*
 - **Scope is WHAT, never HOW.** The issue states the template's fields and nothing more — *not* which scripts to write, not `cng-datasets` vs a custom job, not what to model the pipeline on, not whether to wait on another repo's issue. Implementation is decided by whoever builds it, against the tooling as it stands that day. An agent-authored directive in an issue body is indistinguishable from a considered decision and outlives the session that guessed it: #669 carried a fabricated *"do not wait on it and do not implement it in the tool repo"* that sent a later session off to hand-roll a Zarr reader. File new dataset issues with `gh issue create --template dataset-import.yml` — the form is this rule in field form. (A `--body`/`--body-file` create bypasses the form entirely, so the rule, not the template, is what binds you.)
 - **Write the scope, not an essay.** The issue must carry the template's fields — that is the part that survives the session, and it stays as long as it needs to be. Everything around it is noise: do not restate the plan or narrate progress. The same goes for PR reviews and bug reports — lead with the evidence (the measurement, the repro, the query someone can re-run) and cut the prose around it. Issue traffic is read by every agent that touches the task afterwards, so verbosity is a cost they all pay.
 
+### Default scope = faithful, comprehensive representation of upstream
+
+When scoping a dataset, **default to representing the upstream product comprehensively**: every
+format it ships (vector *and* raster), every year/epoch/layer, and its companion tables (e.g.
+national statistics). Narrow only for a concrete reason — a cost that is truly prohibitive, or a
+layer that is redundant — and put that trade-off to the user.
+
+**Opinions in an ingest issue are proposals, not decisions.** Issues are often filed from a one-line
+request ("file an issue for mangroves"), and the filer — often an agent — fills in format
+preferences, a single epoch, a reducer, and so on that nobody asked for. Treat any such choice the
+user didn't make as open. Assessing it against the actual upstream data is your job, and you have
+the authority to discuss scope with the user directly and rewrite the issue to record what you
+agreed (GMW #443: the issue said "prefer the GeoTIFF path" and "latest single year"; upstream ships
+41 annual vector and raster layers).
+
 ## ⛔ HARD BOUNDARY 0: Big-data compute runs on the cluster, NOT your laptop
 
 For ANY query/scan/aggregation over S3 parquet — catalog data **and** large intermediate/build files (e.g. a 24 GB consolidated GeoParquet) — use the **`mcp__duckdb-geo__query` MCP server**. It runs on generously-provisioned cluster metal with the **internal NRP S3 endpoint** and a **100 Gb/s** network, and DuckDB **streams** (larger-than-memory spills to disk) — so it does not hit the RAM limits or the slow public endpoint (~12 MB/s) that bottleneck the laptop.
