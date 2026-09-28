@@ -1,3 +1,12 @@
+# Ecological Coastal Units (#674) — orchestrator: convert → pmtiles + hex → repartition.
+#
+# Run order from scratch (namespace geo-workflows):
+#   1. kubectl apply -f ecu-setup-bucket.yaml   # public-coastal must exist before staging
+#   2. kubectl apply -f ecu-stage-raw.yaml      # writes raw/ecu.gdb.zip, which convert reads;
+#                                               # this orchestrator does NOT run it
+#   3. kubectl apply -f workflow-rbac.yaml -f configmap.yaml -f workflow.yaml
+#
+# hex + repartition are pinned to cng-datasets 0.8.1 (line-coverage fix, datasets#239).
 apiVersion: batch/v1
 kind: Job
 metadata:
