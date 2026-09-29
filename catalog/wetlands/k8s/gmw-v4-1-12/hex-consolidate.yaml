@@ -89,7 +89,7 @@ spec:
                   )
                   SELECT year::SMALLINT AS year,
                          mangrove_px * px_km2 AS mangrove_km2,
-                         mangrove_px * px_km2 / cell_km2 AS mangrove_fraction,
+                         LEAST(mangrove_px * px_km2 / cell_km2, 1.0) AS mangrove_fraction,  -- clamp float rounding (~1e-9) on fully covered cells
                          h8::UBIGINT AS h8, h0::UBIGINT AS h0
                   FROM a ORDER BY year, h8
                 ) TO '{B}/extent/hex/h0={h0}/data_0.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)
