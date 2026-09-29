@@ -271,6 +271,7 @@ AGGREGATABLE_TOKENS = {
 SAFE_HEX_COLS = {"h0", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9",
                  "h10", "h11", "h12", "_cng_fid", "bbox"}
 GEOM_COLS = {"geometry", "geom", "shape", "the_geom", "wkb_geometry"}  # compared lowercased
+TIME_KEY_COLS = {"year", "month", "date", "epoch"}  # period keys, not feature attributes
 
 
 def _is_numeric_type(t: str) -> bool:
@@ -919,12 +920,17 @@ def _is_percell_aggregation(doc: dict, asset: dict) -> bool:
 
     Deliberately a positive schema test rather than an opt-out flag: a genuine
     `_cng_fid`-missing defect still carries its source attributes and so still HARD-fails.
+
+    A time key (`year`, …) shared with the flat asset does not count as a carried-over
+    feature attribute: a per-(time, cell) aggregation of a multi-year vector legitimately
+    keeps it (data-workflows#443 GMW `extent/hex`: year + mangrove_km2 + fraction).
     """
-    flat = _flat_vector_attrs(doc)
+    flat = _flat_vector_attrs(doc) - TIME_KEY_COLS
     if not flat:
         return False
     attrs = {c.get("name", "").lower() for c in asset.get("table:columns", [])}
-    attrs = {c for c in attrs if c not in SAFE_HEX_COLS and not _is_geom_col(c)}
+    attrs = {c for c in attrs
+             if c not in SAFE_HEX_COLS and c not in TIME_KEY_COLS and not _is_geom_col(c)}
     return bool(attrs) and not (attrs & flat)
 
 
