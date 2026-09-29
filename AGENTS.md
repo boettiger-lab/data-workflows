@@ -39,13 +39,9 @@ format it ships (vector *and* raster), every year/epoch/layer, and its companion
 national statistics). Narrow only for a concrete reason — a cost that is truly prohibitive, or a
 layer that is redundant — and put that trade-off to the user.
 
-**Opinions in an ingest issue are proposals, not decisions.** Issues are often filed from a one-line
-request ("file an issue for mangroves"), and the filer — often an agent — fills in format
-preferences, a single epoch, a reducer, and so on that nobody asked for. Treat any such choice the
-user didn't make as open. Assessing it against the actual upstream data is your job, and you have
-the authority to discuss scope with the user directly and rewrite the issue to record what you
-agreed (GMW #443: the issue said "prefer the GeoTIFF path" and "latest single year"; upstream ships
-41 annual vector and raster layers).
+Format or epoch choices the user did not make are open questions under "Scope is WHAT, never HOW"
+above: assess them against the upstream data and settle them with the user (GMW #443: the issue said
+"prefer the GeoTIFF path" and "latest single year"; upstream ships 41 annual vector and raster layers).
 
 ## ⛔ HARD BOUNDARY 0: Big-data compute runs on the cluster, NOT your laptop
 
