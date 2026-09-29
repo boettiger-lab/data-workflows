@@ -1,13 +1,13 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: global-mangrove-watch-v4-1-12-staging-2025-hex
+  name: global-mangrove-watch-v4-1-12-staging-1990-hex
   namespace: geo-workflows
   labels:
-    k8s-app: global-mangrove-watch-v4-1-12-staging-2025-hex
+    k8s-app: global-mangrove-watch-v4-1-12-staging-1990-hex
 spec:
-  completions: 1
-  parallelism: 1
+  completions: 122
+  parallelism: 61
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 1
@@ -20,7 +20,7 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: global-mangrove-watch-v4-1-12-staging-2025-hex
+        k8s-app: global-mangrove-watch-v4-1-12-staging-1990-hex
     spec:
       restartPolicy: Never
       containers:
@@ -57,7 +57,7 @@ spec:
         - name: CNG_HEX_CHUNK_SIZE
           value: '100000'
         - name: DUCKDB_MEMORY_LIMIT
-          value: 27GiB
+          value: 13GiB
         - name: GDAL_CACHEMAX
           value: '512'
         volumeMounts:
@@ -67,24 +67,19 @@ spec:
         command:
         - bash
         - -c
-        - "set -e\n\n# Positions in the h0 grid's own ordering, not H3 base cell numbers\n\
-          # (--h0-subset / --h0-cells). The completion index selects one.\nH0S=(40)\n\
-          H0=${H0S[$JOB_COMPLETION_INDEX]}\nif [ -z \"${JOB_COMPLETION_INDEX}\" ]\
-          \ || [ -z \"$H0\" ]; then\n  echo \"No h0 cell for completion index '${JOB_COMPLETION_INDEX}'\
-          \ in (${H0S[*]}) \u2014 completions must match the --h0-subset length\"\
-          \ >&2\n  exit 1\nfi\n\ncng-datasets raster --input \"s3://public-wetlands/global-mangrove-watch-v4-1-12/extent-2025-cog.tif\"\
-          \ --output-parquet s3://public-wetlands/global-mangrove-watch-v4-1-12/staging-2025/hex/\
-          \ --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 --value-column\
-          \ mangrove_px --hex-resampling sum --nodata \"0,255\""
+        - |-
+          set -e
+
+          cng-datasets raster --input "s3://public-wetlands/global-mangrove-watch-v4-1-12/extent-1990-cog.tif" --output-parquet s3://public-wetlands/global-mangrove-watch-v4-1-12/staging-1990/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 8 --parent-resolutions 0 --value-column mangrove_px --hex-resampling sum --nodata "0,255"
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
-            ephemeral-storage: 40Gi
+            memory: 16Gi
+            ephemeral-storage: 20Gi
           limits:
             cpu: '4'
-            memory: 32Gi
-            ephemeral-storage: 40Gi
+            memory: 16Gi
+            ephemeral-storage: 20Gi
       volumes:
       - name: rclone-config
         secret:
