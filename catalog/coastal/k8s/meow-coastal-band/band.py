@@ -7,8 +7,8 @@ Runs inside the cluster job (band.yaml) against the internal S3 endpoint. Steps:
      nearest-coast cells, the one closest to its own centre. Expansion stops on distance
      (dist_km <= limit + MARGIN_KM), not on ring count, then the output is cut at the limit.
   3. side / land_frac from the Copernicus GLO-90 Water Body Mask hex (fractions reducer)
-  4. MEOW label: single ecoregion -> 'polygon'; several -> centre-point containment,
-     on_boundary = true; none -> nearest ecoregion polygon, label_source = 'nearest'
+  4. MEOW label: the cell's MEOW hex label ('polygon'); on_boundary = a neighbouring cell has a
+     different ecoregion; cells absent from the MEOW hex -> nearest ecoregion polygon ('nearest')
   5. depth_m (GEBCO, sea; positive down) and elevation_m (GLO-90 h9 -> h8 mean, land)
 """
 import os, time
@@ -92,22 +92,18 @@ log(f"band: {q('SELECT COUNT(*) FROM band')[0][0]:,} cells")
 
 # --- MEOW labels ---
 con.execute(f"""CREATE OR REPLACE TABLE meow AS
-    SELECT DISTINCT m.h8::UBIGINT AS h8, m.ECO_CODE, m.ECOREGION, m.PROVINCE, m.REALM
+    SELECT m.h8::UBIGINT AS h8, m.ECO_CODE, m.ECOREGION, m.PROVINCE, m.REALM
     FROM read_parquet('{MEOW_HEX}') m SEMI JOIN band b ON b.h8 = m.h8::UBIGINT""")
 con.execute(f"CREATE OR REPLACE TABLE poly AS SELECT ECO_CODE, ECOREGION, PROVINCE, REALM, geom FROM read_parquet('{MEOW_POLY}')")
+# The MEOW hex has exactly one ecoregion per h8 (270,730,948 cells, no duplicates), so the
+# label is the cell's own MEOW hex label. on_boundary = an adjacent h8 cell (grid ring 1)
+# carries a different ecoregion.
 con.execute("""CREATE OR REPLACE TABLE lab AS
-    WITH n AS (SELECT h8, COUNT(*) AS n FROM meow GROUP BY h8)
     SELECT m.h8, m.ECO_CODE, m.ECOREGION, m.PROVINCE, m.REALM, false AS on_boundary, 'polygon' AS label_source
-    FROM meow m JOIN n USING (h8) WHERE n.n = 1""")
-# boundary cells: ecoregion whose polygon contains the cell centre; ties/gaps -> lowest ECO_CODE among the cell's ecoregions
-con.execute("""INSERT INTO lab
-    WITH multi AS (SELECT h8 FROM meow GROUP BY h8 HAVING COUNT(*) > 1),
-    cand AS (
-        SELECT m.*, ST_Contains(p.geom, ST_Point(h3_cell_to_lng(m.h8), h3_cell_to_lat(m.h8))) AS contains
-        FROM meow m SEMI JOIN multi USING (h8) JOIN poly p USING (ECO_CODE))
-    SELECT h8, arg_min(ECO_CODE, (NOT contains, ECO_CODE)), arg_min(ECOREGION, (NOT contains, ECO_CODE)),
-           arg_min(PROVINCE, (NOT contains, ECO_CODE)), arg_min(REALM, (NOT contains, ECO_CODE)), true, 'polygon'
-    FROM cand GROUP BY h8""")
+    FROM meow m""")
+con.execute("""UPDATE lab SET on_boundary = true WHERE h8 IN (
+    SELECT DISTINCT a.h8 FROM (SELECT h8, ECO_CODE, UNNEST(h3_grid_disk(h8, 1)) AS nb FROM meow) a
+    JOIN meow b ON b.h8 = a.nb WHERE b.ECO_CODE <> a.ECO_CODE)""")
 # cells in no MEOW hex cell: nearest polygon (bbox-limited candidates, widen if none)
 con.execute("CREATE OR REPLACE TABLE orphan AS SELECT h8 FROM band ANTI JOIN lab USING (h8)")
 log(f"orphans (no MEOW cell): {q('SELECT COUNT(*) FROM orphan')[0][0]:,}")
