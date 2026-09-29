@@ -1,5 +1,8 @@
-# Merge the _cng_fid per-state tiles (per-state-pmtiles-fid.yaml) into a staged
-# national PMTiles; verify, then copy over public-wetlands/nwi-v2.pmtiles.
+# Merge the _cng_fid tiles (per-state-pmtiles-fid.yaml + mn-split-pmtiles-fid.yaml,
+# 54 files) into a staged national PMTiles. Then, after checking the staged
+# footer lists _cng_fid:
+#   rclone copyto nrp:public-wetlands/nwi-v2.pmtiles nrp:public-wetlands/staging/nwi-v2-nofid-backup.pmtiles
+#   rclone copyto nrp:public-wetlands/staging/nwi-v2-fid.pmtiles nrp:public-wetlands/nwi-v2.pmtiles
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -33,13 +36,13 @@ spec:
         - |
           set -e
           mkdir -p /tmp/state-tiles
-          # Pull all 51 per-state PMTiles
+          # Pull the 50 per-state + 4 Minnesota-part PMTiles
           rclone copy nrp:public-wetlands/nwi-v2-state-tiles-fid/ /tmp/state-tiles/ -v
           ls -lh /tmp/state-tiles/
 
-          # tile-join concatenates 51 single-layer PMTiles into one. All inputs
-          # already share the layer name "nwi-v2", so no rename is needed. Per-state
-          # tippecanoe runs already applied size/feature limits.
+          # All inputs share the layer name "nwi-v2". -pk: don't drop combined
+          # tiles over 500K (state borders, the overlapping MN parts); the default
+          # silently skips them.
           tile-join -pk -o /tmp/nwi-v2.pmtiles -f /tmp/state-tiles/*.pmtiles
 
           ls -lh /tmp/nwi-v2.pmtiles

@@ -2,8 +2,9 @@
 # _cng_fid (the original per-state-pmtiles.yaml read the raw per-state files,
 # which predate add-id.yaml, so the published tiles had no _cng_fid).
 # The national parquet is sorted by state_code, so the per-state filter prunes
-# row groups. Output is staged under nwi-v2-state-tiles-fid/; run
-# pmtiles-merge-fid.yaml afterwards.
+# row groups. Minnesota is excluded: in one piece it thins low zooms for hours,
+# so mn-split-pmtiles-fid.yaml tiles it as 4 parts. Both jobs write to
+# nwi-v2-state-tiles-fid/ (50 states + MN-0..3); then run pmtiles-merge-fid.yaml.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -12,8 +13,8 @@ metadata:
   labels:
     k8s-app: nwi-v2-state-tiles-fid
 spec:
-  completions: 51
-  parallelism: 51
+  completions: 50
+  parallelism: 50
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 5
@@ -42,7 +43,7 @@ spec:
         - |
           set -euo pipefail
           # STATES_OVERRIDE (space-separated) reruns a subset, e.g. failed indexes
-          STATES=(AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY)
+          STATES=(AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY)
           if [ -n "${STATES_OVERRIDE:-}" ]; then read -ra STATES <<< "$STATES_OVERRIDE"; fi
           ST=${STATES[$JOB_COMPLETION_INDEX]}
           echo "=== Processing state: $ST (index $JOB_COMPLETION_INDEX) ==="

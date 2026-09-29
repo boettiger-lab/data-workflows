@@ -1,11 +1,8 @@
-# Minnesota split 4 ways by _cng_fid % 4 (interleaved: quarter density per tile,
-# so tippecanoe spends far less time thinning low zooms). Merge with tile-join -pk.
-# Per-state NWI PMTiles rebuilt from the national nwi-v2.parquet so tiles carry
-# _cng_fid (the original per-state-pmtiles.yaml read the raw per-state files,
-# which predate add-id.yaml, so the published tiles had no _cng_fid).
-# The national parquet is sorted by state_code, so the per-state filter prunes
-# row groups. Output is staged under nwi-v2-state-tiles-fid-mn/; run
-# pmtiles-merge-fid.yaml afterwards.
+# Minnesota NWI PMTiles, split 4 ways by _cng_fid % 4. Interleaved parts each
+# carry a quarter of the density per tile, so tippecanoe does far less low-zoom
+# thinning (~14 min vs >100 min for MN in one piece). Writes MN-0..3.pmtiles
+# next to the per-state tiles (per-state-pmtiles-fid.yaml); tile-join -pk in
+# pmtiles-merge-fid.yaml recombines them.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -43,9 +40,6 @@ spec:
         args:
         - |
           set -euo pipefail
-          # STATES_OVERRIDE (space-separated) reruns a subset, e.g. failed indexes
-          STATES=(AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY)
-          if [ -n "${STATES_OVERRIDE:-}" ]; then read -ra STATES <<< "$STATES_OVERRIDE"; fi
           ST=MN; PART=$JOB_COMPLETION_INDEX
           echo "=== Processing state: $ST (index $JOB_COMPLETION_INDEX) ==="
 
@@ -96,7 +90,7 @@ spec:
               --force "$JSONL"
           ls -lh "$PMTILES"
 
-          rclone copyto "$PMTILES" "nrp:public-wetlands/nwi-v2-state-tiles-fid-mn/${ST}-${PART}.pmtiles" -v
+          rclone copyto "$PMTILES" "nrp:public-wetlands/nwi-v2-state-tiles-fid/${ST}-${PART}.pmtiles" -v
           rm -f "$JSONL" "$PMTILES"
           echo "=== Done state: $ST ==="
         env:
