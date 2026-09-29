@@ -41,7 +41,9 @@ spec:
         args:
         - |
           set -euo pipefail
+          # STATES_OVERRIDE (space-separated) reruns a subset, e.g. failed indexes
           STATES=(AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY)
+          if [ -n "${STATES_OVERRIDE:-}" ]; then read -ra STATES <<< "$STATES_OVERRIDE"; fi
           ST=${STATES[$JOB_COMPLETION_INDEX]}
           echo "=== Processing state: $ST (index $JOB_COMPLETION_INDEX) ==="
 
@@ -58,6 +60,8 @@ spec:
           import os, duckdb
           c = duckdb.connect()
           c.execute("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial;")
+          # cap below the pod limit; default is 80% of *host* RAM -> OOMKilled
+          c.execute("SET memory_limit='12GB'; SET threads=4; SET preserve_insertion_order=false")
           c.execute("SET temp_directory='/tmp/duckdb'")
           c.execute(
               "CREATE SECRET nrp (TYPE S3, ENDPOINT 'rook-ceph-rgw-nautiluss3.rook', URL_STYLE 'path', USE_SSL false, KEY_ID ?, SECRET ?)",
