@@ -1,0 +1,119 @@
+# Per-state NWI PMTiles rebuilt from the national nwi-v2.parquet so tiles carry
+# _cng_fid (the original per-state-pmtiles.yaml read the raw per-state files,
+# which predate add-id.yaml, so the published tiles had no _cng_fid).
+# The national parquet is sorted by state_code, so the per-state filter prunes
+# row groups. Output is staged under nwi-v2-state-tiles-fid/; run
+# pmtiles-merge-fid.yaml afterwards.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nwi-v2-state-tiles-fid
+  namespace: geo-workflows
+  labels:
+    k8s-app: nwi-v2-state-tiles-fid
+spec:
+  completions: 51
+  parallelism: 51
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 5
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nwi-v2-state-tiles-fid
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 14400
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]
+      containers:
+      - name: tile
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          STATES=(AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY)
+          ST=${STATES[$JOB_COMPLETION_INDEX]}
+          echo "=== Processing state: $ST (index $JOB_COMPLETION_INDEX) ==="
+
+          TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          export TIPPECANOE_MAX_THREADS
+          mkdir -p /tmp/duckdb
+
+          SUBSET="/tmp/${ST}.parquet"
+          JSONL="/tmp/${ST}.jsonl"
+          PMTILES="/tmp/${ST}.pmtiles"
+
+          # Extract this state's rows over the internal endpoint.
+          ST="$ST" SUBSET="$SUBSET" python3 - <<'PY'
+          import os, duckdb
+          c = duckdb.connect()
+          c.execute("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial;")
+          c.execute("SET temp_directory='/tmp/duckdb'")
+          c.execute(
+              "CREATE SECRET nrp (TYPE S3, ENDPOINT 'rook-ceph-rgw-nautiluss3.rook', URL_STYLE 'path', USE_SSL false, KEY_ID ?, SECRET ?)",
+              [os.environ["AWS_ACCESS_KEY_ID"], os.environ["AWS_SECRET_ACCESS_KEY"]],
+          )
+          st, out = os.environ["ST"], os.environ["SUBSET"]
+          c.execute(f"""
+            COPY (
+              SELECT _cng_fid, ATTRIBUTE, WETLAND_TYPE, state_code, geometry
+              FROM read_parquet('s3://public-wetlands/nwi-v2.parquet')
+              WHERE state_code = '{st}'
+            ) TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD)
+          """)
+          print(st, c.execute(f"SELECT COUNT(*), COUNT(DISTINCT _cng_fid) FROM read_parquet('{out}')").fetchall())
+          PY
+          ls -lh "$SUBSET"
+
+          ogr2ogr -wrapdateline -datelineoffset 15 \
+                  -f GeoJSONSeq "$JSONL" "$SUBSET" -progress
+          rm -f "$SUBSET"
+          ls -lh "$JSONL"
+
+          tippecanoe -o "$PMTILES" -l nwi-v2 \
+              -z14 \
+              --drop-densest-as-needed \
+              --coalesce-densest-as-needed \
+              --simplification=2 \
+              --maximum-tile-bytes=500000 \
+              --maximum-tile-features=200000 \
+              --force "$JSONL"
+          ls -lh "$PMTILES"
+
+          rclone copyto "$PMTILES" "nrp:public-wetlands/nwi-v2-state-tiles-fid/${ST}.pmtiles" -v
+          rm -f "$JSONL" "$PMTILES"
+          echo "=== Done state: $ST ==="
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: TMPDIR
+          value: /tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        resources:
+          requests:
+            cpu: "8"
+            memory: 24Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: "8"
+            memory: 24Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
