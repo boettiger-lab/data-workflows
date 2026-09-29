@@ -1,0 +1,79 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dem-glo90-wbm-cog-merge
+  labels:
+    k8s-app: dem-glo90-wbm-cog-merge
+  namespace: geo-workflows
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 14400
+  template:
+    metadata:
+      labels:
+        k8s-app: dem-glo90-wbm-cog-merge
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: cog-merge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: TMPDIR
+          value: /scratch
+        - name: CPL_TMPDIR
+          value: /scratch
+        - name: GDAL_CACHEMAX
+          value: '8192'
+        - name: GDAL_NUM_THREADS
+          value: ALL_CPUS
+        - name: CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE
+          value: 'YES'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+          subPath: dem-glo90-wbm-cog-merge
+        command:
+        - bash
+        - -c
+        - "# Copernicus GLO-90 Water Body Mask global COG (data-workflows #730).\nset -euo pipefail\nmkdir -p /scratch/wbm/regional\necho \"Fetching 4 regional COGs (few large files -> cephfs is fine)...\"\
+          \nrclone copy nrp:public-dem/copernicus-glo90/wbm-regional/ /scratch/wbm/regional/ \\\n  --transfers 4 --retries 5 --stats 30s --stats-one-line\nls -lh /scratch/wbm/regional/\ntest \"$(ls /scratch/wbm/regional/*.tif\
+          \ | wc -l)\" -eq 4\n\ngdalbuildvrt -resolution highest -vrtnodata 255 /scratch/wbm/global.vrt /scratch/wbm/regional/part-*.tif\ngdalinfo /scratch/wbm/global.vrt | grep -E \"Size is|Pixel Size|Origin\"\
+          \n\necho \"Translating global Byte COG (ZSTD, NEAREST overviews: categorical)...\"\ngdal_translate /scratch/wbm/global.vrt /scratch/wbm/copernicus-glo90-wbm-cog.tif \\\n  -of COG -ot Byte -a_nodata\
+          \ 255 \\\n  -co COMPRESS=ZSTD -co LEVEL=12 \\\n  -co BLOCKSIZE=512 \\\n  -co OVERVIEWS=AUTO -co OVERVIEW_RESAMPLING=NEAREST -co RESAMPLING=NEAREST \\\n  -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS\
+          \ \\\n  --config GDAL_CACHEMAX 8192\nls -lh /scratch/wbm/copernicus-glo90-wbm-cog.tif\ngdalinfo -stats /scratch/wbm/copernicus-glo90-wbm-cog.tif | \\\n  grep -E \"Size is|Pixel Size|NoData|Type=|Minimum=|Maximum=|Mean=|Overviews\"\
+          \ | head -20\n\necho \"Uploading global COG...\"\nrclone copyto /scratch/wbm/copernicus-glo90-wbm-cog.tif \\\n  nrp:public-dem/copernicus-glo90/copernicus-glo90-wbm-cog.tif \\\n  --s3-no-check-bucket\
+          \ --progress\n\n# Remove the .aux.xml too: a stale sidecar makes a later gdalinfo -stats\n# report cached (wrong) statistics from a prior build.\nrm -rf /scratch/wbm/regional /scratch/wbm/global.vrt\
+          \ \\\n       /scratch/wbm/copernicus-glo90-wbm-cog.tif /scratch/wbm/copernicus-glo90-wbm-cog.tif.aux.xml\necho \"Global COG done.\"\n"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 24Gi
+            ephemeral-storage: 8Gi
+          limits:
+            cpu: '8'
+            memory: 24Gi
+            ephemeral-storage: 8Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: rechunk-scratch

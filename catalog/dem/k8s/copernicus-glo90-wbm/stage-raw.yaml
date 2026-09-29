@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dem-glo90-wbm-stage-raw
+  labels:
+    k8s-app: dem-glo90-wbm-stage-raw
+  namespace: geo-workflows
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 7200
+  template:
+    metadata:
+      labels:
+        k8s-app: dem-glo90-wbm-stage-raw
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - "set -euo pipefail\ntrue\ntrue\n\n# Copernicus GLO-90 DEM, AWS Open Data (eu-central-1), anonymous read.\n# Copy only the Water Body Mask (AUXFILES/*_WBM.tif; 0 no water, 1 ocean, 2 lake, 3 river)\
+          \ \u2014 data-workflows #730.\nSRC=':s3,provider=AWS,region=eu-central-1,env_auth=false:copernicus-dem-90m'\necho \"Staging GLO-90 WBM tiles AWS -> nrp:public-dem/raw/glo90-wbm/ ...\"\nrclone\
+          \ copy \"$SRC\" nrp:public-dem/raw/glo90-wbm/ \\\n  --include \"*_WBM.tif\" \\\n  --transfers 48 --checkers 64 --retries 5 \\\n  --low-level-retries 10 --s3-no-check-bucket \\\n  --stats 30s --stats-one-line\n\
+          \necho \"Staged tile count:\"\nrclone size nrp:public-dem/raw/glo90-wbm/\n"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 4Gi
+            ephemeral-storage: 4Gi
+          limits:
+            cpu: '4'
+            memory: 4Gi
+            ephemeral-storage: 4Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
