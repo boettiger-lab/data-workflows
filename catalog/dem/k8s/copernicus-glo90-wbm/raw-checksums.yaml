@@ -1,0 +1,46 @@
+# Provenance fingerprints recomputed from the staged objects (stac-authoring: access date + raw checksum).
+# Writes SHA256SUMS next to each raw prefix and prints the sums for the STAC descriptions.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: raw-checksums-gmw-wbm
+  namespace: geo-workflows
+  labels: {k8s-app: raw-checksums-gmw-wbm}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 7200
+  template:
+    metadata:
+      labels: {k8s-app: raw-checksums-gmw-wbm}
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: sums
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          sums() {  # remote-prefix local-dir
+            mkdir -p "$2" && rclone copy "$1" "$2" --exclude SHA256SUMS --transfers 32 --s3-no-check-bucket
+            (cd "$2" && find . -type f ! -name SHA256SUMS | sort | xargs -d '\n' sha256sum > SHA256SUMS)
+            echo "== $1  files=$(wc -l < "$2/SHA256SUMS")  bytes=$(find "$2" -type f ! -name SHA256SUMS -printf '%s\n' | awk '{s+=$1} END {print s}')"
+            echo "   SHA256SUMS sha256: $(sha256sum "$2/SHA256SUMS" | cut -d' ' -f1)"
+            rclone copyto "$2/SHA256SUMS" "$1SHA256SUMS" --s3-no-check-bucket
+            rm -rf "$2"
+          }
+          sums nrp:public-wetlands/raw/gmw-v4-1-12/ /tmp/gmw
+          echo "--- per-file (GMW) ---"; rclone cat nrp:public-wetlands/raw/gmw-v4-1-12/SHA256SUMS
+          sums nrp:public-dem/raw/glo90-wbm/ /tmp/wbm
+        resources:
+          requests: {cpu: '4', memory: 4Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 4Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
