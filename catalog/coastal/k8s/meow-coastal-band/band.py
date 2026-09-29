@@ -5,7 +5,8 @@ Runs inside the cluster job (band.yaml) against the internal S3 endpoint. Steps:
   1. seeds = distinct ECU h8 cells (k = 0, nearest coast cell = itself)
   2. multi-source ring expansion: each new cell takes, among its visited neighbours'
      nearest-coast cells, the one closest to its own centre. Expansion stops on distance
-     (dist_km <= limit + MARGIN_KM), not on ring count, then the output is cut at the limit.
+     (dist_km <= limit + MARGIN_KM), not on ring count; relaxation passes then correct each
+     cell's nearest coast cell from its neighbours; the output is cut at the limit.
   3. side / land_frac from the Copernicus GLO-90 Water Body Mask hex (fractions reducer)
   4. MEOW label: the cell's MEOW hex label ('polygon'); on_boundary = a neighbouring cell has a
      different ecoregion; cells absent from the MEOW hex -> nearest ecoregion polygon ('nearest')
@@ -14,7 +15,7 @@ Runs inside the cluster job (band.yaml) against the internal S3 endpoint. Steps:
 import os, time
 import duckdb
 
-SEA_KM, LAND_KM, MARGIN_KM = 50.0, 20.0, 1.5
+SEA_KM, LAND_KM, MARGIN_KM = 50.0, 20.0, 5.0
 ECU = "s3://public-coastal/ecu/hex/h0=*/data_0.parquet"
 WBM = "s3://public-dem/copernicus-glo90/wbm/hex/h0=*/data_0.parquet"
 MEOW_HEX = "s3://public-high-seas/meow/ecoregions/hex/h0=*/data_00.parquet"
@@ -80,6 +81,29 @@ while True:
     if k % 5 == 0:
         log(f"ring {k}: +{n:,} (visited {q('SELECT COUNT(*) FROM visited')[0][0]:,})")
 log(f"expansion done after {k - 1} rings; visited {q('SELECT COUNT(*) FROM visited')[0][0]:,}")
+
+# --- relaxation: ring-by-ring inheritance is not always the true nearest coast cell (a sample
+# showed up to ~3 km over). Repeatedly let each cell adopt a closer nearest-coast cell from any
+# neighbour until nothing changes. k (ring count) is unaffected.
+for it in range(1, 31):
+    con.execute("""CREATE OR REPLACE TABLE better AS
+        WITH nb AS (
+            SELECT v.h8, UNNEST(h3_grid_disk(v.h8, 1)) AS nh8 FROM visited v
+        ), c AS (
+            SELECT nb.h8, n.src, n.src_lat, n.src_lng,
+                   h3_great_circle_distance(h3_cell_to_lat(nb.h8), h3_cell_to_lng(nb.h8), n.src_lat, n.src_lng, 'km') AS d
+            FROM nb JOIN visited n ON n.h8 = nb.nh8
+        ), best AS (
+            SELECT h8, arg_min(src, d) AS src, arg_min(src_lat, d) AS src_lat, arg_min(src_lng, d) AS src_lng, MIN(d) AS d
+            FROM c GROUP BY h8
+        )
+        SELECT b.* FROM best b JOIN visited v USING (h8) WHERE b.d < v.dist_km - 1e-9""")
+    n = q("SELECT COUNT(*) FROM better")[0][0]
+    log(f"relaxation pass {it}: {n:,} cells improved")
+    if n == 0:
+        break
+    con.execute("""UPDATE visited SET src = b.src, src_lat = b.src_lat, src_lng = b.src_lng, dist_km = b.d
+                   FROM better b WHERE visited.h8 = b.h8""")
 
 # --- side + exact cut ---
 con.execute(f"""CREATE OR REPLACE TABLE band AS
