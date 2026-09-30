@@ -226,6 +226,26 @@ class PerCellAggregationExemption(unittest.TestCase):
         self.assertEqual([x.code for x in f], ["cng-fid-missing"])
         self.assertEqual(f[0].severity, vs.HARD)
 
+    def _multiyear_doc(self, hex_cols):
+        return {"assets": {
+            "d-parquet": {"href": "https://x/d.parquet", "type": PARQUET, "table:columns": [
+                {"name": "_cng_fid"}, {"name": "cntry_iso3"}, {"name": "year"},
+                {"name": "geom", "type": "geometry"}]},
+            "d-hex": hex_asset(hex_cols, href=(
+                "https://s3-west.nrp-nautilus.io/public-x/d/hex/h0=*/data_0.parquet")),
+        }}
+
+    def test_percell_timeseries_sharing_only_year_is_exempt(self):
+        # data-workflows#443: one row per (year, cell); `year` is a period key, not a
+        # carried-over feature attribute
+        f = vs.check_cng_fid(self._multiyear_doc(
+            ["year", "mangrove_km2", "mangrove_fraction", "h8", "h0"]))
+        self.assertEqual([x.code for x in f], [])
+
+    def test_vector_hex_with_year_and_source_attrs_still_hard_fails(self):
+        f = vs.check_cng_fid(self._multiyear_doc(["year", "cntry_iso3", "h8", "h0"]))
+        self.assertEqual([x.code for x in f], ["cng-fid-missing"])
+
 
 class ScriptedMCP:
     """Replays canned rows keyed by a substring of the SQL (first match wins), so a check

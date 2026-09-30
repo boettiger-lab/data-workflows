@@ -1,0 +1,106 @@
+# GMW v4.1.12 (data-workflows #443): combine the 9 per-epoch staging hexes into one long hex asset.
+# Input:  staging-<YYYY>/hex/h0=*/data_0.parquet  (mangrove_px = coverage-weighted count of
+#         mangrove pixels per h8 cell; `sum` reducer, nodata 0/255 -> only cells touching mangrove)
+# Output: extent/hex/h0=<h0>/data_0.parquet with year, mangrove_km2, mangrove_fraction, h8, h0.
+# Areas are ellipsoidal (WGS84) for both the pixel and the H3 cell, so fraction and km2 are on the
+# same basis as the vector ST_Area_Spheroid validation.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gmw-v4-1-12-hex-consolidate
+  namespace: geo-workflows
+  labels:
+    k8s-app: gmw-v4-1-12-hex-consolidate
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 14400
+  template:
+    metadata:
+      labels:
+        k8s-app: gmw-v4-1-12-hex-consolidate
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: consolidate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          import duckdb, os, subprocess
+          B = "s3://public-wetlands/global-mangrove-watch-v4-1-12"
+          YEARS = [1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025]
+          PX = 0.000269469145783   # source pixel size, degrees
+          con = duckdb.connect()
+          for ext in ("h3 FROM community", "spatial", "httpfs"):
+              con.execute(f"INSTALL {ext}; LOAD {ext.split()[0]}")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000; SET preserve_insertion_order=false")
+          con.execute(f"""CREATE SECRET s3 (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
+              URL_STYLE 'path', USE_SSL false)""")
+
+          h0s = set()
+          for y in YEARS:
+              out = subprocess.run(["rclone", "lsf", "--dirs-only",
+                  f"nrp:public-wetlands/global-mangrove-watch-v4-1-12/staging-{y}/hex/"],
+                  capture_output=True, text=True, check=True).stdout
+              hy = {d.strip("/").split("=")[1] for d in out.split() if d.startswith("h0=")}
+              print(f"{y}: {len(hy)} h0 partitions"); h0s |= hy
+          print(f"union: {len(h0s)} h0 partitions", flush=True)
+
+          for h0 in sorted(h0s):
+              srcs = [f"{B}/staging-{y}/hex/h0={h0}/data_0.parquet" for y in YEARS]
+              exist = [s for s in srcs if subprocess.run(["rclone", "lsf", s.replace("s3://", "nrp:")],
+                        capture_output=True, text=True).stdout.strip()]
+              lst = ", ".join(f"'{s}'" for s in exist)
+              con.execute(f"""
+                COPY (
+                  WITH px AS (
+                    SELECT CAST(regexp_extract(filename, 'staging-(\\d{{4}})', 1) AS INTEGER) AS year,
+                           h8, h0, mangrove_px
+                    FROM read_parquet([{lst}], filename = true, hive_partitioning = false)
+                    WHERE mangrove_px > 0
+                  ), a AS (
+                    SELECT year, h8, h0, mangrove_px,
+                      ST_Area_Spheroid(ST_FlipCoordinates(ST_MakeEnvelope(
+                          h3_cell_to_lng(h8) - {PX}/2, h3_cell_to_lat(h8) - {PX}/2,
+                          h3_cell_to_lng(h8) + {PX}/2, h3_cell_to_lat(h8) + {PX}/2))) / 1e6 AS px_km2,
+                      ST_Area_Spheroid(ST_FlipCoordinates(
+                          ST_GeomFromText(h3_cell_to_boundary_wkt(h8)))) / 1e6 AS cell_km2
+                    FROM px
+                  )
+                  SELECT year::SMALLINT AS year,
+                         mangrove_px * px_km2 AS mangrove_km2,
+                         LEAST(mangrove_px * px_km2 / cell_km2, 1.0) AS mangrove_fraction,  -- clamp float rounding (~1e-9) on fully covered cells
+                         h8::UBIGINT AS h8, h0::UBIGINT AS h0
+                  FROM a ORDER BY year, h8
+                ) TO '{B}/extent/hex/h0={h0}/data_0.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)
+              """)
+              print(f"  h0={h0}: {len(exist)} years", flush=True)
+
+          print(con.sql(f"""
+            SELECT year, COUNT(*) cells, ROUND(SUM(mangrove_km2), 1) km2, ROUND(MAX(mangrove_fraction), 4) max_frac
+            FROM read_parquet('{B}/extent/hex/h0=*/data_0.parquet') GROUP BY year ORDER BY year"""))
+          PYEOF
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
