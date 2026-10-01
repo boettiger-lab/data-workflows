@@ -1,0 +1,100 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: forest-to-grass-shrub-binary-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: forest-to-grass-shrub-binary-hex
+spec:
+  completions: 6
+  parallelism: 6
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: forest-to-grass-shrub-binary-hex
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: BUCKET
+          value: public-land-cover
+        - name: CNG_HEX_WORKERS
+          value: '4'
+        - name: CNG_HEX_CHUNK_SIZE
+          value: '100000'
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 27GiB
+        - name: GDAL_CACHEMAX
+          value: '512'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - "set -e\n\n# Positions in the h0 grid's own ordering, not H3 base cell numbers\n\
+          # (--h0-subset / --h0-cells). The completion index selects one.\nH0S=(9\
+          \ 12 14 20 50 71)\nH0=${H0S[$JOB_COMPLETION_INDEX]}\nif [ -z \"${JOB_COMPLETION_INDEX}\"\
+          \ ] || [ -z \"$H0\" ]; then\n  echo \"No h0 cell for completion index '${JOB_COMPLETION_INDEX}'\
+          \ in (${H0S[*]}) \u2014 completions must match the --h0-subset length\"\
+          \ >&2\n  exit 1\nfi\n\ncng-datasets raster --input \"s3://public-land-cover/forest-to-grass-shrub/forest-to-grass-shrub-binary-cog.tif\"\
+          \ --output-parquet s3://public-land-cover/forest-to-grass-shrub/binary/hex/\
+          \ --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 --value-column\
+          \ forest_to_grass --hex-resampling max --nodata \"0\""
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
