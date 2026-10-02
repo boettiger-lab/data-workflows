@@ -1,0 +1,203 @@
+# Stage USGS OFR 97-709 (Kaiparowits Plateau coal) and reshape it for the convert step.
+#
+# Two source characteristics force a preprocess (issue #707):
+#   1. The shipped exports/*.e00 are COMPRESSED E00, which GDAL refuses
+#      ("ERROR 4: This looks like a compressed E00 file"). The archive also ships the
+#      native binary coverages under kaip/coverages/<scale>/, which the AVCBin driver
+#      opens directly. Polygons are the PAL sublayer, lines ARC, points LAB.
+#   2. The coverages are NAD27 (prj.adf: UTM / Zone 12 / CLARKE1866) but carry no datum,
+#      so GDAL reports DATUM["Not specified"]. That is EPSG:26712, not 26912; reading it
+#      as NAD83 displaces the data 212 m at the plateau centre.
+#
+# With no grid installed PROJ silently picks a ballpark Helmert (NAD27 to WGS 84 (4), 10 m).
+# This job fetches the NADCON grid so PROJ selects NAD27 to NAD83 (1) at 0.15 m instead.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kaiparowits-preprocess
+  namespace: geo-workflows
+  labels:
+    k8s-app: kaiparowits-preprocess
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: kaiparowits-preprocess
+    spec:
+      restartPolicy: Never
+      # Keep ClusterFirst so the INTERNAL S3 endpoint still resolves via CoreDNS; the
+      # public resolvers are a fallback for the pubs.usgs.gov / cdn.proj.org fetches on
+      # nodes whose CoreDNS upstream is flaky.
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: preprocess
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+            ephemeral-storage: "10Gi"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+            ephemeral-storage: "10Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scripts
+          mountPath: /scripts
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+
+          SRC_URL="https://pubs.usgs.gov/of/1997/ofr-97-0709/kaip.tar.gz"
+          EXPECT_BYTES=5368079
+          EXPECT_MD5=d680d23c47172d5ee1061728d7cd1632
+
+          echo "=== Download the archive ==="
+          curl -L --retry 8 --retry-delay 10 --retry-all-errors -o kaip.tar.gz "$SRC_URL"
+
+          echo "=== Fingerprint the archive against the issue (#707) ==="
+          bytes=$(stat -c %s kaip.tar.gz)
+          md5=$(md5sum kaip.tar.gz | cut -d' ' -f1)
+          echo "  bytes=$bytes md5=$md5"
+          [ "$bytes" = "$EXPECT_BYTES" ] || { echo "ERROR: size $bytes != $EXPECT_BYTES"; exit 1; }
+          [ "$md5" = "$EXPECT_MD5" ] || { echo "ERROR: md5 $md5 != $EXPECT_MD5"; exit 1; }
+
+          echo "=== Stage raw BEFORE processing ==="
+          rclone copyto kaip.tar.gz nrp:public-usgs/raw/kaiparowits/kaip.tar.gz -P
+
+          echo "=== Assert the datum shift is grid-based, not a ballpark Helmert ==="
+          # This image ships the NADCON grid, so /usr/bin/gdaltransform already resolves
+          # EPSG:26712 -> EPSG:4326 through NAD27 to NAD83 (1) at 0.15 m. Do NOT set
+          # PROJ_DATA to add pyproj's proj_dir: its proj.db is DATABASE.LAYOUT.VERSION
+          # MINOR 6 and GDAL's PROJ refuses anything below 7, which breaks every SRS
+          # lookup in this job.
+          #
+          # Assert the behaviour rather than the plumbing, so an image rebuild that drops
+          # the grid fails here instead of silently publishing a coarser transform. At the
+          # plateau centre the alternatives are far outside 1 m:
+          #   grid   -111.509799184592 37.497657710  (reference)
+          #   Helmert-111.509824377681 37.497658912  (2.2 m east, NAD27 to WGS 84 (4))
+          #   NAD83  -111.509076371974 37.495827709  (212 m, the 26912 mis-assignment)
+          echo "455000 4150000" | gdaltransform -s_srs EPSG:26712 -t_srs EPSG:4326 > /tmp/datum.txt
+          cat /tmp/datum.txt
+          python3 - <<'PY'
+          import math, sys
+          lon, lat = (float(v) for v in open("/tmp/datum.txt").read().split()[:2])
+          REF_LON, REF_LAT = -111.509799184592, 37.4976577100718
+          dx = (lon - REF_LON) * 111320 * math.cos(math.radians(REF_LAT))
+          dy = (lat - REF_LAT) * 110540
+          off = math.hypot(dx, dy)
+          print(f"  datum probe: {off:.2f} m from the NADCON reference")
+          if off > 1.0:
+              sys.exit(f"ERROR: NAD27->WGS84 is {off:.2f} m off the NADCON reference; "
+                       f"PROJ fell back to a coarser operation. Refusing to build.")
+          PY
+
+          echo "=== Extract ==="
+          mkdir -p /tmp/x && tar xzf kaip.tar.gz -C /tmp/x
+          ls /tmp/x/kaip/coverages
+
+          echo "=== Build the 14-layer GeoPackage ==="
+          SRC=/tmp/x OUT=/tmp/kaiparowits.gpkg bash /scripts/build-gpkg.sh
+
+          echo "=== Verify against the issue's independently-known figures ==="
+          python3 - <<'PY'
+          from osgeo import ogr
+          ogr.UseExceptions()
+          EXPECT = {
+              "allcoal": 5222, "fig22": 815, "kjh_thk": 124, "csb_struct": 239,
+              "dip": 57, "cb_int": 6, "csb": 6, "kdak": 26, "kjh_bkw": 20,
+              "kjh_kdt": 11, "structure": 327, "m_adit": 50, "kaipcoal": 209,
+              "twnshp": 190,
+          }
+          ds = ogr.Open("/tmp/kaiparowits.gpkg")
+          got = {ds.GetLayer(i).GetName(): ds.GetLayer(i).GetFeatureCount()
+                 for i in range(ds.GetLayerCount())}
+          bad = [f"{k}: {got.get(k)} != {v}" for k, v in EXPECT.items() if got.get(k) != v]
+          if got.keys() != EXPECT.keys():
+              bad.append(f"layer set {sorted(got)} != {sorted(EXPECT)}")
+
+          lyr = ds.GetLayerByName("allcoal")
+          total = sum((f.GetField("SHTONS_MIL") or 0.0) for f in lyr)
+          lyr.ResetReading()
+          fed = sum((f.GetField("SHTONS_MIL") or 0.0) for f in lyr
+                    if f.GetField("COAL_OWN") == "fed")
+          lyr.ResetReading()
+          iden = sum((f.GetField("SHTONS_MIL") or 0.0) for f in lyr
+                     if f.GetField("REL") == "iden")
+          print(f"  allcoal SHTONS_MIL total={total:.1f} fed={fed:.1f} iden={iden:.1f}")
+          for label, value, want in (("total", total, 72129.6), ("fed", fed, 65997.6),
+                                     ("iden", iden, 54878.8)):
+              if abs(value - want) > 0.5:
+                  bad.append(f"SHTONS_MIL {label}: {value:.1f} != {want}")
+
+          # A NAD83 mis-assignment lands ~200 m north of here; a null transform leaves
+          # the data in metres. Both fail this box.
+          xmin, xmax, ymin, ymax = lyr.GetExtent()
+          print(f"  allcoal extent: {xmin:.4f} {ymin:.4f} {xmax:.4f} {ymax:.4f}")
+          if not (-112.01 < xmin < -111.99 and -111.02 < xmax < -111.00
+                  and 37.06 < ymin < 37.08 and 37.94 < ymax < 37.96):
+              bad.append(f"allcoal extent {xmin},{ymin},{xmax},{ymax} outside the "
+                         f"expected WGS84 box for the plateau")
+
+          if bad:
+              raise SystemExit("VERIFY FAILED:\n  " + "\n  ".join(bad))
+          print("  OK")
+          PY
+
+          ls -lh /tmp/kaiparowits.gpkg
+          echo "=== Stage the GeoPackage ==="
+          rclone copyto /tmp/kaiparowits.gpkg nrp:public-usgs/raw/kaiparowits/kaiparowits.gpkg -P
+          echo "DONE"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scripts
+        configMap:
+          name: kaiparowits-preprocess-scripts
+          defaultMode: 0755
