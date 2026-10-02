@@ -1,0 +1,3193 @@
+{
+ "community": "https://www.sciencebase.gov/catalog/item/59cab03de4b017cf314094df",
+ "access_date": "2026-09-21",
+ "us_releases": 57,
+ "excluded_non_us_releases": 41,
+ "releases": [
+  {
+   "id": "5bbe723be4b0fc368eb3781f",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Appalachian Basin Province, Upper Devonian Shales Assessment Unit Boundaries and Assessment Input Forms",
+   "pubdate": "2018-10-26",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Appalachian Basin",
+    "Cleveland Continuous Gas",
+    "Huron Continuous Gas",
+    "Rhinestreet Continuous Gas",
+    "United States of America",
+    "State of Kentucky",
+    "State of New York",
+    "State of Ohio",
+    "State of Pennsylvania",
+    "State of Tennessee",
+    "State of Virginia",
+    "State of West Virginia"
+   ],
+   "bbox": {
+    "minX": -84.3214,
+    "maxX": -77.233,
+    "minY": 36.1623,
+    "maxY": 42.6327
+   },
+   "shapefiles": [
+    {
+     "name": "UpperDevonianShalesAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5bbe723be4b0fc368eb3781f?f=__disk__be%2F55%2Fcc%2Fbe55cc9337de31e26216ac670e5d6c2c52e7c420",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5bbe723be4b0fc368eb3781f?f=__disk__1f%2F31%2F41%2F1f31419113c2950b615e0a42d45eaaedd4d99f65",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5bbe723be4b0fc368eb3781f?f=__disk__2a%2Fcf%2Fd0%2F2acfd00cb22d7cb818ba34debfac1f97dcaebfb5",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5bbe723be4b0fc368eb3781f?f=__disk__ac%2F05%2F49%2Fac054944eae91f55608c7ea0fc3e757718b68485",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5bbe723be4b0fc368eb3781f?f=__disk__7f%2F85%2F37%2F7f8537adf8723283e0e77b42c5a164f762b8a657"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "UpperDevonianShalesAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5bbe723be4b0fc368eb3781f?f=__disk__f8%2F36%2F95%2Ff83695393d02e64683c37347ddc9aecf77dc9af2"
+    }
+   ]
+  },
+  {
+   "id": "5bd7650be4b0b3fc5ce77920",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Permian Basin Province, Delaware Basin, Wolfcamp Shale and Bone Spring Assessment Units and Input Data",
+   "pubdate": "2018-12-06",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Permian Basin",
+    "Delaware Basin",
+    "Wolfcamp D Continuous Gas, 50440178",
+    "Wolfcamp C Continuous Gas, 50440179",
+    "Wolfcamp C Continuous Oil, 50440180",
+    "Wolfcamp B Continuous Gas, 50440181",
+    "Wolfcamp B Continuous Oil, 50440182",
+    "Wolfcamp A Continuous Oil, 50440183",
+    "Third Bone Spring Continuous Oil, 50440184",
+    "Second Bone Spring Continuous Oil, 50440185",
+    "First Bone Spring Continuous Oil, 50440186",
+    "Lower Avalon Shale Continuous Oil, 50440187",
+    "Upper Avalon Shale Continuous Oil, 50440188",
+    "United States of America",
+    "State of New Mexico",
+    "State of Texas"
+   ],
+   "bbox": {
+    "minX": -104.93,
+    "maxX": -102.84,
+    "minY": 30.59,
+    "maxY": 32.84
+   },
+   "shapefiles": [
+    {
+     "name": "DelawareBasinAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5bd7650be4b0b3fc5ce77920?f=__disk__d8%2F50%2Ffb%2Fd850fb5a99c76d61209241e036c5ad8700f4c0dd",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5bd7650be4b0b3fc5ce77920?f=__disk__a0%2Fe6%2F64%2Fa0e6647c6151c16a018db0257c9f80bf489f4fb0",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5bd7650be4b0b3fc5ce77920?f=__disk__50%2F1b%2Ffc%2F501bfcbe4deafb532dd119244631ec63e0253eb3",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5bd7650be4b0b3fc5ce77920?f=__disk__13%2Fa4%2F20%2F13a42031dc28107822b7a16851c3fdb521e1ddce",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5bd7650be4b0b3fc5ce77920?f=__disk__fc%2Fab%2Fa5%2Ffcaba5058be05f0b5f2d44d42b0d119e1779c276"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "DelawareBasinAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5bd7650be4b0b3fc5ce77920?f=__disk__88%2F35%2F60%2F883560e0025d7d22a2c25505a91a4b85bc1b8927"
+    }
+   ]
+  },
+  {
+   "id": "5c659ae5e4b0fe48cb38fd64",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Permian Basin Province, Midland Basin, Wolfcamp Shale Assessment Unit Boundaries and Assessment Input Data Forms, Version 2.0",
+   "pubdate": "2019-03-14",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Texas",
+    "Permian Basin",
+    "Midland Basin",
+    "Midland Basin Wolfcamp A Continuous Oil",
+    "Midland Basin Wolfcamp B Upper Continuous Oil",
+    "Midland Basin Wolfcamp B Lower Continuous Oil",
+    "Midland Basin Wolfcamp C Continuous Oil",
+    "Midland Basin Wolfcamp D Continuous Oil",
+    "Midland Basin Northern Wolfcamp Continuous Oil"
+   ],
+   "bbox": {
+    "minX": -102.6,
+    "maxX": -99.95,
+    "minY": 30.7,
+    "maxY": 33.65
+   },
+   "shapefiles": [
+    {
+     "name": "MidlandBasinWolfcampAUs",
+     "parts": {
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5c659ae5e4b0fe48cb38fd64?f=__disk__2f%2Fda%2Ff4%2F2fdaf4d4b85ff7886ff3e272b3784bab1b895563",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5c659ae5e4b0fe48cb38fd64?f=__disk__54%2Ff0%2Ff7%2F54f0f7b75ff35592a068f60d69ee12b93d489692",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5c659ae5e4b0fe48cb38fd64?f=__disk__9e%2F9f%2F35%2F9e9f35fa702529429d34ee6344d2ed64f80df895",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5c659ae5e4b0fe48cb38fd64?f=__disk__9d%2F0e%2F84%2F9d0e846163b2f00aec91f3bbef301de1309cd9cc"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5c659ae5e4b0fe48cb38fd64?f=__disk__64%2Ff8%2Fe7%2F64f8e7112e0fa0ccfd74277656ed4f5a27bc4636"
+    }
+   ]
+  },
+  {
+   "id": "5d419ef1e4b01d82ce8da496",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Los Angeles Basin Province, Monterey Formation Assessment Unit Boundaries",
+   "pubdate": "2019-07-31",
+   "places": [
+    "California",
+    "Monterey",
+    "Central and Eastern Los Angeles Basin Monterey",
+    "Los Angeles Western Shelf Nodular Shale"
+   ],
+   "bbox": {
+    "minX": -118.6,
+    "maxX": -117.8,
+    "minY": 33.5,
+    "maxY": 34.25
+   },
+   "shapefiles": [
+    {
+     "name": "LABasinAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d419ef1e4b01d82ce8da496?f=__disk__82%2F62%2Fa8%2F8262a823d14565b854ff4402dbe1f89fad54e8cd",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d419ef1e4b01d82ce8da496?f=__disk__06%2F03%2Fa7%2F0603a761233817b0decc97db043ee85e29e180a8",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d419ef1e4b01d82ce8da496?f=__disk__97%2Fd3%2Fcb%2F97d3cb2a10ad938ea6d96fe6c1d69154f7d72056",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d419ef1e4b01d82ce8da496?f=__disk__fc%2F52%2F8d%2Ffc528d602e2bb033ccfd2b21d64bf99088592782",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d419ef1e4b01d82ce8da496?f=__disk__f5%2F1b%2F3f%2Ff51b3f81275969603bfceea08e131dab56f81e9b"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "P9MJYBN2_metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d419ef1e4b01d82ce8da496?f=__disk__0e%2F91%2F68%2F0e916896022bd19584b858154a6f175d01bc7e2b"
+    }
+   ]
+  },
+  {
+   "id": "5d42fea5e4b01d82ce8daf78",
+   "title": "USGS National and Global Oil and Gas Assessment Project-San Joaquin Basin Province, Monterey Formation Assessment Unit Boundaries",
+   "pubdate": "2019-08-01",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Monterey Buttonwillow",
+    "Monterey Maricopa",
+    "San Joaquin Basin",
+    "Province 10",
+    "California",
+    "San Joaquin"
+   ],
+   "bbox": {
+    "minX": -120.0,
+    "maxX": -118.75,
+    "minY": 34.75,
+    "maxY": 36.25
+   },
+   "shapefiles": [
+    {
+     "name": "SanJoaquinAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d42fea5e4b01d82ce8daf78?f=__disk__d2%2Fd3%2F39%2Fd2d339aa453b92671518a9cf7e36b7b05311f847",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d42fea5e4b01d82ce8daf78?f=__disk__f2%2F4d%2F15%2Ff24d153d1048799852894f199874db6c1dd1e7b0",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d42fea5e4b01d82ce8daf78?f=__disk__a0%2Fd3%2F83%2Fa0d38316f4639368a7110e929e89f7e906ed5938",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d42fea5e4b01d82ce8daf78?f=__disk__20%2F64%2Fc2%2F2064c2e0da933e3915feb4d1b3e32a6741358d00",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d42fea5e4b01d82ce8daf78?f=__disk__76%2F84%2Fb2%2F7684b215397664b7eed105e8b33f7bd48109827a"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "P95VYUY6_metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d42fea5e4b01d82ce8daf78?f=__disk__72%2F8a%2F9b%2F728a9bf395b2e5aa603782b5ea9e5f1d17d5870b"
+    }
+   ]
+  },
+  {
+   "id": "5d49cdf7e4b01d82ce8de898",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Ventura Basin Province, Monterey Formation Assessment Units Boundaries",
+   "pubdate": "2019-08-07",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "California",
+    "Ventura Basin",
+    "Ventura Basin Conventional Oil",
+    "Santa Clara Trough Monterey Continuous Oil"
+   ],
+   "bbox": {
+    "minX": -120.58,
+    "maxX": -118.3,
+    "minY": 34.05,
+    "maxY": 34.56
+   },
+   "shapefiles": [
+    {
+     "name": "VenturaBasinAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d49cdf7e4b01d82ce8de898?f=__disk__14%2F54%2Fd4%2F1454d4c725c6732a016e5568a4895f7a3acf3763",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d49cdf7e4b01d82ce8de898?f=__disk__f0%2F16%2Fbc%2Ff016bc104a262f525799b9c7fd3bbb34732d7d64",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d49cdf7e4b01d82ce8de898?f=__disk__82%2F00%2Fd7%2F8200d723772b2afc1e6282bf99fa020c85ac7521",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d49cdf7e4b01d82ce8de898?f=__disk__c7%2F91%2F1b%2Fc7911bef30b228695e00074a52730c51c43a82bd",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d49cdf7e4b01d82ce8de898?f=__disk__56%2F2d%2Fb2%2F562db250d051eeeba31b9319b8e2c71d4bc97119"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "P9TEGG5F_metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d49cdf7e4b01d82ce8de898?f=__disk__7e%2F56%2F85%2F7e56858c9e5966af9d74a99b7030cbebe09854d6"
+    }
+   ]
+  },
+  {
+   "id": "5d1246c2e4b0941bde56e84f",
+   "title": "USGS Gulf Coast Petroleum Systems, and National and Global Oil and Gas Assessment Projects-Eagle Ford Group and Associated Cenomanian-Turonian Strata Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2019-08-21",
+   "places": [
+    "United States of America",
+    "State of Louisiana",
+    "State of Texas",
+    "State of Mississippi",
+    "Eagle Ford Marl Continuous Oil",
+    "Eagle Ford Marl Continuous Gas",
+    "Submarine Plateau - Karnes Trough Continuous Oil",
+    "Submarine Plateau - Karnes Trough Continuous Gas",
+    "Cenomanian-Turonian Mudstone Continuous Oil",
+    "Cenomanian-Turonian Mudstone Continuous Gas",
+    "Cenomanian-Turonian Downdip Continuous Gas"
+   ],
+   "bbox": {
+    "minX": -100.7,
+    "maxX": -89.3,
+    "minY": 25.75,
+    "maxY": 31.75
+   },
+   "shapefiles": [
+    {
+     "name": "EagleFordAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d1246c2e4b0941bde56e84f?f=__disk__bb%2Fa4%2Fd5%2Fbba4d533cdb5239407d72014fd14539b25ee8c9f",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1246c2e4b0941bde56e84f?f=__disk__85%2F31%2F99%2F853199a82f815e8825bdef36155af230a762ef62",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1246c2e4b0941bde56e84f?f=__disk__dc%2F43%2Fd4%2Fdc43d4ccb4f354b3f97f1ee20257148bd9e80922",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1246c2e4b0941bde56e84f?f=__disk__54%2F8a%2Fba%2F548aba4adcbb84201297d8f681a871a12cacc8da",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1246c2e4b0941bde56e84f?f=__disk__38%2Fd0%2F09%2F38d009357d991952716d68b14f44bc5c236e4bc5"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "EagleFordAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1246c2e4b0941bde56e84f?f=__disk__03%2F8e%2F8e%2F038e8e5ad4ef47b79b0477335e3e36b7691c6bf8"
+    }
+   ]
+  },
+  {
+   "id": "5d6005a6e4b01d82ce9853e3",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Northern Alaska Province, Gas Hydrate Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2019-09-10",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Northern Alaska Province",
+    "Sagavanirktok Formation Gas Hydrate",
+    "Tuluvak-Schrader Bluff-Prince Creek Formation Gas Hydrate",
+    "Nanushuk Formation Gas Hydrate",
+    "United States of America",
+    "State of Alaska"
+   ],
+   "bbox": {
+    "minX": -161.3,
+    "maxX": -141.9,
+    "minY": 68.8,
+    "maxY": 71.0
+   },
+   "shapefiles": [
+    {
+     "name": "GasHydrateAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d6005a6e4b01d82ce9853e3?f=__disk__fd%2Fe5%2Fdc%2Ffde5dc5641e5c974e378546deb38468b4f8bd74f",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d6005a6e4b01d82ce9853e3?f=__disk__bb%2F5e%2F76%2Fbb5e767adc091311b250185177a90a477622d2fb",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d6005a6e4b01d82ce9853e3?f=__disk__4a%2F83%2F77%2F4a8377c0b04930ec35a23e6c282dfbe71e4f2857",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d6005a6e4b01d82ce9853e3?f=__disk__6e%2F76%2F77%2F6e7677835da45e71bfd9099cd8b180e86bd9cb65",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d6005a6e4b01d82ce9853e3?f=__disk__55%2F5f%2F71%2F555f71e71edfd667e84306a318a3e5ab7ca537d0"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "P9HSWE98_metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d6005a6e4b01d82ce9853e3?f=__disk__a4%2Fdc%2F56%2Fa4dc5634b658466b79cca4029bd541071def589c"
+    }
+   ]
+  },
+  {
+   "id": "5d4b2c7ce4b01d82ce8df35c",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Appalachian Basin Province, Middle Devonian Marcellus Shale Assessment Units and Input Data Forms",
+   "pubdate": "2019-10-02",
+   "places": [
+    "United States of America",
+    "State of Kentucky",
+    "State of Maryland",
+    "State of New York",
+    "State of Ohio",
+    "State of Pennsylvania",
+    "State of Tennessee",
+    "State of Virginia",
+    "State of West Virginia",
+    "Foldbelt Marcellus Shale Gas",
+    "Western Margin Marcellus Shale Gas",
+    "Northern Interior Marcellus Shale Gas",
+    "Southern Interior Marcellus Shale Gas",
+    "Southwestern Interior Marcellus Shale Gas",
+    "Eastern Interior Marcellus Shale Gas"
+   ],
+   "bbox": {
+    "minX": -83.6915,
+    "maxX": -73.9786,
+    "minY": 36.1767,
+    "maxY": 42.9503
+   },
+   "shapefiles": [
+    {
+     "name": "MiddleDevonianMarcellusShaleAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d4b2c7ce4b01d82ce8df35c?f=__disk__b4%2Ffc%2F3c%2Fb4fc3ce868d30e5b8953a0f8c5f1156b3e6ea106",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d4b2c7ce4b01d82ce8df35c?f=__disk__02%2Fe8%2F66%2F02e86659b2d7b3cdbeeb304a6418ac6472a12e23",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d4b2c7ce4b01d82ce8df35c?f=__disk__18%2Fb4%2Fe6%2F18b4e6e99055135cbbd86cd73bc0eaa0318f4606",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d4b2c7ce4b01d82ce8df35c?f=__disk__b2%2F65%2F6d%2Fb2656d89e3516a282241c8c1227e3a17fdf4cd3a",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d4b2c7ce4b01d82ce8df35c?f=__disk__28%2F77%2F65%2F287765fffd218032ced85306da0d8a447b58a0cf"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "P9S948U5_metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d4b2c7ce4b01d82ce8df35c?f=__disk__0c%2F5c%2Fbb%2F0c5cbb993eabb5f389b94c4bd17cce8b241d1305"
+    }
+   ]
+  },
+  {
+   "id": "5d87dd9fe4b0c4f70d0aaf62",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Appalachian Basin Province, Point Pleasant Formation and Utica Shale Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2019-10-02",
+   "places": [
+    "United States of America",
+    "State of Kentucky",
+    "State of Maryland",
+    "State of New York",
+    "State of Ohio",
+    "State of Pennsylvania",
+    "State of Virginia",
+    "State of West Virginia",
+    "Point Pleasant-Utica Shale Oil",
+    "Point Pleasant-Utica Shale Gas",
+    "Point Pleasant-Utica Foldbelt Gas",
+    "Logana Shale Oil",
+    "Logana Shale Gas"
+   ],
+   "bbox": {
+    "minX": -83.53,
+    "maxX": -74.1,
+    "minY": 38,
+    "maxY": 43.75
+   },
+   "shapefiles": [
+    {
+     "name": "UticaAUs",
+     "parts": {
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d87dd9fe4b0c4f70d0aaf62?f=__disk__f1%2Fea%2F8a%2Ff1ea8a9cd4cb215ebdec56a5a99e61380ee3db87",
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d87dd9fe4b0c4f70d0aaf62?f=__disk__20%2F72%2Fd6%2F2072d6806f592e3a4861c30fab526cb85ca0da00",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d87dd9fe4b0c4f70d0aaf62?f=__disk__ec%2F1d%2F3b%2Fec1d3b47e7860a4958c807bcc54a134e8d6b7afa",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d87dd9fe4b0c4f70d0aaf62?f=__disk__96%2F2a%2F4b%2F962a4b4c48adf1bc0e050e63cc787a82684e26b9",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d87dd9fe4b0c4f70d0aaf62?f=__disk__f4%2F9d%2F87%2Ff49d87a1e01412ac5037495ca52133d2bc17f371"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "P93RVVAL_metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d87dd9fe4b0c4f70d0aaf62?f=__disk__8b%2Fac%2F22%2F8bac22fa6ec8506ec41060c74fc12763081bbe3a"
+    }
+   ]
+  },
+  {
+   "id": "5d94f906e4b0c4f70d1034f6",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Bighorn Basin Province, Niobrara Formation Assessment Units and Input Data Forms",
+   "pubdate": "2019-10-16",
+   "places": [
+    "United States of America",
+    "State of Montana",
+    "State of Wyoming",
+    "Bighorn Niobrara Shale Gas",
+    "Bighorn Niobrara Shale Oil",
+    "Bighorn Basin Province"
+   ],
+   "bbox": {
+    "minX": -109.0871,
+    "maxX": -107.4156,
+    "minY": 43.6642,
+    "maxY": 44.936
+   },
+   "shapefiles": [
+    {
+     "name": "BighornNiobraraShaleAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d94f906e4b0c4f70d1034f6?f=__disk__fb%2F94%2Fc4%2Ffb94c4e3f2ae56ce82ded8eb238310a3fb85eb3b",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d94f906e4b0c4f70d1034f6?f=__disk__9b%2Fe7%2F53%2F9be753e9ec94c68a9b9ab3ecaa078e9361258f66",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d94f906e4b0c4f70d1034f6?f=__disk__7b%2Fb8%2Fc5%2F7bb8c52c83c8c6376b9b9069b58ac1ce8850e6e2",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d94f906e4b0c4f70d1034f6?f=__disk__1b%2F44%2Ff5%2F1b44f59afb275a49cb61716bdd90c1ac99cd6ece",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d94f906e4b0c4f70d1034f6?f=__disk__23%2F68%2Fbe%2F2368bed52a1cd9e71f49eaaf9ba6763451f26995"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "P9N01F7H_metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d94f906e4b0c4f70d1034f6?f=__disk__ef%2F1e%2F83%2Fef1e83818711fc9589e655e6be75f9c36ea9614c"
+    }
+   ]
+  },
+  {
+   "id": "5d961fd5e4b0c4f70d110e3c",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Piceance and Uinta Basins, Mesaverde Group Tight Gas Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2019-10-16",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Uinta-Piceance Basin Province",
+    "Piceance Mesaverde Tight Gas",
+    "Uinta Mesaverde Tight Gas",
+    "United States of America",
+    "State of Colorado",
+    "State of Utah"
+   ],
+   "bbox": {
+    "minX": -111.2418,
+    "maxX": -107.3364,
+    "minY": 39.0604,
+    "maxY": 40.5283
+   },
+   "shapefiles": [
+    {
+     "name": "MesaverdeTightGasAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d961fd5e4b0c4f70d110e3c?f=__disk__f5%2Fd7%2F7c%2Ff5d77c557503db7edb0f7c130c49d99a7e835bc0",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d961fd5e4b0c4f70d110e3c?f=__disk__7e%2F8b%2F31%2F7e8b315cbdf5e95cf4bd32c2b04f07a6276f18b3",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d961fd5e4b0c4f70d110e3c?f=__disk__37%2F84%2Fd6%2F3784d6beabf0a7a908d89cecc0a0c76d4279e2dc",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d961fd5e4b0c4f70d110e3c?f=__disk__63%2F80%2Fbe%2F6380bea18331aa9d84f5eee86779ba3d68e6acc4",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d961fd5e4b0c4f70d110e3c?f=__disk__fc%2Fc8%2F79%2Ffcc8796eea0c0b0f5bd725040699e8f1460920f6"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "P935RLIG_metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d961fd5e4b0c4f70d110e3c?f=__disk__2e%2F03%2F3b%2F2e033bee9c68f7590fa61b6b05f7cfd4ae1363e2"
+    }
+   ]
+  },
+  {
+   "id": "5e20901be4b0ecf25c65ae5a",
+   "title": "USGS Alaska Petroleum Systems Project - Northern Alaska Province, Central North Slope Assessment Unit Boundaries and Assessment Input Forms, 2020",
+   "pubdate": "2020-01-23",
+   "places": [
+    "United States of America",
+    "State of Alaska",
+    "Brookian Topset",
+    "Brookian Foreset-Bottomset",
+    "Beaufortian Strata North",
+    "Beaufortian Strata South",
+    "Ellesmerian Strata North",
+    "Ellesmerian Strata South"
+   ],
+   "bbox": {
+    "minX": -156.205,
+    "maxX": -145.6472,
+    "minY": 68.1446,
+    "maxY": 70.6697
+   },
+   "shapefiles": [
+    {
+     "name": "CNS_AUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5e20901be4b0ecf25c65ae5a?f=__disk__42%2Ff1%2Fc3%2F42f1c302e01fbd86394dd5adf7150d2124718351",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5e20901be4b0ecf25c65ae5a?f=__disk__84%2F0f%2Fdb%2F840fdb598bc8798502102e288b1f17cce30590ef",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5e20901be4b0ecf25c65ae5a?f=__disk__23%2F61%2F4d%2F23614dc4c4fa2f0fab544f44bdfbc674d86f7d35",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5e20901be4b0ecf25c65ae5a?f=__disk__84%2F67%2F74%2F84677451ef5dadc5a7081d4bbe740082edb34784",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5e20901be4b0ecf25c65ae5a?f=__disk__b9%2Fc8%2F76%2Fb9c876b2f64ecf83188dd12856cfca1abd6768a0"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "P91SK721_metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5e20901be4b0ecf25c65ae5a?f=__disk__4b%2F0e%2F28%2F4b0e28d33481ab8094581cd6b3929515d93f1180"
+    }
+   ]
+  },
+  {
+   "id": "5d1cdfcee4b0941bde64b575",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Permian Basin Province, Midland Basin, Spraberry Formation Assessment Units",
+   "pubdate": "2020-02-21",
+   "places": [
+    "United States of America",
+    "State of Texas",
+    "Permian Basin",
+    "Midland Basin",
+    "Northern Spraberry Conventional Oil",
+    "Lower Spraberry Continuous Oil Trend",
+    "Middle Spraberry Continuous Oil Trend"
+   ],
+   "bbox": {
+    "minX": -102.6,
+    "maxX": -100.4,
+    "minY": 30.6,
+    "maxY": 33.7
+   },
+   "shapefiles": [
+    {
+     "name": "SpraberryAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d1cdfcee4b0941bde64b575?f=__disk__af%2F39%2Ff8%2Faf39f80dee1781f1743586959c86fe71acbe054b",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1cdfcee4b0941bde64b575?f=__disk__6d%2Fe3%2F09%2F6de309cf16c465c128d9eaa8605fc13e22dbcba4",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1cdfcee4b0941bde64b575?f=__disk__0b%2Fc4%2F6f%2F0bc46fb50f205c1a7b5225c8199e5e46d000834f",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1cdfcee4b0941bde64b575?f=__disk__6c%2F41%2F93%2F6c41937327b92f543f351d8f34d1ea4991066268",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1cdfcee4b0941bde64b575?f=__disk__79%2F55%2F09%2F795509daeea35f952fd159a047c3ac5d32eeb1a9"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "USGS National and Global Oil and Gas Assessment Project-Permian Basin Province, Midland Basin, Spraberry Formation Assessment Units.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1cdfcee4b0941bde64b575?f=__disk__ae%2F4b%2F0a%2Fae4b0a26f9060f5b266e6ba30da1bd6102a0fd85"
+    }
+   ]
+  },
+  {
+   "id": "5d1ce2fde4b0941bde64c542",
+   "title": "USGS Alaska Petroleum Systems Project: Northern Alaska Province, Nanushuk and Torok Formations Assessment Units and Assessment Input Forms",
+   "pubdate": "2020-02-26",
+   "places": [
+    "United States of America",
+    "State of Alaska",
+    "Northern Alaska",
+    "Nanushuk Northeast",
+    "Nanushuk Northwest",
+    "Nanushuk South",
+    "Torok Northeast",
+    "Torok Northwest",
+    "Torok South"
+   ],
+   "bbox": {
+    "minX": -166.2,
+    "maxX": -147.6,
+    "minY": 68.4,
+    "maxY": 71.5
+   },
+   "shapefiles": [
+    {
+     "name": "NanushukTorokAUs",
+     "parts": {},
+     "fallback": {
+      "name": "NanushukTorokAUs.json",
+      "url": "https://www.sciencebase.gov/catalog/file/get/5d1ce2fde4b0941bde64c542?f=__disk__4d%2Fad%2F76%2F4dad76f7385f71435b6392f704e8f2c3a9906410"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "P9QSJKNF_metadata.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1ce2fde4b0941bde64c542?f=__disk__46%2F15%2F80%2F4615806495462a967d83db1a5285810d8588b45b"
+    }
+   ]
+  },
+  {
+   "id": "5d1ce831e4b0941bde64cd87",
+   "title": "USGS National and Global Oil and Gas Assessment Project - North-Central Montana and Williston Basin Provinces, Heath Formation Assessment Unit Boundaries",
+   "pubdate": "2020-02-27",
+   "places": [
+    "United States of America",
+    "State of Montana",
+    "State of North Dakota"
+   ],
+   "bbox": {
+    "minX": -111,
+    "maxX": -103.8,
+    "minY": 46.3,
+    "maxY": 47.8
+   },
+   "shapefiles": [
+    {
+     "name": "HeathAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d1ce831e4b0941bde64cd87?f=__disk__b5%2Fb9%2Fe2%2Fb5b9e2a799e3a1b05a7d51f32fa642ad32406387",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1ce831e4b0941bde64cd87?f=__disk__16%2F81%2Fb6%2F1681b6211a5e4f8301b7d8e734f3e0c5e45812d4",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1ce831e4b0941bde64cd87?f=__disk__da%2F21%2Fee%2Fda21eee143260ddd993f9c82c04e56a5c1a8c925",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1ce831e4b0941bde64cd87?f=__disk__5e%2F0f%2F2b%2F5e0f2b5ecdc4772145b6718143424199fb6a1fb5",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1ce831e4b0941bde64cd87?f=__disk__98%2Fcb%2F60%2F98cb60dde0d717810fccd277a1e36c3f5fe25465"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "USGS National and Global Oil and Gas Assessment Project - North-Central Montana and Williston Basin Provinces, Heath Formation Assessment Unit Boundaries.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1ce831e4b0941bde64cd87?f=__disk__7e%2F91%2F74%2F7e9174776883df33169a7fdf99f169cfbdd49ba4"
+    }
+   ]
+  },
+  {
+   "id": "5d1cfca5e4b0941bde64ce92",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Gulf Coast Mesozoic Province, Bossier Formation Assessment Units",
+   "pubdate": "2020-03-03",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Alabama",
+    "Arkansas",
+    "Florida",
+    "Louisiana",
+    "Mississippi",
+    "Texas",
+    "Gulf Coast",
+    "Bossier Eastern Shelf Sandstone Gas",
+    "Bossier Western Shelf Sandstone Gas",
+    "Bossier Shale Continuous Gas",
+    "Upper Jurassic Continuous Gas"
+   ],
+   "bbox": {
+    "minX": -100.7,
+    "maxX": -86,
+    "minY": 25.75,
+    "maxY": 33.7
+   },
+   "shapefiles": [
+    {
+     "name": "BossierAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d1cfca5e4b0941bde64ce92?f=__disk__2d%2F32%2F20%2F2d3220524592222bf5f0b0ed3135436572c11056",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1cfca5e4b0941bde64ce92?f=__disk__04%2F1b%2Ffb%2F041bfb801c0b3d76bff09d1df9191277f7787647",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1cfca5e4b0941bde64ce92?f=__disk__e7%2Fae%2F38%2Fe7ae38d1f608c83e37bb9e726a10ea32b701ce31",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1cfca5e4b0941bde64ce92?f=__disk__a9%2F28%2F6d%2Fa9286d7cf3b0520e3c76bd75da7b95caa447753f",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1cfca5e4b0941bde64ce92?f=__disk__50%2F10%2F4f%2F50104f2d2e3050f53c4bc934eba106d3c414b203"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "USGS National and Global Oil and Gas Assessment Project-Gulf Coast Mesozoic Province, Bossier Formation Assessment Units.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1cfca5e4b0941bde64ce92?f=__disk__f6%2Fb8%2F44%2Ff6b844dedaff5a938f4240b2c6eb230a9707be23"
+    }
+   ]
+  },
+  {
+   "id": "5d1cfe78e4b0941bde64ce9a",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Gulf Coast Mesozoic Province, Haynesville Formation Assessment Units",
+   "pubdate": "2020-03-03",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Alabama",
+    "Arkansas",
+    "Florida",
+    "Louisiana",
+    "Mississippi",
+    "Texas",
+    "Gulf Coast",
+    "Haynesville Eastern Shelf Sandstone and Carbonate Oil and Gas",
+    "Haynesville Shale Continuous Gas",
+    "Haynesville Shale Peripheral Continuous Gas",
+    "Haynesville Western Shelf Carbonate Gas and Oil"
+   ],
+   "bbox": {
+    "minX": -100.1,
+    "maxX": -84.5,
+    "minY": 26.7,
+    "maxY": 33.35
+   },
+   "shapefiles": [
+    {
+     "name": "HaynesvilleAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d1cfe78e4b0941bde64ce9a?f=__disk__ab%2F80%2Fee%2Fab80ee4acd05941e6bd1d5cdeab0ab59559fb2df",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1cfe78e4b0941bde64ce9a?f=__disk__16%2F1e%2Ff6%2F161ef63b5186fc43c85719f80f7480bf5787092b",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1cfe78e4b0941bde64ce9a?f=__disk__d3%2Ffe%2Fba%2Fd3feba3474a8a1f900c5c581942f9db42a8fe904",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1cfe78e4b0941bde64ce9a?f=__disk__c2%2Fe1%2Ff8%2Fc2e1f85317ec785f1012f2a091884b7f4867f3c4",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1cfe78e4b0941bde64ce9a?f=__disk__3c%2F3f%2F2a%2F3c3f2afed86e11d24196f94fa9c4e468f83745da"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "USGS National and Global Oil and Gas Assessment Project-Gulf Coast Mesozoic Province, Haynesville Formation Assessment Units.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1cfe78e4b0941bde64ce9a?f=__disk__e3%2F0c%2F42%2Fe30c42b79d04b3c5825461685a6f2a2ec49535b4"
+    }
+   ]
+  },
+  {
+   "id": "5d1d06c0e4b0941bde64cec4",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Permian Basin Province, Val Verde Basin, Canyon Sandstones Assessment Units",
+   "pubdate": "2020-03-04",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Permian Basin",
+    "Val Verde Basin",
+    "Ozona Sandstone Fairway",
+    "Ozona Sandstone Peripheral",
+    "Sonora Sandstone Fairway",
+    "Sonora Sandstone Peripheral"
+   ],
+   "bbox": {
+    "minX": -101.8,
+    "maxX": -99.75,
+    "minY": 29.4,
+    "maxY": 31
+   },
+   "shapefiles": [
+    {
+     "name": "ValVerdeAUs",
+     "parts": {
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1d06c0e4b0941bde64cec4?f=__disk__43%2F01%2F0f%2F43010f702b8d18673cae89444436a0c17cd65c33",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1d06c0e4b0941bde64cec4?f=__disk__5b%2F1e%2F58%2F5b1e58c5a204f88b5ac9bd9c99ca9c2162fb08d4",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1d06c0e4b0941bde64cec4?f=__disk__9b%2F63%2F17%2F9b631765ccf0ce6715e87094815504799333a59c",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1d06c0e4b0941bde64cec4?f=__disk__1e%2Faf%2Fac%2F1eafacd045cee61d9678ed426338e7710accbf6f"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "USGS National and Global Oil and Gas Assessment Project-Permian Basin Province, Val Verde Basin, Canyon Sandstones Assessment Units.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1d06c0e4b0941bde64cec4?f=__disk__fe%2Fa8%2F86%2Ffea886f4dd3050e0bd0b0c700b524b7c37f8bfcf"
+    }
+   ]
+  },
+  {
+   "id": "5d1d0895e4b0941bde64cecb",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Permian Basin Province, Midland Basin, Wolfcamp Shale Assessment Units",
+   "pubdate": "2020-03-04",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Texas",
+    "Permian Basin",
+    "Midland Basin",
+    "Midland Basin Wolfcamp A Continuous Oil",
+    "Midland Basin Wolfcamp B Upper Continuous Oil",
+    "Midland Basin Wolfcamp B Lower Continuous Oil",
+    "Midland Basin Wolfcamp C Continuous Oil",
+    "Midland Basin Wolfcamp D Continuous Oil",
+    "Midland Basin Northern Wolfcamp Continuous Oil"
+   ],
+   "bbox": {
+    "minX": -102.6,
+    "maxX": -99.95,
+    "minY": 30.7,
+    "maxY": 33.65
+   },
+   "shapefiles": [
+    {
+     "name": "MidlandBasinWolfcampAUs",
+     "parts": {
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1d0895e4b0941bde64cecb?f=__disk__32%2Fa6%2Fbc%2F32a6bc9324055d17fe5160af1629158fd5ddab30",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1d0895e4b0941bde64cecb?f=__disk__69%2F8c%2F1e%2F698c1e30fe29a20a27bdc19c8df08aecd3cfc4f6",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1d0895e4b0941bde64cecb?f=__disk__88%2F67%2Fef%2F8867efce0e6fb9f63387a07e44f949dbf76104b3",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1d0895e4b0941bde64cecb?f=__disk__90%2Fbc%2F83%2F90bc83b45215c32309c57707b43433a1e25485b0"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "USGS National and Global Oil and Gas Assessment Project-Permian Basin Province, Midland Basin, Wolfcamp Shale Assessment Units.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1d0895e4b0941bde64cecb?f=__disk__07%2F0d%2Fa2%2F070da2d8e2d798197c9bf28d08ba80a75dc80a6d"
+    }
+   ]
+  },
+  {
+   "id": "5d1bc7aae4b0941bde6211a6",
+   "title": "USGS National Assessment of Oil and Gas Project - Uteland Butte Assessment Units",
+   "pubdate": "2020-03-05",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Uteland Butte Marginal Lacustrine Conventional Oil and Gas",
+    "Uteland Butte Carbonate Continuous Oil"
+   ],
+   "bbox": {
+    "minX": -111,
+    "maxX": -109,
+    "minY": 39.4,
+    "maxY": 40.5
+   },
+   "shapefiles": [
+    {
+     "name": "UtelandButteAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d1bc7aae4b0941bde6211a6?f=__disk__a3%2Fd9%2Fc5%2Fa3d9c502da66ba27f6c50e05d3b676e3f71fe945",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1bc7aae4b0941bde6211a6?f=__disk__40%2Fd5%2F4f%2F40d54f3442b1edd14dc36ead7d473839c45c4e5b",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1bc7aae4b0941bde6211a6?f=__disk__65%2F7a%2Fe3%2F657ae394d94afc1d7f351650d5a6784ad7e02364",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1bc7aae4b0941bde6211a6?f=__disk__61%2F24%2F09%2F612409f004a97dd11ccd4392a1be951c43cbd303",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1bc7aae4b0941bde6211a6?f=__disk__af%2Ff6%2Ff7%2Faff6f75028afa3412fc1bbe66a234b29cf579e7a"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "National Assessment of Oil and Gas Project - Uteland Butte Assessment Units.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1bc7aae4b0941bde6211a6?f=__disk__79%2Fad%2F9d%2F79ad9d31baeab7fd7c204f5c99302f33c3ac1388"
+    }
+   ]
+  },
+  {
+   "id": "5d1cc5b4e4b0941bde648601",
+   "title": "National Assessment of Oil and Gas - Cotton Valley Group and Travis Peak-Hosston Formation Assessment Units, Western Gulf and East Texas Basin and Louisiana-Mississippi Salt Basins Provinces (047, 048 and 049)",
+   "pubdate": "2020-03-05",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "East Texas Basin",
+    "Louisiana-Mississippi Salt Basins",
+    "Gulf Coast",
+    "TX",
+    "LA",
+    "MS",
+    "AL",
+    "AR",
+    "FL",
+    "US01 = Alabama",
+    "US05 = Arkansas",
+    "US12 = Florida",
+    "US22 = Louisiana",
+    "US28 = Mississippi",
+    "US48 = Texas",
+    "47 = Western Gulf",
+    "48 = East Texas Basin",
+    "49 = Louisiana-Mississippi Salt Basins",
+    "504701 = Upper Jurassic-Cretaceous-Tertiary Composite",
+    "50470108 = Cotton Valley Blanket Sandstone Gas",
+    "50470109 = Cotton Valley Massive Sandstone Gas",
+    "50470110 = Cotton Valley Updip Oil and Gas",
+    "50470111 = Cotton Valley Hypothetical Updip Oil",
+    "50470112 = Travis Peak-Hosston Gas and Oil",
+    "50470113 = Travis Peak-Hosston Updip Oil",
+    "50470114 = Travis Peak-Hosston Hypothetical Updip Oil"
+   ],
+   "bbox": {
+    "minX": -98,
+    "maxX": -83,
+    "minY": 29,
+    "maxY": 35
+   },
+   "shapefiles": [
+    {
+     "name": "au4701eg",
+     "parts": {
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1cc5b4e4b0941bde648601?f=__disk__a6%2Fe3%2F25%2Fa6e325849952c12678a6ba22692dad7ed2cf450d",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1cc5b4e4b0941bde648601?f=__disk__00%2F2c%2F95%2F002c95a0aad5124b5adc9d98bc4bcf30b4e5ee40",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1cc5b4e4b0941bde648601?f=__disk__a3%2F71%2F2a%2Fa3712a1178d83784c7799acd8cddc3816a2a19fc",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1cc5b4e4b0941bde648601?f=__disk__48%2F44%2F37%2F484437dbf07e0aadc1769e9997a6cd4cdf6f0bfb"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "National Assessment of Oil and Gas - Cotton Valley Group and Travis Peak-Hosston Formation Assessment Units, Western Gulf and East Texas Basin and Louisiana-Mississippi Salt Basins Provinces.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1cc5b4e4b0941bde648601?f=__disk__63%2F03%2Fe3%2F6303e3364b8d273f2d840f4103f337ba64b1c056"
+    }
+   ]
+  },
+  {
+   "id": "5d1cdb5fe4b0941bde64b08b",
+   "title": "National Assessment of Oil and Gas Project - Utica Shale Unconventional Assessment",
+   "pubdate": "2020-03-05",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Utica Shale Oil",
+    "Utica Shale Gas"
+   ],
+   "bbox": {
+    "minX": -85,
+    "maxX": -73.5,
+    "minY": 35.5,
+    "maxY": 45
+   },
+   "shapefiles": [
+    {
+     "name": "UticaShaleAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d1cdb5fe4b0941bde64b08b?f=__disk__44%2Fa7%2F18%2F44a718e645b2ae5d232fab7f2db05db09e7e5f82",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1cdb5fe4b0941bde64b08b?f=__disk__ae%2Fd6%2Fe6%2Faed6e68393806f5a5ad6cfe54f80e2099be303fc",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1cdb5fe4b0941bde64b08b?f=__disk__2d%2F50%2F32%2F2d5032757c44dfbb34920df00821a392ba1d3452",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1cdb5fe4b0941bde64b08b?f=__disk__ce%2Ffe%2F14%2Fcefe140b660e5384be3ba70060ef4c6563629681",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1cdb5fe4b0941bde64b08b?f=__disk__3a%2F1d%2F83%2F3a1d835c56eeb55f3ac0147e7f08acc37058c778"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "National Assessment of Oil and Gas Project - Utica Shale Unconventional Assessment.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1cdb5fe4b0941bde64b08b?f=__disk__33%2Ffd%2F1f%2F33fd1f0e788ebd5c9af8f3230c25dde517fa6b7d"
+    }
+   ]
+  },
+  {
+   "id": "5d1d0babe4b0941bde64ced2",
+   "title": "USGS National Assessment of Oil and Gas Project - Uinta-Piceance Province, Mancos Formation Assessment Units",
+   "pubdate": "2020-03-05",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Lower Mancos Tight Gas",
+    "Upper Mancos Tight Gas",
+    "Lower Niobrara Tight Gas",
+    "Upper Niobrara Shale Gas",
+    "Upper Niobrara Shale Oil"
+   ],
+   "bbox": {
+    "minX": -109.15,
+    "maxX": -106.8,
+    "minY": 38.5,
+    "maxY": 40.5
+   },
+   "shapefiles": [
+    {
+     "name": "MancosAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d1d0babe4b0941bde64ced2?f=__disk__ed%2F56%2F00%2Fed56008d792bb9a1275c821255d8533ecce2fd1b",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1d0babe4b0941bde64ced2?f=__disk__a7%2F64%2F01%2Fa764019965f367ee76020c681ef511186f41fa09",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1d0babe4b0941bde64ced2?f=__disk__d3%2F55%2Ff2%2Fd355f28e63142fbc5f7f972d7f5ec0c62d14ae76",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1d0babe4b0941bde64ced2?f=__disk__9a%2F19%2F33%2F9a19330637bd9e6dfb4d3054e5471584e3207c83",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1d0babe4b0941bde64ced2?f=__disk__6f%2F4b%2F2d%2F6f4b2ddac4201c326885a866b450af32c4c6b0c8"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "USGS National Assessment of Oil and Gas Project -  Uinta-Piceance Province, Mancos Formation Assessment Units.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1d0babe4b0941bde64ced2?f=__disk__93%2Fef%2Fba%2F93efba1a416ee37753d72344a73f2a39055f4590"
+    }
+   ]
+  },
+  {
+   "id": "5d1d0ff6e4b0941bde64ced9",
+   "title": "USGS National Assessment of Oil and Gas Project - Cherokee Platform Province Assessment Units",
+   "pubdate": "2020-03-05",
+   "places": [
+    "United States",
+    "USGS World Energy Region 5",
+    "U.S.A.",
+    "Desmoinesian Coalbed Gas",
+    "Woodford Shale Oil",
+    "Woodford Biogenic Gas",
+    "Paleozoic Composite"
+   ],
+   "bbox": {
+    "minX": -98,
+    "maxX": -94,
+    "minY": 34.25,
+    "maxY": 38.5
+   },
+   "shapefiles": [
+    {
+     "name": "CherokeeAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5d1d0ff6e4b0941bde64ced9?f=__disk__0a%2F27%2F4f%2F0a274f64a5dd97e839684996c504356e6b5c799b",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5d1d0ff6e4b0941bde64ced9?f=__disk__9c%2F20%2F2f%2F9c202f2750e8d257d3c0063c3c521c43bbbabcdb",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5d1d0ff6e4b0941bde64ced9?f=__disk__19%2F4d%2F03%2F194d03f07e4f7f4fdb5e00526ce5f5531b0d0676",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5d1d0ff6e4b0941bde64ced9?f=__disk__28%2Fa6%2Fdb%2F28a6dbce0a2da6c14e8626079becd12b196b12dd",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5d1d0ff6e4b0941bde64ced9?f=__disk__54%2F5c%2F6f%2F545c6fcdf524c04fb41a39187abe8dc1f2640348"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "USGS National Assessment of Oil and Gas Project -  Cherokee Platform Province Assessment Units.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1d0ff6e4b0941bde64ced9?f=__disk__99%2F74%2F34%2F9974346a6497f57b3c27994d82c7f20b9fc237ca"
+    },
+    {
+     "name": "CherokeeAUs.shp.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5d1d0ff6e4b0941bde64ced9?f=__disk__bc%2Ff1%2F91%2Fbcf191ffead80433677ddd4c89b2cea24fb6a09f"
+    }
+   ]
+  },
+  {
+   "id": "5dc1e9eee4b069579750e3c5",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Southwestern Wyoming Province, Phosphoria Shale Gas Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2020-03-16",
+   "places": [
+    "United States of America",
+    "State of Wyoming",
+    "Phosphoria Shale Gas"
+   ],
+   "bbox": {
+    "minX": -110.5047,
+    "maxX": -109.7709,
+    "minY": 41.5672,
+    "maxY": 43.3531
+   },
+   "shapefiles": [
+    {
+     "name": "PhosphoriaShaleGasAU",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5dc1e9eee4b069579750e3c5?f=__disk__e7%2Fea%2F0a%2Fe7ea0ad983637c29da977e4817ea8938f716dff6",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5dc1e9eee4b069579750e3c5?f=__disk__e8%2F23%2F68%2Fe82368c2cdae1604e6ea1a1be08c61f97f23760f",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5dc1e9eee4b069579750e3c5?f=__disk__f7%2F2e%2Fde%2Ff72edeef28e0ca06bc525b285f645463388a1390",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5dc1e9eee4b069579750e3c5?f=__disk__b5%2F4b%2F4c%2Fb54b4c33156e7b6afccbdf015dd47aae4aa7c699",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5dc1e9eee4b069579750e3c5?f=__disk__e2%2F6f%2F24%2Fe26f24624b6b97fddd0bf3b6fb5b157189a10b85"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "PhosphoriaShaleGasAU.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5dc1e9eee4b069579750e3c5?f=__disk__4e%2F04%2Fd4%2F4e04d4639b882eb885dab52d6e99e378957b97d0"
+    }
+   ]
+  },
+  {
+   "id": "5e50325ce4b0ff554f72dc69",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Michigan Basin Province, Collingwood Shale and Utica Shale Formations Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2020-04-27",
+   "places": [
+    "United States of America",
+    "State of Michigan",
+    "Collingwood-Utica Shale Gas",
+    "Collingwood-Utica Shale Oil"
+   ],
+   "bbox": {
+    "minX": -85.6978,
+    "maxX": -83.7117,
+    "minY": 44.1521,
+    "maxY": 46.0811
+   },
+   "shapefiles": [
+    {
+     "name": "CollingwoodAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5e50325ce4b0ff554f72dc69?f=__disk__d5%2F5d%2F40%2Fd55d40522fdfcda96e7b06b9fdbc001ba9097235",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5e50325ce4b0ff554f72dc69?f=__disk__a7%2F5a%2F13%2Fa75a13232ec4b86afd5e508ea68e4df8688a6128",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5e50325ce4b0ff554f72dc69?f=__disk__e0%2Fab%2F01%2Fe0ab01a30ec8bbad5aaa5ba4a5e1b246939a9f8d",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5e50325ce4b0ff554f72dc69?f=__disk__80%2F08%2Fba%2F8008ba4f8a690216d5a99babbdcf2ca0f454c314",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5e50325ce4b0ff554f72dc69?f=__disk__62%2Fb4%2Fdf%2F62b4dfca9027a790e8208a89e03dd7710222d7a4"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "CollingwoodAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5e50325ce4b0ff554f72dc69?f=__disk__5b%2Fb2%2F72%2F5bb272c8221bbdbcf33c464453f00cc8c372b5bd"
+    }
+   ]
+  },
+  {
+   "id": "5ea2ecb182cefae35a191dba",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Eastern Great Basin Province, Delle Phosphatic Member Shale Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2020-04-27",
+   "places": [
+    "United States of America",
+    "State of Idaho",
+    "State of Nevada",
+    "State of Utah",
+    "Delle Phosphatic Member Shale Gas",
+    "Delle Phosphatic Member Shale Oil"
+   ],
+   "bbox": {
+    "minX": -116.1607,
+    "maxX": -111.2807,
+    "minY": 36.8954,
+    "maxY": 42.968
+   },
+   "shapefiles": [
+    {
+     "name": "DellePhosphaticAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5ea2ecb182cefae35a191dba?f=__disk__0f%2F07%2F6d%2F0f076d68daf07709c99d9fd786c29ab6d75112f1",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5ea2ecb182cefae35a191dba?f=__disk__3f%2Fb6%2F5a%2F3fb65a081ad1f052cb528f9fda0d7dbae981e5a5",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5ea2ecb182cefae35a191dba?f=__disk__ef%2F6b%2F15%2Fef6b15f3fb822b7e4b7053e6630a643bafbe8435",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5ea2ecb182cefae35a191dba?f=__disk__ac%2Fcc%2Fb7%2Facccb70c88c2028559d08787ccee7740630d71a1",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5ea2ecb182cefae35a191dba?f=__disk__f0%2Ff4%2F43%2Ff0f443ca1340d015a7c179e615f8f7a638644684"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "DellePhosphaticAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5ea2ecb182cefae35a191dba?f=__disk__cb%2Fc5%2Ff7%2Fcbc5f709545c5424ca474a9023717bfd0dab86e9"
+    }
+   ]
+  },
+  {
+   "id": "5ea7209d82cefae35a1d90a8",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Sacramento Basin, Conventional and Continuous Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2020-09-09",
+   "places": [
+    "United States of America",
+    "State of California",
+    "Sacramento Basin Continuous Gas",
+    "Sacramento Basin Deep Conventional Gas"
+   ],
+   "bbox": {
+    "minX": -122.6548,
+    "maxX": -120.6661,
+    "minY": 37.5353,
+    "maxY": 40.6924
+   },
+   "shapefiles": [
+    {
+     "name": "SacramentoBasinAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5ea7209d82cefae35a1d90a8?f=__disk__d7%2F8c%2Fd9%2Fd78cd96fff4fda66d57a6d27394d56fcfd30f03d",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5ea7209d82cefae35a1d90a8?f=__disk__5a%2F96%2F18%2F5a9618c83d92ecfac3b3197507197de0dbd77f0d",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5ea7209d82cefae35a1d90a8?f=__disk__cd%2F8c%2F41%2Fcd8c4172ab36c9ef23331426cb1ea535d46c19b3",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5ea7209d82cefae35a1d90a8?f=__disk__25%2Fed%2Fca%2F25edca9b2563804d0c22a88a04508fb971858b08",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5ea7209d82cefae35a1d90a8?f=__disk__6d%2F38%2F18%2F6d3818809f9652487861782daddd9ed54cc67b69"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "SacramentoBasinAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5ea7209d82cefae35a1d90a8?f=__disk__cb%2F36%2Fc7%2Fcb36c76c59fd523965de80b0d70aefdd7d238cc9"
+    }
+   ]
+  },
+  {
+   "id": "5e9f54d582cefae35a128bfc",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Gulf Coast Mesozoic Province, Upper Cretaceous Austin Chalk Group and Tokio and Eutaw Formations Assessment Units and Input Data Forms",
+   "pubdate": "2020-10-28",
+   "places": [
+    "United States of America",
+    "State of Alabama",
+    "State of Arkansas",
+    "State of Florida",
+    "State of Louisiana",
+    "State of Mississippi",
+    "State of Texas",
+    "Western Updip Fault Zone Conventional Oil",
+    "Downdip Salt Basins Conventional Gas",
+    "Eastern Updip Fault Zone Conventional Oil",
+    "Updip Salt Basins Conventional Oil and Gas",
+    "Middip Fault Zone and Salt Conventional Oil",
+    "Western Shelf Continuous Oil",
+    "Western Shelf Edge Continuous Gas",
+    "Eastern Shelf Continuous Oil"
+   ],
+   "bbox": {
+    "minX": -100.6041,
+    "maxX": -86.8439,
+    "minY": 25.8371,
+    "maxY": 33.6173
+   },
+   "shapefiles": [
+    {
+     "name": "AustinChalkAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5e9f54d582cefae35a128bfc?f=__disk__8a%2Fcf%2Fd8%2F8acfd87a6015222026dc40ff1be49669356d4576",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5e9f54d582cefae35a128bfc?f=__disk__23%2F37%2F2c%2F23372c615d681ec0aaea5197a0da8c16281a8f53",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5e9f54d582cefae35a128bfc?f=__disk__6a%2F71%2F76%2F6a7176560b5b7fda7cac1a5697e0862df32f51f9",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5e9f54d582cefae35a128bfc?f=__disk__23%2F79%2Fb0%2F2379b00e8f29c6568249b4b6d3c6e24df0547ed0",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5e9f54d582cefae35a128bfc?f=__disk__7b%2Fc7%2Fb4%2F7bc7b4956d609812887ac4fc2bc47e36ddcb80de"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "AustinChalkAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5e9f54d582cefae35a128bfc?f=__disk__5e%2F34%2Fc5%2F5e34c5da4b34a0b01b943b546cfb57473633c22e"
+    }
+   ]
+  },
+  {
+   "id": "5f88b01b82cebb8c13da3b18",
+   "title": "USGS National and Global Oil and Gas Assessment Project - San Juan Basin Province, Lewis Shale Total Petroleum System Assessment Units and Input Data Forms",
+   "pubdate": "2020-11-27",
+   "places": [
+    "United States of America",
+    "State of Colorado",
+    "State of New Mexico",
+    "Lewis Shale Continuous Gas",
+    "Cliff House Fairway Continuous Gas",
+    "Lewis-Cliff House Continuous Gas"
+   ],
+   "bbox": {
+    "minX": -108.6726,
+    "maxX": -106.806,
+    "minY": 35.7023,
+    "maxY": 37.3423
+   },
+   "shapefiles": [
+    {
+     "name": "LewisShaleAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5f88b01b82cebb8c13da3b18?f=__disk__2d%2F7e%2Fd3%2F2d7ed3ab9e165a9936d3d7cfc7297b8fc9a600a6",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5f88b01b82cebb8c13da3b18?f=__disk__b7%2F2f%2F18%2Fb72f18cd8c16a1bbd65e385dd638d1ab6dbc6b33",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5f88b01b82cebb8c13da3b18?f=__disk__cb%2F41%2F7f%2Fcb417f0ac162d0f6ae8be17ba777b2b15ee0c35d",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5f88b01b82cebb8c13da3b18?f=__disk__48%2F65%2F3e%2F48653e00a34fb1cc63e253c7faae2a005c920f84",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5f88b01b82cebb8c13da3b18?f=__disk__70%2F19%2F95%2F7019958e92ed3afd17476ed971056b5d0052e126"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "LewisShaleAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5f88b01b82cebb8c13da3b18?f=__disk__c8%2F35%2F34%2Fc83534e5356276aa4d6a614e46309956a2885c98"
+    }
+   ]
+  },
+  {
+   "id": "5f88b0e182cebb8c13da3b20",
+   "title": "USGS National and Global Oil and Gas Assessment Project - San Juan Basin Province, Mancos-Menefee Composite Total Petroleum System and underlying Todilto Total Petroleum System Assessment Units and Input Data Forms",
+   "pubdate": "2020-11-27",
+   "places": [
+    "United States of America",
+    "State of Colorado",
+    "State of New Mexico",
+    "Mesaverde Updip Conventional Oil",
+    "Gallup Sandstone Conventional Oil",
+    "Upper Mancos Conventional Oil",
+    "Dakota-Lower Mancos Conventional Oil and Gas",
+    "Northeastern Mesaverde Continuous Gas",
+    "Upper Mancos Continuous Gas",
+    "Northeastern Dakota-Lower Mancos Continuous Gas",
+    "Southwestern Dakota-Lower Mancos Continuous Gas",
+    "Southwestern Mesaverde Continuous Gas",
+    "Menefee Coalbed Gas",
+    "Entrada Sandstone Conventional Oil"
+   ],
+   "bbox": {
+    "minX": -109.0427,
+    "maxX": -106.6414,
+    "minY": 35.0634,
+    "maxY": 37.3824
+   },
+   "shapefiles": [
+    {
+     "name": "MancosMenefeeAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5f88b0e182cebb8c13da3b20?f=__disk__a0%2Fc3%2Fbf%2Fa0c3bfa5d53c09064e5121d423e146a302dc8760",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5f88b0e182cebb8c13da3b20?f=__disk__48%2F9d%2F47%2F489d47f5ffb1218a27ad2e8d996255f4c88d2ecb",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5f88b0e182cebb8c13da3b20?f=__disk__ee%2F1a%2Fa6%2Fee1aa611bf9f4bb85d76ddaa006213c2568a4cc0",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5f88b0e182cebb8c13da3b20?f=__disk__ff%2F3e%2F98%2Fff3e98de5b1cdb7d390438f0245945e9038d9634",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5f88b0e182cebb8c13da3b20?f=__disk__4f%2F83%2F11%2F4f83119628aafbfe6aa18ae9caa8c8d3c17ec1a0"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "MancosMenefeeAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5f88b0e182cebb8c13da3b20?f=__disk__9f%2Fd9%2Fa0%2F9fd9a0beb0c2235a98d3fe1dec45766e9ecb7d0a"
+    }
+   ]
+  },
+  {
+   "id": "5f88b19382cebb8c13da3b26",
+   "title": "USGS National and Global Oil and Gas Assessment Project - San Juan Basin Province, Fruitland Total Petroleum System Assessment Units and Input Data Forms",
+   "pubdate": "2020-11-27",
+   "places": [
+    "United States of America",
+    "State of Colorado",
+    "State of New Mexico",
+    "Tertiary Conventional Gas",
+    "Pictured Cliffs Continuous Gas",
+    "Northern Fruitland Coalbed Gas",
+    "Basin Fruitland Coalbed Gas"
+   ],
+   "bbox": {
+    "minX": -108.5655,
+    "maxX": -106.8342,
+    "minY": 35.8465,
+    "maxY": 37.3294
+   },
+   "shapefiles": [
+    {
+     "name": "FruitlandAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5f88b19382cebb8c13da3b26?f=__disk__9f%2F59%2Fe3%2F9f59e3ede7bf6c28221b5b78ed2f56d1f7cbbad7",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5f88b19382cebb8c13da3b26?f=__disk__f8%2F15%2F98%2Ff815983575fc55df51918ddc7e19a88d2c1ceabe",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5f88b19382cebb8c13da3b26?f=__disk__e9%2Fdf%2Fe3%2Fe9dfe36fbc4b58ee68efd1e1554ad7c4e691f8fe",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5f88b19382cebb8c13da3b26?f=__disk__23%2Fc7%2F38%2F23c73878bc79584df347289a1b8213c8a98f14df",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5f88b19382cebb8c13da3b26?f=__disk__2f%2F28%2F74%2F2f2874891c161fe9a2258ceed4cf83337e4b5048"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "FruitlandAus.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5f88b19382cebb8c13da3b26?f=__disk__9e%2F57%2F90%2F9e57909a2c0bd7daab36cb23752d3b733e679d90"
+    }
+   ]
+  },
+  {
+   "id": "5fff18d8d34e592d8671ec55",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Northern Alaska Province, Western North Slope Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2021-02-05",
+   "places": [
+    "United States of America",
+    "State of Alaska",
+    "Western North Slope North",
+    "Western North Slope South",
+    "Western North Slope Lisburne Hills"
+   ],
+   "bbox": {
+    "minX": -166.9802,
+    "maxX": -161.8786,
+    "minY": 67.8087,
+    "maxY": 70.3804
+   },
+   "shapefiles": [
+    {
+     "name": "WNS_AUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5fff18d8d34e592d8671ec55?f=__disk__c4%2F95%2Fac%2Fc495ac1d282d5fd67c69fe615515a351923f34b9",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5fff18d8d34e592d8671ec55?f=__disk__00%2F8a%2F4e%2F008a4e6ab7c53998aff52ae6edd61f71bd887361",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5fff18d8d34e592d8671ec55?f=__disk__f0%2Fb2%2F7b%2Ff0b27b9bb67f721d2769fc4e78b264f8a4c257be",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5fff18d8d34e592d8671ec55?f=__disk__d1%2Fd5%2Ff5%2Fd1d5f5ac001842ea337d7362400fd33c6c7854f5",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5fff18d8d34e592d8671ec55?f=__disk__6c%2Fe3%2Fd0%2F6ce3d0d4ad467a37f65b951488d7e71a610766a5"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "WNS_AUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5fff18d8d34e592d8671ec55?f=__disk__95%2F18%2Fe6%2F9518e68efc8ae755412c33a3a234cd6fe192f867"
+    }
+   ]
+  },
+  {
+   "id": "6039229cd34eb1203117b851",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Wind River Basin, Mowry Shale Formation Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2021-03-15",
+   "places": [
+    "United States of America",
+    "State of Wyoming",
+    "Wind River Mowry Shale Oil",
+    "Wind River Mowry Shale Gas"
+   ],
+   "bbox": {
+    "minX": -109.132,
+    "maxX": -106.6071,
+    "minY": 42.6464,
+    "maxY": 43.5527
+   },
+   "shapefiles": [
+    {
+     "name": "MowryAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/6039229cd34eb1203117b851?f=__disk__32%2Fba%2Fd8%2F32bad8fbf9beeddc433ddb2fc132404f86277641",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/6039229cd34eb1203117b851?f=__disk__6c%2F0d%2Fb6%2F6c0db6a4bb3234b5623e51671ededf89a1da744e",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/6039229cd34eb1203117b851?f=__disk__2f%2F77%2F3d%2F2f773dc200ee5faf7ba0692e5a40e367d23c1e80",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/6039229cd34eb1203117b851?f=__disk__16%2F9f%2Fc3%2F169fc321e1f24d4b0d51992d90a7d5dcdaafd175",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/6039229cd34eb1203117b851?f=__disk__82%2Ff7%2F09%2F82f709a9ffed3c43e1c930cb96ff72a1f68e9bd2"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "MowryAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/6039229cd34eb1203117b851?f=__disk__82%2F37%2F1e%2F82371e5f1c0c36743c7a3844e01b71d78ef5a578"
+    }
+   ]
+  },
+  {
+   "id": "5f6a541c82ce38aaa24493bd",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Williston Basin, Lower Paleozoic Conventional Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2021-04-28",
+   "places": [
+    "United States of America",
+    "State of Montana",
+    "State of North Dakota",
+    "State of South Dakota",
+    "Winnipeg Fairway Reservoirs",
+    "Winnipeg Eastern Margin Reservoirs",
+    "Red River Fairway Reservoirs",
+    "Red River Eastern Margin Reservoirs",
+    "Interlake-Stonewall-Stony Mountain Fairway Reservoirs",
+    "Interlake-Stonewall-Stony Mountain Eastern Margin Reservoirs"
+   ],
+   "bbox": {
+    "minX": -106.077,
+    "maxX": -99.5232,
+    "minY": 44.7172,
+    "maxY": 50.9441
+   },
+   "shapefiles": [
+    {
+     "name": "LowerPaleozoicAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5f6a541c82ce38aaa24493bd?f=__disk__4d%2F72%2Fe0%2F4d72e0b4562c98b50680d07ad90cb60db0a334c4",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5f6a541c82ce38aaa24493bd?f=__disk__9f%2F21%2F79%2F9f2179e6e575cf3894e5a90a323b9e388de8953e",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5f6a541c82ce38aaa24493bd?f=__disk__37%2Ff3%2Fb9%2F37f3b9eb82372f85e0d1e5f30be31bc65f5e89de",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5f6a541c82ce38aaa24493bd?f=__disk__a9%2F5f%2F13%2Fa95f13223b22f1c250a7d028290d411b586a31d9",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5f6a541c82ce38aaa24493bd?f=__disk__49%2F7a%2F46%2F497a46ce977ff94256de3f02bf2c91e0f3c2b253"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "LowerPaleozoicAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5f6a541c82ce38aaa24493bd?f=__disk__45%2F86%2F22%2F458622dd2e8a167bf6d1e758adc705910419599c"
+    }
+   ]
+  },
+  {
+   "id": "5fd8effad34e30b9123cbb7f",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Williston Basin, Tyler Formation Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2021-04-28",
+   "places": [
+    "United States of America",
+    "State of Montana",
+    "State of North Dakota",
+    "Upper Tyler Continuous Oil",
+    "Lower Tyler Continuous Oil",
+    "Tyler Conventional Reservoirs"
+   ],
+   "bbox": {
+    "minX": -105.361,
+    "maxX": -100.2129,
+    "minY": 45.4473,
+    "maxY": 48.7146
+   },
+   "shapefiles": [
+    {
+     "name": "TylerAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5fd8effad34e30b9123cbb7f?f=__disk__e5%2F89%2F34%2Fe58934f1ef05f33ee0c95123da27cbec0135ee4f",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5fd8effad34e30b9123cbb7f?f=__disk__8a%2Fa5%2F17%2F8aa5177d6f65389832b093d0b3e673dd4f3ab3c4",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5fd8effad34e30b9123cbb7f?f=__disk__f5%2F2c%2Fda%2Ff52cdab96d2df1c37f77dffa0d64f88895de763c",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5fd8effad34e30b9123cbb7f?f=__disk__ed%2Fbc%2F92%2Fedbc925c84af6dedf2bba008c212bcd4662a3eac",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5fd8effad34e30b9123cbb7f?f=__disk__7f%2Fda%2F94%2F7fda943072249157d7777b23d7f64cbd6a55c1b6"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "TylerAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5fd8effad34e30b9123cbb7f?f=__disk__db%2Fbf%2Ff9%2Fdbbff95ba3e221a4088dab82fd583e57b4ff25ea"
+    }
+   ]
+  },
+  {
+   "id": "5ff78590d34ea5387df03d10",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Williston Basin, Upper Paleozoic Conventional Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2021-04-28",
+   "places": [
+    "United States of America",
+    "State of Montana",
+    "State of North Dakota",
+    "State of South Dakota",
+    "Winnipegosis Carbonate Reservoirs",
+    "Dawson Bay Reservoirs",
+    "Duperow Reservoirs",
+    "Birdbear Reservoirs",
+    "Cedar Creek Conventional Reservoirs",
+    "Madison Group Reservoirs",
+    "Tyler Conventional Reservoirs",
+    "Upper Cretaceous-Paleogene Conventional Biogenic Gas",
+    "Upper Cretaceous-Paleogene Biogenic Coalbed Gas"
+   ],
+   "bbox": {
+    "minX": -108.5432,
+    "maxX": -97.991,
+    "minY": 44.0393,
+    "maxY": 52.7422
+   },
+   "shapefiles": [
+    {
+     "name": "UpperPaleozoicAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/5ff78590d34ea5387df03d10?f=__disk__03%2F3e%2Fb2%2F033eb250957c518822dfaf8eeb7baf8102d1d4aa",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/5ff78590d34ea5387df03d10?f=__disk__5c%2Fb6%2F50%2F5cb6500b24450732c8ba98a5567217bd0cf5dc8d",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/5ff78590d34ea5387df03d10?f=__disk__bd%2Fa2%2Fa3%2Fbda2a3261b31e8ab20a841276761b3391e811cc9",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/5ff78590d34ea5387df03d10?f=__disk__ce%2Fda%2F3b%2Fceda3bdad660a7615136d314f9d02a8c4eeb37fc",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/5ff78590d34ea5387df03d10?f=__disk__1c%2Feb%2Fa2%2F1ceba2430d99b8192f7b258e20f6f946f0cf91d5"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "UpperPaleozoicAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/5ff78590d34ea5387df03d10?f=__disk__49%2F32%2F35%2F4932352619c74e9e97c0a2c07dc8e36cdf0636ea"
+    }
+   ]
+  },
+  {
+   "id": "606f20a5d34ef99870188937",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Williston Basin, Gas Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2021-04-28",
+   "places": [
+    "United States of America",
+    "State of Montana",
+    "State of North Dakota",
+    "State of South Dakota",
+    "Icebox Shale Gas",
+    "Upper Cretaceous-Paleogene Biogenic Coalbed Gas",
+    "Upper Cretaceous-Paleogene Conventional Biogenic Gas"
+   ],
+   "bbox": {
+    "minX": -106.5946,
+    "maxX": -97.991,
+    "minY": 44.0393,
+    "maxY": 50.5852
+   },
+   "shapefiles": [
+    {
+     "name": "GasAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/606f20a5d34ef99870188937?f=__disk__ff%2Fd0%2Fc3%2Fffd0c3b9a62e99a4d7ed901c7bbbd85f36284541",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/606f20a5d34ef99870188937?f=__disk__c9%2Fd2%2F10%2Fc9d210332ad21c0875f87083a446774e7bfee856",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/606f20a5d34ef99870188937?f=__disk__a3%2F49%2Fe1%2Fa349e194f621f11ccbffd592a445e97bf294310b",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/606f20a5d34ef99870188937?f=__disk__f0%2F1b%2F1e%2Ff01b1e1320bbfae4e1d68d65ceaf7d101b590c35",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/606f20a5d34ef99870188937?f=__disk__75%2Ff5%2F20%2F75f52023880ff2a261caae10ea6745bf72695fc2"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "GasAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/606f20a5d34ef99870188937?f=__disk__0f%2F06%2F84%2F0f06845ca0f300969ee52c079c37580ed4e86b16"
+    }
+   ]
+  },
+  {
+   "id": "618e90c8d34ec04fc9caa732",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Williston Basin, Bakken and Three Forks Formations Continuous Assessment Unit Boundaries and Assessment Input Data Forms",
+   "pubdate": "2021-12-15",
+   "places": [
+    "United States of America",
+    "State of Montana",
+    "State of North Dakota",
+    "State of South Dakota",
+    "Elm Coulee Bakken Continuous Gas",
+    "Billings Nose-Bakken Fairway Continuous Oil",
+    "Eastern Transitional-Parshall Bakken Continuous Oil",
+    "Northern Nesson Bakken Continuous Gas",
+    "Central Nesson-Little Knife Bakken Continuous Oil",
+    "Southeastern Little Knife Transitional Bakken Continuous Oil",
+    "Central Basin Bakken Continuous Oil",
+    "West Central Basin Bakken Continuous Oil",
+    "Northern Transitional Bakken Continuous Oil",
+    "Northwestern Three Forks Continuous Oil",
+    "Northern Transitional Three Forks Continuous Oil",
+    "Eastern Three Forks Continuous Oil",
+    "Western Central Basin Three Forks Continuous Oil",
+    "Central Basin Pronghorn-Three Forks Continuous Oil",
+    "Southern Pronghorn-Three Forks Continuous Oil",
+    "Central Basin Three Forks Fairway Continuous Oil"
+   ],
+   "bbox": {
+    "minX": -106.6825,
+    "maxX": -99.2798,
+    "minY": 46.4045,
+    "maxY": 49
+   },
+   "shapefiles": [
+    {
+     "name": "BakkenAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__32%2Fa1%2Fed%2F32a1ed211922c2da773f94931f4632c310ad997c",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__87%2Fb0%2Fdf%2F87b0dfcca81d3a0be3da015a7edbda7c678f7a58",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__66%2Fce%2F16%2F66ce1621b92d5cb8347ac284f46310e8a8a536eb",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__7b%2Fab%2F4f%2F7bab4f7f9d5219ccec247bf125667f982dd50da4",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__8b%2F66%2F13%2F8b661387b44c172f1bf40f6f6aa9f97101951d92"
+     }
+    },
+    {
+     "name": "ThreeForksAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__a5%2Fbc%2F2b%2Fa5bc2b2dfadfd240eb9ea34d614215b25db216dc",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__e2%2Fdd%2F19%2Fe2dd193804daa556b64e2509e3714842a6d2c15b",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__1d%2Fae%2F57%2F1dae57302564ff1a4a22a66dfb1f2ccdf2eb9029",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__03%2Ffc%2F71%2F03fc71291ced4a7b69837d2e8d3035d51bcacc81",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__de%2Fdb%2Fea%2Fdedbea3b488fbcbef6ad517db0c80b57dc0766eb"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "BakkenThreeForks.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/618e90c8d34ec04fc9caa732?f=__disk__9a%2F99%2F60%2F9a996079442dfda04d7580ac15049b58d40a4e73"
+    }
+   ]
+  },
+  {
+   "id": "615dd80fd34e7b019243c099",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Montana Thrust Belt Province: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2022-09-02",
+   "places": [
+    "United States of America",
+    "State of Montana",
+    "State of Idaho",
+    "Main Thrust Belt Structures Conventional Oil and Gas",
+    "Sawtooth Structures Conventional Oil and Gas",
+    "Foothills Structures Conventional Oil and Gas",
+    "Greater Helena Salient Structures Conventional Oil and Gas",
+    "Northern Cenozoic Basins Conventional Oil and Gas",
+    "Southern Cenozoic Basins Conventional Oil and Gas"
+   ],
+   "bbox": {
+    "minX": -115.3298,
+    "maxX": -110.2948,
+    "minY": 44.5635,
+    "maxY": 49.0023
+   },
+   "shapefiles": [
+    {
+     "name": "MTTB_ConvAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/615dd80fd34e7b019243c099?f=__disk__bc%2F60%2Fa5%2Fbc60a571f2b1ba3ba73e4dfb3fe71b2b4b724ffd",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/615dd80fd34e7b019243c099?f=__disk__60%2Ffd%2F25%2F60fd2538919979f208b3a6f74e939e765d4aa68a",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/615dd80fd34e7b019243c099?f=__disk__3e%2F43%2F6c%2F3e436c814a6b7122c868377e38754155ef771113",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/615dd80fd34e7b019243c099?f=__disk__cd%2Fb9%2Fc3%2Fcdb9c38e5bf8fdb31ae764ca09c65c71f2a95b78",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/615dd80fd34e7b019243c099?f=__disk__13%2F10%2Fc0%2F1310c0f1ad2e367309c4fbe3837e2e0f1e9e8e9f"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "MTTB_ConvAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/615dd80fd34e7b019243c099?f=__disk__f7%2F56%2F97%2Ff75697b06ee14ed8cac9143c3c19000eb41a916e"
+    }
+   ]
+  },
+  {
+   "id": "63ea78c2d34efa0476aece68",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Northwest Montana Bakken Formation: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2023-06-07",
+   "places": [
+    "United States of America",
+    "State of Montana",
+    "NW Montana Bakken Formation Continuous Gas",
+    "NW Montana Bakken Formation Continuous Oil"
+   ],
+   "bbox": {
+    "minX": -114.2994,
+    "maxX": -112.1866,
+    "minY": 47.3381,
+    "maxY": 49.0009
+   },
+   "shapefiles": [
+    {
+     "name": "NWMT_BakkenAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/63ea78c2d34efa0476aece68?f=__disk__15%2F8a%2F28%2F158a28f41330be9203af9e9af717af19deb20e29",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/63ea78c2d34efa0476aece68?f=__disk__28%2F56%2F33%2F28563313756d22c5151f30416712f857537b6ff0",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/63ea78c2d34efa0476aece68?f=__disk__a5%2Fe9%2F82%2Fa5e982cc4b0d9629669db4d23a81bd2d827e507c",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/63ea78c2d34efa0476aece68?f=__disk__21%2F2e%2F15%2F212e1576e53d677af42c6b4ffa399c07efef368c",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/63ea78c2d34efa0476aece68?f=__disk__06%2F9c%2F81%2F069c81db092fa6c409e26b748f193a73504ba88d"
+     }
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/63ea78c2d34efa0476aece68?f=__disk__99%2F17%2F58%2F9917581ad7190cdb3f7c44623cf0346abb4c2d94"
+   },
+   "metadata_xml": [
+    {
+     "name": "NWMT_BakkenAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/63ea78c2d34efa0476aece68?f=__disk__ac%2Fd4%2F16%2Facd4168306a542871cd1a066cc667bd2b764a5b0"
+    }
+   ]
+  },
+  {
+   "id": "64342c04d34ee8d4add90fe5",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Raton Basin-Sierra Grande Uplift Province: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2023-07-06",
+   "places": [
+    "United States of America",
+    "State of Colorado",
+    "State of New Mexico",
+    "Raton Formation Fairway Coalbed Gas",
+    "Raton Formation Outerlying Coalbed Gas",
+    "Vermejo Formation Fairway Coalbed Gas",
+    "Vermejo Formation Outerlying Coalbed Gas"
+   ],
+   "bbox": {
+    "minX": -105.1759,
+    "maxX": -104.3012,
+    "minY": 36.5955,
+    "maxY": 37.6857
+   },
+   "shapefiles": [
+    {
+     "name": "RatonCBM_AUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/64342c04d34ee8d4add90fe5?f=__disk__10%2F57%2F20%2F10572078224639544e192e339c2c29eb7bb0739b",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/64342c04d34ee8d4add90fe5?f=__disk__27%2F19%2F96%2F2719962a03b464521fdb905741af561ba0f1d235",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/64342c04d34ee8d4add90fe5?f=__disk__56%2F0c%2F15%2F560c1527ef8f255a4085d134feb6be436cf22cef",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/64342c04d34ee8d4add90fe5?f=__disk__0e%2Fee%2F6c%2F0eee6ca0017f3615cd134e281934828f8157efd1",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/64342c04d34ee8d4add90fe5?f=__disk__e3%2F51%2F02%2Fe35102d5cd2de4c9e1993d3d20126c4740239f48"
+     }
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/64342c04d34ee8d4add90fe5?f=__disk__9f%2F9d%2Fac%2F9f9dac7aa830f90ecee3a6d79bab3262a327a87d"
+   },
+   "metadata_xml": [
+    {
+     "name": "RatonCBM_AUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/64342c04d34ee8d4add90fe5?f=__disk__96%2Fa9%2F99%2F96a999cc2a33210f76614a4582f2935d21703801"
+    }
+   ]
+  },
+  {
+   "id": "62deb584d34e295035a9c48b",
+   "title": "USGS Gulf Coast Geologic Energy Assessments and Research Project-Upper Jurassic Smackover Formation Continuous Resources: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2023-08-07",
+   "places": [
+    "United States of America",
+    "State of Alabama",
+    "State of Arkansas",
+    "State of Florida",
+    "State of Louisiana",
+    "State of Mississippi",
+    "State of Texas",
+    "Smackover Outer Ramp Salt Basins Continuous Gas",
+    "Smackover Outer Ramp Continuous Gas",
+    "Smackover Inner Ramp Continuous Gas",
+    "Smackover Inner Ramp Interbedded Sandstone Continuous Oil",
+    "Smackover Inner Ramp Interbedded Sandstone Continuous Gas",
+    "Smackover Inner Ramp Salt Basins and Peripheral Fault Zone Continuous Oil",
+    "Smackover Inner Ramp Salt Basins and Peripheral Fault Zone Continuous Gas"
+   ],
+   "bbox": {
+    "minX": -100.0184,
+    "maxX": -84.6252,
+    "minY": 27.6019,
+    "maxY": 33.7662
+   },
+   "shapefiles": [
+    {
+     "name": "SmackoverContinuousAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/62deb584d34e295035a9c48b?f=__disk__7f%2F77%2F85%2F7f7785f2af7040e3bc2d4ef4f0e477b26611b88a",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/62deb584d34e295035a9c48b?f=__disk__03%2F82%2F2f%2F03822fe56e2fd545d1e1b09f725020d85bf171a3",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/62deb584d34e295035a9c48b?f=__disk__52%2F47%2F83%2F5247835eff19edb38186f196c05ac2b7947622cf",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/62deb584d34e295035a9c48b?f=__disk__5b%2Faf%2F21%2F5baf21a9bd2b4b595c27192f5146bcd502647e58",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/62deb584d34e295035a9c48b?f=__disk__b4%2F0c%2F78%2Fb40c78011ecffa54c20f5ecfc51d6490dcc6945b"
+     }
+    }
+   ],
+   "results_csv": null,
+   "metadata_xml": [
+    {
+     "name": "SmackoverContinuousAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/62deb584d34e295035a9c48b?f=__disk__b2%2F22%2F36%2Fb2223644643bbf53cb2060fb88a9c0de4b298fb3"
+    }
+   ]
+  },
+  {
+   "id": "6446d542d34ee8d4adec6c63",
+   "title": "USGS National and Global Oil and Gas Assessment Project- Gulf Coast Smackover Conventional Oil and Gas Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2024-01-16",
+   "places": [
+    "United States of America",
+    "State of Alabama",
+    "State of Arkansas",
+    "State of Florida",
+    "State of Louisiana",
+    "State of Mississippi",
+    "State of Oklahoma",
+    "State of Texas",
+    "Smackover Western Updip and Peripheral Fault Zone Conventional Oil and Gas",
+    "Smackover Eastern Updip and Peripheral Fault Zone Conventional Oil and Gas",
+    "Smackover Peripheral Fault Zone and Carbonate Shelf Conventional Oil and Gas",
+    "Smackover Downdip Salt Basins Conventional Oil and Gas"
+   ],
+   "bbox": {
+    "minX": -100.0193,
+    "maxX": -84.5466,
+    "minY": 26.4561,
+    "maxY": 33.7812
+   },
+   "shapefiles": [
+    {
+     "name": "SmackoverConventionalAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/6446d542d34ee8d4adec6c63?f=__disk__7b%2F1d%2Ffa%2F7b1dfaa812f7f9b29d07d9f58ad3e620fb4330b9",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/6446d542d34ee8d4adec6c63?f=__disk__2a%2F0a%2F23%2F2a0a2347527c7f57045ca33cab7fe49bba330b6c",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/6446d542d34ee8d4adec6c63?f=__disk__06%2Fa5%2Fd3%2F06a5d30db7e1f7b423d0126d04f05b1c6958afa6",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/6446d542d34ee8d4adec6c63?f=__disk__79%2F90%2F6a%2F79906a1ad9aa1d1b3d233de606e6c5291d3d7b16",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/6446d542d34ee8d4adec6c63?f=__disk__b1%2F42%2Fbf%2Fb142bf79e6c703505a2c8f38c9b13e7cd6f753f4"
+     }
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/6446d542d34ee8d4adec6c63?f=__disk__be%2Fd1%2F6a%2Fbed16a1659f1a0d40f97d7150b84d657352e7e6b"
+   },
+   "metadata_xml": [
+    {
+     "name": "SmackoverConventionalAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/6446d542d34ee8d4adec6c63?f=__disk__49%2F4c%2Fe6%2F494ce6fe11ba0360446c3742304f43d1c1865bb8"
+    }
+   ]
+  },
+  {
+   "id": "652d90ddd34edd15305a9431",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Southwestern Wyoming Province, Lewis Shale Conventional and Continuous Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2024-07-31",
+   "places": [
+    "United States of America",
+    "State of Colorado",
+    "State of Wyoming",
+    "Lewis Shale Conventional Gas",
+    "Lewis Shale North Continuous Gas",
+    "Lewis Shale South Continuous Gas",
+    "Lewis Shale Asquith Shale Gas",
+    "Lewis Shale Asquith Shale Oil"
+   ],
+   "bbox": {
+    "minX": -109.4132,
+    "maxX": -107.0155,
+    "minY": 40.327,
+    "maxY": 42.3886
+   },
+   "shapefiles": [
+    {
+     "name": "LewisAUs",
+     "parts": {
+      "cpg": "https://www.sciencebase.gov/catalog/file/get/652d90ddd34edd15305a9431?f=__disk__5a%2F80%2F09%2F5a8009878fbeabe63741332ccf0b08428a0938fd",
+      "dbf": "https://www.sciencebase.gov/catalog/file/get/652d90ddd34edd15305a9431?f=__disk__e1%2F90%2F4a%2Fe1904a66f82256f4b367a7665d1b01d4e5fb6ea1",
+      "prj": "https://www.sciencebase.gov/catalog/file/get/652d90ddd34edd15305a9431?f=__disk__19%2F54%2F02%2F195402599da5771cf2b8067b39a9cb1aa19edb60",
+      "shp": "https://www.sciencebase.gov/catalog/file/get/652d90ddd34edd15305a9431?f=__disk__0d%2F5b%2F5a%2F0d5b5a8a446c64cbeacac6c999cb7278cb5ad808",
+      "shx": "https://www.sciencebase.gov/catalog/file/get/652d90ddd34edd15305a9431?f=__disk__b5%2F1f%2F47%2Fb51f47845ce1ac4b19b6722be183980146d179aa"
+     }
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/652d90ddd34edd15305a9431?f=__disk__88%2Fb3%2F2b%2F88b32ba36aa1cfd5229f0fdce195aabe5358d88a"
+   },
+   "metadata_xml": [
+    {
+     "name": "LewisAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/652d90ddd34edd15305a9431?f=__disk__19%2F52%2F07%2F1952078e6c94ecf3cc1b3ef4e548ce375cf1f632"
+    }
+   ]
+  },
+  {
+   "id": "65032556d34ed30c2058be2d",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Paleozoic Reservoirs of the Wind River Basin, Big Horn Basin, and Powder River Basin Provinces: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-03-13",
+   "places": [
+    "United States of America",
+    "State of Montana",
+    "State of Wyoming",
+    "State of South Dakota",
+    "State of Nebraska",
+    "Powder River Basin Minnelusa Sandstone Reservoirs",
+    "Powder River Basin Tensleep Basin Margin Reservoirs",
+    "Powder River Basin Leo Sandstone Reservoirs",
+    "Big Horn Basin Upper Paleozoic Reservoirs",
+    "Wind River Basin Upper Paleozoic Reservoirs"
+   ],
+   "bbox": {
+    "minX": -110.0548,
+    "maxX": -103.6921,
+    "minY": 42.4204,
+    "maxY": 45.6412
+   },
+   "shapefiles": [
+    {
+     "name": "Paleozoic_PowderRiver_BigHorn_WindRiver_Basins_AUs",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-65032556d34ed30c2058be2d/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-65032556d34ed30c2058be2d:Paleozoic_PowderRiver_BigHorn_WindRiver_Basins_AUs&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/65032556d34ed30c2058be2d?f=__disk__56%2Fa7%2F8c%2F56a78c99234c7f88788493165f75af7aa6d80c32"
+   },
+   "metadata_xml": [
+    {
+     "name": "Paleozoic_PowderRiver_BigHorn_WindRiver_Basins_AUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/65032556d34ed30c2058be2d?f=__disk__1b%2Fa1%2Ff5%2F1ba1f5f10fb4912327ca3fdd284ff9a41fc3fa38"
+    }
+   ]
+  },
+  {
+   "id": "65dcc462d34eb64889e19580",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Los Angeles Basin Province: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-04-08",
+   "places": [
+    "United States of America",
+    "State of California",
+    "Central and Eastern Los Angeles Basin Monterey Shale Gas",
+    "Central and Eastern Los Angeles Basin Monterey Shale Oil",
+    "Los Angeles Basin Reservoirs",
+    "Western Shelf Los Angeles Basin Monterey Shale Oil"
+   ],
+   "bbox": {
+    "minX": -118.5846,
+    "maxX": -117.5401,
+    "minY": 33.3172,
+    "maxY": 34.1246
+   },
+   "shapefiles": [
+    {
+     "name": "LA_MontereyAUs",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-65dcc462d34eb64889e19580/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-65dcc462d34eb64889e19580:LA_MontereyAUs&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/65dcc462d34eb64889e19580?f=__disk__24%2F95%2Fe0%2F2495e051a3cdb97f583153d3a6ad7ca16bba47d9"
+   },
+   "metadata_xml": [
+    {
+     "name": "LA_MontereyAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/65dcc462d34eb64889e19580?f=__disk__1e%2Fd3%2Ff1%2F1ed3f1ba46696a2da87c04a6dafd787eaf298b60"
+    }
+   ]
+  },
+  {
+   "id": "67f967d9d4be022c3e84f58b",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Gulf Coast Mesozoic Province, Lower Cretaceous Travis Peak and Hosston Formations: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-05-07",
+   "places": [
+    "United States of America",
+    "State of Alabama",
+    "State of Arkansas",
+    "State of Florida",
+    "State of Georgia",
+    "State of Louisiana",
+    "State of Mississippi",
+    "State of Oklahoma",
+    "State of Texas",
+    "Eastern Hosston Gas and Oil",
+    "Hosston Delta Oil and Gas",
+    "Hosston Shore Zone Oil and Gas",
+    "Hosston-Travis Peak Middip Gas and Oil",
+    "Hosston-Travis Peak Shelf Continuous Gas",
+    "Hosston-Travis Peak Updip Oil",
+    "Travis Peak Delta Oil and Gas",
+    "Western Travis Peak Gas and Oil"
+   ],
+   "bbox": {
+    "minX": -100.7969,
+    "maxX": -80.9251,
+    "minY": 26.3928,
+    "maxY": 34.021
+   },
+   "shapefiles": [
+    {
+     "name": "HTP_AUs",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-67f967d9d4be022c3e84f58b/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-67f967d9d4be022c3e84f58b:HTP_AUs&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/67f967d9d4be022c3e84f58b?f=__disk__e3%2Fb2%2F4c%2Fe3b24c71ea428adf4fd31d826342199981dfdedb"
+   },
+   "metadata_xml": [
+    {
+     "name": "HTP_AUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/67f967d9d4be022c3e84f58b?f=__disk__2e%2F64%2F50%2F2e645035cb007c2845fa7f57581660e37a7f7613"
+    }
+   ]
+  },
+  {
+   "id": "68026954d4be0210cde07d91",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Southwestern Wyoming Province, Mowry Shale Conventional and Continuous Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables (ver. 1.1, April 2026)",
+   "pubdate": "2025-05-21",
+   "places": [
+    "United States of America",
+    "State of Wyoming",
+    "State of Colorado",
+    "State of Utah",
+    "Mowry Eastern Conventional Oil and Gas",
+    "Mowry Rock Springs Uplift Conventional Gas",
+    "Mowry Moxa Arch Conventional Oil and Gas",
+    "Mowry Deep Continuous Gas",
+    "Mowry Moxa Arch Continuous Gas",
+    "Mowry Shale Gas",
+    "Mowry Shale Oil"
+   ],
+   "bbox": {
+    "minX": -110.7509,
+    "maxX": -106.4801,
+    "minY": 39.6543,
+    "maxY": 43.3835
+   },
+   "shapefiles": [
+    {
+     "name": "Mowry_AUs",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-68026954d4be0210cde07d91/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-68026954d4be0210cde07d91:Mowry_AUs&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/68026954d4be0210cde07d91?f=__disk__7c%2Fa5%2F1e%2F7ca51eaf4e568f151b4921140a7db1b1d6c84f86"
+   },
+   "metadata_xml": [
+    {
+     "name": "Mowry_AUs_v1.1.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/68026954d4be0210cde07d91?f=__disk__5c%2Fa3%2F88%2F5ca3883d55975e36dcab9dbbc59c5f9074af3cae"
+    }
+   ]
+  },
+  {
+   "id": "6543b810d34ee4b6e05bec35",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Southwestern Wyoming Province, Niobrara Formation Continuous Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-06-11",
+   "places": [
+    "United States of America",
+    "State of Colorado",
+    "State of Wyoming",
+    "Niobrara Continuous Gas",
+    "Niobrara Continuous Oil"
+   ],
+   "bbox": {
+    "minX": -108.7757,
+    "maxX": -106.7287,
+    "minY": 39.9256,
+    "maxY": 42.5618
+   },
+   "shapefiles": [
+    {
+     "name": "NiobraraContinuousAUs",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-6543b810d34ee4b6e05bec35/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-6543b810d34ee4b6e05bec35:NiobraraContinuousAUs&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/6543b810d34ee4b6e05bec35?f=__disk__51%2Fba%2F3b%2F51ba3b1867e62fda43a06dc9c43f62632a1bcabc"
+   },
+   "metadata_xml": [
+    {
+     "name": "NiobraraContinuousAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/6543b810d34ee4b6e05bec35?f=__disk__7a%2Fc9%2F8c%2F7ac98cdb04b12695fb5b0f424284609a3761e13a"
+    }
+   ]
+  },
+  {
+   "id": "68597229d4be024dfd7cab15",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Phosphoria Total Petroleum System, Southwestern Wyoming Province: Assessment Unit Boundaries, Assessment Input Tables, and Fact Sheet Data Tables",
+   "pubdate": "2025-08-06",
+   "places": [
+    "United States of America",
+    "State of Colorado",
+    "State of Utah",
+    "State of Wyoming",
+    "Sub-Cretaceous Conventional Oil and Gas"
+   ],
+   "bbox": {
+    "minX": -110.7509,
+    "maxX": -106.4801,
+    "minY": 39.6543,
+    "maxY": 43.3835
+   },
+   "shapefiles": [
+    {
+     "name": "SubCretaceousConventionalAU",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-68597229d4be024dfd7cab15/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-68597229d4be024dfd7cab15:SubCretaceousConventionalAU&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/68597229d4be024dfd7cab15?f=__disk__bb%2Fb2%2Fcf%2Fbbb2cf93137bb5821c5f3b83a46fc275e853d431"
+   },
+   "metadata_xml": [
+    {
+     "name": "SubCretaceousConventionalAU.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/68597229d4be024dfd7cab15?f=__disk__25%2Fe2%2Fca%2F25e2caf3b1195057c28a603e4633d990399073c8"
+    }
+   ]
+  },
+  {
+   "id": "68d4321dd4be023091a482db",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Santa Maria Basin Province, California: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-11-23",
+   "places": [
+    "United States of America",
+    "State of California",
+    "Santa Maria Basin Conventional Reservoirs",
+    "Santa Maria Basin Continuous Oil"
+   ],
+   "bbox": {
+    "minX": -120.7344,
+    "maxX": -119.9869,
+    "minY": 34.4885,
+    "maxY": 35.1235
+   },
+   "shapefiles": [
+    {
+     "name": "SantaMaria_AUs",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-68d4321dd4be023091a482db/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-68d4321dd4be023091a482db:SantaMaria_AUs&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/68d4321dd4be023091a482db?f=__disk__4d%2Fef%2F94%2F4def9401af71166997c6aeff548a874842222072"
+   },
+   "metadata_xml": [
+    {
+     "name": "SantaMaria_AUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/68d4321dd4be023091a482db?f=__disk__d5%2Fd1%2F7b%2Fd5d17b3c30207677cfd66212c5c6784baa7dafcd"
+    }
+   ]
+  },
+  {
+   "id": "6926123ad4be02656a6d3eb1",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Southwestern Wyoming Province, Mesaverde Group and Lance Formation Conventional and Continuous Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-12-03",
+   "places": [
+    "United States of America",
+    "State of Colorado",
+    "State of Utah",
+    "State of Wyoming",
+    "Mesaverde-Lance Conventional Gas",
+    "Mesaverde-Lance Continuous Gas",
+    "Mesaverde-Lance Jonah Pinedale Continuous Gas"
+   ],
+   "bbox": {
+    "minX": -110.7338,
+    "maxX": -108.8465,
+    "minY": 40.8763,
+    "maxY": 43.3835
+   },
+   "shapefiles": [
+    {
+     "name": "Lance_AUs",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-6926123ad4be02656a6d3eb1/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-6926123ad4be02656a6d3eb1:Lance_AUs&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/6926123ad4be02656a6d3eb1?f=__disk__5a%2Ff7%2F45%2F5af745c97d0a1c317bd8951a077065140396f920"
+   },
+   "metadata_xml": [
+    {
+     "name": "Lance_AUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/6926123ad4be02656a6d3eb1?f=__disk__77%2Fb9%2Fe0%2F77b9e0a391c67736c52d6a9f1cc353a0345401c5"
+    }
+   ]
+  },
+  {
+   "id": "6936f39fd4be0207e9139dc1",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Gulf Coast Mesozoic Province, Haynesville Formation: Assessment Unit Boundaries, Assessment Input Tables, and Fact Sheet Data Tables",
+   "pubdate": "2025-12-17",
+   "places": [
+    "United States of America",
+    "State of Alabama",
+    "State of Arkansas",
+    "State of Florida",
+    "State of Louisiana",
+    "State of Mississippi",
+    "State of Oklahoma",
+    "State of Texas",
+    "Haynesville Western Shelf Carbonate Conventional Oil and Gas",
+    "Haynesville Eastern Shelf Sandstone Conventional Oil and Gas",
+    "Haynesville Western Slope Carbonate Conventional Gas",
+    "Haynesville Sabine Uplift Continuous Gas",
+    "Haynesville North Louisiana Salt Basin Continuous Gas",
+    "Haynesville Eastern Shelf Carbonate Conventional Oil and Gas"
+   ],
+   "bbox": {
+    "minX": -100.3685,
+    "maxX": -86.1603,
+    "minY": 27.7146,
+    "maxY": 33.8019
+   },
+   "shapefiles": [
+    {
+     "name": "Haynesville_AUs",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-6936f39fd4be0207e9139dc1/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-6936f39fd4be0207e9139dc1:Haynesville_AUs&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/6936f39fd4be0207e9139dc1?f=__disk__e0%2Fb5%2Fe1%2Fe0b5e1d44b113fe2436c56d007729501a9d99068"
+   },
+   "metadata_xml": [
+    {
+     "name": "Haynesville_AUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/6936f39fd4be0207e9139dc1?f=__disk__87%2F91%2F45%2F8791455e08e1f0e5e15bcb7b29770b6458f78d6e"
+    }
+   ]
+  },
+  {
+   "id": "694ab444d4be023a64292c12",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Permian Basin Province, Woodford Shale and Barnett Shale Conventional and Continuous Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2026-01-14",
+   "places": [
+    "United States of America",
+    "State of New Mexico",
+    "State of Texas",
+    "Woodford Midland Basin Continuous Oil",
+    "Woodford Central Basin Platform Conventional Oil",
+    "Woodford Central Basin Platform Continuous Oil",
+    "Woodford Delaware Basin Continuous Gas",
+    "Woodford Alpine High Continuous Gas",
+    "Barnett Central Basin Platform Continuous Oil",
+    "Barnett Midland Basin Continuous Oil",
+    "Barnett Delaware Basin Continuous Gas",
+    "Barnett Alpine High Continuous Gas"
+   ],
+   "bbox": {
+    "minX": -104.8581,
+    "maxX": -101.6433,
+    "minY": 30.4229,
+    "maxY": 33.4562
+   },
+   "shapefiles": [
+    {
+     "name": "WoodfordBarnettAUs",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-694ab444d4be023a64292c12/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-694ab444d4be023a64292c12:WoodfordBarnettAUs&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/694ab444d4be023a64292c12?f=__disk__77%2F96%2F32%2F77963252ca3917c4a58b3f1264ee9deb83886b2e"
+   },
+   "metadata_xml": [
+    {
+     "name": "WoodfordBarnettAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/694ab444d4be023a64292c12?f=__disk__a8%2Fda%2F69%2Fa8da69546f64eb001ff37f50ffc49e849b6d5646"
+    }
+   ]
+  },
+  {
+   "id": "69e267d9b66b0195694c0c5e",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Bossier Formation, Gulf Coast region\u2014Assessment unit boundaries, assessment input data, and fact sheet data tables",
+   "pubdate": "2026-05-06",
+   "places": [
+    "United States of America",
+    "State of Alabama",
+    "State of Arkansas",
+    "State of Florida",
+    "State of Louisiana",
+    "State of Mississippi",
+    "State of Texas",
+    "Bossier Conventional Oil and Gas",
+    "Bossier Interplatform Shale Gas",
+    "Bossier Peripheral Shale Gas",
+    "Bossier Western Shale Gas"
+   ],
+   "bbox": {
+    "minX": -100.6407,
+    "maxX": -84.6232,
+    "minY": 27.3851,
+    "maxY": 34.2324
+   },
+   "shapefiles": [
+    {
+     "name": "BossierAUs",
+     "parts": {},
+     "wfs_geojson": "https://api.sciencebase.gov/geoserver/sb-69e267d9b66b0195694c0c5e/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sb-69e267d9b66b0195694c0c5e:BossierAUs&outputFormat=application/json&maxFeatures=100000"
+    }
+   ],
+   "results_csv": {
+    "name": "Tbl_FS_Results.csv",
+    "url": "https://www.sciencebase.gov/catalog/file/get/69e267d9b66b0195694c0c5e?f=__disk__70%2Fb2%2F8c%2F70b28c3623336b7f3df41fd3bf58c7c24093f1ca"
+   },
+   "metadata_xml": [
+    {
+     "name": "BossierAUs.xml",
+     "url": "https://www.sciencebase.gov/catalog/file/get/69e267d9b66b0195694c0c5e?f=__disk__c4%2F26%2F90%2Fc426902e3fa3a7ee2f6f04066b991767deb9ab9e"
+    }
+   ]
+  }
+ ],
+ "excluded": [
+  {
+   "id": "5cc73ce1e4b09b8c0b77e6e7",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Eromanga Basin Province, Australia, Cooper Basin Continuous Assessment Unit Boundaries and Input Data Forms",
+   "pubdate": "2019-05-02",
+   "places": [
+    "USGS World Energy Region 3",
+    "Cooper Basin",
+    "Patchawarra Trough Tight Gas AU",
+    "Queensland Troughs Tight Gas",
+    "AUNappamerri Trough Tight Gas AU",
+    "Patchawarra Trough Coal Oil AU",
+    "Nappamerri Trough Coal Oil AU",
+    "Queensland Troughs Coal Oil AU",
+    "Weena Trough Coalbed Gas AU",
+    "Australia",
+    "Queensland",
+    "South Australia"
+   ]
+  },
+  {
+   "id": "5cc9b58be4b09b8c0b77f9d4",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Eromanga Basin Province, Australia, Cooper Basin Conventional Assessment Unit Boundaries and Input Data Forms",
+   "pubdate": "2019-05-03",
+   "places": [
+    "USGS World Energy Region 3",
+    "Australia",
+    "Eromanga Basin Province",
+    "Cooper Basin",
+    "Eromanga Basin",
+    "Greater Patchawarra Trough Permian Conventional Reservoirs AU",
+    "Greater Nappamerri Trough Permian Conventional Reservoirs AU",
+    "Queensland Troughs Permian Conventional Reservoirs AU",
+    "South Eromanga Basin Mesozoic Conventional Reservoirs AU",
+    "North Eromanga Basin Mesozoic Conventional Reservoirs AU"
+   ]
+  },
+  {
+   "id": "5d1bb809e4b0941bde6210f3",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Burgos, Tampico-Misantla, and Sabinas Provinces, Northeast Mexico, Assessment Unit Boundaries",
+   "pubdate": "2020-03-03",
+   "places": [
+    "USGS World Energy Region 5",
+    "Northeast Mexico",
+    "Mexico",
+    "Burgos Basin Province",
+    "Sabinas Basin Province",
+    "Tampico-Misantla Basin Province",
+    "Rio Escondido Basin Olmos Coalbed Gas AU",
+    "La Casita Shale Gas AU",
+    "Agua Nueva Shale Oil AU",
+    "Agua Nueva Shale Gas AU",
+    "Wilcox-Lobo Tight Gas AU",
+    "Pimienta Shale Oil AU",
+    "Pimienta Shale Gas AU"
+   ]
+  },
+  {
+   "id": "604017f4d34eb12031187374",
+   "title": "USGS National and Global Oil and Gas Assessment Project -- Horn River Basin, Cordova Embayment, and Liard Basin, Canada, Assessment Unit Boundaries and Assessment Input Forms",
+   "pubdate": "2021-03-23",
+   "places": [
+    "Canada",
+    "Alberta Basin",
+    "Cordova Embayment Evie Shale Gas AU",
+    "Cordova Embayment Muskwa-Otter Park Shale Gas AU",
+    "Cordova Embayment Exshaw Shale Gas AU",
+    "Horn River Basin Evie Shale Gas AU",
+    "Horn River Basin Muskwa-Otter Park Shale Gas AU",
+    "Horn River Basin Exshaw Shale Gas AU",
+    "Liard Basin Exshaw Shale Gas AU"
+   ]
+  },
+  {
+   "id": "5ffdd798d34e52c3b3d9e445",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2013Southeast Asia Assessment Unit Boundaries, Assessment Input Forms, and Assessment Results Data Table (ver. 2.0, June 2023)",
+   "pubdate": "2021-04-22",
+   "places": [
+    "Brunei",
+    "Cambodia",
+    "India",
+    "Indonesia",
+    "Laos",
+    "Malaysia",
+    "Myanmar",
+    "Taiwan",
+    "Thailand",
+    "Baram Delta Brunei-Sabah Basin",
+    "Barito Basin",
+    "Cagayan Basin",
+    "Central Burma Basin",
+    "Central Sumatra Basin",
+    "Central Vietnam Basin",
+    "Cuu Long Basin",
+    "East Java Basin",
+    "Greater Sarawak Basin",
+    "Indo-Burman",
+    "Irrawaddy",
+    "Khorat Platform",
+    "Kutei Basin",
+    "Malay Basin",
+    "Nam Con Son Basin",
+    "North Sumatra Basin",
+    "Northwest Java Basin",
+    "Palawan Shelf",
+    "Pearl River Mouth Basin",
+    "Penyu West Natuna Basin",
+    "Phu Khanh Basin",
+    "Qiongdongnan Basin",
+    "Saigon Basin",
+    "Song Hong Basin",
+    "South China Sea Platform",
+    "South Makassar Basin",
+    "South Sumatra Basin",
+    "Sulu Sea Basin",
+    "Sumatra Java Fore-arc Basins",
+    "Taixinan Basin",
+    "Tarakan Basin",
+    "Thai Basin",
+    "Thai Cenozoic Basins",
+    "Tonle Sap-Phnom Penh Basin",
+    "Visayan Basin"
+   ]
+  },
+  {
+   "id": "60db272ad34e596d2ba5bf3f",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Eastern Mediterranean Area Assessment Unit Boundaries and Assessment Input Forms",
+   "pubdate": "2021-07-08",
+   "places": [
+    "Egypt",
+    "Gaza Strip",
+    "Israel",
+    "Jordan",
+    "Lebanon",
+    "Syria",
+    "Turkey",
+    "West Bank",
+    "Eratosthenes Platform Reservoirs",
+    "Herodotus Basin Reservoirs",
+    "Levantine Basin Mesozoic Reservoirs",
+    "Levantine Basin Post-Salt Cenozoic Reservoirs",
+    "Levantine Basin Sub-Salt Cenozoic Reservoirs",
+    "Mediterranean Ridge Reservoirs",
+    "Nile Delta Basin Mesozoic-Paleogene Reservoirs",
+    "Nile Delta Basin Neogene Reservoirs"
+   ]
+  },
+  {
+   "id": "61422f1dd34e0df5fb947fd8",
+   "title": "USGS National and Global Oil and Gas Assessment Project-China Assessment Unit Boundaries and Assessment Input Forms",
+   "pubdate": "2021-11-04",
+   "places": [
+    "China",
+    "Cenozoic Reservoirs",
+    "Lower Paleozoic Conventional Reservoirs",
+    "Mesozoic Sandstone Reservoirs",
+    "Mesozoic-Cenozoic Reservoirs",
+    "Middle Proterozoic-Paleozoic Reservoirs",
+    "Paleozoic Reservoirs",
+    "Sichuan Central Uplift",
+    "Sichuan Foreland Basins",
+    "Sichuan Southeast Fold Belt",
+    "Songliao Post-rift-sourced Reservoirs",
+    "Songliao Synrift-sourced Reservoirs",
+    "Upper Paleozoic-Cenozoic Reservoirs",
+    "Western Deformed Belt Reservoirs"
+   ]
+  },
+  {
+   "id": "61420f08d34e0df5fb947f0a",
+   "title": "USGS National and Global Oil and Gas Assessment Project - Western Australia Assessment Unit Boundaries and Assessment Input Forms",
+   "pubdate": "2022-05-26",
+   "places": [
+    "Australia",
+    "Upper Paleozoic-Mesozoic Reservoirs",
+    "Mesozoic-Cenozoic Reservoirs"
+   ]
+  },
+  {
+   "id": "626ae578d34e76103cd1825e",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Greater Taranaki and East Coast Basins, New Zealand, Assessment Unit Boundaries and Assessment Input Forms",
+   "pubdate": "2022-05-26",
+   "places": [
+    "New Zealand",
+    "East Coast Basin Mesozoic-Cenozoic Reservoirs",
+    "Taranaki Mesozoic-Cenozoic Reservoirs",
+    "Taranaki-Northland Deep Water Reservoirs",
+    "Taranaki Basin",
+    "New Zealand East Coast Basin",
+    "Challenger Plateau"
+   ]
+  },
+  {
+   "id": "62b5fb51d34e8f4977cbf05e",
+   "title": "USGS National and Global Oil and Gas Assessment Project-West Siberian Basin Province of Russia: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2022-09-09",
+   "places": [
+    "Russia",
+    "Kazakhstan",
+    "Southern West Siberian Basin Reservoirs",
+    "Northern West Siberian Basin Reservoirs",
+    "South Kara Sea Offshore Reservoirs"
+   ]
+  },
+  {
+   "id": "62e414eed34e394b65365c73",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Paleozoic Petroleum Systems of Central European Basin System: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2022-09-12",
+   "places": [
+    "Denmark",
+    "Poland",
+    "Germany",
+    "Netherlands",
+    "Sweden",
+    "United Kingdom",
+    "Belgium",
+    "Norwegian-Danish Basin Conventional Oil and Gas",
+    "Mid North Sea High Conventional Gas",
+    "Northeast German Basin Conventional Gas",
+    "Northeast German Basin Permian Conventional Oil and Gas",
+    "Northwest German Basin Conventional Gas",
+    "Polish Trough Conventional Oil and Gas",
+    "Anglo-Dutch Basin Conventional Gas"
+   ]
+  },
+  {
+   "id": "62c7469fd34eeb1417bb13c7",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2013New Guinea, Papua Barat, Seram, and Timor-Leste: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2022-09-23",
+   "places": [
+    "Indonesia",
+    "Papua New Guinea",
+    "Papua Barat",
+    "Seram",
+    "Timor-Leste",
+    "Papua-Lengguru Thrust Belt",
+    "Arafura Platform",
+    "Timor Thrust Structures",
+    "Seram Thrust Structures",
+    "Bintuni Basin",
+    "Salawati Basin",
+    "Papua-New Guinea Thrust Belt",
+    "Papua Platform"
+   ]
+  },
+  {
+   "id": "61fd5a11d34e622189ceb3f7",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2013the Volga-Ural Basin and Timan-Pechora Basin Provinces of Russia: Assessment Unit Boundaries, Assessment Input Forms, and Fact Sheet Data Tables",
+   "pubdate": "2022-09-27",
+   "places": [
+    "Russia",
+    "Kazakhstan",
+    "Northwest Izhma-Pechora Depression Reservoirs",
+    "Main Timan Pechora Basin Reservoirs",
+    "Timan Pechora Foredeep Reservoirs",
+    "Main Volga-Ural Paleozoic Reservoirs",
+    "Volga-Ural Foredeep Paleozoic Reservoirs"
+   ]
+  },
+  {
+   "id": "62e413fcd34e394b65365c6b",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Mesozoic Petroleum Systems of Central European Basin System: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2022-10-04",
+   "places": [
+    "Netherlands",
+    "Germany",
+    "United Kingdom",
+    "Faeroes-Shetland-Orkney Basin Conventional Oil and Gas",
+    "Viking Graben-East Shetland Basin Conventional Oil and Gas",
+    "East Shetland Platform Conventional Oil",
+    "Moray Firth Basin-Witch Ground Graben Conventional Oil and Gas",
+    "Central-Tail End Graben Conventional Oil and Gas",
+    "Utsira High-Horda Platform Conventional Oil and Gas",
+    "Lower Saxony Basin Mesozoic Conventional Oil and Gas",
+    "West Netherlands Basin Mesozoic Conventional Oil and Gas"
+   ]
+  },
+  {
+   "id": "63517cf8d34e47431c15db63",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Senegal Basin Province: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2022-11-21",
+   "places": [
+    "Morocco",
+    "Mauritania",
+    "Gambia",
+    "Guinea-Bissau",
+    "Guinea",
+    "Western Sahara",
+    "Senegal",
+    "Senegal Basin Reservoirs"
+   ]
+  },
+  {
+   "id": "62e4157cd34e394b65365c78",
+   "title": "USGS National and Global Oil and Gas Assessment Project-Lower Saxony Basin: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2023-01-05",
+   "places": [
+    "Germany",
+    "Netherlands",
+    "Lower Saxony Basin Posidonia Shale Oil",
+    "Gifhorn Trough Posidonia Shale Oil",
+    "Lower Saxony Basin Posidonia Shale Gas",
+    "Lower Saxony Basin Wealden Shale Oil",
+    "Lower Saxony Basin Wealden Shale Gas"
+   ]
+  },
+  {
+   "id": "63c18198d34e92aad3d06662",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Barents Sea Area: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2023-05-26",
+   "places": [
+    "Russia",
+    "Svalbard",
+    "Kolguyev Terrace Reservoirs",
+    "South Barents-Ludlov Saddle Reservoirs",
+    "North Barents Reservoirs",
+    "Barents Platform North Reservoirs",
+    "Barents Platform South Reservoirs"
+   ]
+  },
+  {
+   "id": "649989c0d34ef77fcb02aaf6",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Offshore Morocco: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2023-07-26",
+   "places": [
+    "Morocco",
+    "Offshore Salt Structures"
+   ]
+  },
+  {
+   "id": "649c51c3d34ef77fcb033731",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014West-Central Coastal Province (Africa) Presalt: Assessment Unit Boundaries, Assessment Input data, and Fact Sheet Data Tables",
+   "pubdate": "2024-01-29",
+   "places": [
+    "Cameroon",
+    "Equatorial Guinea",
+    "Gabon",
+    "Congo",
+    "Angola",
+    "Democratic Republic of the Congo",
+    "Namibia",
+    "Douala-Rio Muni Basin Presalt Reservoirs",
+    "Gabon Basin Presalt Reservoirs",
+    "Congo Basin Presalt Reservoirs",
+    "Kwanza-Benguela Basin Presalt Reservoirs",
+    "Namibe Basin Presalt Reservoirs"
+   ]
+  },
+  {
+   "id": "653fcc7ad34ee4b6e05bc608",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2013West-Central Coastal Province (Africa) Postsalt Reservoirs: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2024-06-05",
+   "places": [
+    "Cameroon",
+    "Equitorial Guinea",
+    "Angola",
+    "Republic of Congo",
+    "Democratic Republic of the Congo",
+    "Gabon",
+    "Namibia",
+    "Sao Tome and Principe",
+    "Douala-Rio Muni Cretaceous Postsalt Reservoirs",
+    "Douala-Rio Muni Cenozoic Postsalt Reservoirs",
+    "Gabon Cretaceous Postsalt Reservoirs",
+    "Gabon Cenozoic Postsalt Reservoirs",
+    "Congo Basin Cretaceous Carbonate Postsalt Reservoirs",
+    "Congo Basin Cretaceous Siliciclastic Postsalt Reservoirs",
+    "Congo Basin Cenozoic Postsalt Reservoirs",
+    "Kwanza-Benguela Basin Cretaceous Postsalt Reservoirs",
+    "Kwanza-Benguela Basin Cenozoic Postsalt Reservoirs",
+    "Namibe Basin Postsalt Reservoirs"
+   ]
+  },
+  {
+   "id": "663e2eadd34eaf9729f7ad53",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Black Sea Area: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2024-07-08",
+   "places": [
+    "Romania",
+    "Turkey",
+    "Georgia",
+    "Ukraine",
+    "Western Black Sea Basin",
+    "Eastern Black Sea Basin",
+    "Andrusov\u2010Arkangelsky Ridge",
+    "Karkinit Trough",
+    "Shatsky Ridge"
+   ]
+  },
+  {
+   "id": "65771201d34e952b22745ffc",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014East Africa and Seychelles Provinces: Assessment Unit Boundaries, Assessment Input data, and Fact Sheet Data Tables",
+   "pubdate": "2024-07-22",
+   "places": [
+    "Seychelles",
+    "Madagascar",
+    "Juan De Nova Island",
+    "Mozambique",
+    "Tanzania",
+    "Somalia",
+    "Kenya",
+    "Mafia\u2010Ruvu Basin Reservoirs",
+    "Lamu Basin Reservoirs",
+    "Zambezi Delta System Reservoirs",
+    "Rovuma Delta System Reservoirs",
+    "Morondava Mesozoic-Cenozoic Reservoirs",
+    "Seychelles Reservoirs"
+   ]
+  },
+  {
+   "id": "6737b6efd34ea130d82b39ad",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Zagros Fold Belt Province: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-02-12",
+   "places": [
+    "Iran",
+    "Oman",
+    "Syria",
+    "Turkey",
+    "Zagros Central Fold Belt",
+    "Zagros Fars Fold Belt",
+    "Zagros South Turkey Fold Belt"
+   ]
+  },
+  {
+   "id": "6737aaa0d34ea130d82b3963",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Greater Caspian Area: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-02-18",
+   "places": [
+    "Armenia",
+    "Azerbaijan",
+    "Belarus",
+    "Georgia",
+    "Iran",
+    "Kazakhstan",
+    "Russian Federation",
+    "Turkmenistan",
+    "Ukraine",
+    "Uzbekistan",
+    "North Caspian North and West Margin Pre-Salt Reservoirs",
+    "North Caspian South and East Margin Pre-Salt Reservoirs",
+    "North Caspian Post-Salt Reservoirs",
+    "North Ustyurt Paleozoic Reservoirs",
+    "North Ustyurt Mesozoic\u2013Cenozoic Reservoirs",
+    "Middle Caspian Central Basin-South Mangyshlak Reservoirs",
+    "Middle Caspian North Caucasus Platform Reservoirs",
+    "Middle Caspian Terek Foredeep-North Apsheron Reservoirs",
+    "Azov-Kuban Foredeep Reservoirs",
+    "Azov-Kuban Foreland Reservoirs",
+    "South Caspian Margin and Fold Belt Reservoirs",
+    "South Caspian Central Depression Reservoirs",
+    "Kura Basin Reservoirs",
+    "Dnieper-Donets Paleozoic Reservoirs",
+    "Pripyat Paleozoic Reservoirs"
+   ]
+  },
+  {
+   "id": "6737b6cdd34ea130d82b39a8",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Oman Provinces: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-03-19",
+   "places": [
+    "Oman",
+    "Saudi Arabia",
+    "United Arab Emirates",
+    "Butabul-Ghudun Uplift Reservoirs",
+    "South Oman Salt Basin Reservoirs",
+    "Eastern Flank South Oman Salt Basin Reservoirs",
+    "Ghaba Salt Basin Reservoirs",
+    "Fahud Salt Basin Reservoirs",
+    "Oman\u2010Suneinah Foredeep Reservoirs",
+    "Lekhwair High Reservoirs"
+   ]
+  },
+  {
+   "id": "6824bb99d4be0236b06af5e2",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014North Cuba Area: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-06-25",
+   "places": [
+    "Cuba",
+    "North Cuba Fold and Thrust Belt",
+    "North Cuba Foreland Basin",
+    "North Cuba Platform Margin Carbonate"
+   ]
+  },
+  {
+   "id": "680939d1d4be021123517eda",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014West Greenland-East Canada Province: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-07-09",
+   "places": [
+    "Greenland",
+    "Canada",
+    "Northwest Greenland Rifted Margin",
+    "West-Central Greenland Rifted Margin",
+    "Northeast Canada Rifted Margin",
+    "Baffin Bay Basin",
+    "Southwest Greenland Rifted Margin"
+   ]
+  },
+  {
+   "id": "686d8f57d4be026f4a016460",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Northern Arabian Peninsula\u2014Assessment Unit Boundaries, Input Data Tables,\u00a0and Fact Sheet Data Tables",
+   "pubdate": "2025-07-23",
+   "places": [
+    "Iraq",
+    "Israel",
+    "Jordan",
+    "Kuwait",
+    "Lebanon",
+    "Saudi Arabia",
+    "Syria",
+    "Turkey",
+    "Mesopotamian Basin Anticlines",
+    "Mesopotamian Foredeep Reservoirs",
+    "Northern Arabia Paleozoic Reservoirs",
+    "Southeast Turkey Thrust Belt Reservoirs",
+    "Sinjar Fold Belt Reservoirs",
+    "Aleppo Platform Reservoirs",
+    "Palmyride Fold Belt Reservoirs",
+    "Euphrates Graben Reservoirs"
+   ]
+  },
+  {
+   "id": "68921ce5d4be0267deb746a4",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Provinces of Mexico, Belize, and Guatemala\u2014Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-08-20",
+   "places": [
+    "Mexico",
+    "Belize",
+    "Guatemala",
+    "Burgos Basin Offshore Reservoirs",
+    "Golden Lane El Abra Formation Reservoirs",
+    "Golden Lane Tamabra Formation Reservoirs",
+    "Tampico-Misantla Basin Reservoirs",
+    "Veracruz Fold Belt Reservoirs",
+    "Veracruz Basin Offshore Reservoirs",
+    "Saline-Comalcalco Basin Reservoir",
+    "Villahermosa-Reforma Trend Reservoirs",
+    "Macuspana Basin Reservoirs",
+    "Campeche-Yucatan Basin Postsalt Reservoirs",
+    "Campeche-Yucatan Basin Presalt Reservoirs",
+    "Yucatan Platform NW Margin Reservoirs",
+    "Yucatan Platform SE Margin Reservoirs",
+    "Sierra Madre de Chiapas-Peten Fold Belt and Basin Reservoirs",
+    "Sierra Madre de Chiapas-Peten Fold Belt and Basin Reservoirs"
+   ]
+  },
+  {
+   "id": "68a8b09dd4be0263357940dd",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014India and Sri Lanka Provinces: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-09-10",
+   "places": [
+    "India",
+    "Myanmar",
+    "Sri Lanka",
+    "Upper Assam Basin Reservoirs",
+    "Cambay-Barmer Basin Reservoirs",
+    "Mumbai Offshore Basin Reservoirs",
+    "Kutch Basin Reservoirs",
+    "Laxmi Basin Reservoirs",
+    "Cauvery Basin Reservoirs",
+    "Mannar Basin Reservoirs",
+    "Krishna-Godavari Basin Reservoirs",
+    "Mahanadi Basin Reservoirs",
+    "Kerala-Konkan Basin Reservoirs"
+   ]
+  },
+  {
+   "id": "68c31cadd4be0260db194047",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Yemen: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2025-09-24",
+   "places": [
+    "Yemen",
+    "Sab'atayn Basin Reservoirs",
+    "Say'un-Masila Basin Reservoirs",
+    "Jiza-Qamar Basin Reservoirs"
+   ]
+  },
+  {
+   "id": "6965068bd4be0220d841bafa",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Greater Carpathian Area: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2026-01-28",
+   "places": [
+    "Austria",
+    "Bosnia and Herzegovina",
+    "Bulgaria",
+    "Croatia",
+    "Czech Republic",
+    "Hungary",
+    "Poland",
+    "Romania",
+    "Serbia",
+    "Slovakia",
+    "Slovenia",
+    "Ukraine",
+    "Vienna Basin Reservoirs",
+    "North Carpathian Basin Reservoirs",
+    "Greater Hungarian Plain Reservoirs",
+    "Danube Basin Reservoirs",
+    "Transylvanian Basin Postsalt Reservoirs",
+    "Transylvanian Basin Presalt Reservoirs",
+    "South Carpathian Basin Reservoirs",
+    "Moesian Platform Reservoirs",
+    "Varna Trough Reservoirs",
+    "Varna Trough Reservoirs"
+   ]
+  },
+  {
+   "id": "69819d77b66b0193caec82ef",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Santos Basin, Campos Basin, and Esp\u00edrito Santo Basin provinces of Brazil: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2026-02-11",
+   "places": [
+    "Brazil",
+    "Espirito Santo Presalt Reservoirs",
+    "Espirito Santo Postsalt Reservoirs",
+    "Espirito Santo Subvolcanic Reservoirs",
+    "Campos Western Salt Basin Marine Sandstone Reservoirs",
+    "Campos Eastern Salt Basin Marine Sandstone Reservoirs",
+    "Campos Postsalt Carbonate Reservoirs",
+    "Campos Presalt Lacustrine Reservoirs",
+    "Santos Central Basin Presalt Reservoirs",
+    "Santos Deep SW Basin Presalt Reservoirs",
+    "Santos Deep SE Basin Presalt Reservoirs",
+    "Santos Postsalt Marine Reservoirs",
+    "Santos Postsalt Subsalt Reservoirs"
+   ]
+  },
+  {
+   "id": "698deeecb66b01f8cb40ec1b",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Larsen Basin, Antarctica: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2026-02-25",
+   "places": [
+    "Antarctica",
+    "Larsen Basin Reservoirs"
+   ]
+  },
+  {
+   "id": "699dc33db66b018a7ec1013f",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014South America and Caribbean Provinces: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2026-03-12",
+   "places": [
+    "South America",
+    "Caribbean",
+    "Argentina",
+    "Bahamas",
+    "Barbados",
+    "Bolivia",
+    "Brazil",
+    "Chile",
+    "Colombia",
+    "Cuba",
+    "Ecuador",
+    "Falkland Islands",
+    "French Guiana",
+    "Guyana",
+    "Paraguay",
+    "Peru",
+    "Suriname",
+    "Trinidad and Tobago",
+    "Uruguay",
+    "Venezuela",
+    "Solimoes Paleozoic Reservoirs",
+    "Amazonas Paleozoic Reservoirs",
+    "Parnaiba Paleozoic Reservoirs",
+    "Parana Paleozoic Reservoirs",
+    "Guyana-Suriname Deep Marine Reservoirs",
+    "Guyana-Suriname Shallow Marine Reservoirs",
+    "Demerara Plateau Margin Reservoirs",
+    "Foz do Amazonas Reservoirs",
+    "Sergipe-Alagoas Presalt Reservoirs",
+    "Sergipe-Alagoas Postsalt Reservoirs",
+    "Espirito Santo Presalt Reservoirs",
+    "Espirito Santo Postsalt Reservoirs",
+    "Espirito Santo Subvolcanic Reservoirs",
+    "Campos Western Salt Basin Marine Sandstone Reservoirs",
+    "Campos Eastern Salt Basin Marine Sandstone Reservoirs",
+    "Campos Postsalt Carbonate Reservoirs",
+    "Campos Presalt Lacustrine Reservoirs",
+    "Santos Central Basin Presalt Reservoirs",
+    "Santos Deep SW Basin Presalt Reservoirs",
+    "Santos Deep SE Basin Presalt Reservoirs",
+    "Santos Postsalt Marine Reservoirs",
+    "Santos Postsalt Subsalt Reservoirs",
+    "Pelotas Basin Reservoirs",
+    "Punta del Este Basin Reservoirs",
+    "Putumayo-Oriente-Maranon Reservoirs",
+    "Santa Cruz Sub-Andean Fold and Thrust Belt",
+    "Santa Cruz Foreland and Central Chaco High",
+    "Cacheuta Sub-Basin Conventional Oil",
+    "Neuquen Conventional Reservoirs",
+    "Neuquen Foothills Structures",
+    "San Jorge Basin Conventional Reservoirs",
+    "San Bernardo Fold Belt Reservoirs",
+    "Magallanes Conventional Reservoirs",
+    "Magallanes Andean Structures",
+    "North Falklands Basin Conventional Reservoirs",
+    "South Falklands Basin Conventional Reservoirs",
+    "East Scotian Fold Belt Conventional Reservoirs",
+    "Malvinas Basin Conventional Reservoirs",
+    "West Scotian Fold Belt Conventional Reservoirs",
+    "Upper Magdalena Reservoirs",
+    "Middle Magdalena Reservoirs",
+    "Lower Magdalena Basin Reservoirs",
+    "Sinu-San Jacinto Colombian Basin Reservoirs",
+    "Colombian Basin Reservoirs",
+    "Guajira Basin Reservoirs",
+    "Llanos Basin Reservoirs",
+    "Barinas-Apure Basin Reservoirs",
+    "East Venezuela Fold and Thrust Belt",
+    "Guarico Sub-basin Reservoirs",
+    "Maturin Sub-basin Reservoirs",
+    "Gulf of Paria Reservoirs",
+    "Trinidad Columbus Basin Reservoirs",
+    "Orinoco Delta Reservoirs",
+    "Maracaibo Basin Reservoirs",
+    "Carupano Basin Reservoirs",
+    "Barbados Accretionary Complex Reservoirs",
+    "North Cuba Fold and Thrust Belt",
+    "North Cuba Foreland Basin",
+    "North Cuba Basin Platform Margin Carbonate",
+    "Bahama-Cuba Foreland Basin",
+    "Bahama Platform Margin Carbonate"
+   ]
+  },
+  {
+   "id": "69d02893b66b01c06b6460bc",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Grand Erg/Ahnet Basin Province: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2026-04-22",
+   "places": [
+    "Algeria",
+    "Timimoun Basin Silurian Shale Gas",
+    "Timimoun Basin Devonian Shale Gas",
+    "Sbaa Basin Silurian Shale Gas",
+    "Sbaa Basin Devonian Shale Gas",
+    "Ahnet Basin Silurian Shale Gas",
+    "Ahnet Basin Devonian Shale Gas",
+    "Oued Mya Basin Silurian Shale Gas",
+    "Benoud-Melrhir Trough Silurian Shale Gas"
+   ]
+  },
+  {
+   "id": "69fde705b66b0177b154209d",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Berkine, Illizi, Hamra, Murzuq, and Erdis Kufra Basins of northern Africa: Assessment unit boundaries, assessment input data, and fact sheet data tables",
+   "pubdate": "2026-05-20",
+   "places": [
+    "Algeria",
+    "Chad",
+    "Libya",
+    "Niger",
+    "Sudan",
+    "Tunisia",
+    "Murzuq Basin Conventional Reservoirs",
+    "Hamra Basin Conventional Reservoirs",
+    "Berkine Basin Conventional Reservoirs",
+    "Talemzane Arch Conventional Reservoirs",
+    "Illizi Basin Conventional Reservoirs",
+    "Tihemboka Arch Conventional Reservoirs",
+    "Erdis Kufra Conventional Reservoirs"
+   ]
+  },
+  {
+   "id": "6a199427b66b01974b2d2a03",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Amu Darya Basin Province Continuous Resources: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2026-06-22",
+   "places": [
+    "Afghanistan",
+    "Turkmenistan",
+    "Uzbekistan",
+    "Lower-Middle Jurassic Tight Sandstone Gas",
+    "Lower-Upper Jurassic Tight Carbonate Gas",
+    "Jurassic Shale Gas",
+    "Jurassic Shale Oil"
+   ]
+  },
+  {
+   "id": "6a6b9fb41ba49bb557f05d10",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Amu Darya Basin and Afghan-Tajik Basin Provinces Conventional Resources: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2026-08-13",
+   "places": [
+    "Afghanistan",
+    "Iran",
+    "Tajikistan",
+    "Turkmenistan",
+    "Uzbekistan",
+    "Amu Darya Mesozoic-Cenozoic Reservoirs",
+    "Afghan-Tajik Mesozoic-Cenozoic Reservoirs"
+   ]
+  },
+  {
+   "id": "6a8324691ba49b752017e777",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Central Arabian Peninsula: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2026-08-26",
+   "places": [
+    "Bahrain",
+    "Iran",
+    "Iraq",
+    "Kuwait",
+    "Oman",
+    "Qatar",
+    "Saudi Arabia",
+    "United Arab Emirates",
+    "Yemen",
+    "East Rub al Khali Salt Basin Mesozoic Reservoirs",
+    "East Rub al Khali Salt Basin Neoproterozoic-Paleozoic Reservoirs",
+    "East Rub al Khali Mesozoic Reservoirs",
+    "Main Rub al Khali Basin Reservoirs",
+    "Central Arabian Platform Reservoirs",
+    "Jafurah Sub-Basin Mesozoic Structures",
+    "Qatar Arch Paleozoic-Mesozoic Reservoirs",
+    "Summan Platform Reservoirs",
+    "Northwest Arabian Gulf Salt Structures",
+    "Northwest Arabian Gulf Basement Structures",
+    "Dibdibah Trough Reservoirs"
+   ]
+  },
+  {
+   "id": "6a96ede91ba49b45440e9a6c",
+   "title": "USGS National and Global Oil and Gas Assessment Project\u2014Niger Delta Province: Assessment Unit Boundaries, Assessment Input Data, and Fact Sheet Data Tables",
+   "pubdate": "2026-09-16",
+   "places": [
+    "Cameroon",
+    "Nigeria",
+    "Niger Extensional Structures",
+    "Niger Delta Contractional Structures"
+   ]
+  }
+ ]
+}
