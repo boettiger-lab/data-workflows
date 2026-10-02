@@ -1,0 +1,61 @@
+# Publish the rcn-national STAC, the widened parent collection and the bucket README
+# (issue #606). STAC and README are canonical on NRP S3 and are never committed to this
+# repo, so they are generated locally by catalog/connectivity/rcn-national-stac.py,
+# verified with scripts/verify-stac.py --no-data, and uploaded from a ConfigMap here:
+#
+#   python3 catalog/connectivity/rcn-national-stac.py
+#   scripts/verify-stac.py --no-data /tmp/stac-collection.json
+#   kubectl -n geo-workflows create configmap rcn-national-stac \
+#     --from-file=stac-collection.json=/tmp/stac-collection.json \
+#     --from-file=parent-stac-collection.json=/tmp/parent.json \
+#     --from-file=bucket-README.md=/tmp/bucket-readme.md \
+#     -o yaml --dry-run=client | kubectl apply -n geo-workflows -f -
+#   kubectl apply -n geo-workflows -f catalog/connectivity/k8s/rcn-national/rcn-national-publish-stac.yaml
+#
+# Run this only after rcn-national-validate has passed and the hex coverage gate is
+# clean: the collection advertises assets, and a STAC that names a partial hex is worse
+# than no STAC at all.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rcn-national-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: rcn-national-publish-stac}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: rcn-national-publish-stac}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: upload
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: stac, mountPath: /stac, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # ConfigMap keys mount as symlinks (key -> ..data/key) and rclone copyto does
+          # not follow a symlink source, so dereference through cat first.
+          publish() {
+            cat "/stac/$1" > "/tmp/$1"
+            case "$1" in *.json) python3 -c "import json,sys; json.load(open('/tmp/$1'))";; esac
+            rclone copyto "/tmp/$1" "nrp:$2"
+            echo "uploaded $2"
+          }
+          publish stac-collection.json        public-connectivity/rcn-national/stac-collection.json
+          publish parent-stac-collection.json public-connectivity/stac-collection.json
+          publish bucket-README.md            public-connectivity/README.md
+          echo done
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: stac, configMap: {name: rcn-national-stac}}
