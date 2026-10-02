@@ -1,0 +1,103 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: calflora-ranges-species-lookup
+  namespace: geo-workflows
+  labels: {k8s-app: calflora-ranges-species-lookup}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 172800
+  activeDeadlineSeconds: 1800
+  template:
+    metadata: {labels: {k8s-app: calflora-ranges-species-lookup}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: lookup
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          # species_code -> scientific name lookup for calflora-ranges.  Issue #668.
+          # Source is the team's own tracking sheet, staged beside the rasters.
+          cd /tmp
+          rclone copyto nrp:public-ca-ccca5/raw/Download_list_SppDist.xlsx /tmp/list.xlsx --retries 5
+          rclone copyto nrp:public-ca-ccca5/calflora-ranges/cog-stats.json /tmp/cog-stats.json --retries 5
+
+          python3 - <<'PY'
+          import zipfile, re, html, json, duckdb
+
+          # The sheet uses seven-letter codes for three species; the team's protocol and their
+          # own ATRITOR -> ATRTOR rename make the six-letter form canonical, and it is the join
+          # key to the thermal-tolerance table.
+          RENAME = {'ABIBRAC': 'ABIBRA', 'CLEOARB': 'CLEARB', 'ATRITOR': 'ATRTOR'}
+
+          z = zipfile.ZipFile('/tmp/list.xlsx')
+          shared = [html.unescape(''.join(re.findall(r'<t[^>]*>(.*?)</t>', s, re.S)))
+                    for s in re.findall(r'<si>(.*?)</si>', z.read('xl/sharedStrings.xml').decode(), re.S)]
+          sheet = z.read('xl/worksheets/sheet1.xml').decode()
+
+          def cells(rowxml):
+              out = {}
+              for ref, attrs, body in re.findall(r'<c r="([A-Z]+)\d+"([^>]*)>(.*?)</c>', rowxml, re.S):
+                  v = re.search(r'<v>(.*?)</v>', body)
+                  if v:
+                      out[ref] = shared[int(v.group(1))] if 't="s"' in attrs else v.group(1)
+              return out
+
+          recs = []
+          for _, rowxml in re.findall(r'<row[^>]*r="(\d+)"[^>]*>(.*?)</row>', sheet, re.S):
+              c = cells(rowxml)
+              name, code = c.get('A', '').strip(), c.get('B', '').strip()
+              if not re.fullmatch(r'[A-Z]{6,8}', code) or ' ' not in name:
+                  continue
+              recs.append((RENAME.get(code, code), name, code))
+
+          built = {r['code'] for r in json.load(open('/tmp/cog-stats.json'))}
+          got = {r[0] for r in recs}
+          assert len(recs) == len(got), 'duplicate species codes in the sheet'
+          missing, extra = built - got, got - built
+          assert not missing, f'published COGs with no name in the sheet: {sorted(missing)}'
+          assert not extra, f'sheet lists codes with no published raster: {sorted(extra)}'
+          print(f'{len(recs)} species, codes match the {len(built)} published rasters exactly')
+
+          con = duckdb.connect()
+          con.execute('CREATE TABLE s (species_code VARCHAR, scientific_name VARCHAR, source_code VARCHAR)')
+          con.executemany('INSERT INTO s VALUES (?, ?, ?)', recs)
+          con.execute("""
+            COPY (SELECT species_code, scientific_name,
+                         source_code,
+                         'https://www.calflora.org/app/ipl?list_id=px4593' AS calflora_list_url
+                  FROM s ORDER BY species_code)
+            TO '/tmp/species.parquet' (FORMAT PARQUET, COMPRESSION zstd, ROW_GROUP_SIZE 2000)
+          """)
+          print(con.execute("SELECT * FROM read_parquet('/tmp/species.parquet') LIMIT 3").fetchall())
+          PY
+
+          rclone copyto /tmp/species.parquet nrp:public-ca-ccca5/calflora-ranges/species.parquet --retries 5
+          echo "SPECIES LOOKUP COMPLETE"
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
