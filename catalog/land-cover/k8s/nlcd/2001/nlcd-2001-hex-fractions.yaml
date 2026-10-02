@@ -6,7 +6,7 @@ metadata:
   labels: {k8s-app: nlcd-2001-hex-fractions}
 spec:
   completions: 122           # 2001 only, one per h0 base cell
-  parallelism: 12
+  parallelism: 6
   completionMode: Indexed
   backoffLimitPerIndex: 3
   maxFailedIndexes: 10
@@ -15,7 +15,8 @@ spec:
     metadata: {labels: {k8s-app: nlcd-2001-hex-fractions}}
     spec:
       restartPolicy: Never
-      priorityClassName: opportunistic
+      # Default priority, not opportunistic: the dense h0 tail runs ~3h per pod, and the
+      # mode run (nlcd-2001-hex) lost two attempts of index 14 at opportunistic (#739).
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
