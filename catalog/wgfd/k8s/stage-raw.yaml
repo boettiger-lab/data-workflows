@@ -1,0 +1,71 @@
+# data-workflows#578 — stage the WGFD raw sources into public-wgfd/raw/ under clean names.
+#
+# The upstream GeoJSON is already on NRP, staged 2026-02-25 under public-wyoming/raw/ with
+# ArcGIS export hash suffixes. This copies it into the new provider-named bucket so
+# public-wgfd is self-contained: public-wyoming is slated for retirement (#225), and the raw
+# must not disappear with it. For cwhr/#417 reasons the staged raw IS the provenance here —
+# WGFD publishes through an ArcGIS Hub endpoint with no stable versioned download URL, so
+# these bytes plus their checksum are the only reproducible anchor.
+#
+# Renamed to match the dataset names (the `coal-cases.geojson` convention), so
+# --source-url s3://public-wgfd/raw/<dataset>.geojson is derivable from the dataset name.
+#
+# Server-side S3 copy over the internal endpoint. Idempotent: rclone skips identical objects.
+# ⚠️ Runs AFTER *-setup-bucket (the bucket does not exist until then, and rclone with
+# --s3-no-check-bucket would fail the upload with NoSuchBucket after doing the work).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wgfd-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: wgfd-stage-raw}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: wgfd-stage-raw}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          SRC=nrp:public-wyoming/raw
+          DST=nrp:public-wgfd/raw
+
+          copy() {  # <upstream-name> <clean-name>
+            echo "=== $2"
+            rclone copyto "$SRC/$1" "$DST/$2" -P --retries 5 --low-level-retries 20
+            rclone lsl "$DST/$2"
+          }
+
+          copy 'Elk_Crucial_Range_6814964145904153641.geojson'      elk-crucial.geojson
+          copy 'MuleDeerCrucialRange_-6928355498246013770.geojson'  mule-deer-crucial.geojson
+          copy 'Antelope_Crucial_Range_2840206821211723664.geojson' pronghorn-crucial.geojson
+          # Antelope == pronghorn: WGFD names the file for the common name, the dataset for
+          # the species. Recorded here so nobody "fixes" the mapping later.
+
+          echo "=== staged, with fingerprints for the STAC provenance (#417) ==="
+          for f in elk-crucial mule-deer-crucial pronghorn-crucial; do
+            rclone cat "$DST/$f.geojson" | sha256sum | sed "s|-|$f.geojson|"
+          done
+          rclone lsjson "$DST" | python3 -c "
+          import json,sys
+          for o in json.load(sys.stdin):
+              print(f\"{o['Name']:32s} {o['Size']:>12,} bytes  {o.get('ModTime','')}\")
+          "
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
