@@ -1,0 +1,97 @@
+# Remove the survey-extent pre-repartition hex chunks now that the coverage gate has passed (#591).
+#
+# `--cleanup` was deliberately stripped from the repartition jobs so a failed repartition could not
+# destroy 9+ hours of chunk builds. That protection is spent: hex/ is published and verified, so
+# chunks/ is 63.45 GB of superseded intermediate.
+#
+# Verified before this job (duckdb-geo MCP, 2026-09-22):
+#   - all 8 h0 partitions present in hex/, each matching its chunks/ row count exactly
+#   - 6,230,445,420 rows in chunks/ and 6,230,445,420 in hex/
+#   - COUNT(DISTINCT _cng_fid) in hex/ = 73,730 = the source feature count
+#   - nothing published references chunks/ (STAC assets are parquet, pmtiles, hex only)
+#
+# The job re-asserts the published side before deleting, so it cannot run against a bucket where
+# hex/ went missing between verification and execution.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ids-survey-extent-cleanup-chunks
+  namespace: geo-workflows
+  labels:
+    k8s-app: ids-survey-extent-cleanup-chunks
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ids-survey-extent-cleanup-chunks
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: cleanup-chunks
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {memory: "2Gi", cpu: "1", ephemeral-storage: "5Gi"}
+          limits:   {memory: "2Gi", cpu: "1", ephemeral-storage: "10Gi"}
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          BASE="nrp:public-usfs"
+          DS="ids-survey-extent-1999-2025"
+          CHUNKS="${BASE}/${DS}/chunks"
+
+          echo "=== 1. the published side must be intact ==="
+          HEX=$(rclone lsf "${BASE}/${DS}/hex/" --s3-no-check-bucket | wc -l)
+          echo "hex/ holds ${HEX} h0 partitions (expect 8)"
+          [ "${HEX}" = "8" ] || { echo "FATAL: hex/ is not 8 partitions -- refusing to delete"; exit 1; }
+          for f in "${DS}.parquet" "${DS}.pmtiles" "${DS}/stac-collection.json"; do
+            rclone lsf "${BASE}/${f}" --s3-no-check-bucket | grep -q . \
+              || { echo "FATAL: ${f} missing -- refusing to delete"; exit 1; }
+            echo "  present: ${f}"
+          done
+
+          echo "=== 2. chunks/ must hold nothing but chunk parquet ==="
+          rclone lsf "${CHUNKS}/" --s3-no-check-bucket | sort > /tmp/chunks.txt
+          N=$(wc -l < /tmp/chunks.txt)
+          echo "chunks/ holds ${N} files"
+          [ "${N}" -gt 0 ] || { echo "already empty, nothing to do"; exit 0; }
+          STRAY=$(grep -vc '^chunk_[0-9]\{6\}\.parquet$' /tmp/chunks.txt || true)
+          [ "${STRAY}" = "0" ] || { echo "FATAL: ${STRAY} unexpected names in chunks/"; sed -n '1,20p' /tmp/chunks.txt; exit 1; }
+
+          echo "=== 3. delete ==="
+          rclone delete "${CHUNKS}/" --s3-no-check-bucket --include "chunk_*.parquet" \
+            --retries 10 --low-level-retries 20 --stats 30s --stats-one-line
+
+          echo "=== 4. after ==="
+          LEFT=$(rclone lsf "${CHUNKS}/" --s3-no-check-bucket | wc -l)
+          echo "chunks/ remaining: ${LEFT} (expect 0, deleted ${N})"
+          [ "${LEFT}" = "0" ] || { echo "FATAL: ${LEFT} files left"; exit 1; }
+          HEX_AFTER=$(rclone lsf "${BASE}/${DS}/hex/" --s3-no-check-bucket | wc -l)
+          echo "hex/ still holds ${HEX_AFTER} h0 partitions"
+          [ "${HEX_AFTER}" = "8" ] || { echo "FATAL: hex/ changed"; exit 1; }
+          echo "=== DONE ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
