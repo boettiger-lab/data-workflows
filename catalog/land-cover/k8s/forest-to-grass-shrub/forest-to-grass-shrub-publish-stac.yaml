@@ -1,0 +1,38 @@
+# Publish the STAC collection, README and updated land-cover parent (#738).
+# The three files come from a ConfigMap built at publish time (STAC JSON is never committed):
+#   python3 gen_stac.py <binary-hex-created> stac-collection.json
+#   kubectl -n geo-workflows create configmap forest-to-grass-shrub-stac \
+#     --from-file=stac-collection.json --from-file=README.md --from-file=parent.json
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: forest-to-grass-shrub-publish-stac
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          B=nrp:public-land-cover
+          # ConfigMap files are symlinks, which rclone copyto rejects; dereference first.
+          mkdir -p /tmp/stac && cp -L /src/*.json /src/*.md /tmp/stac/ && cd /tmp/stac
+          rclone copyto stac-collection.json $B/forest-to-grass-shrub/stac-collection.json
+          rclone copyto README.md $B/forest-to-grass-shrub/README.md
+          rclone copyto parent.json $B/stac-collection.json
+          rclone lsl $B/forest-to-grass-shrub/ --max-depth 1
+        resources: {requests: {cpu: '1', memory: 1Gi}, limits: {cpu: '1', memory: 1Gi}}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: src, mountPath: /src, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: src, configMap: {name: forest-to-grass-shrub-stac}}
