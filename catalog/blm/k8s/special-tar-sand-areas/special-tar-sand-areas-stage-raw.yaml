@@ -1,0 +1,107 @@
+# Stage raw BLM Special Tar Sand Area (STSA) boundaries to S3.
+#
+# BLM publishes no live STSA layer (BLM Utah REST and the GBP hub checked 2026-09-24). The only
+# distribution is the 2012 Oil Shale and Tar Sands PEIS geospatial package from Argonne, whose
+# site (ostseis.anl.gov) is offline, so the bytes come from the Wayback Machine capture. With the
+# upstream gone, the staged zip plus its checksum IS the provenance: the job refuses any other
+# bytes, and stores the original zip untouched beside the extracted layer.
+#
+# Layer: strata_unit_area_tarsand (FGDC originator BLM, pubdate 2007), 37 polygons across the
+# 11 STSAs. The package's developable_area_stsa_alt* PEIS alternative footprints are out of scope.
+#
+# Fields kept: ID (STSA number 1-11), NAME, area_ac. Dropped: exp_elev (constant 500 on every
+# row, undocumented in the FGDC metadata), PDF_FILE (names PEIS map PDFs not in the package),
+# Shape_Leng / Shape_Area (Albers units, recomputed downstream).
+#
+#   Source: https://web.archive.org/web/20130216005950id_/http://ostseis.anl.gov/guide/maps/gis/2012_OSTS_PEIS_Geospatial_Data.zip
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/723
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: special-tar-sand-areas-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: special-tar-sand-areas-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: special-tar-sand-areas-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts. Append public
+      # resolvers as a fallback; cluster DNS is still tried first so the internal
+      # rook-ceph-rgw-nautiluss3.rook rclone endpoint keeps resolving.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          URL="https://web.archive.org/web/20130216005950id_/http://ostseis.anl.gov/guide/maps/gis/2012_OSTS_PEIS_Geospatial_Data.zip"
+          SHA256="be1be303e5377c373299d3ca38dfe5e9dded13a7ecfa90f2dfb5abf6fd2dfb7a"
+          ZIP=/tmp/2012_OSTS_PEIS_Geospatial_Data.zip
+          OUT=/tmp/special-tar-sand-areas.geojson
+
+          curl -fL --retry 5 --retry-all-errors --retry-delay 10 -o "$ZIP" "$URL"
+          echo "$SHA256  $ZIP" | sha256sum -c -
+          ls -l "$ZIP"
+
+          ogr2ogr -f GeoJSON "$OUT" "/vsizip/$ZIP/strata_unit_area_tarsand.shp" \
+            -t_srs EPSG:4326 -nln special-tar-sand-areas \
+            -sql 'SELECT ID, NAME, area_ac FROM strata_unit_area_tarsand'
+
+          python3 - "$OUT" <<'PY'
+          import json, sys
+          fc = json.load(open(sys.argv[1]))
+          feats = fc["features"]
+          names = {f["properties"]["NAME"] for f in feats}
+          ids = {f["properties"]["ID"] for f in feats}
+          print(f"{len(feats)} features, {len(names)} STSAs: {sorted(names)}")
+          assert len(feats) == 37, f"expected 37 polygons, got {len(feats)}"
+          assert len(names) == 11 and ids == set(range(1, 12)), (names, ids)
+          PY
+
+          rclone copyto "$ZIP" nrp:public-blm/raw/2012_OSTS_PEIS_Geospatial_Data.zip --s3-no-check-bucket
+          rclone copyto "$OUT" nrp:public-blm/raw/special-tar-sand-areas.geojson --s3-no-check-bucket
+          echo "staged raw -> s3://public-blm/raw/{2012_OSTS_PEIS_Geospatial_Data.zip,special-tar-sand-areas.geojson}"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
