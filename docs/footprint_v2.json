@@ -1,0 +1,527 @@
+[
+ {
+  "bucket": "public-ca30x30",
+  "bytes": 418024805448,
+  "objects": 2263,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-bioclimate",
+  "bytes": 387521646343,
+  "objects": 1414,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-gbif",
+  "bytes": 339198710065,
+  "objects": 498,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-land-cover",
+  "bytes": 249731497611,
+  "objects": 620,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-fire",
+  "bytes": 218795201888,
+  "objects": 1443,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-invasives",
+  "bytes": 197034669350,
+  "objects": 771,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-wetlands",
+  "bytes": 191027010339,
+  "objects": 5069,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-rap",
+  "bytes": 172667721497,
+  "objects": 1568,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-carbon",
+  "bytes": 170846803426,
+  "objects": 1224,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-usgs-nhd",
+  "bytes": 149062280017,
+  "objects": 328,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-landfire",
+  "bytes": 119986765154,
+  "objects": 136,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-dem",
+  "bytes": 113943349138,
+  "objects": 26595,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-globio",
+  "bytes": 110510305300,
+  "objects": 1298,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-obis",
+  "bytes": 106482029444,
+  "objects": 7351,
+  "error": null,
+  "sources": "PR#661+stac"
+ },
+ {
+  "bucket": "public-iucn",
+  "bytes": 90990706143,
+  "objects": 3480,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-usfs",
+  "bytes": 80093120642,
+  "objects": 1326,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-high-seas",
+  "bytes": 71632264242,
+  "objects": 5762,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-overturemaps",
+  "bytes": 65522829090,
+  "objects": 544,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-commodities",
+  "bytes": 64764609596,
+  "objects": 8,
+  "error": null,
+  "sources": "PR#622+stac"
+ },
+ {
+  "bucket": "public-census",
+  "bytes": 58544943231,
+  "objects": 363,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-wui",
+  "bytes": 52552689899,
+  "objects": 62,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-nci-frontiers",
+  "bytes": 52042351969,
+  "objects": 3177,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-padus",
+  "bytes": 46840544342,
+  "objects": 425,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-hazard",
+  "bytes": 40717062801,
+  "objects": 57,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-population",
+  "bytes": 32760643877,
+  "objects": 126,
+  "error": null,
+  "sources": "stac"
+ },
+ {
+  "bucket": "public-blm",
+  "bytes": 30158956017,
+  "objects": 162,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-hydrobasins",
+  "bytes": 29972604493,
+  "objects": 682,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-indigenous",
+  "bytes": 22827834974,
+  "objects": 365,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-facts",
+  "bytes": 22651679116,
+  "objects": 25,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-wyoming",
+  "bytes": 18053358243,
+  "objects": 242,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-tpl",
+  "bytes": 17092764384,
+  "objects": 194,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-usgs-wbd",
+  "bytes": 15477081022,
+  "objects": 213,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-wdpa",
+  "bytes": 14939374317,
+  "objects": 259,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-social-vulnerability",
+  "bytes": 13311791868,
+  "objects": 61,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-bio-oracle",
+  "bytes": 6018000774,
+  "objects": 2160,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-inat",
+  "bytes": 5759107718,
+  "objects": 1233,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-mesic",
+  "bytes": 5615154737,
+  "objects": 112,
+  "error": null,
+  "sources": "PR#691"
+ },
+ {
+  "bucket": "public-connectivity",
+  "bytes": 5477035245,
+  "objects": 86,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-rivers",
+  "bytes": 4762196122,
+  "objects": 121,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-ecoregion",
+  "bytes": 4356753042,
+  "objects": 205,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-human-modification",
+  "bytes": 4334784417,
+  "objects": 103,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-output",
+  "bytes": 4179709315,
+  "objects": 12543,
+  "error": null,
+  "sources": "main"
+ },
+ {
+  "bucket": "public-swap",
+  "bytes": 2870282840,
+  "objects": 96,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-utah",
+  "bytes": 2864315145,
+  "objects": 63,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-epa-water",
+  "bytes": 2841204482,
+  "objects": 20,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-gfw",
+  "bytes": 2810839181,
+  "objects": 145,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-storms",
+  "bytes": 2213511968,
+  "objects": 198,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-barred-owl",
+  "bytes": 2164285551,
+  "objects": 2761,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-cpad",
+  "bytes": 1664223568,
+  "objects": 61,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-seagrass",
+  "bytes": 1614382834,
+  "objects": 137,
+  "error": null,
+  "sources": "PR#679+stac"
+ },
+ {
+  "bucket": "public-parks",
+  "bytes": 1607682852,
+  "objects": 37,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-ca-dac",
+  "bytes": 1595119671,
+  "objects": 37,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-usgs-ungulate-migration",
+  "bytes": 1142972049,
+  "objects": 24,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-kba",
+  "bytes": 1065917181,
+  "objects": 135,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-trails",
+  "bytes": 923469885,
+  "objects": 21,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-coral-reefs",
+  "bytes": 769768611,
+  "objects": 63,
+  "error": null,
+  "sources": "PR#679+stac"
+ },
+ {
+  "bucket": "public-data",
+  "bytes": 570042076,
+  "objects": 114,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-wgfd",
+  "bytes": 534375112,
+  "objects": 40,
+  "error": null,
+  "sources": "PR#608+stac"
+ },
+ {
+  "bucket": "public-calenviroscreen",
+  "bytes": 475870821,
+  "objects": 6,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-cdfw",
+  "bytes": 452386675,
+  "objects": 21,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-usfws",
+  "bytes": 447238630,
+  "objects": 37,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-ncp",
+  "bytes": 420616067,
+  "objects": 179,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-usgs",
+  "bytes": 229741020,
+  "objects": 21,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-cgs",
+  "bytes": 228380267,
+  "objects": 245,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-ca-ccca5",
+  "bytes": 76682500,
+  "objects": 516,
+  "error": null,
+  "sources": "PR#676"
+ },
+ {
+  "bucket": "public-icca",
+  "bytes": 34391098,
+  "objects": 39,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-mappinginequality",
+  "bytes": 32655479,
+  "objects": 11,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-mobi",
+  "bytes": 20913870,
+  "objects": 9,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-ca-wolves",
+  "bytes": 9504718,
+  "objects": 1778,
+  "error": null,
+  "sources": "main+stac"
+ },
+ {
+  "bucket": "public-requests",
+  "bytes": 13522,
+  "objects": 10,
+  "error": null,
+  "sources": "main"
+ },
+ {
+  "bucket": "public-grids",
+  "bytes": 13103,
+  "objects": 3,
+  "error": null,
+  "sources": "main"
+ },
+ {
+  "bucket": "public-biodiversity",
+  "bytes": 0,
+  "objects": 0,
+  "error": "HTTPError 404",
+  "sources": "main"
+ },
+ {
+  "bucket": "public-nwi",
+  "bytes": 0,
+  "objects": 0,
+  "error": "HTTPError 404",
+  "sources": "main"
+ },
+ {
+  "bucket": "public-redlining",
+  "bytes": 0,
+  "objects": 0,
+  "error": "HTTPError 404",
+  "sources": "main"
+ },
+ {
+  "bucket": "public-x",
+  "bytes": 0,
+  "objects": 0,
+  "error": "HTTPError 404",
+  "sources": "main"
+ }
+]
