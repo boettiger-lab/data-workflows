@@ -1,0 +1,94 @@
+# Issue #666: rebuild the perennial forb & grass hex across all six CONUS h0 partitions.
+# All six are built fresh: nothing currently published is band 4 (the existing rows are band 1,
+# migrated to rap-afg-cover under #667), so there is nothing to preserve. Must run AFTER
+# rap-extract-bands (needs the band-4 COG) and AFTER rap-afg-migrate-hex (whose source rows
+# these overwrite).
+#
+# h0 fan-out is pinned explicitly. Two different 0-121 numberings exist and do NOT coincide:
+# the H3 base cell number, and the cng-datasets --h0-index. The values below are --h0-index,
+# resolved from the `i` column of s3://public-grids/hex/h0-valid.parquet, which is the same
+# lookup the tool itself performs (cng_datasets/raster/cog.py: "WHERE i = {h0_index}"):
+#
+#   --h0-index | h0 cell            | base cell | covers
+#           12 | 576812596024311807 |         9 | northern ID/MT
+#           14 | 577692205326532607 |        34 | GA / FL
+#           20 | 577164439745200127 |        19 | mid-continent
+#           50 | 577199624117288959 |        20 | Pacific west
+#           71 | 577762574070710271 |        36 | TX / southwest
+#           78 | 577234808489377791 |        21 | NC / VA / ME
+#
+# Note index 20 is base cell 19, NOT base cell 20 -- do not eyeball these as one list.
+# The full CONUS set is 12,14,20,50,71,78, which is also the example carried in cng-datasets
+# (k8s/workflows.py). The previous build used CHUNK_MAP=(12 20 50 71), commented
+# "CONUS-bounding", which silently dropped GA/FL and NC/VA/ME -- issue #666 defect 2.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-pfg-hex
+  namespace: geo-workflows
+  labels: {k8s-app: rap-pfg-hex}
+spec:
+  completions: 6
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: rap-pfg-hex}
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: stratus1.nrp-espm.berkeley.edu
+      tolerations:
+      - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        # NOT the public host. cng-datasets resolves source rasters through
+        # _ensure_vsi_path(use_public_endpoint=True), which honours AWS_PUBLIC_ENDPOINT; left
+        # at s3-west.nrp-nautilus.io it reads every tile over the ~12 MB/s public path from
+        # inside the cluster. Pointing it at the internal RGW keeps those reads on the
+        # 100 Gb/s network. Writes already use /vsis3 via AWS_S3_ENDPOINT.
+        - {name: AWS_PUBLIC_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS, value: '8'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          CHUNK_MAP=(12 14 20 50 71 78)
+          H0=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
+          echo "=== rap-pfg-cover res-10 mean, h0-index $H0 ==="
+
+          # Guard against the defect this rebuild exists to fix: a multi-band input makes the
+          # hex step silently read band 1 (#666 defect 3). Fail loudly instead.
+          BANDS=$(gdalinfo /vsis3/public-rap/rap-pfg-cover-cog.tif | grep -c '^Band ' || true)
+          echo "input band count: $BANDS"
+          if [ "$BANDS" != "1" ]; then
+            echo "FATAL: rap-pfg-cover-cog.tif has $BANDS bands; expected 1. Run rap-extract-bands first." >&2
+            exit 1
+          fi
+
+          cng-datasets raster \
+            --input "s3://public-rap/rap-pfg-cover-cog.tif" \
+            --output-parquet s3://public-rap/rap-pfg-cover/hex/ \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column pfg --hex-resampling mean --nodata "255"
+        resources:
+          requests: {cpu: '8', memory: 256Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 256Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
