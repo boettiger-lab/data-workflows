@@ -279,7 +279,8 @@ def dataset_collection():
                 "roles": ["data", "visual"],
                 "created": "2026-10-02T17:53:34Z",
                 "vector:layers": [DATASET],
-                "table:columns": cols(COLUMNS, lean=True),
+                # tippecanoe drops IRA_CAT: it is NULL on every row, so no tile carries it.
+                "table:columns": cols([c for c in COLUMNS if c[0] != "IRA_CAT"], lean=True),
             },
             f"{DATASET}-hex": {
                 "href": f"{BASE}/{DATASET}/hex/h0=*/data_0.parquet",
@@ -308,13 +309,17 @@ def patch_bucket(b):
            "Forest Service Enterprise Data Warehouse: the Inventoried Roadless Areas of the 2001 "
            "Roadless Area Conservation Rule, Forest Service surface ownership, and the "
            "administrative, proclaimed and ranger-district boundaries.")
-    new = (old + " Also derived layers built on them: a roadless land-status classification for "
-           "the Roadless Rule rescission (roadless-land-status, CC-BY-4.0, produced at CIRES). "
-           "Forest Service datasets are public domain; check each collection's licence.")
-    if old in b["description"]:
-        b["description"] = b["description"].replace(old, new)
-    elif "roadless-land-status" not in b["description"]:
-        raise SystemExit("bucket description changed upstream; patch it by hand")
+    added = (" Also derived layers built on them: a roadless land-status classification for "
+             "the Roadless Rule rescission (roadless-land-status, CC-BY-4.0, produced at CIRES). "
+             "Forest Service datasets are public domain; check each collection's licence.")
+    d = b["description"]
+    while added + added in d:  # repair a doubled sentence from an earlier non-idempotent run
+        d = d.replace(added + added, added)
+    if "roadless-land-status" not in d:
+        if old not in d:
+            raise SystemExit("bucket description changed upstream; patch it by hand")
+        d = d.replace(old, old + added)
+    b["description"] = d
     return b
 
 
