@@ -1,0 +1,84 @@
+# Issue #677: hex the RAP perennial forb & grass BIOMASS raster across all six CONUS h0 cells.
+#
+# Two ways this product differs from the cover collections in the same bucket, and getting
+# either wrong silently corrupts the output:
+#
+#   nodata is 65535, not 255. It is uint16 (lbs/acre exceeds a byte), and the cover stack's
+#   255 would be a live data value here.
+#
+#   the reducer is `mean` because lbs/acre is a DENSITY -- mass per unit area. The reducer
+#   follows the source units, not the conceptual quantity: biomass sounds like something you
+#   sum, but summing a per-acre density over cells is meaningless. A consumer wanting a
+#   regional total weights by cell area instead.
+#
+# h0 indices are the full CONUS set. These are --h0-index values, resolved from the `i` column
+# of s3://public-grids/hex/h0-valid.parquet -- NOT H3 base cell numbers, which are a different
+# 0-121 numbering that does not coincide (index 20 is base cell 19). See #666.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-pfg-biomass-hex
+  namespace: geo-workflows
+  labels: {k8s-app: rap-pfg-biomass-hex}
+spec:
+  completions: 6
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rap-pfg-biomass-hex}}
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: stratus1.nrp-espm.berkeley.edu
+      tolerations:
+      - {key: "nautilus.io/issue", operator: Exists, effect: NoSchedule}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        # Internal RGW, not the public host: cng-datasets resolves source rasters through
+        # _ensure_vsi_path(use_public_endpoint=True), which honours this and would otherwise
+        # read over the ~12 MB/s public path from inside the cluster.
+        - {name: AWS_PUBLIC_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS, value: '8'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          CHUNK_MAP=(12 14 20 50 71 78)
+          H0=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
+          echo "=== rap-pfg-biomass res-10 mean, h0-index $H0 ==="
+
+          # The hex step silently reads band 1 of a multi-band input (boettiger-lab/datasets#214),
+          # which is how the cover collection came to hold the wrong variable. Fail loudly instead.
+          BANDS=$(gdalinfo /vsis3/public-rap/rap-pfg-biomass-cog.tif | grep -c '^Band ' || true)
+          echo "input band count: $BANDS"
+          if [ "$BANDS" != "1" ]; then
+            echo "FATAL: rap-pfg-biomass-cog.tif has $BANDS bands; expected 1." >&2
+            exit 1
+          fi
+
+          cng-datasets raster \
+            --input "s3://public-rap/rap-pfg-biomass-cog.tif" \
+            --output-parquet s3://public-rap/rap-pfg-biomass/hex/ \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column biomass --hex-resampling mean --nodata "65535"
+        resources:
+          requests: {cpu: '8', memory: 256Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 256Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
