@@ -1,0 +1,67 @@
+# #735 group A: rebuild 20 PMTiles assets from their final GeoParquet so the
+# tiles carry _cng_fid. One index per entry in assets.py (ConfigMap
+# pmtiles-fid-735, generated from assets.py + build.py:
+#   kubectl create configmap pmtiles-fid-735 -n geo-workflows --from-file=assets.py \
+#     --from-file=build.py --dry-run=client -o yaml > configmap.yaml).
+# Each pod writes nrp:<bucket>/staging/735-fid/<live key>; swap.sh then backs up
+# and replaces the live files. flood-hazard (the 21st) is flood-hazard-pmtiles-fid.yaml.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pmtiles-fid-735
+  namespace: geo-workflows
+  labels:
+    k8s-app: pmtiles-fid-735
+spec:
+  completions: 20
+  parallelism: 6
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 20
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: pmtiles-fid-735
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 43200
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]
+      containers:
+      - name: tile
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          cd /opt/735 && python3 build.py
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: TILE_THREADS
+          value: "8"
+        - name: DUCKDB_MEMORY
+          value: 10GB
+        - name: TMPDIR
+          value: /tmp
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: code, mountPath: /opt/735, readOnly: true}
+        resources:
+          requests: {cpu: "8", memory: 16Gi, ephemeral-storage: 50Gi}
+          limits: {cpu: "8", memory: 16Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: code
+        configMap: {name: pmtiles-fid-735}
