@@ -1,0 +1,93 @@
+# Coverage mask for the `sum` layers -- the fix decided on #611 (2026-09-21).
+#
+# `cng-datasets raster --hex-resampling sum` writes a row valued 0 for every cell it enumerates,
+# including cells with no covered pixels, because its only empty-cell filter is a null test and an
+# empty sum is 0.0 rather than NaN (boettiger-lab/datasets#232). `mean` returns NaN for exactly
+# that case and is dropped correctly -- so a `mean` pass over the SAME COG, at the SAME resolution
+# and parents and over the SAME h0 list, enumerates the same cells and returns precisely the subset
+# that has source data behind it. That set is the mask.
+#
+# ⛔ Why not `WHERE value > 0`, which drop-zero-rows.yaml used on CONUS: it also deletes cells that
+# genuinely MEASURE zero, and those exist inside the valid footprint (the CONUS COG reads exactly
+# 0.0 over central Los Angeles). "No measurement" and "measured zero" are different facts, and an
+# h8 join across the catalog reads a missing cell differently from a zero one. The mask keeps the
+# measured zeros and drops only the fill.
+#
+# This job ONLY writes the mask, to `_mask/`, which does not match the `hex/h0=*` glob consumers
+# read. It does not touch `hex/`. repair-zero-fill.yaml consumes it.
+#
+# Identical pod shape to the *-hex jobs (same image, same 192Gi, same CNG_HEX_WORKERS, same h0
+# lists) because the mask is only valid if it enumerates the same cells the sum pass did.
+#
+#   kubectl apply -n geo-workflows -f coverage-mask.yaml     # conus selects ak | conus
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-pa-huexposure-conus-mask
+  namespace: geo-workflows
+  labels: {k8s-app: wrc-2-pa-huexposure-mask}
+spec:
+  completions: 12
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata: {labels: {k8s-app: wrc-2-pa-huexposure-mask}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 64800
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: mask-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          H0S=(9 12 14 20 42 50 71 78 89 100 104 120)
+          H0=${H0S[${JOB_COMPLETION_INDEX}]}
+          echo "=== HUExposure conus coverage mask, completion ${JOB_COMPLETION_INDEX} -> h0-index ${H0} ==="
+          # --hex-resampling mean: NaN where coverage is empty, so the tool's own notna() filter
+          # leaves exactly the covered cells. Parents 9,8,0 so the repair can emit measured-zero
+          # rows with their parents already correct rather than recomputing them.
+          cng-datasets raster \
+            --input "s3://public-fire/wrc-2-pa-huexposure-conus-cog.tif" \
+            --output-parquet "s3://public-fire/wrc-2-pa-huexposure-conus/_mask/" \
+            --h0-index ${H0} \
+            --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column covered --hex-resampling mean --nodata -9999
+        resources:
+          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org,
+                         nautilus-it-cpu05.fullerton.edu, nautilus-it-cpu13.fullerton.edu,
+                         nautilus-it-cpu15.fullerton.edu, nautilus-it-cpu16.fullerton.edu]}
