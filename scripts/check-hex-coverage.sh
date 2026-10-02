@@ -39,9 +39,9 @@
 #
 # <hex-prefix> is the parent of the h0=* partitions, as an rclone path or an
 # s3:///https:// URL, e.g.:
-#   nrp:public-land-cover/nlcd-2024/hex/
-#   s3://public-land-cover/nlcd-2024/hex/
-#   https://s3-west.nrp-nautilus.io/public-land-cover/nlcd-2024/hex/
+#   nrp:public-land-cover/nlcd/hex/
+#   s3://public-land-cover/nlcd/hex/
+#   https://s3-west.nrp-nautilus.io/public-land-cover/nlcd/hex/
 #
 # Exit 0 = coverage complete; exit 1 = missing populated partitions (prints the set);
 # exit 2 = usage/error; exit 3 = coverage OK but --fail-on-empty and empties present.
