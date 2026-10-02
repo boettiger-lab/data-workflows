@@ -1,6 +1,6 @@
 # Auto-generated ConfigMap containing job definitions
 # Generated from: ecoregion-setup-bucket.yaml, ecoregion-convert.yaml, ecoregion-pmtiles.yaml, ecoregion-hex.yaml, ecoregion-repartition.yaml
-# Generation command: cng-datasets workflow --dataset ecoregion --source-url /vsicurl/https://s3-west.nrp-nautilus.io/public-ecoregions/raw/ecoregions.gdb --bucket public-ecoregion --h3-resolution 8 --parent-resolutions "9,8,0"
+# Generation command: cng-datasets workflow --dataset ecoregion --source-url /vsicurl/https://s3-west.nrp-nautilus.io/public-ecoregion/ecoregions.gdb --bucket public-ecoregion --h3-resolution 8 --hex-memory 64Gi --max-completions 200 --max-parallelism 50 --parent-resolutions "9,8,0"
 #
 # This ConfigMap is equivalent to running:
 #   kubectl create configmap ecoregion-yamls \
@@ -76,7 +76,7 @@ data:
             - |
               set -e
               cng-convert-to-parquet \
-                /vsicurl/https://s3-west.nrp-nautilus.io/public-ecoregions/raw/ecoregions.gdb \
+                /vsicurl/https://s3-west.nrp-nautilus.io/public-ecoregion/ecoregions.gdb \
                 s3://public-ecoregion/ecoregion.parquet
             resources:
               requests:
@@ -411,4 +411,4 @@ data:
 kind: ConfigMap
 metadata:
   name: ecoregion-yamls
-  namespace: biodiversity
+  namespace: geo-workflows
