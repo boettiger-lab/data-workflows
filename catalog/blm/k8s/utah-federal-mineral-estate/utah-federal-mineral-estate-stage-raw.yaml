@@ -1,0 +1,214 @@
+# Stage raw BLM Utah Federal Mineral Estate from the ArcGIS FeatureServer to S3.
+#
+# The service exposes 11 layers, but they are definition-query views over ONE feature class:
+# every layer returns the same 39 fields, and layer 11 ("All Polygons in Dataset", 101,585
+# features) is the unfiltered table. Commodity membership lives in ten flag columns, and a
+# parcel can carry several, so the ten views sum to 106,444 against 101,585 rows. Scraping
+# layer 11 once keeps one row per parcel and preserves multi-commodity membership; scraping
+# the ten views would duplicate geometry and lose it.
+#
+# Flag semantics, from the layer's own FGDC metadata (FeatureServer/11/metadata), identical
+# on all ten flags:
+#     X = Federal Minerals        I = Indian Minerals
+# A commodity view selects `flag IN ('X','I')` -- empty string is NOT selected. This job
+# normalizes '' to null and strips whitespace (the columns are char(2)), so downstream
+# "flag IS NOT NULL" is exactly upstream view membership, and the per-flag counts asserted
+# below reproduce the upstream layer counts.
+#
+# Fields are projected down to the 18 that carry information. Dropped, verified against all
+# 101,585 rows (issue #706): CreatedByRecord / RetiredByRecord (0 rows populated, metadata
+# says "Not being used"), VALIDATIONSTATUS (constant 2), and every CREATE_* / MODIFY_* /
+# created_* / last_edited_* field (1900 sentinel, or one bulk-migration timestamp -- record
+# management, not an edition date). GlobalID is kept over OBJECTID as the stable identifier.
+#
+#   Source: https://gis.blm.gov/utarcgis/rest/services/Lands/BLM_Utah_Federal_Minerals_Map_Service/FeatureServer/11
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/706
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: utah-federal-mineral-estate-stage-raw
+  labels:
+    k8s-app: utah-federal-mineral-estate-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: utah-federal-mineral-estate-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 7200
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts
+      # (gis.blm.gov). Append public resolvers as a fallback; cluster DNS is still tried
+      # first so the internal rook-ceph-rgw-nautiluss3.rook rclone endpoint keeps resolving.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, time, urllib.parse, urllib.request, urllib.error
+
+          BASE = ("https://gis.blm.gov/utarcgis/rest/services/Lands/"
+                  "BLM_Utah_Federal_Minerals_Map_Service/FeatureServer/11/query")
+          PAGE = 2000
+          EXPECTED = 101585          # layer 11 count, verified 2026-09-22
+          # gis.blm.gov 403s the default python-urllib User-Agent -- send an explicit one
+          UA = {"User-Agent": "data-workflows/1.0 (boettiger-lab; issue 706)"}
+
+          FLAGS = ("ALL_MIN", "Oil_Gas", "Coal", "Oil_Shale", "Gilsonite",
+                   "Potash_Pot", "Sodium", "Phosphate", "Geo_Steam", "Unknown_")
+          # upstream per-commodity view counts (layers 1-10), verified 2026-09-22
+          VIEW_COUNTS = {"ALL_MIN": 91342, "Oil_Gas": 5838, "Coal": 4041, "Oil_Shale": 2282,
+                         "Gilsonite": 174, "Potash_Pot": 781, "Sodium": 707,
+                         "Phosphate": 652, "Geo_Steam": 313, "Unknown_": 314}
+          IDENT = ("GlobalID", "Serial_NR", "Patent_NR", "County", "Admin",
+                   "GCDBDIVID", "Section_", "GIS_Acres")
+          KEEP = IDENT + FLAGS
+
+          def fetch_page(url, tries=6):
+              # the FeatureServer intermittently returns 503/timeouts; retry each page with
+              # exponential backoff so one transient blip does not lose the whole scrape.
+              for attempt in range(1, tries + 1):
+                  try:
+                      req = urllib.request.Request(url, headers=UA)
+                      with urllib.request.urlopen(req, timeout=300) as r:
+                          return json.load(r)
+                  except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
+                          json.JSONDecodeError) as e:
+                      if attempt == tries:
+                          raise
+                      wait = min(60, 2 ** attempt)
+                      print(f"  retry {attempt}/{tries} after {type(e).__name__} ({e}); sleep {wait}s", flush=True)
+                      time.sleep(wait)
+
+          def norm_flag(v):
+              # char(2) columns: '' and whitespace mean "not flagged" and are excluded from
+              # the upstream views, so fold them to null.
+              if v is None:
+                  return None
+              v = str(v).strip().upper()
+              return v or None
+
+          def clean(feat):
+              p = feat.get("properties") or {}
+              out = {}
+              for k in IDENT:
+                  v = p.get(k)
+                  out[k] = v.strip() or None if isinstance(v, str) else v
+              for k in FLAGS:
+                  out[k] = norm_flag(p.get(k))
+              feat["properties"] = out
+              return feat
+
+          counts = dict.fromkeys(FLAGS, 0)
+          codes = {k: {} for k in FLAGS}
+          n = 0
+          offset = 0
+          # stream straight to disk: holding 101k polygons in RAM as dicts is needless
+          with open("/tmp/utah-federal-mineral-estate.geojson", "w") as fh:
+              fh.write('{"type": "FeatureCollection", "crs": {"type": "name", "properties": '
+                       '{"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}}, "features": [')
+              while True:
+                  q = {
+                      "where": "1=1",
+                      "outFields": ",".join(KEEP),
+                      "outSR": "4326",              # source is EPSG:26912 (NAD83 / UTM 12N)
+                      "f": "geojson",
+                      "resultOffset": offset,
+                      "resultRecordCount": PAGE,
+                      "orderByFields": "OBJECTID",  # stable pagination order
+                  }
+                  fc = fetch_page(BASE + "?" + urllib.parse.urlencode(q))
+                  batch = fc.get("features", [])
+                  for feat in batch:
+                      feat = clean(feat)
+                      p = feat["properties"]
+                      for k in FLAGS:
+                          if p[k] is not None:
+                              counts[k] += 1
+                              codes[k][p[k]] = codes[k].get(p[k], 0) + 1
+                      fh.write(("," if n else "") + json.dumps(feat))
+                      n += 1
+                  print(f"offset {offset}: +{len(batch)} (total {n})", flush=True)
+                  more = (fc.get("properties", {}).get("exceededTransferLimit")
+                          or fc.get("exceededTransferLimit"))
+                  if not batch or (len(batch) < PAGE and not more):
+                      break
+                  offset += len(batch)
+              fh.write("]}")
+
+          print(f"\nWROTE {n} features", flush=True)
+          print(f"{'flag':<12}{'ours':>8}{'upstream':>10}  codes")
+          bad = []
+          for k in FLAGS:
+              mark = "" if counts[k] == VIEW_COUNTS[k] else "   <-- MISMATCH"
+              print(f"{k:<12}{counts[k]:>8}{VIEW_COUNTS[k]:>10}  {codes[k]}{mark}")
+              if counts[k] != VIEW_COUNTS[k]:
+                  bad.append(f"{k}: got {counts[k]}, upstream view has {VIEW_COUNTS[k]}")
+              stray = set(codes[k]) - {"X", "I"}
+              if stray:
+                  bad.append(f"{k}: unexpected codes {sorted(stray)} (expected only X / I)")
+
+          # The service is live and unversioned, so a drifted count is a real snapshot change,
+          # not necessarily a bug -- but it must not pass silently: the STAC quotes these numbers.
+          if n != EXPECTED:
+              bad.append(f"feature count {n} != expected {EXPECTED}")
+          if bad:
+              raise SystemExit("SNAPSHOT DOES NOT MATCH THE SCOPED COUNTS:\n  " + "\n  ".join(bad))
+          print("\nall per-flag counts reproduce the upstream views", flush=True)
+          PY
+          ls -la /tmp/utah-federal-mineral-estate.geojson
+          rclone copyto /tmp/utah-federal-mineral-estate.geojson \
+            nrp:public-blm/raw/utah-federal-mineral-estate.geojson --s3-no-check-bucket
+          echo "staged raw -> s3://public-blm/raw/utah-federal-mineral-estate.geojson"
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      # No priorityClassName: default priority 0. `opportunistic` is -2000000000 and this
+      # scrape is long enough (51 pages against a slow upstream) to be a preemption target.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
