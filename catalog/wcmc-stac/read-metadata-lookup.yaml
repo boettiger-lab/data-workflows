@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wcmc-meta-lookup
+  namespace: geo-workflows
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: meta
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |
+          set -uo pipefail
+          SRC="/vsizip//vsicurl/http://rook-ceph-rgw-nautiluss3.rook/public-coral-reefs/raw/WCMC008_CoralReefs2018_v4_1.zip/14_001_WCMC008_CoralReefs2018_v4_1/01_Data/Metadata_CoralReefs.dbf"
+          echo "=== schema ==="
+          ogrinfo -ro -so -al "$SRC" 2>&1 | head -25
+          echo ""
+          echo "=== rows referenced by LAYER_NAME=CRR (METADATA_I 1..90) ==="
+          ogr2ogr -f CSV /vsistdout/ "$SRC" 2>&1 | head -90
+
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+      priorityClassName: opportunistic

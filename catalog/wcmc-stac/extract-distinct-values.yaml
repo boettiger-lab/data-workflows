@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wcmc-distinct-values
+  namespace: geo-workflows
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: values
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PY'
+          import duckdb, json
+          c = duckdb.connect()
+          c.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          c.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'; SET s3_use_ssl=false; SET s3_url_style='path';")
+
+          LAYERS = {
+           "coral-polygons": ("s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons.parquet",
+                              ["LAYER_NAME","DATA_TYPE","DATE_TYPE","VERIF","SURVEY_MET"]),
+           "coral-points":   ("s3://public-coral-reefs/unep-wcmc-coral-reefs/points.parquet",
+                              ["LAYER_NAME","DATA_TYPE","DATE_TYPE","VERIF","SURVEY_MET","LOC_DEF"]),
+           "seagrass-polygons": ("s3://public-seagrass/unep-wcmc-seagrass/polygons.parquet",
+                              ["FAMILY","GENUS","habitat","habitatID","vernacular"]),
+           "seagrass-points": ("s3://public-seagrass/unep-wcmc-seagrass/points.parquet",
+                              ["FAMILY","GENUS","VERIF"]),
+          }
+          out = {}
+          for layer,(path,cols) in LAYERS.items():
+              out[layer] = {}
+              # every column present in the file, so ogc_fid etc. can be declared
+              schema = [r[0] for r in c.execute(f"DESCRIBE SELECT * FROM read_parquet('{path}')").fetchall()]
+              out[layer]["__schema__"] = schema
+              for col in cols:
+                  rows = c.execute(
+                      f'SELECT DISTINCT "{col}" AS v FROM read_parquet(\'{path}\') ORDER BY 1').fetchall()
+                  out[layer][col] = [r[0] for r in rows]
+          print("###JSON###")
+          print(json.dumps(out, ensure_ascii=False))
+          PY
+
+        resources:
+          requests:
+            cpu: '4'
+            memory: 24Gi
+          limits:
+            cpu: '4'
+            memory: 24Gi
+            ephemeral-storage: 20Gi
+      priorityClassName: opportunistic
