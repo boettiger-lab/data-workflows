@@ -1,0 +1,39 @@
+# #740: back up the pre-_cng_fid flat, PMTiles and hex of the 10 collections to
+# staging/740-nofid-backup/ before the regenerated workflows overwrite them in place.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wyoming-740-backup
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: backup
+        image: ghcr.io/boettiger-lab/datasets:latest
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          B=nrp:public-wyoming
+          for d in sage-grouse-priority ungulate-migration wgfd-elk-crucial wgfd-elk-seasonal \
+                   wgfd-mule-deer-crucial wgfd-mule-deer-seasonal wgfd-pronghorn-crucial \
+                   wgfd-pronghorn-seasonal wy-counties wyoming-places; do
+            for f in $d.parquet $d.pmtiles; do
+              rclone copyto $B/$f $B/staging/740-nofid-backup/$f
+            done
+            rclone copy $B/$d/ $B/staging/740-nofid-backup/$d/
+            echo "backed up $d"
+          done
+          rclone size $B/staging/740-nofid-backup/
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: "2", memory: 2Gi}
+          limits: {cpu: "2", memory: 2Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}

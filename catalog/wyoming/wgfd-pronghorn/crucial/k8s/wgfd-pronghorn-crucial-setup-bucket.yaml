@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: wgfd-pronghorn-crucial-setup-bucket
+  namespace: geo-workflows
   labels:
     k8s-app: wgfd-pronghorn-crucial-setup-bucket
 spec:
@@ -14,16 +15,6 @@ spec:
       labels:
         k8s-app: wgfd-pronghorn-crucial-setup-bucket
     spec:
-      priorityClassName: opportunistic
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
-                operator: NotIn
-                values:
-                - 'true'
       restartPolicy: Never
       containers:
       - name: setup-bucket-task
@@ -77,3 +68,12 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

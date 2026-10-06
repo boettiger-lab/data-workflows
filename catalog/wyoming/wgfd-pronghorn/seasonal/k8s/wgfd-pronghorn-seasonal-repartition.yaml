@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: wgfd-pronghorn-seasonal-repartition
+  namespace: geo-workflows
   labels:
     k8s-app: wgfd-pronghorn-seasonal-repartition
 spec:
@@ -14,16 +15,6 @@ spec:
       labels:
         k8s-app: wgfd-pronghorn-seasonal-repartition
     spec:
-      priorityClassName: opportunistic
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
-                operator: NotIn
-                values:
-                - 'true'
       restartPolicy: Never
       containers:
       - name: repartition-task
@@ -61,15 +52,26 @@ spec:
         - -c
         - |
           set -e
-          cng-datasets repartition --chunks-dir s3://public-wyoming/wgfd-pronghorn-seasonal/chunks --output-dir s3://public-wyoming/wgfd-pronghorn-seasonal/hex --source-parquet s3://public-wyoming/wgfd-pronghorn-seasonal.parquet --cleanup
+          cng-datasets repartition --chunks-dir s3://public-wyoming/wgfd-pronghorn-seasonal/chunks --output-dir s3://public-wyoming/wgfd-pronghorn-seasonal/hex --source-parquet s3://public-wyoming/wgfd-pronghorn-seasonal.parquet --cleanup --memory-limit 27GiB
         resources:
           requests:
             cpu: '4'
             memory: 32Gi
+            ephemeral-storage: 50Gi
           limits:
             cpu: '4'
             memory: 32Gi
+            ephemeral-storage: 50Gi
       volumes:
       - name: rclone-config
         secret:
           secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

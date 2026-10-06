@@ -2,13 +2,15 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: wgfd-pronghorn-seasonal-hex
+  namespace: geo-workflows
   labels:
     k8s-app: wgfd-pronghorn-seasonal-hex
 spec:
-  completions: 168
+  completions: 200
   parallelism: 50
   completionMode: Indexed
-  backoffLimit: 0
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -20,16 +22,6 @@ spec:
       labels:
         k8s-app: wgfd-pronghorn-seasonal-hex
     spec:
-      priorityClassName: opportunistic
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
-                operator: NotIn
-                values:
-                - 'true'
       restartPolicy: Never
       containers:
       - name: hex-task
@@ -60,16 +52,29 @@ spec:
           value: public-wyoming
         - name: DATASET
           value: wgfd-pronghorn-seasonal
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 6963MiB
         command:
         - bash
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-wyoming/wgfd-pronghorn-seasonal.parquet --output s3://public-wyoming/wgfd-pronghorn-seasonal/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 3 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+          cng-datasets vector --input s3://public-wyoming/wgfd-pronghorn-seasonal.parquet --output s3://public-wyoming/wgfd-pronghorn-seasonal/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0 --plan s3://public-wyoming/wgfd-pronghorn-seasonal/_hex_plan.parquet
         resources:
           requests:
             cpu: '4'
             memory: 8Gi
+            ephemeral-storage: 10Gi
           limits:
             cpu: '4'
             memory: 8Gi
+            ephemeral-storage: 10Gi
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
