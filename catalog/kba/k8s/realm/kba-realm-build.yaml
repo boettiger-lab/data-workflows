@@ -1,0 +1,136 @@
+# data-workflows#748: add marine_frac + realm to KBA 2026-03 sites.
+# Builds the flat GeoParquet, H3 hex and PMTiles with the two new columns into
+# s3://public-kba/staging/kba-realm/. Nothing live is touched; the swap is a
+# separate step after verification (see README.md in this directory).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kba-realm-build
+  namespace: geo-workflows
+  labels:
+    k8s-app: kba-realm-build
+spec:
+  completions: 1
+  parallelism: 1
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: kba-realm-build
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 7200
+      automountServiceAccountToken: false
+      containers:
+      - name: build
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/out/hex
+          cat > /tmp/build.py <<'PY'
+          import os, duckdb
+          con = duckdb.connect()
+          con.execute("SET memory_limit='12GB'; SET temp_directory='/tmp/duckdb-spill'")
+          for ext in ("httpfs", "spatial"):
+              con.execute(f"INSTALL {ext}; LOAD {ext};")
+          con.execute("INSTALL h3 FROM community; LOAD h3;")
+          con.execute(f"""CREATE SECRET nrp (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
+              USE_SSL false, URL_STYLE 'path', REGION 'us-east-1')""")
+          print("duckdb", duckdb.__version__)
+
+          # Ocean mask: EEZ cells at res 8, high-seas cells at res 4 (matched via parent).
+          con.execute("""CREATE TABLE realm AS
+            WITH eez AS (SELECT DISTINCT h8 FROM read_parquet('s3://public-high-seas/iho/eez/hex/h0=*/data_00.parquet', hive_partitioning=false)),
+                 hs  AS (SELECT DISTINCT h4 FROM read_parquet('s3://public-high-seas/iho/high-seas/hex/h0=*/data_00.parquet', hive_partitioning=false)),
+                 k   AS (SELECT DISTINCT SitRecID, h8 FROM read_parquet('s3://public-kba/kba-2026-03/sites/hex/h0=*/data_0.parquet', hive_partitioning=false)),
+                 f   AS (SELECT k.SitRecID,
+                                AVG(CASE WHEN e.h8 IS NOT NULL OR hs.h4 IS NOT NULL THEN 1.0 ELSE 0.0 END) AS marine_frac
+                         FROM k LEFT JOIN eez e ON k.h8 = e.h8
+                                LEFT JOIN hs ON h3_cell_to_parent(k.h8, 4) = hs.h4
+                         GROUP BY k.SitRecID)
+            SELECT SitRecID, marine_frac,
+                   CASE WHEN marine_frac >= 0.9 THEN 'marine'
+                        WHEN marine_frac >= 0.1 THEN 'coastal'
+                        ELSE 'terrestrial' END AS realm
+            FROM f""")
+          print(con.execute("SELECT realm, COUNT(*) FROM realm GROUP BY 1 ORDER BY 1").fetchall())
+
+          flat = "read_parquet('s3://public-kba/kba-2026-03/sites.parquet')"
+          n_flat, n_join = con.execute(f"""SELECT COUNT(*), COUNT(r.SitRecID) FROM {flat} s
+                                          LEFT JOIN realm r USING (SitRecID)""").fetchone()
+          assert n_flat == 16509 and n_join == n_flat, (n_flat, n_join)
+
+          cols = [c[0] for c in con.execute(f"DESCRIBE SELECT * FROM {flat}").fetchall()]
+          assert cols[-1] == "geom", cols
+          attrs = ", ".join(f's."{c}"' for c in cols[:-1])
+          con.execute(f"""COPY (SELECT {attrs}, r.marine_frac, r.realm, s.geom
+                               FROM {flat} s JOIN realm r USING (SitRecID) ORDER BY s._cng_fid)
+                          TO '/tmp/out/sites.parquet' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 2000)""")
+
+          hex_ = "read_parquet('s3://public-kba/kba-2026-03/sites/hex/h0=*/data_0.parquet', hive_partitioning=false)"
+          hcols = [c[0] for c in con.execute(f"DESCRIBE SELECT * FROM {hex_}").fetchall()]
+          assert hcols[-2:] == ["h8", "h0"], hcols
+          hattrs = ", ".join(f'x."{c}"' for c in hcols[:-2])
+          # One data_0.parquet per h0, matching the live layout. A PARTITION_BY write can
+          # split a large partition into data_0 + data_1, which a data_0 glob would miss.
+          con.execute(f"""COPY (SELECT {hattrs}, r.marine_frac, r.realm, x.h8, x.h0
+                               FROM {hex_} x JOIN realm r USING (SitRecID) ORDER BY x.h0)
+                          TO '/tmp/hex-all.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)""")
+          h0s = [r[0] for r in con.execute("SELECT DISTINCT h0 FROM '/tmp/hex-all.parquet' ORDER BY 1").fetchall()]
+          for h0 in h0s:
+              os.makedirs(f"/tmp/out/hex/h0={h0}", exist_ok=True)
+              con.execute(f"""COPY (SELECT * FROM '/tmp/hex-all.parquet' WHERE h0 = {h0})
+                              TO '/tmp/out/hex/h0={h0}/data_0.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)""")
+          n_in = con.execute(f"SELECT COUNT(*) FROM {hex_}").fetchone()[0]
+          n_out = con.execute("SELECT COUNT(*) FROM read_parquet('/tmp/out/hex/*/data_0.parquet', hive_partitioning=false)").fetchone()[0]
+          print("hex partitions", len(h0s), "rows in/out", n_in, n_out)
+          assert n_in == n_out, (n_in, n_out)
+          os.remove("/tmp/hex-all.parquet")
+          PY
+          python3 /tmp/build.py
+
+          # PMTiles: same command as kba-2026-03-sites-pmtiles.yaml, from the new parquet.
+          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/sites.geojsonl /tmp/out/sites.parquet
+          export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          ulimit -n 65536 || true
+          tippecanoe -o /tmp/out/sites.pmtiles -l sites --coalesce-densest-as-needed --drop-densest-as-needed -z 11 --force /tmp/sites.geojsonl
+
+          rclone copy /tmp/out/sites.parquet nrp:public-kba/staging/kba-realm/
+          rclone copy /tmp/out/sites.pmtiles nrp:public-kba/staging/kba-realm/
+          rclone purge nrp:public-kba/staging/kba-realm/sites/hex/ || true
+          rclone copy /tmp/out/hex nrp:public-kba/staging/kba-realm/sites/hex/
+          rclone lsf -R nrp:public-kba/staging/kba-realm/ | grep -v '/$' | sed 's|.*/||' | sort | uniq -c
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org, hcc-nrp-shor-c5930.unl.edu]
