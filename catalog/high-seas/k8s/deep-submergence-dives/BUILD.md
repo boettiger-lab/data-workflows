@@ -4,8 +4,7 @@ Collection: `s3://public-high-seas/deep-submergence-dives/` (issue #763)
 Source: `DeepSubmergenceMetadata.geojson`, supplied by the authors of Bell et al. 2025,
 *Science Advances* 11(19): eadp8602 (doi:10.1126/sciadv.adp8602), received 2026-10-08
 (22,594,453 bytes, sha256 `11d11dae7e7a6be7069b7645fdfb711ddfeed728cf1a5cc192dba8303c6eb0cf`).
-`CC-BY-4.0`. The Zenodo supplement (doi:10.5281/zenodo.13948032) is cited only; its points and
-attributes differ from this file.
+`CC-BY-4.0`. The paper's Zenodo supplement (doi:10.5281/zenodo.13948032) is cited only.
 
 ## Run order
 

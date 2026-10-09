@@ -54,8 +54,7 @@ desc = (
  "Treat a point as the nominal dive site, not a track. In the hex asset each point is assigned to one H3 cell at resolution 8 (about 0.74 km²); dives in the same cell are kept as separate rows.\n\n"
  "**Source.** Supplied directly by the authors of Bell et al. 2025 and received 2026-10-08. "
  f"Staged raw: s3://public-high-seas/raw/DeepSubmergenceMetadata.geojson ({int(raw_size):,} bytes, sha256 {raw_sha}). "
- "No edition label is published for this version. The paper's Zenodo supplement holds an earlier table with different points and attributes; "
- "this collection is built from the supplied file only."
+ "No edition label is published for this version."
 )
 c = {
  "type": "Collection", "id": N, "stac_version": "1.0.0",
@@ -79,7 +78,7 @@ c = {
    {"rel": "license", "href": "https://creativecommons.org/licenses/by/4.0/", "type": "text/html", "title": "CC-BY-4.0"},
    {"rel": "cite-as", "href": "https://doi.org/10.1126/sciadv.adp8602", "type": "text/html"},
    {"rel": "about", "href": "https://doi.org/10.1126/sciadv.adp8602", "type": "text/html", "title": "Bell et al. 2025, Science Advances"},
-   {"rel": "related", "href": "https://doi.org/10.5281/zenodo.13948032", "type": "text/html", "title": "Zenodo supplement to Bell et al. 2025 (licence statement)"},
+   {"rel": "related", "href": "https://doi.org/10.5281/zenodo.13948032", "type": "text/html", "title": "Zenodo supplement to Bell et al. 2025"},
    {"rel": "describedby", "href": f"{B}/{N}/README.md", "type": "text/markdown"}],
  "assets": {
    f"{N}-parquet": {"href": f"{B}/{N}.parquet", "type": "application/x-parquet", "roles": ["data"],
