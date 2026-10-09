@@ -1,3 +1,7 @@
+# HAND-ROLLED: folds three fan-out dimensions (h0 x layer x reducer) into one indexed
+# Job. cng-datasets raster-workflow emits a single h0 dimension at a fixed 122 completions,
+# so this shape cannot be generated today. Tracking: boettiger-lab/datasets#191 (h0 subset)
+# and #172 (multi-dimension / time-series fan-out). Regenerate once either lands.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -10,7 +14,7 @@ spec:
   # 192Gi/pod -- the scheduler queues them anyway -- and it competes for placement
   # with whatever else the namespace is running. Probe first: read `kubectl top pod`
   # on the first slices (cpu is $2, memory is $3), then raise in place with
-  #   kubectl -n geo-workflows patch job landfire-2024-hex -p '{"spec":{"parallelism":N}}'
+  #   kubectl -n geo-workflows patch job landfire-2024-hex-rest -p '{"spec":{"parallelism":N}}'
   # Memory is the non-elastic dimension: the request decides how many placement slots
   # exist for your own work, so being tight on it directly buys concurrency.
   parallelism: 16          # start conservative and MEASURE, then raise (see below)
@@ -54,7 +58,7 @@ spec:
           # fans both out in a single wave instead of two serialized passes.
           #
           # Index maps to (reducer, layer, h0):
-          #   R = IDX/24,  L = (IDX%24)/6,  H0 = H0S[IDX%6]
+          #   R = IDX/18,  L = (IDX%18)/6,  H0 = H0S[IDX%6]
           #
           # H0S is the six h0 cells that actually carry CONUS at res 10 -- derived from
           # s3://public-grids/hex/h0-valid.parquet against the LANDFIRE bbox and confirmed
@@ -77,15 +81,13 @@ spec:
           H0CELLS=(576812596024311807 577692205326532607 577164439745200127 \
                    577199624117288959 577762574070710271 577234808489377791)
           NODATA=("-9999,-1111,32767" "-9999,32767" "-9999,32767")
-          # exact_extract workers PER LAYER. EVC gets half, and this is measured, not
-          # cautious: on the first run 3 of the 4 EVC slices that started were OOM-killed
-          # at 192Gi while 0 of 12 non-EVC slices were -- including VCC h0-71, the
-          # heaviest slice sampled anywhere in the fleet at 138.8Gi, which completed.
-          # EVC's COG is 8.5GB against 1.9-4.1GB for the others (high class entropy
-          # compresses poorly), so its working set per in-flight chunk is the outlier.
-          # Halving chunks in flight is the only lever left: 192Gi already competes for
-          # scarce large-RAM nodes, so a larger request would convert a retryable OOM
-          # into an unschedulable pod. (#590)
+          # exact_extract workers PER LAYER. All three run at 4, half the usual 8. On the
+          # first run (#590) 3 of the 4 EVC slices that started were OOM-killed at 192Gi
+          # while 0 of 12 non-EVC slices were (VCC h0-71, the heaviest slice sampled at
+          # 138.8Gi, completed). EVC has since been dropped from this job (DEFERRED, see
+          # BUILD.md); these are the final slices of the other three, so reliability is
+          # chosen over speed. A larger memory request would turn a retryable OOM into an
+          # unschedulable pod on the scarce large-RAM nodes.
           WORKERS=(4 4 4)   # reliability over speed for the final slices
           IDX=${JOB_COMPLETION_INDEX}
           R=$(( IDX / 18 )); LI=$(( (IDX % 18) / 6 )); H0I=$(( IDX % 6 ))

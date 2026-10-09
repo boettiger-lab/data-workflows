@@ -276,6 +276,13 @@ def build(layer, cfg, legends_dir, hist_dir):
 
 
 def bucket_collection():
+    """⛔ SUPERSEDED -- do not publish this to public-landfire/stac-collection.json.
+
+    This version knows only the layers in LAYERS, so running it now would drop the eight
+    #515 collections (cbd, cbh, cc, ch, fbfm13, fvc, fvh, fvt) from the bucket catalog.
+    make-stac-structure.py owns that file and lists every published child. Kept only so
+    the per-layer STAC above can still be regenerated.
+    """
     return {
         "type": "Collection",
         "stac_version": "1.0.0",
