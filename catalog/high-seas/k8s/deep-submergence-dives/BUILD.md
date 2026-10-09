@@ -26,8 +26,7 @@ scripts/verify-stac.py --bucket public-high-seas --dataset deep-submergence-dive
 
 Then add a `child` link to `public-high-seas/stac-collection.json` and upload the README.
 
-After convert, check the flat's column list against `gen_stac.py`. GeoJSON conversion can add
-an `OGC_FID` column (it did for `ebsa-2023`), which the STAC must then document.
+The flat and hex carry an `OGC_FID` column added by the GeoJSON read; `gen_stac.py` documents it.
 
 ## Resolution
 
