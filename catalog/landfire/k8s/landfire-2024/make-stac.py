@@ -39,11 +39,6 @@ FILL = {
 }
 PRIMARY_NODATA = -9999
 
-# Layers actually published to S3. LAYERS below is the full roster the generator can
-# build; only these have a live collection, so only these may appear as a child link
-# on the bucket collection -- a child link to an unpublished collection is a 404.
-PUBLISHED = {"vcc", "evt"}
-
 LAYERS = {
     "vcc": dict(
         prod="VCC", csv="LF2024_VCC.csv", name_col="CLASS", desc_col="DESCRIPTION",
@@ -141,7 +136,7 @@ def read_hist(path):
     return out
 
 
-def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
+def build(layer, cfg, legends_dir, hist_dir):
     prod = cfg["prod"]
     legend = read_legend(pathlib.Path(legends_dir) / prod / cfg["csv"],
                          cfg["name_col"], cfg["desc_col"])
@@ -175,44 +170,24 @@ def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
         f"for every code are in the classification classes on the COG asset of this collection. "
         f"Fill codes are excluded from these hex assets.")
 
-    def cols(with_frac):
+    def cols():
         c = [{"name": layer, "type": "int16", "description": value_desc, "values": present}]
-        if with_frac:
-            c.append({"name": "frac", "type": "double", "description":
-                      "Areal fraction (0 to 1) of the H3 cell covered by this class. One row per "
-                      "(cell, class); the fractions within a cell sum to 1 or less, the shortfall "
-                      "being the part of the cell with no valid source pixel."})
         return c + [{"name": n, "type": t, "description": d} for n, t, d in HEX_COLS]
 
-    # The mode asset must not advertise a fractions asset this collection does not
-    # carry. Publishing without fractions is a deliberate, measured choice for this
-    # source (BUILD.md: at 30 m and res 10 a cell holds ~17 pixels and stands are far
-    # larger, so mode tracked the true CONUS VCC distribution to within 0.72 pp), so
-    # the honest text states the limit and names the reducer that answers it -- rather
-    # than pointing at an asset that was purged on purpose.
-    if fractions_published:
-        mix_note = ("so the mix within a cell is not preserved; for the area held by each class "
-                    "use the fractional-coverage asset instead.")
-    else:
-        mix_note = ("so the mix within a cell is not preserved, and no per-class "
-                    "fractional-coverage asset is published for this layer. At a 30 m source and "
-                    "resolution 10 a cell holds roughly 17 pixels, so where stands are large "
-                    "relative to the cell the dominant class closely tracks the true class "
-                    "distribution; for absolute acreage, rare or interspersed classes, and "
-                    "ecotone work, a fractional-coverage build is the reducer that answers it.")
-
+    # No fractional-coverage asset is published, by decision (BUILD.md: at 30 m and res 10
+    # a cell holds ~17 pixels and stands are far larger, so mode tracked the true CONUS VCC
+    # distribution to within 0.72 pp; the partial hex-fractions prefixes were purged). So
+    # the text must not point at one. It points at the COG instead, which is the exact
+    # answer for class areas. No layer-specific figure here: 0.72 pp is VCC's, not EVT's.
     hex_desc = (
         f"Dominant-class (mode reducer) H3 hex of LANDFIRE 2024 {cfg['short']} at resolution 10, "
         f"one row per cell, hive-partitioned by h0. Each cell takes the class covering the largest "
-        f"share of it, {mix_note} Cells with no valid source pixel are not "
-        f"written, so partitions are sparse. {fill_note}")
-
-    frac_desc = (
-        f"Per-class fractional-coverage H3 hex of LANDFIRE 2024 {cfg['short']} at resolution 10, "
-        f"hive-partitioned by h0. Long format: one row per (cell, class), with frac giving that "
-        f"class's share of the cell. This is the asset to use for area accounting: filter to a "
-        f"class, then weight frac by the ground area of each cell (see the catalog h3-guide for "
-        f"the area method; do not use a nominal per-resolution constant). {fill_note}")
+        f"share of it, so the mix within a cell is not preserved. At a 30 m source and resolution "
+        f"10 a cell holds roughly 17 pixels, and stands are usually much larger than a cell, so "
+        f"the dominant class closely tracks the true class distribution. For the exact area of a "
+        f"class, for rare or scattered classes, and for work along boundaries between vegetation "
+        f"types, use the 30 m cloud-optimized GeoTIFF in this collection instead. Cells with no "
+        f"valid source pixel are not written, so partitions are sparse. {fill_note}")
 
     coll = {
         "type": "Collection",
@@ -246,9 +221,10 @@ def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
             f"painted rather than left transparent. {PRIMARY_NODATA} is the declared band "
             f"NoData; the others remain pixel values in the COG and render transparent because "
             f"no class maps them.\n\n"
-            f"Available as a cloud-optimized GeoTIFF and as two H3 hex tables at resolution 10: a "
-            f"dominant-class table and a per-class fractional-coverage table. Use the fractional "
-            f"table for any question about how much area a class holds."),
+            f"Available as a cloud-optimized GeoTIFF and as an H3 hex table at resolution 10 "
+            f"giving the dominant class in each cell. A per-class fractional-coverage hex table "
+            f"was deliberately not built: at this resolution the dominant class closely tracks the "
+            f"class distribution. For the exact area held by a class, use the GeoTIFF."),
         "license": "public-domain",
         "keywords": ["LANDFIRE", "fire", "fuels", "vegetation", "wildfire", "CONUS",
                      cfg["short"]],
@@ -292,37 +268,11 @@ def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
                 "h3:native_resolution": 10,
                 "h3:parent_resolutions": [9, 8, 0],
                 "description": hex_desc,
-                "table:columns": cols(False),
+                "table:columns": cols(),
             },
         },
     }
-    if not fractions_published:
-        coll["assets"].pop(f"{layer}-hex-fractions", None)
-        coll["description"] = coll["description"].replace(
-            "Available as a cloud-optimized GeoTIFF and as two H3 hex tables at "
-            "resolution 10: a dominant-class table and a per-class fractional-coverage "
-            "table. Use the fractional table for any question about how much area a class "
-            "holds.",
-            "Available as a cloud-optimized GeoTIFF and as an H3 hex table at resolution 10 "
-            "giving the dominant class in each cell. A companion per-class "
-            "fractional-coverage table, which is what area accounting needs, is not yet "
-            "published for this layer.")
     return coll, len(present), len(classes)
-
-
-def _unused(layer, cfg, ds, BASE, cols, frac_desc):
-    return {
-            f"{layer}-hex-fractions": {
-                "href": f"{BASE}/{ds}/hex-fractions/h0=*/data_0.parquet",
-                "type": "application/x-parquet",
-                "title": f"{cfg['short']} 2024, H3 resolution 10, per-class fractional coverage",
-                "roles": ["data"],
-                "h3:native_resolution": 10,
-                "h3:parent_resolutions": [9, 8, 0],
-                "description": frac_desc,
-                "table:columns": cols(True),
-            },
-    }
 
 
 def bucket_collection():
@@ -331,22 +281,14 @@ def bucket_collection():
         "stac_version": "1.0.0",
         "id": "landfire",
         "title": "LANDFIRE",
-        # Describes what is ACTUALLY on S3, not the full LAYERS roster. The previous
-        # text promised all four products "in both dominant-class and per-class
-        # fractional-coverage form" -- of which only two products ship, none with
-        # fractions. It was corrected by hand at publish time, so re-running this
-        # generator would have regressed the live document back to the false claim.
         "description": (
             "LANDFIRE is a shared program of the US Geological Survey and the USDA Forest Service "
             "that maps vegetation, fuel and fire regime conditions across the United States at 30 "
             "metre resolution. This catalog holds the LANDFIRE 2024 Update (version 2.5.0) for the "
-            "conterminous United States. Two products are published so far: vegetation condition "
-            "class, which measures how far current vegetation has departed from its historical "
-            "reference condition, and existing vegetation type. Each is available as a "
-            "cloud-optimized GeoTIFF and as an H3 hex table at resolution 10 giving the dominant "
-            "class in each cell. Existing vegetation cover and the 40 Scott and Burgan fire "
-            "behaviour fuel models are not yet published, and neither are the per-class "
-            "fractional-coverage hex tables that area accounting requires."),
+            "conterminous United States: vegetation condition class, existing vegetation type, "
+            "existing vegetation cover and the 40 Scott and Burgan fire behaviour fuel models. "
+            "Each product is published as a cloud-optimized GeoTIFF and as H3 hex tables at "
+            "resolution 10, in both dominant-class and per-class fractional-coverage form."),
         "license": "public-domain",
         "extent": {"spatial": {"bbox": [BBOX]},
                    "temporal": {"interval": [TEMPORAL]}},
@@ -358,7 +300,7 @@ def bucket_collection():
             {"rel": "child", "id": f"landfire-2024-{k}",
              "href": f"{BASE}/landfire-2024-{k}/stac-collection.json",
              "type": "application/json", "title": v["title"]}
-            for k, v in LAYERS.items() if k in PUBLISHED
+            for k, v in LAYERS.items()
         ],
     }
 
