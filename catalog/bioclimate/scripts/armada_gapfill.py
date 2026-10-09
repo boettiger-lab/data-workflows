@@ -11,6 +11,12 @@ ones, so this is about retry semantics, not sizing.
 
 ⛔ Find gaps by ENUMERATING the expected set, never by counting. 3,779 of 3,780 reads as complete
 at a glance, and a count cannot tell you which slice is absent.
+
+Futures and the present-day baseline (#448) stage differently, so pass --baseline for the latter:
+
+    futures:  <staging>/<combo>/<var>_<member>/h0=<cell>/   e.g. --combo ssp126-2041-2070
+    baseline: <staging>/<period>/<var>/h0=<cell>/           --baseline --combo 1981-2010
+              (staging defaults to staging-baseline, the gen_armada_baseline.py default)
 """
 import argparse
 import re
@@ -41,11 +47,18 @@ def keys(prefix):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--combo", required=True, help="e.g. ssp126-2041-2070")
-    ap.add_argument("--staging", default="staging")
+    ap.add_argument("--staging", default=None,
+                    help="staging prefix (default: staging, or staging-baseline with --baseline)")
+    ap.add_argument("--baseline", action="store_true",
+                    help="present-day baseline: one slice per variable, no GCM members")
     ap.add_argument("--reference", default="chelsa-2-1/ssp370-2041-2070/hex/",
                     help="a published hex whose h0 set defines the land partitions")
     ap.add_argument("--grid", default="s3://public-grids/hex/h0-valid.parquet")
     args = ap.parse_args()
+    if args.staging is None:
+        args.staging = "staging-baseline" if args.baseline else "staging"
+    # baseline slices are named <var>; futures slices <var>_<member>
+    slices = VARS if args.baseline else [f"{v}_{m}" for v in VARS for m in MEMBERS]
 
     land_cells = sorted(set(re.findall(r"hex/h0=(\d+)/", "".join(keys(args.reference)))))
     if not land_cells:
@@ -58,18 +71,17 @@ def main():
         if m:
             got.add((m.group(1), m.group(2)))
 
-    expected = len(land_cells) * len(VARS) * len(MEMBERS)
-    missing = [(v, m, h) for h in land_cells for v in VARS for m in MEMBERS
-               if (f"{v}_{m}", h) not in got]
+    expected = len(land_cells) * len(slices)
+    missing = [(s, h) for h in land_cells for s in slices if (s, h) not in got]
 
     print(f"{args.combo}: {expected - len(missing)}/{expected} staged, {len(missing)} missing")
-    for v, m, h in missing:
-        print(f"  MISSING {v}_{m} h0cell={h}")
+    for s, h in missing:
+        print(f"  MISSING {s} h0cell={h}")
 
     # Emit the h0 CELL ids; the caller maps them back to --h0-indexes for the generator.
     if missing:
-        cells = sorted({h for _, _, h in missing})
-        vars_ = sorted({v for v, _, _ in missing})
+        cells = sorted({h for _, h in missing})
+        vars_ = sorted({s.split("_")[0] for s, _ in missing})
         print(f"\nGAPFILL_CELLS={','.join(cells)}")
         print(f"GAPFILL_VARS={','.join(vars_)}")
     return 0
