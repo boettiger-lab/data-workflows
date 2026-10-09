@@ -1,0 +1,92 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ugs-uranium-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: ugs-uranium-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ugs-uranium-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      # External DNS resolution is flaky per-node on this cluster; pin public resolvers
+      # so the AGOL host resolves wherever the pod lands.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: stage-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: script
+          mountPath: /opt/scripts
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # Paginate each of the five UGS uranium FeatureServer layers -> GeoJSON and
+          # stage to s3://public-utah/raw/. The script asserts the feature count against
+          # the counts verified 2026-09-22 (58/15/748/25/2) and that no feature has null
+          # geometry, so a drifted live service fails loudly rather than silently
+          # publishing a different snapshot than the STAC documents (issue #708).
+          for layer in districts area-boundaries past-producers permitted-mines mills; do
+            echo "=== staging $layer ==="
+            python3 /opt/scripts/ugs_uranium_stage.py "$layer" "/tmp/ugs-uranium-$layer.geojson"
+            rclone copyto "/tmp/ugs-uranium-$layer.geojson" \
+              "nrp:public-utah/raw/ugs-uranium-$layer.geojson" --s3-no-check-bucket -v
+          done
+          echo "=== staged files ==="
+          rclone lsl nrp:public-utah/raw/ | grep 'ugs-uranium-'
+          echo "=== sha256 (provenance fingerprint for the STAC) ==="
+          sha256sum /tmp/ugs-uranium-*.geojson
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: script
+        configMap:
+          name: ugs-uranium-scripts
