@@ -307,10 +307,10 @@ def _unused(layer, cfg, ds, BASE, cols, frac_desc):
 def bucket_collection():
     """⛔ SUPERSEDED -- do not publish this to public-landfire/stac-collection.json.
 
-    This version knows only the four layers in LAYERS, so running it now would drop the
-    seven #515 collections from the bucket catalog. make-stac-structure.py owns that file
-    and carries the full nine-product roster. Kept only so the four-layer STAC above can
-    still be regenerated.
+    This version knows only the layers in LAYERS, so running it now would drop the eight
+    #515 collections (cbd, cbh, cc, ch, fbfm13, fvc, fvh, fvt) from the bucket catalog.
+    make-stac-structure.py owns that file and lists every published child. Kept only so
+    the per-layer STAC above can still be regenerated.
     """
     return {
         "type": "Collection",

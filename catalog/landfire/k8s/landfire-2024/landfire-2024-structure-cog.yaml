@@ -37,29 +37,22 @@ spec:
           set -euo pipefail
           # One full-CONUS WGS84 COG per LANDFIRE 2024 layer. Indexed: one layer per pod.
           #
-          # -r near and OVERVIEW_RESAMPLING=NEAREST are REQUIRED: every one of these four
-          # layers is categorical class codes, and averaging class codes is exactly the
-          # silent corruption this build exists to avoid. (EVC is NOT a percentage raster --
-          # its values are lifeform+percent composites, so mean(115,215)=165 would decode as
-          # "tree cover 65%", true of neither input.)
-          #
           # NODATA is the value MEASURED by landfire-2024-stage-raw, not the value in the
           # shipped FGDC XML and not the band declaration -- both have been observed wrong.
           # A GDAL band carries only ONE nodata value, so where a layer has a second fill
           # code it stays a real pixel value here (documented in classification:classes) and
           # is excluded at the hex step, which accepts a list. (#590)
           #
-          # BIGTIFF=YES is REQUIRED, not defensive: EVC has 265 classes at high spatial
-          # entropy, so DEFLATE leaves it above the 4 GB classic-TIFF ceiling and the warp
-          # dies with "TIFFAppendToStrip:Maximum TIFF file size exceeded" 25 minutes in.
-          # The other three layers land under 4 GB, but the flag costs nothing and the
-          # margin is thin (EVT is 3.85 GiB).
+          # BIGTIFF=YES: under #590 EVC (265 classes, high spatial entropy) exceeded the
+          # 4 GB classic-TIFF ceiling and the warp died with "TIFFAppendToStrip:Maximum
+          # TIFF file size exceeded". None of these nine is EVC, but the flag costs nothing
+          # and keeps a high-entropy class layer from hitting the same wall.
           #
           # Do NOT override PROJ_DATA/PROJ_LIB: the image ships 8 proj.db at differing layout
           # versions and a stale pick breaks -t_srs EPSG:4326 non-deterministically. (#453)
+          #
           # #515 tranche: the 9 structure/fuels products that do not yet have a COG.
-          # (EVC and FBFM40 were built under #590 and are skipped by the idempotence
-          # check below anyway.)
+          # (EVC and FBFM40 were built under #590 and are not in PRODS.)
           #
           # -r near / NEAREST is required here for BOTH kinds of layer in this tranche,
           # for two different reasons:
