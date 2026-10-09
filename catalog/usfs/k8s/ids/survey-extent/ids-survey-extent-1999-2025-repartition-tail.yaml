@@ -1,0 +1,128 @@
+# Survey-extent repartition, final two h0 partitions.
+#
+# `-repartition-local.yaml` built six of the eight partitions at healthy speed (1.83 billion rows
+# in 25 minutes, against 80,000 rows/s on the PVC), then hung on the seventh: the output file sat
+# at 10.27 GB, unmodified for 2.5 hours, while DuckDB burned one core with zero read or write
+# syscalls. Not an OOM, not a spill, not an S3 wait. The pod was deleted gracefully and the two
+# remaining partitions are rebuilt here.
+#
+# Differences from -repartition-local.yaml, both deliberate:
+#  - The h0 list is hardcoded instead of scanned. Enumerating h0 over 6.23 billion rows costs
+#    ~30 minutes and the answer has not changed across three runs.
+#  - No pre-write completeness scan. It has passed three times (73,730 of 73,730) and costs another
+#    ~30 minutes. The gate that actually matters is run against the PUBLISHED hex once all eight
+#    partitions are up: COUNT(DISTINCT _cng_fid) over hex/h0=*/data_0.parquet must equal 73,730.
+#    That result belongs in the build README's coverage-gate table.
+#  - memory_limit 30GB inside a 48Gi pod, for headroom. The hang happened with DuckDB pinned at its
+#    38GB limit; this is precautionary rather than diagnosed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ids-survey-extent-1999-2025-repartition-tail
+  namespace: geo-workflows
+  labels:
+    k8s-app: ids-survey-extent-1999-2025-repartition-tail
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ids-survey-extent-1999-2025-repartition-tail
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: repartition
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '8', memory: 48Gi, ephemeral-storage: 50Gi}
+          limits: {cpu: '8', memory: 48Gi, ephemeral-storage: 50Gi}
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: TMPDIR
+          value: /tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/out
+          python3 - <<'PY'
+          import os, subprocess, duckdb
+
+          CHUNKS = "s3://public-usfs/ids-survey-extent-1999-2025/chunks/*.parquet"
+          SRC    = "s3://public-usfs/ids-survey-extent-1999-2025.parquet"
+          DEST   = "nrp:public-usfs/ids-survey-extent-1999-2025/hex"
+          ID     = "_cng_fid"
+          TODO   = [577692205326532607, 577762574070710271]
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET memory_limit='30GB'")
+          con.execute("SET threads=8")
+          con.execute("SET temp_directory='/tmp'")
+          con.execute("SET max_temp_directory_size='20GB'")
+          con.execute("SET http_timeout=1200")
+          con.execute("SET http_retries=30")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'")
+          con.execute("SET s3_url_style='path'")
+          con.execute("SET s3_use_ssl=false")
+          con.execute("SET s3_region='us-east-1'")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}'")
+          con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}'")
+
+          # Attribute columns = everything but the geometry, matching cng-datasets repartition.
+          desc = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{SRC}')").fetchall()
+          geom = next(c for c, t, *_ in desc if t.upper().startswith("GEOMETRY"))
+          attrs = ", ".join(f'"{c}"' for c, *_ in desc if c != geom)
+          con.execute(f"CREATE OR REPLACE VIEW src AS SELECT {attrs} FROM read_parquet('{SRC}')")
+
+          for h0 in TODO:
+              local = "/tmp/out/data_0.parquet"
+              con.execute(f"""
+                COPY (
+                  SELECT s.*, c.* EXCLUDE ("{ID}")
+                  FROM read_parquet('{CHUNKS}') c
+                  INNER JOIN src s ON c."{ID}" = s."{ID}"
+                  WHERE c.h0 = {h0}
+                ) TO '{local}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+              """)
+              size = os.path.getsize(local)
+              subprocess.run(
+                  ["rclone", "copyto", local, f"{DEST}/h0={h0}/data_0.parquet",
+                   "--s3-upload-concurrency", "16", "--s3-chunk-size", "64M"], check=True)
+              os.remove(local)
+              print(f"  h0={h0} done ({size/1e9:.2f} GB)", flush=True)
+
+          # H3 index columns must stay UBIGINT through the consumer glob (datasets#102).
+          glob = "s3://public-usfs/ids-survey-extent-1999-2025/hex/h0=*/data_0.parquet"
+          types = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{glob}')").fetchall()
+          bad = [(c, t) for c, t, *_ in types
+                 if c.startswith("h") and c[1:].isdigit() and int(c[1:]) >= 1 and t != "UBIGINT"]
+          if bad:
+              raise SystemExit(f"non-UBIGINT H3 columns: {bad}")
+          print("=== repartition complete ===", flush=True)
+          PY
+          echo "chunks/ left in place on purpose; purge only after the coverage gate passes."
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

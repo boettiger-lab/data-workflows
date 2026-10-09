@@ -46,6 +46,28 @@ TO 's3://bucket/file-rg2000.parquet'
 (FORMAT PARQUET, ROW_GROUP_SIZE 2000, COMPRESSION ZSTD);
 ```
 
+### The write-side counterpart: `uncompressed page size out of range for type integer`
+
+```
+INTERNAL Error: Parquet writer: 2210203080 uncompressed page size out of range for type integer
+```
+
+Same family as `stoi`, but it fires while **writing**: a single uncompressed parquet page of one
+column overflows the int32 page-size limit. Seen on a hex step where one chunk covered enormous
+polygons, so its H3 cell column ran to billions of values in one file.
+
+- **It is not an OOM.** Raising `--hex-memory` from 32Gi to 64Gi changed nothing, because memory
+  was never the constraint. Chase the page size, not the request.
+- **`cng-datasets vector` exposes no row-group or page-size knob**, so the only lever is fewer rows
+  per output file: re-run the affected chunks at a smaller `--chunk-size` (1000 → 100 cut the page
+  ~10x and cleared it).
+- ⚠️ **Sub-split output must not land in the same directory.** The output filename is derived from
+  the chunk id alone, so at `--chunk-size 100` sub-chunk 40 writes `chunk_000040.parquet` — the
+  name of the *good* chunk 40 from the 1000-sized run, destroying it. Write sub-chunks to a
+  separate prefix and move them in under a non-colliding name.
+- In a hand-written DuckDB `COPY`, pass `ROW_GROUP_SIZE` explicitly (100000 for attribute-only hex
+  output; 2000 for geometry-heavy writes, per the standard above).
+
 ### geopandas-written files
 
 Still avoid publishing geopandas-written GeoParquet — use the cng-datasets DuckDB-native path. But the failure mode is different (geoarrow extension type, any DuckDB version; upstream [duckdb/duckdb#21691](https://github.com/duckdb/duckdb/issues/21691)) and orthogonal to the httpfs chunk-size crash above.
@@ -104,6 +126,50 @@ kubectl -n geo-workflows describe pod <pod-name> | grep -A5 "Reason:\|Message:\|
   # and pass: cng-datasets raster --local-cache-dir /scratch ...   (input localization; CLI default is /tmp/cng-raster-cache)
   ```
 - **`RWX` + concurrency caveat:** `rechunk-scratch` is ReadWriteMany, but `--local-cache-dir` localizes to a fixed basename, so **N concurrent pods sharing one mountPath collide on the same file**. Use a per-pod `subPath` (or per-pod cache subdir) for fan-out jobs. The 122-pod raster **hex** step localizes a multi-GB COG per pod and is best left on **per-pod ephemeral** (the mosaic COG fits in 50Gi); reserve the PVC for the **single-pod** `preprocess-cog`/download/stage steps where the file genuinely exceeds 50Gi.
+
+⛔ **Measure the PVC before you trust it — CephFS can be 26x slower than the node's own disk,
+and a slow PVC looks exactly like a slow job.** A repartition writing billions of rows sat at
+**0.18 of 8 CPU cores** for hours. It was read as a sort problem, then as a spill problem; both
+were wrong. One `dd` inside the running pod settled it:
+
+```bash
+kubectl -n geo-workflows exec <pod> -- bash -c '
+  dd if=/dev/zero of=/scratch/wtest bs=1M count=512 conv=fsync; rm -f /scratch/wtest   # PVC
+  dd if=/dev/zero of=/tmp/wtest     bs=1M count=512 conv=fsync; rm -f /tmp/wtest'      # ephemeral
+```
+
+```
+PVC  /scratch (rechunk-scratch, CephFS):   4.3 MB/s
+ephemeral /tmp (node-local):             114 MB/s
+```
+
+Same pod, same node, same moment. **Low CPU with no spill means the job is waiting on I/O, and the
+PVC is the first thing to measure** — not the query. Rule of thumb: the PVC exists for scratch that
+genuinely exceeds the 50Gi ephemeral cap; if the working set fits in 50Gi, write locally. A job
+that writes one big file at a time, uploads it and deletes it (the repartition shape) usually fits,
+even when its *total* output is many times 50Gi. Worked example:
+`catalog/usfs/k8s/ids/survey-extent/ids-survey-extent-1999-2025-repartition-local.yaml`, which
+writes ~64 GB of output through a 50Gi ephemeral scratch, one partition at a time.
+
+⛔ **The PVC is for a few big files, not for thousands of small ones.** CephFS charges
+per-file metadata overhead, and SQLite's small synchronous writes are pathological on it. Measured
+on the USFS IDS ingest: unpacking one regional FileGDB (thousands of small files) onto
+`rechunk-scratch` took **~13 min per region**, and building a GPKG there took **~4 min for 3,392
+features**. The same work on the node's local disk, with `OGR_SQLITE_SYNCHRONOUS OFF` for the GPKG,
+took **~30 s per region** — a 25x difference, with no change to the data. So: unpack archives and
+build GPKG/SQLite intermediates on **local ephemeral**, and reserve the PVC for the large
+single-file scratch it exists for (a >50Gi download, a mosaic, a DuckDB `temp_directory` spill).
+The same reasoning applies to a raw-download job over an unpacked directory tree: stage the
+archive, not its contents.
+
+⛔ **`cng-datasets repartition` stages to a hardcoded `/tmp/hex`, so a big repartition needs the PVC
+mounted AT `/tmp`, or a hand-written job.** `TMPDIR` does not move it. When the chunks are large
+enough that one `h0` partition plus the `ORDER BY` spill exceeds 50Gi ephemeral, write the
+repartition as a small DuckDB job against the PVC instead of calling the CLI — keep the contract
+identical (one `data_0.parquet` per `h0`, attributes joined from the flat parquet, rows ordered by
+`_cng_fid`, the completeness gate, and the UBIGINT check on the H3 columns). Worked example:
+`catalog/usfs/k8s/ids/survey-extent/ids-survey-extent-1999-2025-repartition-pvc.yaml`, for 63 GB of
+chunks over 6.23 billion rows.
 
 **Hex OOM** → regenerate with `--hex-memory 64Gi` and/or more `--max-completions`, delete failed job, reapply.
 

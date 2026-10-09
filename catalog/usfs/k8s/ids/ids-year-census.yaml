@@ -1,0 +1,208 @@
+# Per-(layer, region, year) feature census of the staged IDS GDBs (#591).
+#
+# This job produced the evidence that corrected the issue's temporal range. The body claimed
+# 1999-2025 for both layers, from a spot check of three regions. Measured across all nine:
+#
+#   DAMAGE_AREAS_FLAT    1997-2025, and 1997-1998 hold 131,013 polygons in all nine regions
+#   SURVEYED_AREAS_FLAT  substantive from 1999; 1996/1997/1998 carry exactly 1 row each, all R6
+#
+# A min/max alone cannot tell those two apart, which is why this counts every year rather than
+# reporting the extremes. It also enumerates the damage years with no usable survey extent, which
+# the STAC has to flag: without a denominator, a damage rate for 1997-1998 is not computable.
+#
+# Reads the staged raw from S3, never the rate-limited origin. Writes raw/ids/year-census.tsv.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ids-year-census
+  namespace: geo-workflows
+  labels:
+    k8s-app: ids-year-census
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ids-year-census
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      # Cluster-internal DNS intermittently fails to resolve external hosts on some nodes.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "20Gi"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "30Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-usfs"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          BASE="https://www.fs.usda.gov/foresthealth/docs/IDS_Data_for_Download"
+          DEST="nrp:${BUCKET}/raw/ids"
+          ACCESS_DATE="$(date -u +%Y-%m-%d)"
+
+          # file<TAB>expected bytes -- pinned 2026-09-15 (#591), re-verified 2026-09-16.
+          # A size mismatch means upstream republished in place: FAIL, do not silently stage a
+          # different edition under the same name.
+          read -r -d '' FILES <<'EOF' || true
+          CONUS_Region1_AllYears.gdb.zip	192060434
+          CONUS_Region2_AllYears.gdb.zip	304177828
+          CONUS_Region3_AllYears.gdb.zip	117202143
+          CONUS_Region4_AllYears.gdb.zip	138931099
+          CONUS_Region5_AllYears.gdb.zip	166329732
+          CONUS_Region6_AllYears.gdb.zip	289610899
+          CONUS_Region8_AllYears.gdb.zip	173597485
+          CONUS_Region9_AllYears.gdb.zip	265368558
+          AK_Region10_AllYears.gdb.zip	95989302
+          EOF
+
+          mkdir -p /tmp/dl /tmp/hdr
+          cd /tmp/dl
+
+          echo "############ 1. ACQUIRE (S3 first, origin only for what is missing) ############"
+          # Anything already staged is pulled from S3, not re-downloaded. Reruns therefore never
+          # touch the rate-limited origin, which is the whole point of Step 1b.
+          PRIOR=/tmp/prior-manifest.tsv
+          rclone copyto "${DEST}/source-manifest.tsv" "${PRIOR}" --s3-no-check-bucket 2>/dev/null \
+            || : > "${PRIOR}"
+
+          fetch() {
+            f="$1"
+            if rclone lsf "${DEST}/${f}" --s3-no-check-bucket 2>/dev/null | grep -q .; then
+              rclone copyto "${DEST}/${f}" "${f}" --s3-no-check-bucket \
+                --retries 10 --low-level-retries 20 \
+                && echo "  from S3   ${f} ($(stat -c %s "${f}") bytes)"
+            else
+              curl -fsSL --retry 8 --retry-delay 10 --retry-all-errors \
+                   --connect-timeout 30 --max-time 3600 \
+                   -D "/tmp/hdr/${f}.hdr" -o "${f}" "${BASE}/${f}" \
+                && echo "  from origin ${f} ($(stat -c %s "${f}") bytes)"
+            fi
+          }
+          n=0
+          while IFS=$'\t' read -r f _; do
+            [ -n "${f}" ] || continue
+            fetch "${f}" &
+            n=$((n+1))
+            if [ $((n % 3)) -eq 0 ]; then wait; fi
+          done <<< "${FILES}"
+          wait
+          echo "--- acquired ---"; ls -lh /tmp/dl
+
+          echo "############ 2. PER-YEAR CENSUS ############"
+          # The dataset id encodes the temporal range and the STAC must enumerate which years lack a
+          # survey-extent layer (#591 acceptance criteria), so count every (layer, region, year)
+          # rather than just the min/max. A min resting on a handful of rows is a data-entry
+          # artifact, not an edition boundary -- only the counts tell the two apart.
+          #
+          # Counted through the GDAL Python bindings rather than OGRSQL GROUP BY, which returns
+          # nothing parseable against these FileGDBs.
+          CENSUS=/tmp/year-census.tsv
+          printf 'layer_family\tregion\tsurvey_year\tfeatures\n' > "${CENSUS}"
+          mkdir -p /tmp/ex
+          while IFS=$'\t' read -r f _; do
+            [ -n "${f}" ] || continue
+            R="${f%%_AllYears*}"
+            rm -rf /tmp/ex/*; unzip -q -o "/tmp/dl/${f}" -d /tmp/ex
+            GDB=$(find /tmp/ex -maxdepth 3 -iname '*.gdb' -type d | head -1)
+            echo "===== ${R} :: $(basename ${GDB}) ====="
+            REGION="${R}" GDB="${GDB}" CENSUS="${CENSUS}" python3 - <<'PY'
+          import os, collections
+          from osgeo import ogr
+          ogr.UseExceptions()
+          gdb, region, out = os.environ['GDB'], os.environ['REGION'], os.environ['CENSUS']
+          ds = ogr.Open(gdb)
+          with open(out, 'a') as fh:
+              for i in range(ds.GetLayerCount()):
+                  lyr = ds.GetLayerByIndex(i)
+                  name = lyr.GetName()
+                  fam = name.split('_AllYears')[0]
+                  idx = lyr.GetLayerDefn().GetFieldIndex('SURVEY_YEAR')
+                  if idx < 0:
+                      print(f'  {name}: no SURVEY_YEAR field')
+                      continue
+                  counts = collections.Counter()
+                  for feat in lyr:
+                      counts[feat.GetField(idx)] += 1
+                  for yr in sorted(counts, key=lambda v: (v is None, v)):
+                      fh.write(f'{fam}\t{region}\t{yr}\t{counts[yr]}\n')
+                  print(f'  {name}: {sum(counts.values())} features, '
+                        f'{len(counts)} distinct years, min={min(k for k in counts if k is not None)}')
+          PY
+          done <<< "${FILES}"
+          rm -rf /tmp/ex
+
+          echo "############ 3. NATIONAL FEATURES PER YEAR, PER LAYER FAMILY ############"
+          awk -F'\t' 'NR>1 {n[$1"\t"$3]+=$4} END {for (k in n) print k"\t"n[k]}' "${CENSUS}" \
+            | sort -k1,1 -k2,2n \
+            | awk -F'\t' '{printf "%-22s %s  %10s\n", $1, $2, $3}'
+
+          echo "############ 4. WHICH REGION-YEARS HAVE DAMAGE BUT NO SURVEY EXTENT ############"
+          # damage / area-surveyed is the only defensible rate, so a damage year with no extent
+          # layer is unusable for rates and must be flagged in STAC.
+          awk -F'\t' 'NR>1 && $1=="DAMAGE_AREAS_FLAT"   {d[$2"\t"$3]=$4}
+                       NR>1 && $1=="SURVEYED_AREAS_FLAT" {s[$2"\t"$3]=$4}
+                       END {
+                         print "region\tyear\tdamage_features\tsurvey_extent_features";
+                         for (k in d) if (!(k in s)) print k"\t"d[k]"\t0";
+                       }' "${CENSUS}" | sort
+
+          echo "############ 5. PUBLISH ############"
+          rclone copyto "${CENSUS}" "${DEST}/year-census.tsv" --s3-no-check-bucket
+
+          echo "=== DONE ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
