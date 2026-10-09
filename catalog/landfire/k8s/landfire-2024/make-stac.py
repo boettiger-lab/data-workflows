@@ -136,7 +136,7 @@ def read_hist(path):
     return out
 
 
-def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
+def build(layer, cfg, legends_dir, hist_dir):
     prod = cfg["prod"]
     legend = read_legend(pathlib.Path(legends_dir) / prod / cfg["csv"],
                          cfg["name_col"], cfg["desc_col"])
@@ -170,28 +170,24 @@ def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
         f"for every code are in the classification classes on the COG asset of this collection. "
         f"Fill codes are excluded from these hex assets.")
 
-    def cols(with_frac):
+    def cols():
         c = [{"name": layer, "type": "int16", "description": value_desc, "values": present}]
-        if with_frac:
-            c.append({"name": "frac", "type": "double", "description":
-                      "Areal fraction (0 to 1) of the H3 cell covered by this class. One row per "
-                      "(cell, class); the fractions within a cell sum to 1 or less, the shortfall "
-                      "being the part of the cell with no valid source pixel."})
         return c + [{"name": n, "type": t, "description": d} for n, t, d in HEX_COLS]
 
+    # No fractional-coverage asset is published, by decision (BUILD.md: at 30 m and res 10
+    # a cell holds ~17 pixels and stands are far larger, so mode tracked the true CONUS VCC
+    # distribution to within 0.72 pp; the partial hex-fractions prefixes were purged). So
+    # the text must not point at one. It points at the COG instead, which is the exact
+    # answer for class areas. No layer-specific figure here: 0.72 pp is VCC's, not EVT's.
     hex_desc = (
         f"Dominant-class (mode reducer) H3 hex of LANDFIRE 2024 {cfg['short']} at resolution 10, "
         f"one row per cell, hive-partitioned by h0. Each cell takes the class covering the largest "
-        f"share of it, so the mix within a cell is not preserved; for the area held by each class "
-        f"use the fractional-coverage asset instead. Cells with no valid source pixel are not "
-        f"written, so partitions are sparse. {fill_note}")
-
-    frac_desc = (
-        f"Per-class fractional-coverage H3 hex of LANDFIRE 2024 {cfg['short']} at resolution 10, "
-        f"hive-partitioned by h0. Long format: one row per (cell, class), with frac giving that "
-        f"class's share of the cell. This is the asset to use for area accounting: filter to a "
-        f"class, then weight frac by the ground area of each cell (see the catalog h3-guide for "
-        f"the area method; do not use a nominal per-resolution constant). {fill_note}")
+        f"share of it, so the mix within a cell is not preserved. At a 30 m source and resolution "
+        f"10 a cell holds roughly 17 pixels, and stands are usually much larger than a cell, so "
+        f"the dominant class closely tracks the true class distribution. For the exact area of a "
+        f"class, for rare or scattered classes, and for work along boundaries between vegetation "
+        f"types, use the 30 m cloud-optimized GeoTIFF in this collection instead. Cells with no "
+        f"valid source pixel are not written, so partitions are sparse. {fill_note}")
 
     coll = {
         "type": "Collection",
@@ -225,9 +221,10 @@ def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
             f"painted rather than left transparent. {PRIMARY_NODATA} is the declared band "
             f"NoData; the others remain pixel values in the COG and render transparent because "
             f"no class maps them.\n\n"
-            f"Available as a cloud-optimized GeoTIFF and as two H3 hex tables at resolution 10: a "
-            f"dominant-class table and a per-class fractional-coverage table. Use the fractional "
-            f"table for any question about how much area a class holds."),
+            f"Available as a cloud-optimized GeoTIFF and as an H3 hex table at resolution 10 "
+            f"giving the dominant class in each cell. A per-class fractional-coverage hex table "
+            f"was deliberately not built: at this resolution the dominant class closely tracks the "
+            f"class distribution. For the exact area held by a class, use the GeoTIFF."),
         "license": "public-domain",
         "keywords": ["LANDFIRE", "fire", "fuels", "vegetation", "wildfire", "CONUS",
                      cfg["short"]],
@@ -271,37 +268,11 @@ def build(layer, cfg, legends_dir, hist_dir, fractions_published=False):
                 "h3:native_resolution": 10,
                 "h3:parent_resolutions": [9, 8, 0],
                 "description": hex_desc,
-                "table:columns": cols(False),
+                "table:columns": cols(),
             },
         },
     }
-    if not fractions_published:
-        coll["assets"].pop(f"{layer}-hex-fractions", None)
-        coll["description"] = coll["description"].replace(
-            "Available as a cloud-optimized GeoTIFF and as two H3 hex tables at "
-            "resolution 10: a dominant-class table and a per-class fractional-coverage "
-            "table. Use the fractional table for any question about how much area a class "
-            "holds.",
-            "Available as a cloud-optimized GeoTIFF and as an H3 hex table at resolution 10 "
-            "giving the dominant class in each cell. A companion per-class "
-            "fractional-coverage table, which is what area accounting needs, is not yet "
-            "published for this layer.")
     return coll, len(present), len(classes)
-
-
-def _unused(layer, cfg, ds, BASE, cols, frac_desc):
-    return {
-            f"{layer}-hex-fractions": {
-                "href": f"{BASE}/{ds}/hex-fractions/h0=*/data_0.parquet",
-                "type": "application/x-parquet",
-                "title": f"{cfg['short']} 2024, H3 resolution 10, per-class fractional coverage",
-                "roles": ["data"],
-                "h3:native_resolution": 10,
-                "h3:parent_resolutions": [9, 8, 0],
-                "description": frac_desc,
-                "table:columns": cols(True),
-            },
-    }
 
 
 def bucket_collection():
