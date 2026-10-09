@@ -3,8 +3,17 @@
 
 bbox comes from the measured hex extent, not the COG envelope; band count is checked through a
 cache-busted TiTiler call. Both for the reasons documented in catalog/rap/k8s/rap-bands/.
+
+Writes two files to /tmp/rap-bio-stac/ (override with RAP_BIO_STAC_OUT), never into the repo
+(AGENTS.md HARD BOUNDARY 1):
+  rap-pfg-biomass-stac-collection.json  the collection itself
+  parent-stac-collection.json           the LIVE public-rap bucket collection, re-read from S3
+                                        and given a child link to rap-pfg-biomass if it lacks one.
+                                        Every other field and child link is kept as published, so
+                                        this never drops a sibling collection.
+rap-bio-publish-stac.yaml publishes both from the rap-bio-stac ConfigMap; see BUILD.md "Publish".
 """
-import json, subprocess, email.utils, datetime, pathlib, urllib.parse, urllib.request, importlib.util
+import json, os, subprocess, email.utils, datetime, pathlib, urllib.parse, urllib.request, importlib.util
 
 _vs = pathlib.Path(__file__).resolve().parents[4] / "scripts" / "verify-stac.py"
 _spec = importlib.util.spec_from_file_location("verify_stac", _vs)
@@ -189,7 +198,22 @@ col = {
     },
 }
 
-out = pathlib.Path(__file__).parent / "stac" / f"{DS}-stac-collection.json"
-out.parent.mkdir(exist_ok=True)
+OUT = pathlib.Path(os.environ.get("RAP_BIO_STAC_OUT", "/tmp/rap-bio-stac"))
+OUT.mkdir(parents=True, exist_ok=True)
+out = OUT / f"{DS}-stac-collection.json"
 out.write_text(json.dumps(col, indent=2, ensure_ascii=False) + "\n")
 print(f"wrote {out}")
+
+# Parent bucket collection: start from what is live, so siblings built by other generators
+# (rap-bands/gen_stac.py owns the four cover collections) are preserved untouched.
+with urllib.request.urlopen(bust(f"{BASE}/stac-collection.json"), timeout=60) as r:
+    parent = json.load(r)
+child_href = f"{BASE}/{DS}/stac-collection.json"
+if not any(l.get("rel") == "child" and l.get("href") == child_href for l in parent["links"]):
+    parent["links"].append({"rel": "child", "href": child_href,
+                            "type": "application/json", "title": col["title"]})
+    parent["updated"] = NOW
+pout = OUT / "parent-stac-collection.json"
+pout.write_text(json.dumps(parent, indent=2, ensure_ascii=False) + "\n")
+n = sum(1 for l in parent["links"] if l.get("rel") == "child")
+print(f"wrote {pout} ({n} child links)")

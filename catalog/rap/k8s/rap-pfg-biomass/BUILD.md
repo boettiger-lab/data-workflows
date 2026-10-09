@@ -43,6 +43,10 @@ says 2024 plainly. A 2025 build is a reasonable follow-up and should be its own 
 
 ## Run order
 
+All commands from this directory. Steps 1–2 build the data, 3 verifies it, 4 publishes the STAC.
+
+### 1. Build
+
 ```bash
 kubectl apply -n geo-workflows -f rap-pfg-biomass-rename-cog.yaml   # to the bucket's convention
 kubectl apply -n geo-workflows -f rap-pfg-biomass-hex.yaml          # 6 CONUS partitions
@@ -55,15 +59,70 @@ asserts its input is single-band before running — the guard the cover collecti
 of `s3://public-grids/hex/h0-valid.parquet`. These are **not** H3 base cell numbers: the two
 0–121 numberings do not coincide, and index 20 is base cell 19. See #666.
 
+### 2. Raw checksum
+
+```bash
+kubectl apply -n geo-workflows -f rap-bio-raw-checksum.yaml
+kubectl logs -n geo-workflows job/rap-bio-raw-checksum | grep -E 'SHA256|BYTES'
+```
+
+Streams the staged raw over the internal endpoint and prints its SHA-256 and byte count — the S3
+ETag is multipart and unusable as a digest. `gen_stac.py` carries the result as `RAW_SHA` /
+`RAW_BYTES`; if the log disagrees with those constants, the staged raw has changed and the
+provenance block must be updated before publishing.
+
+### 3. Verify, before publishing anything
+
+```bash
+./verify-biomass-build.sh
+```
+
+See "Verification" below for what it checks and the expected output.
+
+### 4. Publish
+
+```bash
+./gen_stac.py                                                   # -> /tmp/rap-bio-stac/ (never the repo)
+
+kubectl create configmap rap-bio-stac -n geo-workflows \
+  --from-file=/tmp/rap-bio-stac/ --dry-run=client -o yaml | kubectl apply -n geo-workflows -f -
+
+kubectl apply -n geo-workflows -f rap-bio-publish-stac.yaml     # -> s3://public-rap/
+```
+
+`gen_stac.py` writes two files into `/tmp/rap-bio-stac/` (override with `RAP_BIO_STAC_OUT`),
+measuring the bbox, sizes and timestamps off the live objects:
+
+- `rap-pfg-biomass-stac-collection.json` — this collection.
+- `parent-stac-collection.json` — the bucket collection `s3://public-rap/stac-collection.json`.
+  It is **read from the live bucket** and given a child link to `rap-pfg-biomass` if it does not
+  already have one; every other field and child link is kept as published. The four cover
+  collections are owned by `rap-bands/gen_stac.py`, so this generator must not rebuild the parent
+  from scratch or it would drop them.
+
+Nothing it produces is committed — AGENTS.md HARD BOUNDARY 1 keeps STAC out of this repo.
+`rap-bio-publish-stac.yaml` publishes exactly the ConfigMap's contents, so re-create the ConfigMap
+after any re-run of `gen_stac.py`.
+
+Pre-publish gate on the generated file, then the post-publish data-backed check:
+
+```bash
+python3 ../../../../scripts/verify-stac.py --no-data /tmp/rap-bio-stac/rap-pfg-biomass-stac-collection.json
+python3 ../../../../scripts/verify-stac.py --bucket public-rap --dataset rap-pfg-biomass
+```
+
 ## Verification (run after the hex completes)
 
 `verify-biomass-build.sh` checks the #677 acceptance criteria against the **source**, not against
-the collection's own metadata. Result:
+the collection's own metadata. Section 3 takes TiTiler zonal means of upstream bands 1 and 2 (and
+of our COG) over two 1°×1° windows; section 4 queries the published hex over the same windows
+through the duckdb-geo MCP (mean of the resolution-10 cells whose centres fall in the window,
+reading only the one h0 partition the window sits in). Result:
 
-| window | hex | upstream band 1 (annual) | upstream band 2 (perennial) |
-|---|---:|---:|---:|
-| Kansas (−99…−98, 39…40) | **880.1** | 184.4 | **879.1** ✅ |
-| Nevada (−118…−117, 40…41) | **132.3** | 458.2 | **132.2** ✅ |
+| window | hex (section 4) | cells | upstream band 1 (annual) | upstream band 2 (perennial) |
+|---|---:|---:|---:|---:|
+| Kansas (−99…−98, 39…40) | **880.1** | 601,883 | 184.4 | **879.1** ✅ |
+| Nevada (−118…−117, 40…41) | **132.3** | 599,965 | 458.2 | **132.2** ✅ |
 
 The two windows **disagree in opposite directions** — Kansas holds 4.8× more perennial than annual
 biomass, Nevada 3.5× more *annual* than perennial, the Great Basin's cheatgrass signature. Matching
@@ -73,8 +132,9 @@ band 2 in both is therefore conclusive: a band-1 build would read 184 in Kansas 
 sampled only the completed partition's sliver — 33,946 cells of an expected ~600,000 — which made a
 correct build look 2.3× off. The cell count is what exposes this; check it before trusting a mean.
 
-Continental gradient, as a coherence check: Pacific west 266.5 < northern Rockies 313.6 < Great
-Plains 678.9 < humid southeast 799.3 lbs/acre. Tracks precipitation and growing season, and is not
+Continental gradient, as a coherence check (a one-off hex query at build time, not part of the
+script): Pacific west 266.5 < northern Rockies 313.6 < Great Plains 678.9 < humid southeast
+799.3 lbs/acre. Tracks precipitation and growing season, and is not
 something a mis-banded or mis-scaled build reproduces by accident.
 
 Published extent is **−124.736, 25.045, −67.041, 49.389**, measured from the hex.
