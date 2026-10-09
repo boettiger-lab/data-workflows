@@ -1,0 +1,529 @@
+# data-workflows#578 — publish STAC for the four consumer-facing public-wgfd
+# collections and register them as children of the bucket collection.
+# Asserts the bucket collection ends with exactly 7 children (3 crucial + 4 here).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stac-publish-wgfd2
+  namespace: geo-workflows
+data:
+  elk-seasonal.json: "{\n  \"type\": \"Collection\",\n  \"stac_version\": \"1.0.0\",\n  \"stac_extensions\"\
+    : [\n    \"https://stac-extensions.github.io/table/v1.2.0/schema.json\",\n    \"https://stac-extensions.github.io/scientific/v1.0.0/schema.json\"\
+    \n  ],\n  \"id\": \"wgfd-elk-seasonal\",\n  \"title\": \"Elk Seasonal Range (Wyoming)\",\n  \"description\"\
+    : \"Seasonal habitat range for elk in Wyoming, mapped by the Wyoming Game & Fish Department. This\
+    \ is the full seasonal picture \\u2014 winter, yearlong, spring/summer/fall and severe-winter-relief\
+    \ range \\u2014 across 484 polygons and about 47,213,967 acres. Read the RANGE column to tell the\
+    \ types apart.\\n\\nCodes beginning with CRU mark crucial range, the subset the department treats\
+    \ as a determining factor in the population's ability to sustain itself. Those codes here are CRUWYL,\
+    \ CRUWIN, CRUSWR. The department also publishes crucial range on its own, which is the wgfd-elk-crucial\
+    \ collection in this catalog; filtering this layer to CRU codes covers the same ground.\\n\\nCoverage\
+    \ is the state of Wyoming, which is the full extent of the source: the department maps range within\
+    \ its own jurisdiction, so this is complete rather than a regional excerpt of something larger.\\\
+    n\\nElk is the only species here whose data includes undetermined (UND) areas.\",\n  \"license\":\
+    \ \"other\",\n  \"sci:citation\": \"Wyoming Game & Fish Department, Elk Seasonal Range. Accessed 2026-02-25\
+    \ from the WGFD ArcGIS Hub (wyoming-wgfd.opendata.arcgis.com). The department publishes through an\
+    \ ArcGIS Hub endpoint with no stable versioned download URL, so the retained source is the anchor:\
+    \ s3://public-wgfd/raw/elk-seasonal.geojson, SHA-256 3788f003cd26547fd984b17003318940a1858e0693a074d0e1b4fe7550208c1c.\
+    \ Converted to GeoParquet, PMTiles and H3 by the Boettiger Lab, UC Berkeley.\",\n  \"created\": \"\
+    2026-08-22T00:12:26Z\",\n  \"updated\": \"2026-08-22T00:25:39Z\",\n  \"keywords\": [\n    \"Wyoming\"\
+    ,\n    \"elk\",\n    \"wildlife\",\n    \"habitat\",\n    \"seasonal range\",\n    \"crucial range\"\
+    ,\n    \"WGFD\",\n    \"big game\"\n  ],\n  \"extent\": {\n    \"spatial\": {\n      \"bbox\": [\n\
+    \        [\n          -111.05,\n          40.995,\n          -104.053,\n          45.007\n       \
+    \ ]\n      ]\n    },\n    \"temporal\": {\n      \"interval\": [\n        [\n          \"2024-01-01T00:00:00Z\"\
+    ,\n          null\n        ]\n      ]\n    }\n  },\n  \"providers\": [\n    {\n      \"name\": \"\
+    Wyoming Game & Fish Department\",\n      \"roles\": [\n        \"producer\",\n        \"licensor\"\
+    \n      ],\n      \"url\": \"https://wyoming-wgfd.opendata.arcgis.com/\"\n    },\n    {\n      \"\
+    name\": \"Boettiger Lab, UC Berkeley\",\n      \"roles\": [\n        \"processor\",\n        \"host\"\
+    \n      ],\n      \"url\": \"https://github.com/boettiger-lab\"\n    }\n  ],\n  \"links\": [\n   \
+    \ {\n      \"rel\": \"self\",\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/elk-seasonal/stac-collection.json\"\
+    ,\n      \"type\": \"application/json\"\n    },\n    {\n      \"rel\": \"root\",\n      \"href\":\
+    \ \"https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json\",\n      \"type\": \"application/json\"\
+    \n    },\n    {\n      \"rel\": \"parent\",\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/stac-collection.json\"\
+    ,\n      \"type\": \"application/json\"\n    },\n    {\n      \"rel\": \"license\",\n      \"href\"\
+    : \"https://wgfd.wyo.gov/geospatial-data\",\n      \"type\": \"text/html\"\n    },\n    {\n      \"\
+    rel\": \"about\",\n      \"href\": \"https://wyoming-wgfd.opendata.arcgis.com/\",\n      \"type\"\
+    : \"text/html\",\n      \"title\": \"WGFD ArcGIS Hub (upstream distribution)\"\n    }\n  ],\n  \"\
+    assets\": {\n    \"elk-seasonal-parquet\": {\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/elk-seasonal.parquet\"\
+    ,\n      \"type\": \"application/x-parquet\",\n      \"roles\": [\n        \"data\"\n      ],\n  \
+    \    \"title\": \"Elk seasonal range \\u2014 GeoParquet\",\n      \"created\": \"2026-08-22T00:12:26Z\"\
+    ,\n      \"description\": \"Elk seasonal range polygons as GeoParquet, one row per polygon, in EPSG:4326.\
+    \ Query directly with DuckDB over HTTP.\",\n      \"table:columns\": [\n        {\n          \"name\"\
+    : \"_cng_fid\",\n          \"type\": \"int64\",\n          \"description\": \"Identifier assigned\
+    \ to every polygon during conversion, unique within this dataset. Count features or remove repeated\
+    \ rows with COUNT(DISTINCT _cng_fid).\"\n        },\n        {\n          \"name\": \"OGC_FID\",\n\
+    \          \"type\": \"int64\",\n          \"description\": \"Sequential record number carried over\
+    \ from the source GeoJSON export.\"\n        },\n        {\n          \"name\": \"OBJECTID\",\n  \
+    \        \"type\": \"int32\",\n          \"description\": \"Feature identifier assigned by the Wyoming\
+    \ Game & Fish Department in the published layer. Unique for every polygon in this dataset.\"\n   \
+    \     },\n        {\n          \"name\": \"RANGE\",\n          \"type\": \"string\",\n          \"\
+    description\": \"Seasonal range designation assigned by the Wyoming Game & Fish Department. A CRU\
+    \ prefix marks crucial range, the habitat the department identifies as a determining factor in the\
+    \ population's ability to sustain itself. Values: WYL=winter/yearlong range, CRUWYL=crucial winter/yearlong\
+    \ range, WIN=winter range, CRUWIN=crucial winter range, OUT=out \\u2014 occupied only occasionally,\
+    \ outside the identified seasonal ranges, SSF=spring/summer/fall range, YRL=yearlong range, SWR=severe\
+    \ winter relief range, CRUSWR=crucial severe winter relief range, UND=undetermined.\",\n         \
+    \ \"values\": [\n            \"WYL\",\n            \"CRUWYL\",\n            \"WIN\",\n           \
+    \ \"CRUWIN\",\n            \"OUT\",\n            \"SSF\",\n            \"YRL\",\n            \"SWR\"\
+    ,\n            \"CRUSWR\",\n            \"UND\"\n          ]\n        },\n        {\n          \"\
+    name\": \"Acres\",\n          \"type\": \"double\",\n          \"description\": \"Area of the range\
+    \ polygon in acres, as published by the Wyoming Game & Fish Department.\"\n        },\n        {\n\
+    \          \"name\": \"SQMiles\",\n          \"type\": \"double\",\n          \"description\": \"\
+    Area of the range polygon in square miles, as published by the Wyoming Game & Fish Department.\"\n\
+    \        },\n        {\n          \"name\": \"geom\",\n          \"type\": \"geometry\",\n       \
+    \   \"description\": \"Polygon geometry of the range, in EPSG:4326.\"\n        }\n      ]\n    },\n\
+    \    \"elk-seasonal-pmtiles\": {\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/elk-seasonal.pmtiles\"\
+    ,\n      \"type\": \"application/vnd.pmtiles\",\n      \"roles\": [\n        \"visual\"\n      ],\n\
+    \      \"title\": \"Elk seasonal range \\u2014 PMTiles\",\n      \"created\": \"2026-08-22T00:12:47Z\"\
+    ,\n      \"description\": \"Vector tiles for web maps. In MapLibre GL JS the source layer is \\\"\
+    elk-seasonal\\\"; style or filter on RANGE to separate the seasonal range types, or to show only the\
+    \ crucial (CRU) ones.\",\n      \"vector:layers\": [\n        \"elk-seasonal\"\n      ],\n      \"\
+    table:columns\": [\n        {\n          \"name\": \"_cng_fid\",\n          \"type\": \"int64\"\n\
+    \        },\n        {\n          \"name\": \"OGC_FID\",\n          \"type\": \"int64\"\n        },\n\
+    \        {\n          \"name\": \"OBJECTID\",\n          \"type\": \"int32\"\n        },\n       \
+    \ {\n          \"name\": \"RANGE\",\n          \"type\": \"string\",\n          \"values\": [\n  \
+    \          \"WYL\",\n            \"CRUWYL\",\n            \"WIN\",\n            \"CRUWIN\",\n    \
+    \        \"OUT\",\n            \"SSF\",\n            \"YRL\",\n            \"SWR\",\n            \"\
+    CRUSWR\",\n            \"UND\"\n          ]\n        },\n        {\n          \"name\": \"Acres\"\
+    ,\n          \"type\": \"double\"\n        },\n        {\n          \"name\": \"SQMiles\",\n     \
+    \     \"type\": \"double\"\n        }\n      ]\n    },\n    \"elk-seasonal-hex\": {\n      \"href\"\
+    : \"https://s3-west.nrp-nautilus.io/public-wgfd/elk-seasonal/hex/h0=*/data_0.parquet\",\n      \"\
+    type\": \"application/x-parquet\",\n      \"roles\": [\n        \"data\"\n      ],\n      \"title\"\
+    : \"Elk seasonal range \\u2014 H3 resolution 10\",\n      \"created\": \"2026-08-22T00:25:39Z\",\n\
+    \      \"description\": \"Elk seasonal range as H3 cells at resolution 10, with resolution 9, 8 and\
+    \ 0 identifiers alongside for rolling up or joining to other datasets. There is one row for each combination\
+    \ of a range polygon and a cell it covers, so a polygon spanning many cells appears on many rows,\
+    \ and the per-polygon values Acres and SQMiles are repeated on every one of its cells. Reduce to one\
+    \ row per polygon before totalling any of them:\\n\\nSELECT SUM(Acres) FROM (SELECT DISTINCT _cng_fid,\
+    \ Acres FROM \\u2026)\\n\\nFor the ground area of a set of cells, aggregate the cell areas over distinct\
+    \ cells rather than these published columns. Covers 253,709 resolution 8 cells across 2 resolution\
+    \ 0 partitions.\",\n      \"h3:native_resolution\": 10,\n      \"h3:parent_resolutions\": [\n    \
+    \    9,\n        8,\n        0\n      ],\n      \"table:columns\": [\n        {\n          \"name\"\
+    : \"_cng_fid\",\n          \"type\": \"int64\",\n          \"description\": \"Identifier assigned\
+    \ to every polygon during conversion, unique within this dataset. Count features or remove repeated\
+    \ rows with COUNT(DISTINCT _cng_fid).\"\n        },\n        {\n          \"name\": \"OGC_FID\",\n\
+    \          \"type\": \"int64\",\n          \"description\": \"Sequential record number carried over\
+    \ from the source GeoJSON export.\"\n        },\n        {\n          \"name\": \"OBJECTID\",\n  \
+    \        \"type\": \"int32\",\n          \"description\": \"Feature identifier assigned by the Wyoming\
+    \ Game & Fish Department in the published layer. Unique for every polygon in this dataset.\"\n   \
+    \     },\n        {\n          \"name\": \"RANGE\",\n          \"type\": \"string\",\n          \"\
+    description\": \"Seasonal range designation assigned by the Wyoming Game & Fish Department. A CRU\
+    \ prefix marks crucial range, the habitat the department identifies as a determining factor in the\
+    \ population's ability to sustain itself. Values: WYL=winter/yearlong range, CRUWYL=crucial winter/yearlong\
+    \ range, WIN=winter range, CRUWIN=crucial winter range, OUT=out \\u2014 occupied only occasionally,\
+    \ outside the identified seasonal ranges, SSF=spring/summer/fall range, YRL=yearlong range, SWR=severe\
+    \ winter relief range, CRUSWR=crucial severe winter relief range, UND=undetermined.\",\n         \
+    \ \"values\": [\n            \"WYL\",\n            \"CRUWYL\",\n            \"WIN\",\n           \
+    \ \"CRUWIN\",\n            \"OUT\",\n            \"SSF\",\n            \"YRL\",\n            \"SWR\"\
+    ,\n            \"CRUSWR\",\n            \"UND\"\n          ]\n        },\n        {\n          \"\
+    name\": \"Acres\",\n          \"type\": \"double\",\n          \"description\": \"Area of the range\
+    \ polygon in acres, as published by the Wyoming Game & Fish Department.\"\n        },\n        {\n\
+    \          \"name\": \"SQMiles\",\n          \"type\": \"double\",\n          \"description\": \"\
+    Area of the range polygon in square miles, as published by the Wyoming Game & Fish Department.\"\n\
+    \        },\n        {\n          \"name\": \"h10\",\n          \"type\": \"uint64\",\n          \"\
+    description\": \"H3 cell identifier at resolution 10, the native resolution of this hex table.\"\n\
+    \        },\n        {\n          \"name\": \"h9\",\n          \"type\": \"uint64\",\n          \"\
+    description\": \"H3 cell identifier at resolution 9.\"\n        },\n        {\n          \"name\"\
+    : \"h8\",\n          \"type\": \"uint64\",\n          \"description\": \"H3 cell identifier at resolution\
+    \ 8, the resolution shared across this catalog for joining datasets to one another.\"\n        },\n\
+    \        {\n          \"name\": \"h0\",\n          \"type\": \"int64\",\n          \"description\"\
+    : \"H3 cell identifier at resolution 0, used as the partition key for hive-partitioned reads.\"\n\
+    \        }\n      ]\n    }\n  }\n}"
+  mule-deer-seasonal.json: "{\n  \"type\": \"Collection\",\n  \"stac_version\": \"1.0.0\",\n  \"stac_extensions\"\
+    : [\n    \"https://stac-extensions.github.io/table/v1.2.0/schema.json\",\n    \"https://stac-extensions.github.io/scientific/v1.0.0/schema.json\"\
+    \n  ],\n  \"id\": \"wgfd-mule-deer-seasonal\",\n  \"title\": \"Mule deer Seasonal Range (Wyoming)\"\
+    ,\n  \"description\": \"Seasonal habitat range for mule deer in Wyoming, mapped by the Wyoming Game\
+    \ & Fish Department. This is the full seasonal picture \\u2014 winter, yearlong, spring/summer/fall\
+    \ and severe-winter-relief range \\u2014 across 512 polygons and about 60,688,616 acres. Read the\
+    \ RANGE column to tell the types apart.\\n\\nCodes beginning with CRU mark crucial range, the subset\
+    \ the department treats as a determining factor in the population's ability to sustain itself. Those\
+    \ codes here are CRUWYL, CRUWIN. The department also publishes crucial range on its own, which is\
+    \ the wgfd-mule-deer-crucial collection in this catalog; filtering this layer to CRU codes covers\
+    \ the same ground.\\n\\nCoverage is the state of Wyoming, which is the full extent of the source:\
+    \ the department maps range within its own jurisdiction, so this is complete rather than a regional\
+    \ excerpt of something larger.\",\n  \"license\": \"other\",\n  \"sci:citation\": \"Wyoming Game &\
+    \ Fish Department, Mule deer Seasonal Range. Accessed 2026-02-25 from the WGFD ArcGIS Hub (wyoming-wgfd.opendata.arcgis.com).\
+    \ The department publishes through an ArcGIS Hub endpoint with no stable versioned download URL, so\
+    \ the retained source is the anchor: s3://public-wgfd/raw/mule-deer-seasonal.geojson, SHA-256 a0ad5426b3924f1a945c26f48e5a4c8943e1aa182bfd6f4350ba15482b980ea0.\
+    \ Converted to GeoParquet, PMTiles and H3 by the Boettiger Lab, UC Berkeley.\",\n  \"created\": \"\
+    2026-08-22T00:26:40Z\",\n  \"updated\": \"2026-08-22T00:48:00Z\",\n  \"keywords\": [\n    \"Wyoming\"\
+    ,\n    \"mule deer\",\n    \"wildlife\",\n    \"habitat\",\n    \"seasonal range\",\n    \"crucial\
+    \ range\",\n    \"WGFD\",\n    \"big game\"\n  ],\n  \"extent\": {\n    \"spatial\": {\n      \"bbox\"\
+    : [\n        [\n          -111.05,\n          40.995,\n          -104.052,\n          45.007\n   \
+    \     ]\n      ]\n    },\n    \"temporal\": {\n      \"interval\": [\n        [\n          \"2024-01-01T00:00:00Z\"\
+    ,\n          null\n        ]\n      ]\n    }\n  },\n  \"providers\": [\n    {\n      \"name\": \"\
+    Wyoming Game & Fish Department\",\n      \"roles\": [\n        \"producer\",\n        \"licensor\"\
+    \n      ],\n      \"url\": \"https://wyoming-wgfd.opendata.arcgis.com/\"\n    },\n    {\n      \"\
+    name\": \"Boettiger Lab, UC Berkeley\",\n      \"roles\": [\n        \"processor\",\n        \"host\"\
+    \n      ],\n      \"url\": \"https://github.com/boettiger-lab\"\n    }\n  ],\n  \"links\": [\n   \
+    \ {\n      \"rel\": \"self\",\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/mule-deer-seasonal/stac-collection.json\"\
+    ,\n      \"type\": \"application/json\"\n    },\n    {\n      \"rel\": \"root\",\n      \"href\":\
+    \ \"https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json\",\n      \"type\": \"application/json\"\
+    \n    },\n    {\n      \"rel\": \"parent\",\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/stac-collection.json\"\
+    ,\n      \"type\": \"application/json\"\n    },\n    {\n      \"rel\": \"license\",\n      \"href\"\
+    : \"https://wgfd.wyo.gov/geospatial-data\",\n      \"type\": \"text/html\"\n    },\n    {\n      \"\
+    rel\": \"about\",\n      \"href\": \"https://wyoming-wgfd.opendata.arcgis.com/\",\n      \"type\"\
+    : \"text/html\",\n      \"title\": \"WGFD ArcGIS Hub (upstream distribution)\"\n    }\n  ],\n  \"\
+    assets\": {\n    \"mule-deer-seasonal-parquet\": {\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/mule-deer-seasonal.parquet\"\
+    ,\n      \"type\": \"application/x-parquet\",\n      \"roles\": [\n        \"data\"\n      ],\n  \
+    \    \"title\": \"Mule deer seasonal range \\u2014 GeoParquet\",\n      \"created\": \"2026-08-22T00:26:40Z\"\
+    ,\n      \"description\": \"Mule deer seasonal range polygons as GeoParquet, one row per polygon,\
+    \ in EPSG:4326. Query directly with DuckDB over HTTP.\",\n      \"table:columns\": [\n        {\n\
+    \          \"name\": \"_cng_fid\",\n          \"type\": \"int64\",\n          \"description\": \"\
+    Identifier assigned to every polygon during conversion, unique within this dataset. Count features\
+    \ or remove repeated rows with COUNT(DISTINCT _cng_fid).\"\n        },\n        {\n          \"name\"\
+    : \"OGC_FID\",\n          \"type\": \"int64\",\n          \"description\": \"Sequential record number\
+    \ carried over from the source GeoJSON export.\"\n        },\n        {\n          \"name\": \"OBJECTID\"\
+    ,\n          \"type\": \"int32\",\n          \"description\": \"Feature identifier assigned by the\
+    \ Wyoming Game & Fish Department in the published layer. Unique for every polygon in this dataset.\"\
+    \n        },\n        {\n          \"name\": \"RANGE\",\n          \"type\": \"string\",\n       \
+    \   \"description\": \"Seasonal range designation assigned by the Wyoming Game & Fish Department.\
+    \ A CRU prefix marks crucial range, the habitat the department identifies as a determining factor\
+    \ in the population's ability to sustain itself. Values: WYL=winter/yearlong range, CRUWYL=crucial\
+    \ winter/yearlong range, OUT=out \\u2014 occupied only occasionally, outside the identified seasonal\
+    \ ranges, YRL=yearlong range, SSF=spring/summer/fall range, CRUWIN=crucial winter range, WIN=winter\
+    \ range, SWR=severe winter relief range.\",\n          \"values\": [\n            \"WYL\",\n     \
+    \       \"CRUWYL\",\n            \"OUT\",\n            \"YRL\",\n            \"SSF\",\n          \
+    \  \"CRUWIN\",\n            \"WIN\",\n            \"SWR\"\n          ]\n        },\n        {\n  \
+    \        \"name\": \"Acres\",\n          \"type\": \"double\",\n          \"description\": \"Area\
+    \ of the range polygon in acres, as published by the Wyoming Game & Fish Department.\"\n        },\n\
+    \        {\n          \"name\": \"SQMiles\",\n          \"type\": \"double\",\n          \"description\"\
+    : \"Area of the range polygon in square miles, as published by the Wyoming Game & Fish Department.\"\
+    \n        },\n        {\n          \"name\": \"geom\",\n          \"type\": \"geometry\",\n      \
+    \    \"description\": \"Polygon geometry of the range, in EPSG:4326.\"\n        }\n      ]\n    },\n\
+    \    \"mule-deer-seasonal-pmtiles\": {\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/mule-deer-seasonal.pmtiles\"\
+    ,\n      \"type\": \"application/vnd.pmtiles\",\n      \"roles\": [\n        \"visual\"\n      ],\n\
+    \      \"title\": \"Mule deer seasonal range \\u2014 PMTiles\",\n      \"created\": \"2026-08-22T00:26:55Z\"\
+    ,\n      \"description\": \"Vector tiles for web maps. In MapLibre GL JS the source layer is \\\"\
+    mule-deer-seasonal\\\"; style or filter on RANGE to separate the seasonal range types, or to show\
+    \ only the crucial (CRU) ones.\",\n      \"vector:layers\": [\n        \"mule-deer-seasonal\"\n  \
+    \    ],\n      \"table:columns\": [\n        {\n          \"name\": \"_cng_fid\",\n          \"type\"\
+    : \"int64\"\n        },\n        {\n          \"name\": \"OGC_FID\",\n          \"type\": \"int64\"\
+    \n        },\n        {\n          \"name\": \"OBJECTID\",\n          \"type\": \"int32\"\n      \
+    \  },\n        {\n          \"name\": \"RANGE\",\n          \"type\": \"string\",\n          \"values\"\
+    : [\n            \"WYL\",\n            \"CRUWYL\",\n            \"OUT\",\n            \"YRL\",\n \
+    \           \"SSF\",\n            \"CRUWIN\",\n            \"WIN\",\n            \"SWR\"\n       \
+    \   ]\n        },\n        {\n          \"name\": \"Acres\",\n          \"type\": \"double\"\n   \
+    \     },\n        {\n          \"name\": \"SQMiles\",\n          \"type\": \"double\"\n        }\n\
+    \      ]\n    },\n    \"mule-deer-seasonal-hex\": {\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/mule-deer-seasonal/hex/h0=*/data_0.parquet\"\
+    ,\n      \"type\": \"application/x-parquet\",\n      \"roles\": [\n        \"data\"\n      ],\n  \
+    \    \"title\": \"Mule deer seasonal range \\u2014 H3 resolution 10\",\n      \"created\": \"2026-08-22T00:48:00Z\"\
+    ,\n      \"description\": \"Mule deer seasonal range as H3 cells at resolution 10, with resolution\
+    \ 9, 8 and 0 identifiers alongside for rolling up or joining to other datasets. There is one row for\
+    \ each combination of a range polygon and a cell it covers, so a polygon spanning many cells appears\
+    \ on many rows, and the per-polygon values Acres and SQMiles are repeated on every one of its cells.\
+    \ Reduce to one row per polygon before totalling any of them:\\n\\nSELECT SUM(Acres) FROM (SELECT\
+    \ DISTINCT _cng_fid, Acres FROM \\u2026)\\n\\nFor the ground area of a set of cells, aggregate the\
+    \ cell areas over distinct cells rather than these published columns. Covers 325,192 resolution 8\
+    \ cells across 2 resolution 0 partitions.\",\n      \"h3:native_resolution\": 10,\n      \"h3:parent_resolutions\"\
+    : [\n        9,\n        8,\n        0\n      ],\n      \"table:columns\": [\n        {\n        \
+    \  \"name\": \"_cng_fid\",\n          \"type\": \"int64\",\n          \"description\": \"Identifier\
+    \ assigned to every polygon during conversion, unique within this dataset. Count features or remove\
+    \ repeated rows with COUNT(DISTINCT _cng_fid).\"\n        },\n        {\n          \"name\": \"OGC_FID\"\
+    ,\n          \"type\": \"int64\",\n          \"description\": \"Sequential record number carried over\
+    \ from the source GeoJSON export.\"\n        },\n        {\n          \"name\": \"OBJECTID\",\n  \
+    \        \"type\": \"int32\",\n          \"description\": \"Feature identifier assigned by the Wyoming\
+    \ Game & Fish Department in the published layer. Unique for every polygon in this dataset.\"\n   \
+    \     },\n        {\n          \"name\": \"RANGE\",\n          \"type\": \"string\",\n          \"\
+    description\": \"Seasonal range designation assigned by the Wyoming Game & Fish Department. A CRU\
+    \ prefix marks crucial range, the habitat the department identifies as a determining factor in the\
+    \ population's ability to sustain itself. Values: WYL=winter/yearlong range, CRUWYL=crucial winter/yearlong\
+    \ range, OUT=out \\u2014 occupied only occasionally, outside the identified seasonal ranges, YRL=yearlong\
+    \ range, SSF=spring/summer/fall range, CRUWIN=crucial winter range, WIN=winter range, SWR=severe winter\
+    \ relief range.\",\n          \"values\": [\n            \"WYL\",\n            \"CRUWYL\",\n     \
+    \       \"OUT\",\n            \"YRL\",\n            \"SSF\",\n            \"CRUWIN\",\n          \
+    \  \"WIN\",\n            \"SWR\"\n          ]\n        },\n        {\n          \"name\": \"Acres\"\
+    ,\n          \"type\": \"double\",\n          \"description\": \"Area of the range polygon in acres,\
+    \ as published by the Wyoming Game & Fish Department.\"\n        },\n        {\n          \"name\"\
+    : \"SQMiles\",\n          \"type\": \"double\",\n          \"description\": \"Area of the range polygon\
+    \ in square miles, as published by the Wyoming Game & Fish Department.\"\n        },\n        {\n\
+    \          \"name\": \"h10\",\n          \"type\": \"uint64\",\n          \"description\": \"H3 cell\
+    \ identifier at resolution 10, the native resolution of this hex table.\"\n        },\n        {\n\
+    \          \"name\": \"h9\",\n          \"type\": \"uint64\",\n          \"description\": \"H3 cell\
+    \ identifier at resolution 9.\"\n        },\n        {\n          \"name\": \"h8\",\n          \"\
+    type\": \"uint64\",\n          \"description\": \"H3 cell identifier at resolution 8, the resolution\
+    \ shared across this catalog for joining datasets to one another.\"\n        },\n        {\n     \
+    \     \"name\": \"h0\",\n          \"type\": \"int64\",\n          \"description\": \"H3 cell identifier\
+    \ at resolution 0, used as the partition key for hive-partitioned reads.\"\n        }\n      ]\n \
+    \   }\n  }\n}"
+  pronghorn-seasonal.json: "{\n  \"type\": \"Collection\",\n  \"stac_version\": \"1.0.0\",\n  \"stac_extensions\"\
+    : [\n    \"https://stac-extensions.github.io/table/v1.2.0/schema.json\",\n    \"https://stac-extensions.github.io/scientific/v1.0.0/schema.json\"\
+    \n  ],\n  \"id\": \"wgfd-pronghorn-seasonal\",\n  \"title\": \"Pronghorn Seasonal Range (Wyoming)\"\
+    ,\n  \"description\": \"Seasonal habitat range for pronghorn in Wyoming, mapped by the Wyoming Game\
+    \ & Fish Department. This is the full seasonal picture \\u2014 winter, yearlong, spring/summer/fall\
+    \ and severe-winter-relief range \\u2014 across 502 polygons and about 120,774,532 acres. Read the\
+    \ RANGE column to tell the types apart.\\n\\nCodes beginning with CRU mark crucial range, the subset\
+    \ the department treats as a determining factor in the population's ability to sustain itself. Those\
+    \ codes here are CRUWYL, CRUSWR, CRUWIN. The department also publishes crucial range on its own, which\
+    \ is the wgfd-pronghorn-crucial collection in this catalog; filtering this layer to CRU codes covers\
+    \ the same ground.\\n\\nCoverage is the state of Wyoming, which is the full extent of the source:\
+    \ the department maps range within its own jurisdiction, so this is complete rather than a regional\
+    \ excerpt of something larger.\\n\\nUpstream the department publishes this layer under the common\
+    \ name antelope.\",\n  \"license\": \"other\",\n  \"sci:citation\": \"Wyoming Game & Fish Department,\
+    \ Pronghorn Seasonal Range. Accessed 2026-02-25 from the WGFD ArcGIS Hub (wyoming-wgfd.opendata.arcgis.com).\
+    \ The department publishes through an ArcGIS Hub endpoint with no stable versioned download URL, so\
+    \ the retained source is the anchor: s3://public-wgfd/raw/pronghorn-seasonal.geojson, SHA-256 5b3fdbaccf91296eb3735be66e65fd0135b3bfe0b62dc87c49ddf04b939a9a88.\
+    \ Converted to GeoParquet, PMTiles and H3 by the Boettiger Lab, UC Berkeley.\",\n  \"created\": \"\
+    2026-08-22T00:51:41Z\",\n  \"updated\": \"2026-08-22T01:06:14Z\",\n  \"keywords\": [\n    \"Wyoming\"\
+    ,\n    \"pronghorn\",\n    \"wildlife\",\n    \"habitat\",\n    \"seasonal range\",\n    \"crucial\
+    \ range\",\n    \"WGFD\",\n    \"big game\"\n  ],\n  \"extent\": {\n    \"spatial\": {\n      \"bbox\"\
+    : [\n        [\n          -111.048,\n          40.995,\n          -104.052,\n          45.007\n  \
+    \      ]\n      ]\n    },\n    \"temporal\": {\n      \"interval\": [\n        [\n          \"2024-01-01T00:00:00Z\"\
+    ,\n          null\n        ]\n      ]\n    }\n  },\n  \"providers\": [\n    {\n      \"name\": \"\
+    Wyoming Game & Fish Department\",\n      \"roles\": [\n        \"producer\",\n        \"licensor\"\
+    \n      ],\n      \"url\": \"https://wyoming-wgfd.opendata.arcgis.com/\"\n    },\n    {\n      \"\
+    name\": \"Boettiger Lab, UC Berkeley\",\n      \"roles\": [\n        \"processor\",\n        \"host\"\
+    \n      ],\n      \"url\": \"https://github.com/boettiger-lab\"\n    }\n  ],\n  \"links\": [\n   \
+    \ {\n      \"rel\": \"self\",\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/pronghorn-seasonal/stac-collection.json\"\
+    ,\n      \"type\": \"application/json\"\n    },\n    {\n      \"rel\": \"root\",\n      \"href\":\
+    \ \"https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json\",\n      \"type\": \"application/json\"\
+    \n    },\n    {\n      \"rel\": \"parent\",\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/stac-collection.json\"\
+    ,\n      \"type\": \"application/json\"\n    },\n    {\n      \"rel\": \"license\",\n      \"href\"\
+    : \"https://wgfd.wyo.gov/geospatial-data\",\n      \"type\": \"text/html\"\n    },\n    {\n      \"\
+    rel\": \"about\",\n      \"href\": \"https://wyoming-wgfd.opendata.arcgis.com/\",\n      \"type\"\
+    : \"text/html\",\n      \"title\": \"WGFD ArcGIS Hub (upstream distribution)\"\n    }\n  ],\n  \"\
+    assets\": {\n    \"pronghorn-seasonal-parquet\": {\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/pronghorn-seasonal.parquet\"\
+    ,\n      \"type\": \"application/x-parquet\",\n      \"roles\": [\n        \"data\"\n      ],\n  \
+    \    \"title\": \"Pronghorn seasonal range \\u2014 GeoParquet\",\n      \"created\": \"2026-08-22T00:51:41Z\"\
+    ,\n      \"description\": \"Pronghorn seasonal range polygons as GeoParquet, one row per polygon,\
+    \ in EPSG:4326. Query directly with DuckDB over HTTP.\",\n      \"table:columns\": [\n        {\n\
+    \          \"name\": \"_cng_fid\",\n          \"type\": \"int64\",\n          \"description\": \"\
+    Identifier assigned to every polygon during conversion, unique within this dataset. Count features\
+    \ or remove repeated rows with COUNT(DISTINCT _cng_fid).\"\n        },\n        {\n          \"name\"\
+    : \"OGC_FID\",\n          \"type\": \"int64\",\n          \"description\": \"Sequential record number\
+    \ carried over from the source GeoJSON export.\"\n        },\n        {\n          \"name\": \"OBJECTID\"\
+    ,\n          \"type\": \"int32\",\n          \"description\": \"Feature identifier assigned by the\
+    \ Wyoming Game & Fish Department in the published layer. Unique for every polygon in this dataset.\"\
+    \n        },\n        {\n          \"name\": \"RANGE\",\n          \"type\": \"string\",\n       \
+    \   \"description\": \"Seasonal range designation assigned by the Wyoming Game & Fish Department.\
+    \ A CRU prefix marks crucial range, the habitat the department identifies as a determining factor\
+    \ in the population's ability to sustain itself. Values: OUT=out \\u2014 occupied only occasionally,\
+    \ outside the identified seasonal ranges, WYL=winter/yearlong range, CRUWYL=crucial winter/yearlong\
+    \ range, YRL=yearlong range, SSF=spring/summer/fall range, WIN=winter range, SWR=severe winter relief\
+    \ range, CRUSWR=crucial severe winter relief range, CRUWIN=crucial winter range.\",\n          \"\
+    values\": [\n            \"OUT\",\n            \"WYL\",\n            \"CRUWYL\",\n            \"YRL\"\
+    ,\n            \"SSF\",\n            \"WIN\",\n            \"SWR\",\n            \"CRUSWR\",\n   \
+    \         \"CRUWIN\"\n          ]\n        },\n        {\n          \"name\": \"Acres\",\n       \
+    \   \"type\": \"double\",\n          \"description\": \"Area of the range polygon in acres, as published\
+    \ by the Wyoming Game & Fish Department.\"\n        },\n        {\n          \"name\": \"SQMiles\"\
+    ,\n          \"type\": \"double\",\n          \"description\": \"Area of the range polygon in square\
+    \ miles, as published by the Wyoming Game & Fish Department.\"\n        },\n        {\n          \"\
+    name\": \"geom\",\n          \"type\": \"geometry\",\n          \"description\": \"Polygon geometry\
+    \ of the range, in EPSG:4326.\"\n        }\n      ]\n    },\n    \"pronghorn-seasonal-pmtiles\": {\n\
+    \      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/pronghorn-seasonal.pmtiles\",\n   \
+    \   \"type\": \"application/vnd.pmtiles\",\n      \"roles\": [\n        \"visual\"\n      ],\n   \
+    \   \"title\": \"Pronghorn seasonal range \\u2014 PMTiles\",\n      \"created\": \"2026-08-22T00:51:57Z\"\
+    ,\n      \"description\": \"Vector tiles for web maps. In MapLibre GL JS the source layer is \\\"\
+    pronghorn-seasonal\\\"; style or filter on RANGE to separate the seasonal range types, or to show\
+    \ only the crucial (CRU) ones.\",\n      \"vector:layers\": [\n        \"pronghorn-seasonal\"\n  \
+    \    ],\n      \"table:columns\": [\n        {\n          \"name\": \"_cng_fid\",\n          \"type\"\
+    : \"int64\"\n        },\n        {\n          \"name\": \"OGC_FID\",\n          \"type\": \"int64\"\
+    \n        },\n        {\n          \"name\": \"OBJECTID\",\n          \"type\": \"int32\"\n      \
+    \  },\n        {\n          \"name\": \"RANGE\",\n          \"type\": \"string\",\n          \"values\"\
+    : [\n            \"OUT\",\n            \"WYL\",\n            \"CRUWYL\",\n            \"YRL\",\n \
+    \           \"SSF\",\n            \"WIN\",\n            \"SWR\",\n            \"CRUSWR\",\n      \
+    \      \"CRUWIN\"\n          ]\n        },\n        {\n          \"name\": \"Acres\",\n          \"\
+    type\": \"double\"\n        },\n        {\n          \"name\": \"SQMiles\",\n          \"type\": \"\
+    double\"\n        }\n      ]\n    },\n    \"pronghorn-seasonal-hex\": {\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/pronghorn-seasonal/hex/h0=*/data_0.parquet\"\
+    ,\n      \"type\": \"application/x-parquet\",\n      \"roles\": [\n        \"data\"\n      ],\n  \
+    \    \"title\": \"Pronghorn seasonal range \\u2014 H3 resolution 10\",\n      \"created\": \"2026-08-22T01:06:14Z\"\
+    ,\n      \"description\": \"Pronghorn seasonal range as H3 cells at resolution 10, with resolution\
+    \ 9, 8 and 0 identifiers alongside for rolling up or joining to other datasets. There is one row for\
+    \ each combination of a range polygon and a cell it covers, so a polygon spanning many cells appears\
+    \ on many rows, and the per-polygon values Acres and SQMiles are repeated on every one of its cells.\
+    \ Reduce to one row per polygon before totalling any of them:\\n\\nSELECT SUM(Acres) FROM (SELECT\
+    \ DISTINCT _cng_fid, Acres FROM \\u2026)\\n\\nFor the ground area of a set of cells, aggregate the\
+    \ cell areas over distinct cells rather than these published columns. Covers 302,185 resolution 8\
+    \ cells across 1 resolution 0 partition.\",\n      \"h3:native_resolution\": 10,\n      \"h3:parent_resolutions\"\
+    : [\n        9,\n        8,\n        0\n      ],\n      \"table:columns\": [\n        {\n        \
+    \  \"name\": \"_cng_fid\",\n          \"type\": \"int64\",\n          \"description\": \"Identifier\
+    \ assigned to every polygon during conversion, unique within this dataset. Count features or remove\
+    \ repeated rows with COUNT(DISTINCT _cng_fid).\"\n        },\n        {\n          \"name\": \"OGC_FID\"\
+    ,\n          \"type\": \"int64\",\n          \"description\": \"Sequential record number carried over\
+    \ from the source GeoJSON export.\"\n        },\n        {\n          \"name\": \"OBJECTID\",\n  \
+    \        \"type\": \"int32\",\n          \"description\": \"Feature identifier assigned by the Wyoming\
+    \ Game & Fish Department in the published layer. Unique for every polygon in this dataset.\"\n   \
+    \     },\n        {\n          \"name\": \"RANGE\",\n          \"type\": \"string\",\n          \"\
+    description\": \"Seasonal range designation assigned by the Wyoming Game & Fish Department. A CRU\
+    \ prefix marks crucial range, the habitat the department identifies as a determining factor in the\
+    \ population's ability to sustain itself. Values: OUT=out \\u2014 occupied only occasionally, outside\
+    \ the identified seasonal ranges, WYL=winter/yearlong range, CRUWYL=crucial winter/yearlong range,\
+    \ YRL=yearlong range, SSF=spring/summer/fall range, WIN=winter range, SWR=severe winter relief range,\
+    \ CRUSWR=crucial severe winter relief range, CRUWIN=crucial winter range.\",\n          \"values\"\
+    : [\n            \"OUT\",\n            \"WYL\",\n            \"CRUWYL\",\n            \"YRL\",\n \
+    \           \"SSF\",\n            \"WIN\",\n            \"SWR\",\n            \"CRUSWR\",\n      \
+    \      \"CRUWIN\"\n          ]\n        },\n        {\n          \"name\": \"Acres\",\n          \"\
+    type\": \"double\",\n          \"description\": \"Area of the range polygon in acres, as published\
+    \ by the Wyoming Game & Fish Department.\"\n        },\n        {\n          \"name\": \"SQMiles\"\
+    ,\n          \"type\": \"double\",\n          \"description\": \"Area of the range polygon in square\
+    \ miles, as published by the Wyoming Game & Fish Department.\"\n        },\n        {\n          \"\
+    name\": \"h10\",\n          \"type\": \"uint64\",\n          \"description\": \"H3 cell identifier\
+    \ at resolution 10, the native resolution of this hex table.\"\n        },\n        {\n          \"\
+    name\": \"h9\",\n          \"type\": \"uint64\",\n          \"description\": \"H3 cell identifier\
+    \ at resolution 9.\"\n        },\n        {\n          \"name\": \"h8\",\n          \"type\": \"uint64\"\
+    ,\n          \"description\": \"H3 cell identifier at resolution 8, the resolution shared across this\
+    \ catalog for joining datasets to one another.\"\n        },\n        {\n          \"name\": \"h0\"\
+    ,\n          \"type\": \"int64\",\n          \"description\": \"H3 cell identifier at resolution 0,\
+    \ used as the partition key for hive-partitioned reads.\"\n        }\n      ]\n    }\n  }\n}"
+  sage-grouse-priority.json: "{\n  \"type\": \"Collection\",\n  \"stac_version\": \"1.0.0\",\n  \"stac_extensions\"\
+    : [\n    \"https://stac-extensions.github.io/table/v1.2.0/schema.json\",\n    \"https://stac-extensions.github.io/scientific/v1.0.0/schema.json\"\
+    \n  ],\n  \"id\": \"wgfd-sage-grouse-priority\",\n  \"title\": \"Greater Sage-Grouse Core Management\
+    \ Areas v4 (Wyoming)\",\n  \"description\": \"Greater sage-grouse Core Management Areas in Wyoming,\
+    \ version 4. These are the highest-priority sage-grouse habitat areas, 33 named areas covering about\
+    \ 15,409,173 acres, identified jointly by the Wyoming Game & Fish Department and the Bureau of Land\
+    \ Management to focus conservation and management. Each polygon is one named Core Management Area.\\\
+    n\\nThis is Wyoming's own Core Area designation \\u2014 a state policy instrument rather than a clip\
+    \ of a range-wide product. Sage-grouse habitat is mapped across the western states by other programs,\
+    \ but those are separate datasets built on different criteria, not wider extents of this one.\",\n\
+    \  \"license\": \"other\",\n  \"sci:citation\": \"Wyoming Game & Fish Department and Bureau of Land\
+    \ Management, Greater Sage-Grouse Core Management Areas version 4. Accessed 2026-02-25 from the WGFD\
+    \ ArcGIS Hub (wyoming-wgfd.opendata.arcgis.com). Distribution is through an ArcGIS Hub endpoint with\
+    \ no stable versioned download URL, so the retained source is the anchor: s3://public-wgfd/raw/sage-grouse-priority.zip,\
+    \ SHA-256 4c7796900bf33208d58541c574aa503481f090caafbc051b663b0428d6a9cfde. Converted to GeoParquet,\
+    \ PMTiles and H3 by the Boettiger Lab, UC Berkeley.\",\n  \"created\": \"2026-08-22T01:07:10Z\",\n\
+    \  \"updated\": \"2026-08-22T01:08:47Z\",\n  \"keywords\": [\n    \"Wyoming\",\n    \"sage-grouse\"\
+    ,\n    \"greater sage-grouse\",\n    \"core areas\",\n    \"habitat\",\n    \"WGFD\",\n    \"BLM\"\
+    ,\n    \"sagebrush\"\n  ],\n  \"extent\": {\n    \"spatial\": {\n      \"bbox\": [\n        [\n  \
+    \        -111.047,\n          41.0,\n          -104.291,\n          45.0\n        ]\n      ]\n   \
+    \ },\n    \"temporal\": {\n      \"interval\": [\n        [\n          \"2024-01-01T00:00:00Z\",\n\
+    \          null\n        ]\n      ]\n    }\n  },\n  \"providers\": [\n    {\n      \"name\": \"Wyoming\
+    \ Game & Fish Department\",\n      \"roles\": [\n        \"producer\",\n        \"licensor\"\n   \
+    \   ],\n      \"url\": \"https://wyoming-wgfd.opendata.arcgis.com/\"\n    },\n    {\n      \"name\"\
+    : \"Boettiger Lab, UC Berkeley\",\n      \"roles\": [\n        \"processor\",\n        \"host\"\n\
+    \      ],\n      \"url\": \"https://github.com/boettiger-lab\"\n    }\n  ],\n  \"links\": [\n    {\n\
+    \      \"rel\": \"self\",\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/sage-grouse-priority/stac-collection.json\"\
+    ,\n      \"type\": \"application/json\"\n    },\n    {\n      \"rel\": \"root\",\n      \"href\":\
+    \ \"https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json\",\n      \"type\": \"application/json\"\
+    \n    },\n    {\n      \"rel\": \"parent\",\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/stac-collection.json\"\
+    ,\n      \"type\": \"application/json\"\n    },\n    {\n      \"rel\": \"license\",\n      \"href\"\
+    : \"https://wgfd.wyo.gov/geospatial-data\",\n      \"type\": \"text/html\"\n    },\n    {\n      \"\
+    rel\": \"about\",\n      \"href\": \"https://wyoming-wgfd.opendata.arcgis.com/\",\n      \"type\"\
+    : \"text/html\",\n      \"title\": \"WGFD ArcGIS Hub (upstream distribution)\"\n    }\n  ],\n  \"\
+    assets\": {\n    \"sage-grouse-priority-parquet\": {\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/sage-grouse-priority.parquet\"\
+    ,\n      \"type\": \"application/x-parquet\",\n      \"roles\": [\n        \"data\"\n      ],\n  \
+    \    \"title\": \"Sage-grouse Core Management Areas \\u2014 GeoParquet\",\n      \"created\": \"2026-08-22T01:07:10Z\"\
+    ,\n      \"description\": \"Core Management Area polygons as GeoParquet, one row per area, in EPSG:4326.\
+    \ Query directly with DuckDB over HTTP.\",\n      \"table:columns\": [\n        {\n          \"name\"\
+    : \"_cng_fid\",\n          \"type\": \"int64\",\n          \"description\": \"Identifier assigned\
+    \ to every polygon during conversion, unique within this dataset. Count areas or remove repeated rows\
+    \ with COUNT(DISTINCT _cng_fid).\"\n        },\n        {\n          \"name\": \"OGC_FID\",\n    \
+    \      \"type\": \"int64\",\n          \"description\": \"Sequential record number carried over from\
+    \ the source export.\"\n        },\n        {\n          \"name\": \"ID\",\n          \"type\": \"\
+    int64\",\n          \"description\": \"Core Management Area identifier from the published layer.\"\
+    \n        },\n        {\n          \"name\": \"NAME\",\n          \"type\": \"string\",\n        \
+    \  \"description\": \"Name of the Core Management Area, for example a landscape or basin the area\
+    \ is known by.\"\n        },\n        {\n          \"name\": \"Acres\",\n          \"type\": \"double\"\
+    ,\n          \"description\": \"Area of the Core Management Area in acres, as published.\"\n     \
+    \   },\n        {\n          \"name\": \"Shape_Leng\",\n          \"type\": \"double\",\n        \
+    \  \"description\": \"Perimeter of the area polygon in the units of the source projection, carried\
+    \ over from the published layer.\"\n        },\n        {\n          \"name\": \"Shape_Area\",\n \
+    \         \"type\": \"double\",\n          \"description\": \"Area of the polygon in the units of\
+    \ the source projection, carried over from the published layer. Acres is the interpretable value.\"\
+    \n        },\n        {\n          \"name\": \"geom\",\n          \"type\": \"geometry\",\n      \
+    \    \"description\": \"Polygon geometry of the Core Management Area, in EPSG:4326.\"\n        }\n\
+    \      ]\n    },\n    \"sage-grouse-priority-pmtiles\": {\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/sage-grouse-priority.pmtiles\"\
+    ,\n      \"type\": \"application/vnd.pmtiles\",\n      \"roles\": [\n        \"visual\"\n      ],\n\
+    \      \"title\": \"Sage-grouse Core Management Areas \\u2014 PMTiles\",\n      \"created\": \"2026-08-22T01:07:29Z\"\
+    ,\n      \"description\": \"Vector tiles for web maps. In MapLibre GL JS the source layer is \\\"\
+    sage-grouse-priority\\\"; label features with NAME.\",\n      \"vector:layers\": [\n        \"sage-grouse-priority\"\
+    \n      ],\n      \"table:columns\": [\n        {\n          \"name\": \"_cng_fid\",\n          \"\
+    type\": \"int64\"\n        },\n        {\n          \"name\": \"OGC_FID\",\n          \"type\": \"\
+    int64\"\n        },\n        {\n          \"name\": \"ID\",\n          \"type\": \"int64\"\n     \
+    \   },\n        {\n          \"name\": \"NAME\",\n          \"type\": \"string\"\n        },\n   \
+    \     {\n          \"name\": \"Acres\",\n          \"type\": \"double\"\n        },\n        {\n \
+    \         \"name\": \"Shape_Leng\",\n          \"type\": \"double\"\n        },\n        {\n     \
+    \     \"name\": \"Shape_Area\",\n          \"type\": \"double\"\n        }\n      ]\n    },\n    \"\
+    sage-grouse-priority-hex\": {\n      \"href\": \"https://s3-west.nrp-nautilus.io/public-wgfd/sage-grouse-priority/hex/h0=*/data_0.parquet\"\
+    ,\n      \"type\": \"application/x-parquet\",\n      \"roles\": [\n        \"data\"\n      ],\n  \
+    \    \"title\": \"Sage-grouse Core Management Areas \\u2014 H3 resolution 10\",\n      \"created\"\
+    : \"2026-08-22T01:08:47Z\",\n      \"description\": \"Core Management Areas as H3 cells at resolution\
+    \ 10, with resolution 9, 8 and 0 identifiers alongside for rolling up or joining to other datasets.\
+    \ There is one row for each combination of a Core Management Area and a cell it covers, so a polygon\
+    \ spanning many cells appears on many rows, and the per-polygon values Acres, Shape_Leng and Shape_Area\
+    \ are repeated on every one of its cells. Reduce to one row per polygon before totalling any of them:\\\
+    n\\nSELECT SUM(Acres) FROM (SELECT DISTINCT _cng_fid, Acres FROM \\u2026)\\n\\nFor the ground area\
+    \ of a set of cells, aggregate the cell areas over distinct cells rather than these published columns.\
+    \ Covers 86,934 resolution 8 cells across 1 resolution 0 partition.\",\n      \"h3:native_resolution\"\
+    : 10,\n      \"h3:parent_resolutions\": [\n        9,\n        8,\n        0\n      ],\n      \"table:columns\"\
+    : [\n        {\n          \"name\": \"_cng_fid\",\n          \"type\": \"int64\",\n          \"description\"\
+    : \"Identifier assigned to every polygon during conversion, unique within this dataset. Count areas\
+    \ or remove repeated rows with COUNT(DISTINCT _cng_fid).\"\n        },\n        {\n          \"name\"\
+    : \"OGC_FID\",\n          \"type\": \"int64\",\n          \"description\": \"Sequential record number\
+    \ carried over from the source export.\"\n        },\n        {\n          \"name\": \"ID\",\n   \
+    \       \"type\": \"int64\",\n          \"description\": \"Core Management Area identifier from the\
+    \ published layer.\"\n        },\n        {\n          \"name\": \"NAME\",\n          \"type\": \"\
+    string\",\n          \"description\": \"Name of the Core Management Area, for example a landscape\
+    \ or basin the area is known by.\"\n        },\n        {\n          \"name\": \"Acres\",\n      \
+    \    \"type\": \"double\",\n          \"description\": \"Area of the Core Management Area in acres,\
+    \ as published.\"\n        },\n        {\n          \"name\": \"Shape_Leng\",\n          \"type\"\
+    : \"double\",\n          \"description\": \"Perimeter of the area polygon in the units of the source\
+    \ projection, carried over from the published layer.\"\n        },\n        {\n          \"name\"\
+    : \"Shape_Area\",\n          \"type\": \"double\",\n          \"description\": \"Area of the polygon\
+    \ in the units of the source projection, carried over from the published layer. Acres is the interpretable\
+    \ value.\"\n        },\n        {\n          \"name\": \"h10\",\n          \"type\": \"uint64\",\n\
+    \          \"description\": \"H3 cell identifier at resolution 10, the native resolution of this hex\
+    \ table.\"\n        },\n        {\n          \"name\": \"h9\",\n          \"type\": \"uint64\",\n\
+    \          \"description\": \"H3 cell identifier at resolution 9.\"\n        },\n        {\n     \
+    \     \"name\": \"h8\",\n          \"type\": \"uint64\",\n          \"description\": \"H3 cell identifier\
+    \ at resolution 8, the resolution shared across this catalog for joining datasets to one another.\"\
+    \n        },\n        {\n          \"name\": \"h0\",\n          \"type\": \"int64\",\n          \"\
+    description\": \"H3 cell identifier at resolution 0, used as the partition key for hive-partitioned\
+    \ reads.\"\n        }\n      ]\n    }\n  }\n}"
+  publish.py: "\nimport json, subprocess, sys\nNRP='https://s3-west.nrp-nautilus.io'; B='public-wgfd'\n\
+    DS=['elk-seasonal', 'mule-deer-seasonal', 'pronghorn-seasonal', 'sage-grouse-priority']\nPK=f'nrp:{B}/stac-collection.json'\n\
+    for ds in DS:\n    doc=json.load(open(f'/config/{ds}.json'))\n    open('/tmp/o.json','w').write(json.dumps(doc,indent=2));\
+    \ json.load(open('/tmp/o.json'))\n    subprocess.check_call(['rclone','copyto','/tmp/o.json',f'nrp:{B}/{ds}/stac-collection.json'])\n\
+    \    print('published\\t%s' % doc['id'])\n# add each as a child of the bucket collection\nparent=json.loads(subprocess.check_output(['rclone','cat',PK]))\n\
+    added=[]\nfor ds in DS:\n    href=f'{NRP}/{B}/{ds}/stac-collection.json'\n    if any(l.get('rel')=='child'\
+    \ and l.get('href')==href for l in parent['links']): continue\n    title=json.load(open(f'/config/{ds}.json'))['title']\n\
+    \    parent['links'].append({'rel':'child','href':href,'type':'application/json','title':title})\n\
+    \    added.append(ds)\nif added:\n    open('/tmp/p.json','w').write(json.dumps(parent,indent=2));\
+    \ json.load(open('/tmp/p.json'))\n    subprocess.check_call(['rclone','copyto','/tmp/p.json',PK])\n\
+    back=json.loads(subprocess.check_output(['rclone','cat',PK]))\nn=sum(1 for l in back['links'] if l.get('rel')=='child')\n\
+    print('parent\\tchildren=%d\\tadded=%s' % (n, ','.join(added) or 'none'))\nif n!=7: print('FAIL: expected\
+    \ 7 children, got %d'%n); sys.exit(1)\nprint('done')\n"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-publish-wgfd2
+  namespace: geo-workflows
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        env:
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: cfg
+          mountPath: /config
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - set -uo pipefail; python3 /config/publish.py
+        resources:
+          requests:
+            cpu: '1'
+            memory: 1Gi
+            ephemeral-storage: 1Gi
+          limits:
+            cpu: '1'
+            memory: 1Gi
+            ephemeral-storage: 1Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: cfg
+        configMap:
+          name: stac-publish-wgfd2
