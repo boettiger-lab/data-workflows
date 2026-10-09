@@ -17,24 +17,6 @@ SENTINEL_NOTE = (
     "-- wrong: VERIF <> 'Not Reported' still returns the rows spelled 'Not reported'\n"
     "```")
 
-TAXON = [
-    {"name": "FAMILY", "type": "string",
-     "description": "Taxonomic family of the seagrass recorded at this feature. Values: "
-                    "Zosteraceae, Cymodoceaceae, Hydrocharitaceae, Posidoniaceae, "
-                    "Potamogetonaceae, Not Reported = the source did not identify a family.",
-     "values": ["Zosteraceae", "Cymodoceaceae", "Hydrocharitaceae", "Posidoniaceae",
-                "Potamogetonaceae", "Not Reported"]},
-    {"name": "GENUS", "type": "string",
-     "description": "Taxonomic genus of the seagrass recorded at this feature, or Not Reported "
-                    "where the source did not identify one.",
-     "values": ["Zostera", "Halophila", "Cymodocea", "Halodule", "Syringodium", "Enhalus",
-                "Thalassia", "Posidonia", "Thalassodendron", "Phyllospadix", "Amphibolis",
-                "Heterozostera", "Potamogeton", "Not Reported"]},
-    {"name": "scientific", "type": "string",
-     "description": "Scientific name of the seagrass recorded at this feature, as given by the "
-                    "contributing source."},
-]
-
 DATASETID = {"name": "datasetID", "type": "double",
              "description": "Identifier of the contributing source dataset. Global Distribution of "
                             "Seagrasses is a compilation, so one collection mixes many independent "
@@ -98,5 +80,3 @@ PROVENANCE = (
     "release inconsistently — the bundled README says version 8.0 released March 2021 while the "
     "filename and the requested citation say version 7.1 and version 7 — so the edition recorded "
     "here is the one in the distributed filename, v7.1.\n\n" + LICENCE_NOTE)
-
-print("seagrass.py loaded (call build() from the fill script)")
