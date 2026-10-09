@@ -9,7 +9,16 @@ median/min/max, and a delta against a future collection reads naturally:
 
 Same shape as the futures build otherwise: one hex job per (h0, variable), masked to land before
 staging, then one join per h0. Sizing is the measured 8 Gi / 4 cores, and Armada has no retry, so
-the caller must still run armada_gapfill.py before joining.
+the caller must still check for gaps before joining:
+
+    python3 armada_gapfill.py --baseline --combo 1981-2010
+
+That enumerates <staging>/<period>/<var>/h0=<cell>/ against the land h0 set and prints the
+missing cells/vars to feed back in as --h0-indexes / --vars. The join also refuses to write an
+h0 whose staged pieces are incomplete, so a missed gap fails loudly rather than publishing.
+
+Output lands at <output-prefix>/hex/, default chelsa-2-1/baseline-<period>/hex/ -- the path the
+STAC (gen_chelsa_baseline_stac.py) points at.
 """
 import argparse
 import sys
@@ -91,7 +100,7 @@ if [ "$rc" -eq 3 ]; then echo "empty after mask"; exit 0; fi
 if [ "$rc" -ne 0 ]; then echo "join failed rc=${rc}"; exit "$rc"; fi
 
 rclone copyto /tmp/final.parquet \
-  "nrp:public-bioclimate/${OUTPREFIX}/${PERIOD}/hex/h0=${H0}/data_0.parquet" \
+  "nrp:public-bioclimate/${OUTPREFIX}/hex/h0=${H0}/data_0.parquet" \
   --retries 5 --low-level-retries 20 --retries-sleep 10s
 echo "h0=${H0} joined"
 """
@@ -138,7 +147,8 @@ def main():
     ap.add_argument("--namespace", default="geo-workflows")
     ap.add_argument("--job-set-id", required=True)
     ap.add_argument("--staging", default="staging-baseline")
-    ap.add_argument("--output-prefix", default="chelsa-2-1/baseline")
+    ap.add_argument("--output-prefix", default=None,
+                    help="published prefix (default: chelsa-2-1/baseline-<period>)")
     ap.add_argument("--h0-indexes", default="0-121")
     ap.add_argument("--vars", default=",".join(VARS))
     ap.add_argument("--memory", default="8Gi")
@@ -146,6 +156,8 @@ def main():
     ap.add_argument("--priority-class", default="armada-preemptible")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+    if args.output_prefix is None:
+        args.output_prefix = f"chelsa-2-1/baseline-{args.period}"
 
     if "-" in args.h0_indexes and "," not in args.h0_indexes:
         lo, hi = args.h0_indexes.split("-")

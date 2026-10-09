@@ -14,6 +14,12 @@ data:
 
     ⛔ Find gaps by ENUMERATING the expected set, never by counting. 3,779 of 3,780 reads as complete
     at a glance, and a count cannot tell you which slice is absent.
+
+    Futures and the present-day baseline (#448) stage differently, so pass --baseline for the latter:
+
+        futures:  <staging>/<combo>/<var>_<member>/h0=<cell>/   e.g. --combo ssp126-2041-2070
+        baseline: <staging>/<period>/<var>/h0=<cell>/           --baseline --combo 1981-2010
+                  (staging defaults to staging-baseline, the gen_armada_baseline.py default)
     """
     import argparse
     import re
@@ -44,11 +50,18 @@ data:
     def main():
         ap = argparse.ArgumentParser()
         ap.add_argument("--combo", required=True, help="e.g. ssp126-2041-2070")
-        ap.add_argument("--staging", default="staging")
+        ap.add_argument("--staging", default=None,
+                        help="staging prefix (default: staging, or staging-baseline with --baseline)")
+        ap.add_argument("--baseline", action="store_true",
+                        help="present-day baseline: one slice per variable, no GCM members")
         ap.add_argument("--reference", default="chelsa-2-1/ssp370-2041-2070/hex/",
                         help="a published hex whose h0 set defines the land partitions")
         ap.add_argument("--grid", default="s3://public-grids/hex/h0-valid.parquet")
         args = ap.parse_args()
+        if args.staging is None:
+            args.staging = "staging-baseline" if args.baseline else "staging"
+        # baseline slices are named <var>; futures slices <var>_<member>
+        slices = VARS if args.baseline else [f"{v}_{m}" for v in VARS for m in MEMBERS]
 
         land_cells = sorted(set(re.findall(r"hex/h0=(\d+)/", "".join(keys(args.reference)))))
         if not land_cells:
@@ -61,18 +74,17 @@ data:
             if m:
                 got.add((m.group(1), m.group(2)))
 
-        expected = len(land_cells) * len(VARS) * len(MEMBERS)
-        missing = [(v, m, h) for h in land_cells for v in VARS for m in MEMBERS
-                   if (f"{v}_{m}", h) not in got]
+        expected = len(land_cells) * len(slices)
+        missing = [(s, h) for h in land_cells for s in slices if (s, h) not in got]
 
         print(f"{args.combo}: {expected - len(missing)}/{expected} staged, {len(missing)} missing")
-        for v, m, h in missing:
-            print(f"  MISSING {v}_{m} h0cell={h}")
+        for s, h in missing:
+            print(f"  MISSING {s} h0cell={h}")
 
         # Emit the h0 CELL ids; the caller maps them back to --h0-indexes for the generator.
         if missing:
-            cells = sorted({h for _, _, h in missing})
-            vars_ = sorted({v for v, _, _ in missing})
+            cells = sorted({h for _, h in missing})
+            vars_ = sorted({s.split("_")[0] for s, _ in missing})
             print(f"\nGAPFILL_CELLS={','.join(cells)}")
             print(f"GAPFILL_VARS={','.join(vars_)}")
         return 0
@@ -794,7 +806,16 @@ data:
 
     Same shape as the futures build otherwise: one hex job per (h0, variable), masked to land before
     staging, then one join per h0. Sizing is the measured 8 Gi / 4 cores, and Armada has no retry, so
-    the caller must still run armada_gapfill.py before joining.
+    the caller must still check for gaps before joining:
+
+        python3 armada_gapfill.py --baseline --combo 1981-2010
+
+    That enumerates <staging>/<period>/<var>/h0=<cell>/ against the land h0 set and prints the
+    missing cells/vars to feed back in as --h0-indexes / --vars. The join also refuses to write an
+    h0 whose staged pieces are incomplete, so a missed gap fails loudly rather than publishing.
+
+    Output lands at <output-prefix>/hex/, default chelsa-2-1/baseline-<period>/hex/ -- the path the
+    STAC (gen_chelsa_baseline_stac.py) points at.
     """
     import argparse
     import sys
@@ -876,7 +897,7 @@ data:
     if [ "$rc" -ne 0 ]; then echo "join failed rc=${rc}"; exit "$rc"; fi
 
     rclone copyto /tmp/final.parquet \
-      "nrp:public-bioclimate/${OUTPREFIX}/${PERIOD}/hex/h0=${H0}/data_0.parquet" \
+      "nrp:public-bioclimate/${OUTPREFIX}/hex/h0=${H0}/data_0.parquet" \
       --retries 5 --low-level-retries 20 --retries-sleep 10s
     echo "h0=${H0} joined"
     """
@@ -923,7 +944,8 @@ data:
         ap.add_argument("--namespace", default="geo-workflows")
         ap.add_argument("--job-set-id", required=True)
         ap.add_argument("--staging", default="staging-baseline")
-        ap.add_argument("--output-prefix", default="chelsa-2-1/baseline")
+        ap.add_argument("--output-prefix", default=None,
+                        help="published prefix (default: chelsa-2-1/baseline-<period>)")
         ap.add_argument("--h0-indexes", default="0-121")
         ap.add_argument("--vars", default=",".join(VARS))
         ap.add_argument("--memory", default="8Gi")
@@ -931,6 +953,8 @@ data:
         ap.add_argument("--priority-class", default="armada-preemptible")
         ap.add_argument("--out", required=True)
         args = ap.parse_args()
+        if args.output_prefix is None:
+            args.output_prefix = f"chelsa-2-1/baseline-{args.period}"
 
         if "-" in args.h0_indexes and "," not in args.h0_indexes:
             lo, hi = args.h0_indexes.split("-")
@@ -951,8 +975,12 @@ data:
                 s = (JOIN.replace("__H0IDX__", str(h0idx)).replace("__PERIOD__", args.period)
                          .replace("__STAGING__", args.staging).replace("__VARS__", ",".join(variables))
                          .replace("__OUTPREFIX__", args.output_prefix))
+                # 12Gi ephemeral, not 40. A join holds seven small parquet pieces and one output;
+                # 40Gi was copied from the futures join and is far more than it needs. It also blocks
+                # placement: one job cycled Leased -> Pending -> LeaseReturned repeatedly because no
+                # node had that much free ephemeral, while 121 identical jobs placed fine.
                 jobs.append({"namespace": args.namespace, "priorityClassName": args.priority_class,
-                             "podSpec": pod(s, "8Gi", 4, "40Gi", [{"name": "BOUNDS", "value": BOUNDS}])})
+                             "podSpec": pod(s, "8Gi", 4, "12Gi", [{"name": "BOUNDS", "value": BOUNDS}])})
 
         with open(args.out, "w") as f:
             yaml.safe_dump({"queue": args.queue, "jobSetId": args.job_set_id, "jobs": jobs}, f, sort_keys=False)
