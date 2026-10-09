@@ -63,12 +63,12 @@ GCP you rent the whole VM, not the pod request.
 |---|---:|---:|
 | GBIF build output | 166 | $3.33/mo - $40/yr |
 | whole `public-gbif` (two snapshots) | 339 | $6.78/mo - $81/yr |
-| **all 65 public buckets** | 3,643 | **$73/mo - $874/yr** |
+| **all 71 live public buckets** | 3,856 | **$77/mo - $925/yr** |
 | ops (~50k Class A + ~1M Class B) | - | ~$0.65 (noise) |
 | ingest 285 GB from AWS Open Data | - | **$0** - GCP ingress free, AWS Open Data sponsorship pays the egress |
 
 **Egress is the sleeper, not compute or storage.** At $0.12/GB premium tier, one full
-download of the 3.64 TB catalog = **$437**, i.e. six months of storage for everything,
+download of the 3.86 TB catalog = **$463**, i.e. six months of storage for everything,
 in a single `rclone sync`. For an openly-served catalog that line sets the bill. This is
 the main thing the NRP arrangement buys.
 
@@ -85,16 +85,16 @@ enumeration. Bucket discovery must union three sources, and the repo grep must c
 
 | source | finds | misses |
 |---|---|---|
-| `git grep` on `origin/main`, all 3 syntaxes | 70 refs | anything in an unmerged PR |
+| `git grep` on `origin/main`, all 3 syntaxes | 69 bucket names (64 live, 5 dead) | anything in an unmerged PR |
 | `gh pr diff` over the 21 open PRs | +7 buckets | buckets in no PR |
 | STAC catalog walk (384 docs, 322 collections) | cross-check | unpublished builds, infra buckets |
 
 Dropping the `https://` form costs two buckets (`public-population`, `public-ecoregions`)
 and was the error in this note's first draft. Using `main` alone costs seven more and
-reports 3.31 TiB / 65 buckets, ~198 GiB low — `public-obis` (99.2 GiB) has 35 references in
+reports 3.34 TiB / 64 buckets, ~168 GiB low — `public-obis` (99.2 GiB) has 35 references in
 PR #661 and none on `main`.
 
-**A bucket-name grep does not find the manifest that builds that bucket.** `public-population` is the worked example: its manifests exist on `main` but name a *different* bucket, so no amount of grepping for `public-population` reaches them. Name-based discovery can tell you a bucket exists; it cannot tell you whether anything still builds it. That needs reading each manifest's target.
+**A bucket-name grep does not find the manifest that builds that bucket.** `public-population` is the worked example: its manifests exist on `main` but name a *different* bucket, so no amount of grepping for `public-population` reaches them. On `main` the `https://` grep finds the name only in `catalog/audit/pregate-verify-sweep/RESULTS-2026-08-*.txt`, which are audit output, not manifests. Name-based discovery can tell you a bucket exists; it cannot tell you whether anything still builds it. That needs reading each manifest's target.
 
 ### The disagreements are diagnostic
 
@@ -146,14 +146,14 @@ PR #661 and none on `main`.
   never updated, with nothing re-running the workflow to catch it. Both files arrived in one
   commit (`dd602a3`) already inconsistent with each other.
 
-  **Fixed in #699**, which also corrects three further defects found in the same script: a
+  **Fix in #699**, which also corrects three further defects found in the same script: a
   literal `sleep(4)` (Python syntax, fails under bash), `source ../.venv/…` resolving to
   `catalog/.venv` instead of the repo root, and a missing `--namespace geo-workflows` against
   Hard Boundary 3. Note the flag drift between `run.sh` and the configmap's generation comment
   runs the *opposite* way to how it looks: the generated `ecoregion-hex.yaml` carries
   `parallelism: 50` and `memory: 64Gi`, which only `run.sh`'s flags produce, so the comment was
-  the stale side. The namespace migration of the committed manifests
-  (`namespace: biodiversity`) remains outstanding.
+  the stale side. #699 also migrates the committed manifests from `biodiversity` to
+  `geo-workflows`.
 
 - **On main, deliberately not in STAC** — infra, not datasets: `public-output` (3.9 GiB),
   `public-requests`, `public-grids`.
@@ -177,10 +177,10 @@ Neither correction moves the total: `public-population` was already counted via 
 | public-usgs-nhd | 138.8 GiB | 328 | main+stac |
 | **public-obis** | **99.2 GiB** | **7,351** | **PR#661+stac** |
 | **public-commodities** | **60.3 GiB** | **8** | **PR#622+stac** |
-| **public-population** | **30.5 GiB** | **126** | **stac only** |
+| **public-population** | **30.5 GiB** | **126** | **main+stac** (main: audit text only) |
 
 Full per-bucket table with sources: `footprint_v2.json` (regenerate with the union method
-above). At GCS Standard $0.020/GB-mo the corrected total is **$77/mo / $926/yr**; one full
+above). At GCS Standard $0.020/GB-mo the corrected total is **$77/mo / $925/yr**; one full
 egress at $0.12/GB is **$463**.
 
 ## Running it on a DGX Spark (GB10)

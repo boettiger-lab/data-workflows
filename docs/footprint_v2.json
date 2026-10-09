@@ -172,7 +172,7 @@
   "bytes": 32760643877,
   "objects": 126,
   "error": null,
-  "sources": "stac"
+  "sources": "main+stac"
  },
  {
   "bucket": "public-blm",
@@ -519,6 +519,13 @@
  },
  {
   "bucket": "public-x",
+  "bytes": 0,
+  "objects": 0,
+  "error": "HTTPError 404",
+  "sources": "main"
+ },
+ {
+  "bucket": "public-ecoregions",
   "bytes": 0,
   "objects": 0,
   "error": "HTTPError 404",
