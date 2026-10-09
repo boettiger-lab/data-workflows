@@ -1,0 +1,78 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: forest-to-grass-shrub-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: forest-to-grass-shrub-stage-raw}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: forest-to-grass-shrub-stage-raw}}
+    spec:
+      restartPolicy: Never
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Stage Zenodo 10.5281/zenodo.23045000 to raw/, verifying the md5s Zenodo publishes,
+          # then print exact value histograms (validation truth for the hex). (#738)
+          REC=https://zenodo.org/api/records/23045000/files
+          DST=nrp:public-land-cover/raw/forest-to-grass-shrub/
+          cd /tmp
+          echo "ACCESS_DATE $(date -u +%Y-%m-%d)"
+          cat > md5.txt <<'EOF'
+          6b6df8b5b90cf9b47ed31118f4be8bbf  forest_to_grassshrub_metadata.xml
+          16758e22880b5e9518964b39d529c5f1  forest_to_grassshrub_binary.tif
+          93f7d17b9205f051e2f93dd58a5beef6  forest_to_grassshrub_max_run_years.tif
+          7202b20f61b4aca563bde8521bc3b62e  forest_to_grassshrub_change_year.tif
+          EOF
+          sed -i 's/^ *//' md5.txt
+          for f in $(awk '{print $2}' md5.txt); do
+            curl -sSL --retry 8 --retry-delay 5 --retry-all-errors -o "$f" "$REC/$f/content"
+          done
+          md5sum -c md5.txt
+          ls -l /tmp/*.tif /tmp/*.xml
+          sha256sum /tmp/*.tif /tmp/*.xml
+          rclone copy /tmp/ $DST --include '*.tif' --include '*.xml' --s3-no-check-bucket \
+            --retries 10 --low-level-retries 20 --retries-sleep 20s
+          rclone lsl $DST
+          for f in /tmp/*.tif; do
+            echo "=== $f"
+            python3 - "$f" <<'PY'
+          import sys, numpy as np
+          from osgeo import gdal
+          ds = gdal.Open(sys.argv[1]); b = ds.GetRasterBand(1)
+          print("nodata", b.GetNoDataValue(), "dtype", gdal.GetDataTypeName(b.DataType))
+          counts = np.zeros(65536, dtype=np.int64)
+          bx, by = 4096, 4096
+          for y in range(0, ds.RasterYSize, by):
+              for x in range(0, ds.RasterXSize, bx):
+                  a = b.ReadAsArray(x, y, min(bx, ds.RasterXSize-x), min(by, ds.RasterYSize-y))
+                  counts += np.bincount(a.ravel(), minlength=65536)[:65536]
+          for v in np.nonzero(counts)[0]:
+              print(f"value {v}: {counts[v]}")
+          PY
+          done
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
