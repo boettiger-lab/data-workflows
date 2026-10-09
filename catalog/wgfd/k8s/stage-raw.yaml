@@ -1,14 +1,17 @@
 # data-workflows#578 — stage the WGFD raw sources into public-wgfd/raw/ under clean names.
 #
-# The upstream GeoJSON is already on NRP, staged 2026-02-25 under public-wyoming/raw/ with
-# ArcGIS export hash suffixes. This copies it into the new provider-named bucket so
+# All seven upstream sources are already on NRP, staged 2026-02-25 under public-wyoming/raw/
+# with ArcGIS export names: six GeoJSON range layers (crucial + seasonal for elk, mule deer,
+# pronghorn) and the sage-grouse Core Management Areas v4 shapefile zip. This copies it into the new provider-named bucket so
 # public-wgfd is self-contained: public-wyoming is slated for retirement (#225), and the raw
 # must not disappear with it. For cwhr/#417 reasons the staged raw IS the provenance here —
 # WGFD publishes through an ArcGIS Hub endpoint with no stable versioned download URL, so
 # these bytes plus their checksum are the only reproducible anchor.
 #
 # Renamed to match the dataset names (the `coal-cases.geojson` convention), so
-# --source-url s3://public-wgfd/raw/<dataset>.geojson is derivable from the dataset name.
+# --source-url s3://public-wgfd/raw/<dataset>.geojson (sage-grouse-priority.zip) is derivable
+# from the dataset name. Each copy is byte-identical to its public-wyoming original (md5
+# checked 2026-10-09 against the objects the seven convert jobs read).
 #
 # Server-side S3 copy over the internal endpoint. Idempotent: rclone skips identical objects.
 # ⚠️ Runs AFTER *-setup-bucket (the bucket does not exist until then, and rclone with
@@ -52,12 +55,19 @@ spec:
           copy 'Elk_Crucial_Range_6814964145904153641.geojson'      elk-crucial.geojson
           copy 'MuleDeerCrucialRange_-6928355498246013770.geojson'  mule-deer-crucial.geojson
           copy 'Antelope_Crucial_Range_2840206821211723664.geojson' pronghorn-crucial.geojson
+          copy 'Elk_Seasonal_Range_5634416587767866836.geojson'       elk-seasonal.geojson
+          copy 'MuleDeerSeasonalRange_-3266118160202730997.geojson'   mule-deer-seasonal.geojson
+          copy 'Antelope_Seasonal_Range_-8613938908718516484.geojson' pronghorn-seasonal.geojson
           # Antelope == pronghorn: WGFD names the file for the common name, the dataset for
           # the species. Recorded here so nobody "fixes" the mapping later.
+          copy 'SageGrouseCoreAreasv4.zip'                            sage-grouse-priority.zip
+          # Core Management Areas v4 (shapefile in a zip); the convert job reads the zip as-is.
 
           echo "=== staged, with fingerprints for the STAC provenance (#417) ==="
-          for f in elk-crucial mule-deer-crucial pronghorn-crucial; do
-            rclone cat "$DST/$f.geojson" | sha256sum | sed "s|-|$f.geojson|"
+          for f in elk-crucial.geojson mule-deer-crucial.geojson pronghorn-crucial.geojson \
+                   elk-seasonal.geojson mule-deer-seasonal.geojson pronghorn-seasonal.geojson \
+                   sage-grouse-priority.zip; do
+            rclone cat "$DST/$f" | sha256sum | sed "s|-|$f|"
           done
           rclone lsjson "$DST" | python3 -c "
           import json,sys
