@@ -1,0 +1,86 @@
+# Re-run the three res-2 chunks that never recorded completion in the Armada hex fan-out.
+#
+# 2,178 of 2,181 chunks wrote their `_manifest/chunk-N.parquet` marker. The three below did not,
+# and left NO part file either, so they died before writing anything -- there is nothing partial to
+# clean up and a re-run is a plain repeat. Armada had already reaped the pods, so no logs survive;
+# preemption is the likely cause, and the NRP docs are explicit that "preempted jobs will not be
+# automatically rescheduled", which is exactly what `cng-datasets gapfill` exists to paper over.
+#
+# WHY k8s AND NOT `gapfill`. gapfill emits an Armada job set, and every `armadactl` invocation
+# costs a human a 60-second device-code approval (no `dbus-launch` in this image, so the token
+# cache silently no-ops). Three units is far below anything needing a queue, so this runs as an
+# ordinary indexed Job and keeps the remaining approval for the merge.
+#
+# The missing set was computed from marker FILENAMES (`chunk-<N>.parquet`) rather than by reading
+# 2,181 tiny parquet files from a laptop -- same answer, no data scan. `merge-chunks` recomputes it
+# properly before publishing anyway.
+#
+#   dataset          chunk   res-2 cell            h0                   (grid pos)
+#   wrc-2-bp-conus       9   585790658220916735    576812596024311807   12
+#   wrc-2-bp-conus     276   586226614581329919    577234808489377791   78
+#   wrc-2-cfl-conus    208   586742285534756863    577762574070710271   71
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-gapfill-chunks
+  namespace: geo-workflows
+  labels: {k8s-app: wrc-2-gapfill-chunks}
+spec:
+  completions: 3
+  parallelism: 3
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: wrc-2-gapfill-chunks}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 10800
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '2'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          DS=(wrc-2-bp-conus wrc-2-bp-conus wrc-2-cfl-conus)
+          COL=(bp bp cfl)
+          CH=(9 276 208)
+          i=${JOB_COMPLETION_INDEX}
+          ds=${DS[$i]}; col=${COL[$i]}; c=${CH[$i]}
+          echo "=== gapfill ${ds} chunk-index ${c} ==="
+          cng-datasets raster \
+            --input "s3://public-fire/${ds}-cog.tif" \
+            --output-parquet "s3://public-fire/${ds}/hex-chunks/" \
+            --chunk-resolution 2 --chunk-index ${c} \
+            --h0-subset "12,14,20,50,71,78,100" \
+            --resolution 10 --parent-resolutions 9,8,0 \
+            --value-column ${col} --hex-resampling mean --nodata -9999
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 16Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 16Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]}
