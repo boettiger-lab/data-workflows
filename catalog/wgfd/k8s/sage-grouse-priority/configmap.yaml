@@ -98,8 +98,8 @@ data:
       labels:
         k8s-app: sage-grouse-priority-hex
     spec:
-      completions: 200
-      parallelism: 50
+      completions: 1
+      parallelism: 1
       completionMode: Indexed
       backoffLimit: 0
       podFailurePolicy:
