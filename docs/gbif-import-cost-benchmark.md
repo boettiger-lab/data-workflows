@@ -90,9 +90,9 @@ enumeration. Bucket discovery must union three sources, and the repo grep must c
 | STAC catalog walk (384 docs, 322 collections) | cross-check | unpublished builds, infra buckets |
 
 Dropping the `https://` form costs two buckets (`public-population`, `public-ecoregions`)
-and was the error in this note's first draft. Using `main` alone costs seven more and
-reports 3.34 TiB / 64 buckets, ~168 GiB low — `public-obis` (99.2 GiB) has 35 references in
-PR #661 and none on `main`.
+and was the error in this note's first draft. Using `main` alone as well costs the seven
+PR-only buckets: that two-syntax, `main`-only grep reports 3.31 TiB / 63 live buckets, ~198 GiB
+low — `public-obis` (99.2 GiB) has 35 references in PR #661 and none on `main`.
 
 **A bucket-name grep does not find the manifest that builds that bucket.** `public-population` is the worked example: its manifests exist on `main` but name a *different* bucket, so no amount of grepping for `public-population` reaches them. On `main` the `https://` grep finds the name only in `catalog/audit/pregate-verify-sweep/RESULTS-2026-08-*.txt`, which are audit output, not manifests. Name-based discovery can tell you a bucket exists; it cannot tell you whether anything still builds it. That needs reading each manifest's target.
 
