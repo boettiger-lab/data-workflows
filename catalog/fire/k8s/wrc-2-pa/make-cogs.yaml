@@ -1,0 +1,442 @@
+# Reproject the staged WRC v2 populated-areas rasters (RDS-2020-0060-2) to EPSG:4326 COGs on NRP S3.
+#
+# ⛔ THIS STEP IS NOT OPTIONAL AND ITS ABSENCE FAILS SILENTLY.
+# `cng-datasets raster` hands H3 cell polygons, in degrees, to exactextract. Against a source in
+# Albers metres every cell lands within ~100 m of the projection origin -- EPSG:5070 (0,0) is
+# lon -96 / lat 23, in the Gulf of Mexico -- so every cell reads nodata, ZERO rows are written and
+# the Job exits 0. Measured on #586. Structural checks all pass on an empty build; only the h0
+# coverage gate catches it. Both domains here are projected (CONUS EPSG:5070, Alaska EPSG:3338).
+#
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# ⚠️ TWO THINGS THIS JOB DOES DIFFERENTLY FROM catalog/fire/k8s/wrc-2/make-cogs.yaml, AND BOTH ARE
+#    MEASUREMENTS RATHER THAN PREFERENCES.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#
+# ── 1. THE RESAMPLER FOLLOWS THE SAME AMOUNT-VS-DENSITY SPLIT AS THE REDUCER ────────────────────
+# wrc-2 warps everything `-r near` and argues for it correctly -- but every layer in that
+# publication is an index, a probability or a length, so nothing there is an AMOUNT. This
+# publication is mixed, and `-r near` does not conserve an amount across a reprojection: it
+# resamples by nearest pixel centre, and EPSG:5070 -> EPSG:4326 changes both pixel count and
+# per-pixel ground area, by a factor that varies with latitude.
+#
+# Measured on synthetic 400x400 EPSG:5070 Int32 count rasters, source pixel sum vs warped sum:
+#
+#     patch latitude      -r near      -r sum
+#     ~25N                 -1.06%      +0.000%
+#     ~40N                 -7.31%      +0.000%
+#     ~48N                -11.87%      +0.000%
+#
+# `-r sum` (GDAL >= 3.1) takes the overlap-weighted sum of contributing source pixels and is exact
+# at every latitude, and it does not smear the sentinel -- the minimum valid output was 0.0. The
+# `near` error is NOT a constant that could be divided out afterwards: it grows with latitude and
+# reverses sign about the standard parallels. Since `cng-datasets`' exact-extract `sum` is itself
+# coverage-weighted and mass-conserving (boettiger-lab/datasets#84), pairing it with `-r sum` makes
+# the whole chain mass-conserving and makes #611's `SUM` invariant testable end to end.
+#
+# So: RESAMPLE[] is `sum` for the four amount themes and `near` for the six density/index themes,
+# mirroring the reducer table exactly. A `sum` warp produces fractional contributions, so those
+# COGs are written Float32 even where the source is an integer type (`BuildingCount_CONUS` is
+# UInt16 and could hold neither a fractional sum nor the -9999 sentinel).
+#
+# ── 2. NODATA IS READ FROM EACH SOURCE, NOT HARDCODED ──────────────────────────────────────────
+# The landscape publication is uniformly Float32 / -9999. This one is not. Measured per raster in
+# the staging job:
+#
+#     HURisk            Int32    -2147483648        HUExposure/PopCount/HUCount  Float32  -FLT_MAX
+#     BuildingCount     UInt16 (CONUS) / Int16 (AK)  nodata 255   <-- a POSITIVE sentinel
+#     BuildingDensity   Int16    -1                 BuildingCover  Int16   -128
+#
+# Four distinct sentinels, one of them positive, and `BuildingCount` differs in dtype between its
+# two domains. A hardcoded -9999 would have matched nothing; the landscape publication's
+# convention would have read 255 as 255 buildings. So each pod reads the source nodata and asserts
+# it against EXPECT_ND[] -- which both removes the transcription risk and keeps a tripwire for an
+# upstream re-release.
+#
+# All ten themes are non-negative, so every sentinel is collapsed to a uniform **-9999** in the
+# COG. It cannot collide with a real value, and it keeps the hex step's `--nodata` identical for
+# all ten layers.
+#
+# ── Everything else follows wrc-2 ──────────────────────────────────────────────────────────────
+# All work is LOCAL: rclone the raw to /tmp, warp local->local, delete the raw, COG-ify, upload.
+# Reading the source over /vsis3 and using the rechunk-scratch PVC were both measured on the
+# landscape rasters and were 100x+ slower than local ephemeral; do not reintroduce either.
+# These rasters are far smaller (largest raw is HUExposure_CONUS at 7.47 GB, against RPS_CONUS's
+# 27.4 GB), so 50Gi ephemeral is ample where wrc-2 needed 60Gi.
+#
+# Alaska is clipped to -180..-129 lon. Its EPSG:3338 grid spans the antimeridian, and a naive warp
+# to EPSG:4326 yields a ~360-deg-wide, almost entirely nodata raster on the dateline seam. The clip
+# drops the far-western Aleutians (~157E..180), which hold no National Forest System land. For the
+# `sum` layers the clip necessarily drops that area's mass too, so each pod prints the source and
+# COG pixel sums and the difference between them -- that number is evidence, not an error.
+#
+# ⚠️ `-r sum` NEEDS A SMALL `-wm`, AND THE REASON IS ARITHMETIC RATHER THAN FLAKINESS.
+# The first run of this job OOMKilled index 2 (HUExposure_CONUS) three times at 24Gi, always at
+# 40-50% of the warp, while index 0 (HURisk_CONUS) -- the same 197,514 x 92,269 output grid, same
+# settings -- warped fine. The difference is the resampler.
+#
+# gdalwarp chunks the output by the `-wm` budget, and with `-multi` it processes chunks across
+# NUM_THREADS in parallel, so peak RSS is roughly NUM_THREADS x wm + GDAL_CACHEMAX. At the old
+# `-wm 2048` with 8 threads and a 4096 MB cache that is ~20 GB before Python and GDAL overhead --
+# i.e. right at the 24Gi limit. `-r near` survived it because nearest neighbour needs only one
+# source pixel per output pixel, so its source buffer is small; `-r sum` must hold the whole
+# overlapping source window for each chunk, so it actually spends the budget.
+#
+# So `-wm` is 512 and GDAL_CACHEMAX is 1024: ~8 x 512 + 1024 = ~5 GB, with 32Gi as headroom. The
+# chunks are smaller and there are more of them, which costs some wall clock against a tiled
+# source and nothing in correctness.
+#
+# ⚠️ STATISTICS ARE EXACT HERE, NOT approx_ok. wrc-2 used ComputeStatistics(True), which GDAL
+# answers from the AVERAGE-resampled overviews: it biased the published max low by 28% (CONUS) and
+# 53% (Alaska) and had to be re-measured afterwards. These rasters are small enough that a full
+# blockwise pass costs minutes, so the numbers this job prints are publishable as-is.
+#
+# Indexes 0-3 are the two themes #611 scoped first, so `completions: 4` builds exactly those. The
+# follow-up issue raises it to 20 after filling in RESAMPLE/OTYPE/EXPECT_ND for indexes 4-19.
+#
+# To rebuild ONE index without redoing the others, set INDEX_OFFSET and completions together --
+# e.g. index 2 alone is `completions: 1` with `INDEX_OFFSET: '2'`. Each COG is written to a fixed
+# S3 key, so a rebuild replaces it in place.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wrc-2-pa-make-cogs-src
+  namespace: geo-workflows
+data:
+  raster_stats.py: |
+    """Exact, blockwise statistics for one raster band -- including the pixel SUM.
+
+    Two modes:
+      raster_stats.py --assert-nodata <value> <path>
+          Read the band's nodata and fail unless it matches <value>. Nothing else.
+      raster_stats.py --label <LABEL> [--gate] [--expect-nodata <v>] <path>
+          Full-resolution blockwise pass printing count/min/max/mean/std/SUM.
+
+    ⚠️ WHY NOT ComputeStatistics(True).
+    GDAL answers approx_ok from the AVERAGE-resampled overviews. On the sibling wrc-2 build that
+    biased the reported max low by 28% (CONUS) and 53% (Alaska) and the mean by 3% and 11%, and
+    those numbers were fed straight into the published raster:bands before being caught. It also
+    cannot produce a SUM at all, and the SUM is the whole point for an amount layer: it is the
+    left-hand side of #611's conservation invariant. These rasters are small enough that the full
+    read costs minutes, so everything printed here is publishable as-is.
+
+    Accumulation is float64 and the sum is also carried as a Kahan-compensated running total, so a
+    ~1.8e10-pixel Float32 raster does not lose the low-order bits that the invariant is checked to.
+    """
+    import argparse
+    import sys
+
+    import numpy as np
+    from osgeo import gdal
+
+    gdal.UseExceptions()
+
+
+    def band_nodata(path):
+        ds = gdal.Open(path)
+        return ds.GetRasterBand(1).GetNoDataValue()
+
+
+    def stats(path):
+        ds = gdal.Open(path)
+        b = ds.GetRasterBand(1)
+        nd = b.GetNoDataValue()
+        bx, by = b.GetBlockSize()
+        # Read whole block-rows: one pass over the file, no random access.
+        step = max(by, 1)
+        n = 0
+        mn, mx = np.inf, -np.inf
+        total = 0.0
+        comp = 0.0          # Kahan compensation
+        sq = 0.0            # sum of squares, for std
+        for y in range(0, ds.RasterYSize, step):
+            rows = min(step, ds.RasterYSize - y)
+            a = b.ReadAsArray(0, y, ds.RasterXSize, rows)
+            a = np.asarray(a, dtype=np.float64)
+            if nd is not None:
+                if np.isnan(nd):
+                    a = a[~np.isnan(a)]
+                else:
+                    # Exact equality is right for an integer sentinel; the Float32 sentinels in
+                    # this publication are -FLT_MAX, which survives the float64 widening exactly.
+                    a = a[a != nd]
+            a = a[np.isfinite(a)]
+            if a.size == 0:
+                continue
+            n += a.size
+            mn = min(mn, float(a.min()))
+            mx = max(mx, float(a.max()))
+            s = float(a.sum())
+            y_ = s - comp
+            t = total + y_
+            comp = (t - total) - y_
+            total = t
+            sq += float((a * a).sum())
+        if n == 0:
+            return None
+        mean = total / n
+        var = max(sq / n - mean * mean, 0.0)
+        return dict(count=n, min=mn, max=mx, mean=mean, std=var ** 0.5, sum=total,
+                    size=[ds.RasterXSize, ds.RasterYSize], nodata=nd,
+                    dtype=gdal.GetDataTypeName(b.DataType),
+                    overviews=b.GetOverviewCount(),
+                    gt=list(ds.GetGeoTransform()))
+
+
+    def main():
+        p = argparse.ArgumentParser()
+        p.add_argument("path")
+        p.add_argument("--assert-nodata")
+        p.add_argument("--expect-nodata")
+        p.add_argument("--label", default="STATS")
+        p.add_argument("--gate", action="store_true")
+        a = p.parse_args()
+
+        if a.assert_nodata is not None:
+            got = band_nodata(a.path)
+            want = float(a.assert_nodata)
+            print(f"  source nodata: {got!r}  expected {want!r}")
+            if got is None or not np.isclose(got, want, rtol=1e-12, atol=0.0):
+                print(f"FATAL: source nodata is {got!r}, this build was written against {want!r}. "
+                      f"The upstream publication changed -- re-measure before proceeding.")
+                sys.exit(1)
+            print("  nodata OK")
+            return
+
+        st = stats(a.path)
+        if st is None:
+            print(f"FATAL [{a.label}]: no valid pixels -- the raster is empty or all nodata.")
+            sys.exit(1)
+        print(f"{a.label}STATS {st!r}", flush=True)
+        print(f"  [{a.label}] size {st['size'][0]} x {st['size'][1]}  dtype {st['dtype']}  "
+              f"nodata {st['nodata']!r}  overviews {st['overviews']}")
+        print(f"  [{a.label}] valid {st['count']:,}  min {st['min']!r}  max {st['max']!r}")
+        print(f"  [{a.label}] mean {st['mean']!r}  std {st['std']!r}")
+        print(f"  [{a.label}] SUM  {st['sum']!r}")
+
+        if a.gate:
+            if a.expect_nodata is not None:
+                want = float(a.expect_nodata)
+                if st["nodata"] is None or not np.isclose(st["nodata"], want):
+                    print(f"FATAL: COG nodata is {st['nodata']!r}, expected {want!r}")
+                    sys.exit(1)
+                if st["min"] <= want + 1e-6:
+                    print(f"FATAL: nodata sentinel {want!r} survived into the valid range")
+                    sys.exit(1)
+            if not st["max"] > st["min"]:
+                print("FATAL: degenerate value range -- the COG is constant or empty")
+                sys.exit(1)
+            if st["min"] < 0:
+                print(f"FATAL: negative value {st['min']!r}. Every theme in this publication is "
+                      f"non-negative, so this is a sentinel leak, not data.")
+                sys.exit(1)
+            print("  gate OK")
+
+
+    if __name__ == "__main__":
+        main()
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-pa-make-cogs
+  namespace: geo-workflows
+  labels:
+    k8s-app: wrc-2-pa-make-cogs
+spec:
+  completions: 4
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: wrc-2-pa-make-cogs
+    spec:
+      restartPolicy: Never
+      # ClusterFirst is required: rclone's nrp: remote resolves the INTERNAL endpoint
+      # rook-ceph-rgw-nautiluss3.rook, which only cluster DNS can resolve.
+      dnsPolicy: ClusterFirst
+      activeDeadlineSeconds: 21600
+      containers:
+      - name: make-cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        # ⛔ Do NOT set PROJ_DATA / PROJ_LIB. The image ships 8 proj.db at differing layout
+        # versions and a stale pick breaks -t_srs EPSG:4326 non-deterministically (#453).
+        # See the header: peak RSS is ~NUM_THREADS x wm + GDAL_CACHEMAX, and `-r sum` actually
+        # spends that budget where `-r near` does not.
+        - name: GDAL_CACHEMAX
+          value: '1024'
+        # 0 unless rebuilding a single index; see the header.
+        - name: INDEX_OFFSET
+          value: '0'
+        - name: GDAL_NUM_THREADS
+          value: ALL_CPUS
+        - name: TMPDIR
+          value: /tmp
+        - name: CPL_TMPDIR
+          value: /tmp
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: src
+          mountPath: /src
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # Same index order as wrc-2-pa-stage-raw.yaml. Indexes 0-3 are #611's scope.
+          SRC=(HURisk_CONUS HURisk_AK HUExposure_CONUS HUExposure_AK)
+          OUT=(wrc-2-pa-hurisk-conus wrc-2-pa-hurisk-ak wrc-2-pa-huexposure-conus wrc-2-pa-huexposure-ak)
+          # `sum` for an amount, `near` for an index. See the header -- this is the choice that
+          # decides whether a total survives the reprojection.
+          RESAMPLE=(near near sum sum)
+          # Output dtype. Empty keeps the source's. A `sum` warp yields fractional contributions,
+          # so those must be floating point.
+          OTYPE=('' '' Float32 Float32)
+          # Measured in the staging job; asserted, never assumed.
+          EXPECT_ND=(-2147483648 -2147483648 -3.4028230607370965e+38 -3.4028230607370965e+38)
+          # Alaska is clipped east of the antimeridian; CONUS needs no clip.
+          TE=('' '-te -180 48.8 -129.0 71.6' '' '-te -180 48.8 -129.0 71.6')
+          # DEFLATE predictor follows the OUTPUT dtype: 2 is horizontal differencing
+          # for integers, 3 is the floating-point predictor. Using 2 on a float band
+          # costs most of the compression; using 3 on an integer band is invalid.
+          PRED=(2 2 3 3)
+          DST_ND=-9999
+
+          i=$(( ${INDEX_OFFSET:-0} + JOB_COMPLETION_INDEX ))
+          s=${SRC[$i]}; o=${OUT[$i]}; r=${RESAMPLE[$i]}; ot=${OTYPE[$i]}
+          nd=${EXPECT_ND[$i]}; te=${TE[$i]}; pred=${PRED[$i]}
+
+          echo "=== [$i] $s -> $o-cog.tif   resample=$r  src-nodata=$nd  dst-nodata=$DST_ND ${te:+clip: $te} ==="
+          gdalinfo --version
+
+          # ── 1. localize the raw ─────────────────────────────────────────────────────────────
+          echo "--- localizing raw ---"
+          time rclone copyto "nrp:public-fire/raw/wrc-2-pa/${s}.tif" "/tmp/${s}.tif" \
+            --transfers 4 --retries 6 --stats-one-line --stats 30s
+          ls -la "/tmp/${s}.tif"
+
+          # ── 2. assert the source nodata is what this build was written against ──────────────
+          python3 /src/raster_stats.py --assert-nodata "$nd" "/tmp/${s}.tif"
+
+          # ── 3. exact source statistics, INCLUDING the pixel sum. For a `sum` layer this is the
+          # left-hand side of #611's conservation invariant, and it has to be taken before the raw
+          # is deleted. ───────────────────────────────────────────────────────────────────────
+          echo "--- exact source statistics (blockwise, full read) ---"
+          time python3 /src/raster_stats.py --label SOURCE "/tmp/${s}.tif"
+
+          # ── 4. warp to EPSG:4326, entirely local ────────────────────────────────────────────
+          # No -tr: let gdalwarp preserve the source ground resolution near the centre of the
+          # extent rather than hardcoding a degree value, which would silently rescale the grid.
+          echo "--- warping (all local) ---"
+          time gdalwarp \
+            -t_srs EPSG:4326 \
+            -r "$r" \
+            ${ot:+-ot $ot} \
+            -srcnodata "$nd" -dstnodata "$DST_ND" \
+            $te \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 512 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=$pred -co BIGTIFF=YES \
+            -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 \
+            -co NUM_THREADS=ALL_CPUS \
+            "/tmp/${s}.tif" "/tmp/${o}-warp.tif"
+
+          # ── 5. drop the raw before COG-ifying: keeps the ephemeral peak at max(raw+warp,
+          # warp+COG) rather than the sum of all three. ───────────────────────────────────────
+          rm -f "/tmp/${s}.tif"
+          ls -la "/tmp/${o}-warp.tif"
+
+          # ── 6. COG-ify, still local ─────────────────────────────────────────────────────────
+          # AVERAGE overviews are correct for a continuous layer (NEAREST would be right only for
+          # a categorical one, as in #586's classified WHP). Overviews are for display; every
+          # published statistic below is computed from the full-resolution band.
+          echo "--- building COG (all local) ---"
+          time gdal_translate "/tmp/${o}-warp.tif" "/tmp/${o}-cog.tif" \
+            -of COG \
+            -co COMPRESS=DEFLATE -co PREDICTOR=$pred -co BIGTIFF=YES \
+            -co OVERVIEW_RESAMPLING=AVERAGE -co BLOCKSIZE=512 \
+            -co NUM_THREADS=ALL_CPUS
+          rm -f "/tmp/${o}-warp.tif"
+          ls -la "/tmp/${o}-cog.tif"
+
+          # ── 7. gate + exact COG statistics ──────────────────────────────────────────────────
+          # A published all-nodata COG is a real failure mode and is exactly what hexing the raw
+          # Albers source produces. These figures are EXACT (full blockwise read), so they are the
+          # ones that go into facts.json and the published raster:bands.
+          echo "--- exact COG statistics + gate ---"
+          time python3 /src/raster_stats.py --label COG --gate --expect-nodata "$DST_ND" \
+            "/tmp/${o}-cog.tif"
+
+          # ── 8. publish ──────────────────────────────────────────────────────────────────────
+          echo "--- uploading COG ---"
+          rclone copyto "/tmp/${o}-cog.tif" "nrp:public-fire/${o}-cog.tif" \
+            --transfers 4 --retries 6 --stats-one-line --stats 30s
+          rclone size "nrp:public-fire/${o}-cog.tif"
+          rm -f "/tmp/${o}-cog.tif"
+          echo "DONE $o"
+        resources:
+          # Peak is max(raw + warp, warp + COG). The largest raw in scope is HUExposure_CONUS at
+          # 7.47 GB and its Float32 warp is of the same order, so 50Gi has ample headroom --
+          # wrc-2 needed 60Gi only because RPS_CONUS is 27 GB.
+          requests:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '8'
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: src
+        configMap:
+          name: wrc-2-pa-make-cogs-src
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              # Known-bad egress/S3 hosts: pods schedule but hang on localize.
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
