@@ -6,6 +6,14 @@ metadata:
   labels:
     k8s-app: landfire-2024-fvt-hex
 spec:
+  # DEVIATION from generated output (.claude/skills/pod-preemption): raster-workflow emits
+  # `priorityClassName: opportunistic` (priority -2000000000) and `backoffLimit: 0`. The skill
+  # forbids both for a long fan-out: "Do not run long pods at opportunistic" and "never
+  # backoffLimit: 0 on a fan-out". These slices measured ~7 h each, so at opportunistic they
+  # are a large preemption target, and with backoffLimit 0 a single death fails the index with
+  # no retry. Default priority 0 is admitted in geo-workflows (verified: inhabit-v4-hex runs
+  # at 0). Parallelism halved 6 -> 3 as the skill prescribes, so raising priority does not
+  # grow our claim on shared nodes.
   completions: 6
   parallelism: 3
   completionMode: Indexed

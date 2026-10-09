@@ -1,5 +1,9 @@
 # Auto-generated ConfigMap for raster workflow
 # Generation command: cng-datasets raster-workflow --dataset landfire-2024-ch --source-url "s3://public-landfire/landfire-2024-ch/landfire-2024-ch-cog.tif" --bucket public-landfire --h3-resolution 10 --parent-resolutions "9,8,0"
+# Hand-synced: the landfire-2024-ch-hex.yaml entry below is a verbatim copy of the
+# standalone landfire-2024-ch-hex.yaml next to this file, which carries the deviations
+# from generated output (priority, per-index retries, parallelism, CNG_HEX_WORKERS, memory,
+# ephemeral). Edit the standalone file and re-copy it here; the two must not differ.
 apiVersion: v1
 data:
   landfire-2024-ch-hex.yaml: |
@@ -11,10 +15,19 @@ data:
       labels:
         k8s-app: landfire-2024-ch-hex
     spec:
+      # DEVIATION from generated output (.claude/skills/pod-preemption): raster-workflow emits
+      # `priorityClassName: opportunistic` (priority -2000000000) and `backoffLimit: 0`. The skill
+      # forbids both for a long fan-out: "Do not run long pods at opportunistic" and "never
+      # backoffLimit: 0 on a fan-out". These slices measured ~7 h each, so at opportunistic they
+      # are a large preemption target, and with backoffLimit 0 a single death fails the index with
+      # no retry. Default priority 0 is admitted in geo-workflows (verified: inhabit-v4-hex runs
+      # at 0). Parallelism halved 6 -> 3 as the skill prescribes, so raising priority does not
+      # grow our claim on shared nodes.
       completions: 6
-      parallelism: 6
+      parallelism: 3
       completionMode: Indexed
-      backoffLimit: 0
+      backoffLimitPerIndex: 2
+      maxFailedIndexes: 6
       podFailurePolicy:
         rules:
         - action: Ignore
@@ -32,6 +45,14 @@ data:
             image: ghcr.io/boettiger-lab/datasets:latest
             imagePullPolicy: Always
             env:
+            # DEVIATION from generated output (boettiger-lab/datasets#195, open): no --hex-workers
+            # flag exists, so CNG_HEX_WORKERS must be set by hand. Measured on this tranche
+            # (2.09-2.61 GB COGs, res 10, 282M cells/h0): 48-64 workers (the tool default) peaked
+            # at 190.5 GiB and completed nothing in 3h40m; 8 workers peaked ~37 GiB and completed
+            # 6/6; 2 workers still OOMed a 32 GiB pod. So peak is dominated by a fixed per-h0 term,
+            # not by worker count, and 8 is the throughput sweet spot rather than a memory risk.
+            # Drop this once #195 lands.
+            - {name: CNG_HEX_WORKERS, value: '8'}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -75,17 +96,16 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 96Gi
+                memory: 64Gi
                 ephemeral-storage: 40Gi
               limits:
                 cpu: '4'
-                memory: 96Gi
+                memory: 64Gi
                 ephemeral-storage: 40Gi
           volumes:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
