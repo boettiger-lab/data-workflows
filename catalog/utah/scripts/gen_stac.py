@@ -8,12 +8,23 @@ Also emits the `public-utah` bucket meta-collection that links both monuments.
 
 Writes to /tmp; upload with rclone (STAC never lives in this repo). License = public-domain
 (US federal proclamations + Utah SGID). Verified by scripts/verify-stac.py.
+
+Upload only the two leaf collections. The bucket meta-collection is written only with
+--bucket: the live `public-utah/stac-collection.json` also links the UGS, UDOGM and coal
+collections, which build_bucket() does not know about (#716).
 """
 import json
+import sys
 
 BASE = "https://s3-west.nrp-nautilus.io/public-utah"
 ROOT = "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
 BUCKET_SELF = f"{BASE}/stac-collection.json"
+
+# ---- 2026 era provenance (#716) ----
+BLM_2026_LAYER = "https://gis.blm.gov/utarcgis/rest/services/NLCS/BLM_UT_NMNCA/FeatureServer/1"
+BLM_NLCS_ABOUT = "https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_NLCS_NM_NCA_poly/MapServer/0"
+RAW_2026 = ("`s3://public-utah/raw/boundaries-2026.geojson` (431,232 bytes, "
+            "sha256 da8cc1ef69023d185c870225523a359573dcb1a179ae370c4fe1844c3ddec583)")
 
 # ---- shared column authority (identical text on flat + hex, per mcp-data-server#303) ----
 def cols_common(era_values):
@@ -41,8 +52,10 @@ def cols_common(era_values):
             "description": "Official published proclamation / legal acreage for this era (the headline "
                            "figure the timeline is about). Differs a few % from the GIS-measured "
                            "`gis_acres` (boundary digitization; the PAD-US-sourced 2021 restored "
-                           "boundaries measure larger than the proclamation figure). For Grand "
-                           "Staircase-Escalante's 2026 units this is the per-unit acreage."},
+                           "boundaries measure larger than the proclamation figure). Exception: "
+                           "for Grand Staircase-Escalante's 2026 units this is the GIS-measured "
+                           "per-unit acreage, because Proclamation 11044 gives only the ~181,541 ac "
+                           "total and approximate unit figures."},
         "gis_acres": {"name": "gis_acres", "type": "number",
             "description": "Geodesic area in acres computed from the boundary polygon "
                            "(EPSG:5070 equal-area). Transparency companion to the published `acres`."},
@@ -63,7 +76,13 @@ MONUMENTS = [
                ("2021", "2021 restored"), ("2026", "2026 reduced")],
          default_version="2026 reduced",
          bbox=[-110.529, 37.154, -109.449, 38.469],
-         temporal=["2016-12-28T00:00:00Z", "2026-12-31T00:00:00Z"]),
+         temporal=["2016-12-28T00:00:00Z", None], first_year="2016",
+         keywords=["Bears Ears", "Shash Jáa", "Indian Creek", "San Juan County"],
+         proc_2026=("11043", "https://www.federalregister.gov/documents/2026/07/17/2026-14548/"
+                             "modifying-the-bears-ears-national-monument"),
+         note_2026=("Proclamation 11043 describes ~121,096 acres in two units (Shash Jáa, "
+                    "~106,816 ac, and Indian Creek); this source carries the 2026 boundary as "
+                    "one multipolygon.")),
     dict(seg="grand-staircase-escalante", pfx="gsenm", cid="gsenm-boundaries", layer="gsenm",
          disp="Grand Staircase-Escalante National Monument", mon="Grand Staircase-Escalante",
          color="#00695C",
@@ -71,7 +90,14 @@ MONUMENTS = [
                ("2021", "2021 restored"), ("2026", "2026 reduced")],
          default_version="2026 reduced",
          bbox=[-112.468, 37.001, -110.973, 38.017],
-         temporal=["1996-09-18T00:00:00Z", "2026-12-31T00:00:00Z"]),
+         temporal=["1996-09-18T00:00:00Z", None], first_year="1996",
+         keywords=["Grand Staircase-Escalante", "Canyons of the Escalante",
+                   "Kaiparowits Horizon", "Kaiparowits Plateau"],
+         proc_2026=("11044", "https://www.federalregister.gov/documents/2026/07/17/2026-14549/"
+                             "modifying-the-grand-staircase-escalante-national-monument"),
+         note_2026=("Proclamation 11044 describes ~181,541 acres in two units (Canyons of the "
+                    "Escalante, ~172,641 ac, and Kaiparowits Horizon, ~8,900 ac); this source "
+                    "carries three 2026 polygons, one of them (6,378 ac) with no unit name.")),
 ]
 
 
@@ -144,7 +170,7 @@ def build_collection(m):
             "https://stac-extensions.github.io/table/v1.2.0/schema.json"],
         "type": "Collection",
         "id": m["cid"],
-        "title": f"{m['disp']} — boundaries by era (2016–2026)",
+        "title": f"{m['disp']} — boundaries by era ({m['first_year']}–2026)",
         "description": (
             f"{m['disp']} boundary as it changed across each presidential redesignation, one "
             f"asset per era for the Utah Public Lands app's era dropdown (GLEN `versions`). Eras: "
@@ -153,17 +179,25 @@ def build_collection(m):
             "column for SQL and zonal comparison. `acres` is the official published proclamation "
             "acreage; `gis_acres` is the geodesic area measured from the boundary polygon. Sources: "
             "Utah SGID BLM Monuments & NCAs Historic (originals), PAD-US 2.1 (2017 reduction), "
-            "PAD-US 4.1 (2021 restoration), and the 2026 proposed-reduction boundaries. "
-            "US federal / Utah SGID public domain."),
+            "PAD-US 4.1 (2021 restoration), and the BLM Utah National Monuments & NCAs layer "
+            f"(2026 reduction). The 2026 era is the boundary set by Proclamation {m['proc_2026'][0]}, "
+            "signed 13 July 2026, published in the Federal Register 17 July 2026 and effective "
+            "11 September 2026; it is the boundary currently in force, so the temporal extent is "
+            "open-ended. " + m["note_2026"] + " The 2026 boundaries were pulled from the BLM "
+            f"layer on 21 July 2026 and staged as {RAW_2026}; re-checked against the live BLM "
+            "layer on 23 September 2026, the geometry is identical (symmetric difference under "
+            "1e-7 acres per monument). US federal / Utah SGID public domain."),
         "license": "public-domain",
-        "keywords": ["national monument", "Bears Ears", "Grand Staircase-Escalante", "Utah",
-                     "public lands", "boundaries", "BLM", "PAD-US", "time series"],
+        "keywords": ["national monument", *m["keywords"], "Utah", "public lands",
+                     "boundaries", "BLM", "PAD-US", "Antiquities Act", "time series"],
         "extent": {
             "spatial": {"bbox": [m["bbox"]]},
             "temporal": {"interval": [m["temporal"]]}},
         "providers": [
             {"name": "US BLM / Utah SGID / USGS PAD-US", "roles": ["producer", "licensor"],
              "url": "https://gis.utah.gov/data/boundaries/"},
+            {"name": "BLM Utah (National Monuments & NCAs, 2026 boundaries)",
+             "roles": ["producer"], "url": BLM_NLCS_ABOUT},
             {"name": "Boettiger Lab (cng-datasets processing)", "roles": ["processor"],
              "url": f"{BASE}/"}],
         "links": [
@@ -171,7 +205,13 @@ def build_collection(m):
             {"rel": "root", "href": ROOT, "type": "application/json"},
             {"rel": "parent", "href": BUCKET_SELF, "type": "application/json"},
             {"rel": "license",
-             "href": "https://www.usa.gov/government-works", "type": "text/html"}],
+             "href": "https://www.usa.gov/government-works", "type": "text/html"},
+            {"rel": "cite-as", "href": m["proc_2026"][1], "type": "text/html",
+             "title": f"Proclamation {m['proc_2026'][0]} (2026 boundary)"},
+            {"rel": "via", "href": BLM_2026_LAYER, "type": "text/html",
+             "title": "BLM Utah National Monuments & NCAs (2026 boundary source, accessed 2026-07-21)"},
+            {"rel": "about", "href": BLM_NLCS_ABOUT, "type": "text/html",
+             "title": "BLM National NLCS National Monuments & NCAs"}],
         # app-wiring hints (non-STAC-core, harmless extras the app reads)
         "boundaries:default_version": m["default_version"],
         "boundaries:color": m["color"],
@@ -212,6 +252,8 @@ if __name__ == "__main__":
         path = f"/tmp/{m['seg']}-stac-collection.json"
         json.dump(doc, open(path, "w"), indent=2)
         print(f"wrote {path}  ({len(doc['assets'])} assets)")
+    if "--bucket" not in sys.argv:
+        sys.exit(0)
     bucket = build_bucket()
     json.dump(bucket, open("/tmp/public-utah-stac-collection.json", "w"), indent=2)
     print("wrote /tmp/public-utah-stac-collection.json  (bucket meta-collection)")
