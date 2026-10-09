@@ -1,0 +1,127 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landfire-2024-fbfm40-hex-finish
+  namespace: geo-workflows
+  labels:
+    k8s-app: landfire-2024-fbfm40-hex-finish
+spec:
+  # Finishes the 4 h0 slices FBFM40 is missing (#623). Indexes 12 and 14 are already on S3 and
+  # are deliberately NOT in this subset, so the job cannot overwrite good data.
+  #
+  # DEVIATION from generated output (.claude/skills/pod-preemption): raster-workflow emits
+  # `priorityClassName: opportunistic` (priority -2000000000) and `backoffLimit: 0`. Both are
+  # forbidden for a long fan-out. This is not a theoretical concern here: the two exit-137s
+  # that left these 4 slices missing were preemption, not OOM. Slices run ~7 h, which at
+  # priority -2000000000 is a large preemption target. PR #657 dropped `opportunistic` for
+  # exactly this reason and its layers then completed on these same four h0 cells.
+  #
+  # Sizing copied from the fbfm13 build, which completed 6/6 including all four of these cells.
+  # fbfm13 is the nearest analogue: same product family, same `--nodata`, same res-10 `mode`.
+  # Measured peak there was ~37 GiB against this 64Gi request. The ~160Gi figure recorded
+  # earlier in BUILD.md is superseded; over-requesting invites NRP low-utilization rejection.
+  completions: 4
+  # DEVIATION from the fbfm13 manifest (parallelism 3): 4 indexes remain, so parallelism 4
+  # finishes in one ~7 h wave instead of two. Total node-hours are identical and 4 pods at
+  # 64Gi is a modest claim. Drop to 3 if admission rejects the wave.
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 4
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: landfire-2024-fbfm40-hex-finish
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        # DEVIATION from generated output (boettiger-lab/datasets#195, open): no --hex-workers
+        # flag exists, so CNG_HEX_WORKERS must be set by hand. Measured on this tranche:
+        # 48-64 workers (the tool default) peaked at 190.5 GiB and completed nothing in 3h40m;
+        # 8 workers peaked ~37 GiB and completed 6/6; 2 workers still OOMed a 32 GiB pod. Peak
+        # is dominated by a fixed per-h0 term, not by worker count. Drop this once #195 lands.
+        - {name: CNG_HEX_WORKERS, value: '8'}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: BUCKET
+          value: public-landfire
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+
+          # Only the 4 h0 cells FBFM40 is still missing (#623). Indexes 12 and 14 are
+          # already published and are excluded so this job cannot overwrite them.
+          H0S=(20 50 71 78)
+          H0=${H0S[$JOB_COMPLETION_INDEX]}
+          if [ -z "${JOB_COMPLETION_INDEX}" ] || [ -z "$H0" ]; then
+            echo "No h0 cell for completion index '${JOB_COMPLETION_INDEX}' in (${H0S[*]}) - completions must match the --h0-subset length" >&2
+            exit 1
+          fi
+
+          cng-datasets raster \
+            --input "s3://public-landfire/landfire-2024-fbfm40/landfire-2024-fbfm40-cog.tif" \
+            --output-parquet s3://public-landfire/landfire-2024-fbfm40/hex/ \
+            --h0-index ${H0} \
+            --resolution 10 \
+            --parent-resolutions 9,8,0 \
+            --value-column fbfm40 \
+            --hex-resampling mode \
+            --nodata "-9999,32767"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 64Gi
+            ephemeral-storage: 40Gi
+          limits:
+            cpu: '4'
+            memory: 64Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
