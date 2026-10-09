@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nlcd-2001-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: nlcd-2001-stage-raw}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: nlcd-2001-stage-raw}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      # Keep ClusterFirst (internal S3 endpoint) but fall back to public resolvers:
+      # cluster DNS intermittently fails external hosts on some nodes.
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          # Stage Annual NLCD 2001 (C1V2) raw tif to public-land-cover/raw/ (#739).
+          # Logs the access timestamp, size and checksums of the staged tif for STAC provenance.
+          cd /tmp
+          Z=Annual_NLCD_LndCov_2001_CU_C1V2.zip
+          T=Annual_NLCD_LndCov_2001_CU_C1V2.tif
+          echo "ACCESS_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          curl -sSL --retry 8 --retry-delay 5 --retry-all-errors -D headers.txt -o $Z \
+            "https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/data-bundles/$Z"
+          grep -iE '^(HTTP|content-length|last-modified|etag)' headers.txt
+          python3 -m zipfile -l $Z
+          python3 -c "import zipfile; zipfile.ZipFile('$Z').extract('$T', '.')"
+          rm -f $Z
+          gdalinfo $T | grep -E 'Size is|Pixel Size|Origin|NoData|EPSG'
+          echo "SIZE_BYTES=$(stat -c %s $T)"
+          echo "SHA256=$(sha256sum $T | cut -d' ' -f1)"
+          echo "MD5=$(md5sum $T | cut -d' ' -f1)"
+          rclone copy $T nrp:public-land-cover/raw/ -P --retries 10 --low-level-retries 20 --retries-sleep 20s
+          # Checksum recomputed from the staged object, not the local copy.
+          rclone hashsum MD5 nrp:public-land-cover/raw/$T
+          rclone check /tmp/ nrp:public-land-cover/raw/ --include $T --one-way
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

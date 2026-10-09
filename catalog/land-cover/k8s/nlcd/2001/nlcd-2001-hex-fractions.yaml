@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nlcd-2001-hex-fractions
+  namespace: geo-workflows
+  labels: {k8s-app: nlcd-2001-hex-fractions}
+spec:
+  completions: 122           # 2001 only, one per h0 base cell
+  parallelism: 6
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 10
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: nlcd-2001-hex-fractions}}
+    spec:
+      restartPolicy: Never
+      # Default priority, not opportunistic: the dense h0 tail runs ~3h per pod, and the
+      # mode run (nlcd-2001-hex) lost two attempts of index 14 at opportunistic (#739).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT,     value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS,           value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA,           value: /usr/share/gdal}
+        - {name: PYTHONPATH,          value: /usr/lib/python3/dist-packages}
+        - {name: CNG_HEX_WORKERS,     value: '8'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # Single-year (2001) run of ../nlcd-hex-fractions.yaml (#739): appends year=2001 to the same
+          # hive-partitioned dataset. Kept separate so the 19-year idx/122 mapping is unchanged.
+          # Output: nlcd/hex-fractions/year=2001/h0=<cell>/data_0.parquet
+          Y=2001; H0=${JOB_COMPLETION_INDEX}; IDX=${H0}
+          echo "=== NLCD $Y res-10 FRACTIONS, h0-index $H0 (global idx $IDX) ==="
+          cng-datasets raster \
+            --input "s3://public-land-cover/nlcd/nlcd-${Y}-cog.tif" \
+            --output-parquet "s3://public-land-cover/nlcd/hex-fractions/year=${Y}/" \
+            --h0-index ${H0} --resolution 10 --parent-resolutions 9,8,7,6,5,0 \
+            --value-column nlcd --hex-resampling fractions --resampling near --nodata "250"
+        resources:
+          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
