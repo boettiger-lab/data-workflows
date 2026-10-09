@@ -450,6 +450,22 @@ ends up over- or under-published.
   Protected Planet legal page.
 - Do not invent a terms URL to clear the gate. If no public terms page exists, the finding
   stands; record the facts in the description and say so in the issue.
+- **Restrictive terms are enforced by policy, not by access control. Match the provider's
+  access model; never exceed it.** Licence clauses such as "no redistribution", "not
+  downloadable", "non-commercial only" or "academic use only" are not a reason to keep data out
+  of a public bucket. If the provider serves open downloads and relies on its written terms
+  alone (no login, no credential check — UNEP-WCMC, Protected Planet/WDPA), we host it in an
+  ordinary `public-*` bucket and enforce the same way: the licence travels with the data (the
+  `license` field, the licence link, and the terms written into the description). We never
+  build a stronger gate than the provider uses. When the provider itself requires a login or
+  authorisation before the first download, the data goes behind an equivalent gate here, and
+  that is a scoping question for the issue. Whether such data may go on an open-reuse mirror like source.coop is the mirror
+  agent's decision, not yours (see "You publish to NRP" above).
+- **Obligations a licence places on the licensee are Carl's, as PI.** Examples are "notify the
+  Director", "request permission for commercial use" and "cite as …". State the obligation in
+  the collection description so users see it. Do not raise it as a blocker on the build, treat
+  a published layer as a breach, or ask whether "the ingest" triggers it. Note it in the issue
+  for Carl.
 - **One sanctioned exception, and only this one: data contributed directly to us, where no terms
   were ever published.** Here "no public terms page" is not a gap to be researched — it is the
   complete answer, so a permanently-red finding would be recording a fact as a defect. Publish the
