@@ -1,0 +1,123 @@
+# HAND-ROLLED: geometry fix between convert and hex, no generator equivalent (#766)
+# Upstream ships 429 contour polygons (185 features near the date line) with longitudes
+# out to +/-190, and 2 contours as GeometryCollections of two polygons. The hex step drops
+# the part of a polygon beyond +/-180, so those cells went missing. This job rewrites only
+# those rows: split at +/-180 and shift the overflow by 360 degrees (same shape, standard
+# coordinates), and turn the two GeometryCollections into MultiPolygons. Run after convert,
+# before hex and pmtiles.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bathymetric-features-contours-fix-antimeridian
+  namespace: geo-workflows
+  labels:
+    k8s-app: bathymetric-features-contours-fix-antimeridian
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: bathymetric-features-contours-fix-antimeridian
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 -c "import shapely" 2>/dev/null || pip install -q shapely
+          cat > /tmp/fix.py <<'EOF'
+          import json, os
+          import pyarrow as pa, pyarrow.parquet as pq, pyarrow.fs as pafs
+          import shapely
+          from shapely.geometry import box, MultiPolygon
+
+          fs = pafs.S3FileSystem(endpoint_override="rook-ceph-rgw-nautiluss3.rook", scheme="http",
+                                 access_key=os.environ["AWS_ACCESS_KEY_ID"],
+                                 secret_key=os.environ["AWS_SECRET_ACCESS_KEY"])
+          SRC = "public-high-seas/bathymetric-features/contours.parquet"
+          TMP = "public-high-seas/bathymetric-features/contours.fixed.parquet"
+          WORLD, EAST, WEST = box(-180, -90, 180, 90), box(180, -90, 540, 90), box(-540, -90, -180, 90)
+
+          def polys(g):
+              if g.is_empty: return []
+              if g.geom_type == "Polygon": return [g]
+              return [p for part in getattr(g, "geoms", []) for p in polys(part)]
+
+          def fix(g):
+              x0, _, x1, _ = g.bounds
+              if x0 < -180 or x1 > 180:
+                  parts = polys(g.intersection(WORLD))
+                  parts += polys(shapely.affinity.translate(g.intersection(EAST), -360))
+                  parts += polys(shapely.affinity.translate(g.intersection(WEST), 360))
+              elif g.geom_type == "GeometryCollection":
+                  parts = polys(g)
+              else:
+                  return None
+              return parts[0] if len(parts) == 1 else MultiPolygon(parts)
+
+          f = pq.ParquetFile(SRC, filesystem=fs)
+          meta = dict(f.schema_arrow.metadata)
+          geo = json.loads(meta[b"geo"])
+          writer = pq.ParquetWriter(TMP, f.schema_arrow, filesystem=fs, compression="zstd")
+          n = changed = 0
+          types = set()
+          for i in range(f.num_row_groups):
+              t = f.read_row_group(i)
+              col = t.column("geom").to_pylist()
+              out = []
+              for wkb in col:
+                  g = shapely.from_wkb(wkb)
+                  new = fix(g)
+                  if new is not None:
+                      changed += 1
+                      g = new
+                      wkb = shapely.to_wkb(g)
+                  types.add(g.geom_type)
+                  out.append(wkb)
+              t = t.set_column(t.schema.get_field_index("geom"), "geom", pa.array(out, pa.binary()))
+              writer.write_table(t, row_group_size=2000)
+              n += t.num_rows
+          writer.close()
+          print(f"rows {n}, rewritten {changed}, types {sorted(types)}")
+          assert n == 627471, n
+          assert changed == 431, changed
+          geo["columns"]["geom"]["geometry_types"] = sorted(types)
+          b = geo["columns"]["geom"]["bbox"]
+          geo["columns"]["geom"]["bbox"] = [-180.0, b[1], 180.0, b[3]]
+          meta[b"geo"] = json.dumps(geo).encode()
+          # rewrite once more with the corrected geo metadata
+          g2 = pq.ParquetFile(TMP, filesystem=fs)
+          w2 = pq.ParquetWriter(SRC, g2.schema_arrow.with_metadata(meta), filesystem=fs, compression="zstd")
+          for i in range(g2.num_row_groups):
+              w2.write_table(g2.read_row_group(i).replace_schema_metadata(meta), row_group_size=2000)
+          w2.close()
+          fs.delete_file(TMP)
+          print("wrote", SRC)
+          EOF
+          python3 /tmp/fix.py
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
