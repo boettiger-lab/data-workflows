@@ -66,4 +66,73 @@ warped COGs contain only {0,1,2,3}, so nearest-neighbour kept every class code.
 
 ## Validation
 
-HEX_RESULTS_PLACEHOLDER
+### 1. Jobs and h0 coverage
+
+Every period's hex job: `Complete`, `succeeded=196`, `failed` empty, no `failedIndexes`.
+`scripts/check-hex-coverage.sh … --expect-h0 576812596024311807,577164439745200127,577199624117288959,577762574070710271`
+passes for all six `period=` prefixes (4/4 populated). No `hex-chunks/` left behind.
+
+### 2. Hex contents (duckdb-geo MCP)
+
+| period | rows = distinct h10 | class 1 | class 2 | class 3 |
+|---|---|---|---|---|
+| 1998-2001 | 82,813,297 | 15,288,925 | 28,375,414 | 39,148,958 |
+| 2003-2006 | 82,813,308 | 16,972,885 | 28,272,116 | 37,568,307 |
+| 2008-2011 | 82,813,308 | 15,611,026 | 32,234,700 | 34,967,582 |
+| 2013-2016 | 82,813,308 | 11,922,307 | 24,893,053 | 45,997,948 |
+| 2017-2020 | 82,813,297 | 9,413,544 | 25,612,996 | 47,786,757 |
+| 2030-2060-rcp85 | 82,813,297 | 9,887,732 | 21,501,285 | 51,424,280 |
+
+One row per (period, cell); `sei_class` ⊆ {1,2,3} (stored as DOUBLE by the mode reducer); no
+NULL `h9`/`h8`. Footprint of cell centres −122.116…−102.272, 34.293…49.002, matching the
+ScienceBase bbox.
+
+### 3. Hex agrees with the COG, cell by cell
+
+`sagebrush-conservation-design-hex-spotcheck.yaml`: 4,221 resolution-10 cells drawn from the
+2017-2020 hex inside the Wyoming bbox. For each, the plurality class of COG pixels whose centres
+fall in the cell was recomputed. **4,140 of the 4,141 cells with at least one in-analysis pixel
+centre agree (99.98%)**; the other 80 cells have no in-analysis pixel centre (exactextract uses
+partial pixel coverage) and were not comparable — 57 of them are class 3.
+
+### 4. Wyoming class shares: hex vs COG (acceptance criterion 5 — NOT met as written)
+
+Area shares among classes 1–3 inside the Wyoming bbox, COG (pixel area, cos-lat weighted) vs hex
+(sum of `h3_cell_area`):
+
+| period | COG 1 / 2 / 3 % | hex 1 / 2 / 3 % |
+|---|---|---|
+| 1998-2001 | 48.51 / 34.96 / 16.53 | 44.18 / 35.09 / 20.73 |
+| 2003-2006 | 54.13 / 32.28 / 13.59 | 49.40 / 32.58 / 18.02 |
+| 2008-2011 | 38.16 / 43.87 / 17.97 | 34.85 / 42.53 / 22.62 |
+| 2013-2016 | 43.88 / 36.97 / 19.15 | 39.85 / 36.13 / 24.02 |
+| 2017-2020 | 39.59 / 39.52 / 20.89 | 35.97 / 38.57 / 25.46 |
+| 2030-2060-rcp85 | 44.84 / 34.05 / 21.10 | 40.80 / 33.55 / 25.66 |
+
+The hex reads Core ~3–5 points low and Other Rangeland ~4–5 points high in every period. This
+is the mode reducer, not a defect: with code 0 excluded, a cell on the edge of the analysis area
+takes its class from the few in-analysis pixels it holds, and those edge pixels are
+disproportionately class 3 (the spot check found 247 class-3 cells with <50% in-analysis pixels
+against 37 class-1). Per-cell agreement (§3) is 99.98%, and the period-to-period ordering is the
+same in both columns. The ±2-point criterion in #770 was the wrong yardstick for a dominant-class
+hex; exact class areas need a `fractions` hex (not in scope) or the source pixel counts above.
+
+### 5. Against the old Wyoming clip
+
+`public-wyoming/sagebrush-design` (labelled band Q5sc3, 2018–2020) rolled to `h8` by mode,
+against each new period rolled the same way, over its 271,799 matched `h8` cells:
+
+| period | 1998-2001 | 2003-2006 | 2008-2011 | 2013-2016 | 2017-2020 | 2030-2060 |
+|---|---|---|---|---|---|---|
+| % agree | 78.77 | 68.70 | 64.48 | 70.64 | 66.01 | 63.05 |
+
+The old clip matches no published period well, and its 2017–2020 match is only 66%. Its hex
+also had ~5 rows per `h8` cell (1.84 M rows over 349 K cells), so it was not a one-class-per-cell
+mode product. "Q5sc3" names no layer in this data release. The new build is traceable to the
+ScienceBase files by checksum; the old one is not, so it should not be used to judge this one.
+
+### 6. STAC
+
+`scripts/verify-stac.py --no-data` passed before publishing; after publishing,
+`scripts/verify-stac.py --bucket public-usgs-sagebrush --dataset sagebrush-conservation-design`
+exits 0, and so does the bucket-level `usgs-sagebrush` collection.
