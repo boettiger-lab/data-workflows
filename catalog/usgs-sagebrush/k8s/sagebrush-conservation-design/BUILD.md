@@ -127,7 +127,7 @@ against each new period rolled the same way, over its 271,799 matched `h8` cells
 | % agree | 78.77 | 68.70 | 64.48 | 70.64 | 66.01 | 63.05 |
 
 The old clip matches no published period well, and its 2017–2020 match is only 66%. Its hex
-also had ~5 rows per `h8` cell (1.84 M rows over 349 K cells), so it was not a one-class-per-cell
+also had ~6.8 rows per `h8` cell (1,844,061 rows over 271,862 distinct cells), so it was not a one-class-per-cell
 mode product. "Q5sc3" names no layer in this data release. The new build is traceable to the
 ScienceBase files by checksum; the old one is not, so it should not be used to judge this one.
 
