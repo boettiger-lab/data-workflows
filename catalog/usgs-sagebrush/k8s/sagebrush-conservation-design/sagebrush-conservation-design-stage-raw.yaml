@@ -1,0 +1,91 @@
+# HAND-ROLLED: download + provenance + measurement step; the generator has no stage-raw
+# step for a zip that must be fetched, checksummed, unpacked and histogrammed (#770).
+# Runs AFTER sagebrush-conservation-design-setup-bucket (brand-new bucket).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sagebrush-conservation-design-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: sagebrush-conservation-design-stage-raw}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 172800
+  activeDeadlineSeconds: 14400
+  template:
+    metadata: {labels: {k8s-app: sagebrush-conservation-design-stage-raw}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          # USGS Sagebrush Conservation Design (ScienceBase 62d57e89d34e87fffb2dda62,
+          # DOI 10.5066/P94Y5CDV). Stage Raster_Data.zip + FGDC XML to raw/, verify the
+          # ScienceBase MD5, unpack the six SEI GeoTIFFs to raw/, and MEASURE each one's
+          # exact value histogram -- that, not the documentation, sets --nodata. (#770)
+          SB=https://www.sciencebase.gov/catalog/file/get/62d57e89d34e87fffb2dda62
+          ZIPURL="${SB}?f=__disk__13%2F58%2F40%2F135840cda9a9ff3cd8811ea2f356c3e4ac24e85d"
+          XMLURL="${SB}?f=__disk__20%2Fa2%2F7b%2F20a27b4e02b6b2ec3121854aadae447118da9a6a"
+          RAW=nrp:public-usgs-sagebrush/raw
+          cd /tmp
+          curl -sSL --retry 8 --retry-delay 15 --fail -o Raster_Data.zip "$ZIPURL"
+          curl -sSL --retry 8 --retry-delay 15 --fail -o Sagebrush_SLCD_Metadata.xml "$XMLURL"
+          echo "accessed: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          for f in Raster_Data.zip Sagebrush_SLCD_Metadata.xml; do
+            echo "$f size=$(stat -c%s $f) md5=$(md5sum $f | cut -d' ' -f1) sha256=$(sha256sum $f | cut -d' ' -f1)"
+          done
+          echo "4174fee8ddf8a7d44d5203051b57b806  Raster_Data.zip" | md5sum -c -
+          echo "5f0ee9387b8883491d98970844b378dc  Sagebrush_SLCD_Metadata.xml" | md5sum -c -
+          rclone copy Raster_Data.zip $RAW/ --retries 10 --low-level-retries 20
+          rclone copy Sagebrush_SLCD_Metadata.xml $RAW/ --retries 10
+
+          echo "--- archive layout ---"
+          unzip -l Raster_Data.zip
+          mkdir -p x && unzip -q -o -j Raster_Data.zip -d x/ && rm Raster_Data.zip
+          ls -l x/
+          # Every file (tif + sidecars) goes to raw/sei/ unchanged.
+          rclone copy x/ $RAW/sei/ --retries 10 --low-level-retries 20
+          for t in x/*.tif; do
+            echo "=================== $t"
+            gdalinfo "$t" | grep -vE '^\s+(ID|PARAMETER|AXIS|ORDER|LENGTHUNIT|ANGLEUNIT|UNIT|ELLIPSOID|PRIMEM|AREA|BBOX|SCOPE|USAGE|ANCHOR|METHOD|CS\[|DATUM|BASEGEOGCRS|GEOGCRS|PROJCRS|CONVERSION)' | head -45
+            python3 - "$t" <<'PY'
+          import sys
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open(sys.argv[1]); b = ds.GetRasterBand(1)
+          nx, ny = ds.RasterXSize, ds.RasterYSize
+          print(f"dims {nx} x {ny}  dtype {gdal.GetDataTypeName(b.DataType)}  bands {ds.RasterCount}  declared nodata {b.GetNoDataValue()}")
+          counts = {}
+          step = 1024
+          for y0 in range(0, ny, step):
+              a = b.ReadAsArray(0, y0, nx, min(step, ny - y0)).ravel()
+              v, c = np.unique(a, return_counts=True)
+              for vi, ci in zip(v.tolist(), c.tolist()):
+                  counts[vi] = counts.get(vi, 0) + ci
+          tot = sum(counts.values())
+          print("HIST value,count,pct")
+          for k in sorted(counts):
+              print(f"HIST {k},{counts[k]},{100.0*counts[k]/tot:.4f}")
+          PY
+          done
+          echo "STAGE-RAW COMPLETE"
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 30Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 30Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

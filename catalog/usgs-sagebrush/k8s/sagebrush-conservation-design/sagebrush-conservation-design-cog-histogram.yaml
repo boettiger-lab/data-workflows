@@ -1,0 +1,77 @@
+# HAND-ROLLED: validation-only measurement (no cng-datasets call); the generator has no
+# histogram step (#770). For each period's WGS84 COG: full-raster class histogram (the
+# truth that the warp kept only codes 0-3 + nodata) and a Wyoming-window histogram,
+# pixel-area weighted (cos(lat)), that the mode hex is spot-checked against.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sagebrush-conservation-design-cog-histogram
+  namespace: geo-workflows
+  labels: {k8s-app: sagebrush-conservation-design-cog-histogram}
+spec:
+  completions: 6
+  parallelism: 6
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 6
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata: {labels: {k8s-app: sagebrush-conservation-design-cog-histogram}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: hist
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          PERIODS=(1998-2001 2003-2006 2008-2011 2013-2016 2017-2020 2030-2060-rcp85)
+          P=${PERIODS[$JOB_COMPLETION_INDEX]}
+          F=sagebrush-conservation-design-$P-cog.tif
+          # rclone-localize, never /vsis3 (raster-hexing skill)
+          rclone copyto nrp:public-usgs-sagebrush/sagebrush-conservation-design/$F /tmp/$F --retries 10
+          echo "=== $P  $(stat -c%s /tmp/$F) bytes"
+          gdalinfo /tmp/$F | grep -E "Size is|Pixel Size|Origin|NoData|Type=|Overviews|Upper Left|Lower Right"
+          python3 - /tmp/$F "$P" <<'PY'
+          import sys, math
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open(sys.argv[1]); b = ds.GetRasterBand(1)
+          gt = ds.GetGeoTransform(); nx, ny = ds.RasterXSize, ds.RasterYSize
+          WY = (-111.056, 40.995, -104.052, 45.005)   # Wyoming bbox, EPSG:4326
+          full = np.zeros(256, np.int64); wy = np.zeros(256, np.float64)
+          c0 = max(0, int((WY[0] - gt[0]) / gt[1])); c1 = min(nx, int((WY[2] - gt[0]) / gt[1]) + 1)
+          step = 1024
+          for y0 in range(0, ny, step):
+              rows = min(step, ny - y0)
+              a = b.ReadAsArray(0, y0, nx, rows)
+              full += np.bincount(a.ravel(), minlength=256)
+              lat = gt[3] + (y0 + np.arange(rows) + 0.5) * gt[5]
+              m = (lat >= WY[1]) & (lat <= WY[3])
+              if m.any():
+                  sub = a[m, c0:c1]; w = np.cos(np.radians(lat[m]))
+                  for v in range(4):
+                      wy[v] += ((sub == v) * w[:, None]).sum()
+          tot = full.sum()
+          for v in np.nonzero(full)[0]:
+              print(f"FULL {sys.argv[2]} value={v} px={full[v]} pct={100*full[v]/tot:.4f}")
+          s = wy[1:4].sum()
+          for v in (1, 2, 3):
+              print(f"WY {sys.argv[2]} class={v} area_share_of_1to3={100*wy[v]/s:.3f}")
+          PY
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

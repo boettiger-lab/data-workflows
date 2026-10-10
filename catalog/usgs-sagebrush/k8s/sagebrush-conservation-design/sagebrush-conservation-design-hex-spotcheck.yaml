@@ -1,0 +1,87 @@
+# HAND-ROLLED: validation-only (no cng-datasets call) (#770). Spot-check the mode hex
+# against the COG: for a sample of resolution-10 cells in Wyoming (period 2017-2020, drawn
+# with the duckdb-geo MCP and shipped in ConfigMap sagebrush-hex-sample), recompute the
+# plurality class of the COG pixels whose centres fall in each cell and compare with the
+# hex value. Also reports the in-analysis (non-zero) pixel fraction per cell, which is what
+# drives mode-vs-area-share differences at the edge of the analysis area.
+#   kubectl -n geo-workflows create configmap sagebrush-hex-sample --from-file=sample.txt=<pairs file>
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sagebrush-conservation-design-hex-spotcheck
+  namespace: geo-workflows
+  labels: {k8s-app: sagebrush-conservation-design-hex-spotcheck}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata: {labels: {k8s-app: sagebrush-conservation-design-hex-spotcheck}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: spot
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: sample, mountPath: /sample}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          F=sagebrush-conservation-design-2017-2020-cog.tif
+          rclone copyto nrp:public-usgs-sagebrush/sagebrush-conservation-design/$F /tmp/$F --retries 10
+          python3 -c "import h3" 2>/dev/null || pip install -q h3
+          python3 - /tmp/$F /sample/sample.txt <<'PY'
+          import sys, collections
+          import numpy as np, h3
+          from osgeo import gdal
+          def contains(px, py, qx, qy):
+              # even-odd ray casting, vectorised over query points
+              res = np.zeros(qx.shape, bool); j = len(px) - 1
+              for i in range(len(px)):
+                  xi, yi, xj, yj = px[i], py[i], px[j], py[j]
+                  cond = ((yi > qy) != (yj > qy)) & (qx < (xj - xi) * (qy - yi) / ((yj - yi) or 1e-300) + xi)
+                  res ^= cond; j = i
+              return res
+          ds = gdal.Open(sys.argv[1]); b = ds.GetRasterBand(1); gt = ds.GetGeoTransform()
+          agree = n = 0; byclass = collections.Counter(); mism = collections.Counter()
+          lowvalid = collections.Counter()
+          for line in open(sys.argv[2]):
+              cell, hv = line.split(); hv = int(hv)
+              try: bd = h3.cell_to_boundary(cell)
+              except AttributeError: bd = h3.h3_to_geo_boundary(cell)
+              lats = [p[0] for p in bd]; lngs = [p[1] for p in bd]
+              c0 = int((min(lngs) - gt[0]) / gt[1]); c1 = int((max(lngs) - gt[0]) / gt[1]) + 1
+              r0 = int((max(lats) - gt[3]) / gt[5]); r1 = int((min(lats) - gt[3]) / gt[5]) + 1
+              a = b.ReadAsArray(c0, r0, c1 - c0, r1 - r0)
+              xs = gt[0] + (np.arange(c0, c1) + 0.5) * gt[1]; ys = gt[3] + (np.arange(r0, r1) + 0.5) * gt[5]
+              X, Y = np.meshgrid(xs, ys)
+              inside = contains(lngs, lats, X, Y)
+              v = a[inside]; cnt = np.bincount(v, minlength=4)
+              valid = cnt[1:].sum()
+              if valid == 0:
+                  mism[("no-valid-centre-pixel", hv)] += 1; n += 1; continue
+              plur = 1 + int(np.argmax(cnt[1:]))
+              tie = (cnt[1:] == cnt[1:].max()).sum() > 1
+              n += 1; byclass[hv] += 1
+              if plur == hv or (tie and cnt[hv] == cnt[1:].max()): agree += 1
+              else: mism[(plur, hv)] += 1
+              if valid / v.size < 0.5: lowvalid[hv] += 1
+          print(f"SPOT cells={n} agree={agree} ({100*agree/n:.2f}%)")
+          print("SPOT hex class counts", dict(byclass))
+          print("SPOT mismatches (cog_plurality, hex)", dict(mism))
+          print("SPOT cells <50% in-analysis pixels, by hex class", dict(lowvalid))
+          PY
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: sample, configMap: {name: sagebrush-hex-sample}}
