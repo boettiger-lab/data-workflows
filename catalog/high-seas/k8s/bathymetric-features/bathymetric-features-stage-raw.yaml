@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bathymetric-features-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: bathymetric-features-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: bathymetric-features-stage-raw
+    spec:
+      restartPolicy: Never
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          BASE=https://download.pangaea.de/dataset/992546/files
+          cd /tmp
+          for f in bathymetry_features_GEBCO2025_15s.gpkg bathymetry_peaks_GEBCO2025_15s.gpkg; do
+            curl -sSL --retry 8 --retry-delay 5 --retry-all-errors -o "$f" "$BASE/$f"
+            ls -l "$f"
+            rclone copyto "$f" "nrp:public-high-seas/raw/$f"
+            rm "$f"
+          done
+          date -u +"accessed %Y-%m-%d"
+          for f in bathymetry_features_GEBCO2025_15s.gpkg bathymetry_peaks_GEBCO2025_15s.gpkg; do
+            rclone size "nrp:public-high-seas/raw/$f"
+            echo "sha256 $(rclone cat "nrp:public-high-seas/raw/$f" | sha256sum | cut -d' ' -f1) $f"
+          done
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
