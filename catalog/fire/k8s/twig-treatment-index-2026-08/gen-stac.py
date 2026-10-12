@@ -171,7 +171,7 @@ coll = {
     "title":"TWIG treatment index (H3 hex)",
     "description":HEX_DESC,
     "roles":["data"],"created":"2026-09-17T19:55:00Z",
-    "h3:native_resolution":10,"h3:parent_resolutions":[9,8,0],
+    "h3:native_resolution":8,"h3:parent_resolutions":[0],
     "table:columns":COLS+H3COLS,
   },
  },

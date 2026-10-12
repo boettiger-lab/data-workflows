@@ -1,0 +1,40 @@
+# Publish the STAC collection from gen-stac.py (#603).
+#   kubectl -n geo-workflows create configmap twig-stac-src --from-file=gen-stac.py \
+#     --from-file=vals.py --from-file=activity_values.txt --dry-run=client -o yaml | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: twig-treatment-index-2026-08-publish-stac
+  namespace: geo-workflows
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/src /tmp/twig
+          cp /src/* /tmp/src/
+          python3 /tmp/src/gen-stac.py
+          rclone copyto /tmp/twig/stac-collection.json \
+            nrp:public-fire/twig-treatment-index-2026-08/stac-collection.json
+          rclone lsl nrp:public-fire/twig-treatment-index-2026-08/stac-collection.json
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: src, mountPath: /src, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: src, configMap: {name: twig-stac-src}}
