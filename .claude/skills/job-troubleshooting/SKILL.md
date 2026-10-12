@@ -166,8 +166,8 @@ archive, not its contents.
 mounted AT `/tmp`, or a hand-written job.** `TMPDIR` does not move it. When the chunks are large
 enough that one `h0` partition plus the `ORDER BY` spill exceeds 50Gi ephemeral, write the
 repartition as a small DuckDB job instead of calling the CLI — keep the contract
-identical (one `data_0.parquet` per `h0`, attributes joined from the flat parquet, rows ordered by
-`_cng_fid`, the completeness gate, and the UBIGINT check on the H3 columns). Worked example:
+identical (one `data_0.parquet` per `h0`, attributes joined from the flat parquet, the completeness
+gate, and the UBIGINT check on the H3 columns). Worked example:
 `catalog/usfs/k8s/ids/survey-extent/ids-survey-extent-1999-2025-repartition-local.yaml`, for 63 GB of
 chunks over 6.23 billion rows, writing one partition at a time to node-local `/tmp` (see above).
 

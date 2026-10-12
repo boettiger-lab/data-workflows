@@ -56,7 +56,6 @@ kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-merg
 kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-repartition-local.yaml
 
 # damage, after the survey-extent hex finishes (one k8s hex workflow at a time)
-kubectl apply -n geo-workflows -f damage/configmap.yaml
 kubectl apply -n geo-workflows -f damage/ids-damage-1997-2025-pmtiles.yaml
 kubectl apply -n geo-workflows -f damage/ids-damage-1997-2025-hex.yaml
 kubectl apply -n geo-workflows -f damage/ids-damage-1997-2025-repartition.yaml

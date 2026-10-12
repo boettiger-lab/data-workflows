@@ -22,7 +22,7 @@
 # duckdb-geo MCP. DuckDB sat at 0.18 CPU waiting on CephFS writes.
 #
 # So: node-local ephemeral scratch instead of the PVC. Each partition is written, uploaded and
-# deleted in turn, and the largest is ~19 GB, well inside the 50Gi cap. The PVC is the right tool
+# deleted in turn, and the largest is ~19 GB, well inside the 50Gi default. The PVC is the right tool
 # only when scratch genuinely exceeds 50Gi; here it never did once the sort was gone.
 # Sorting by _cng_fid (datasets#103) is left out: it costs a spilling sort over billions of rows
 # and buys little, because chunks/ is already feature-range-partitioned, so reading the files in
