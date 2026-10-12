@@ -1,13 +1,13 @@
 # Publish the Paradox Basin Assessment Units STAC + README (issue #722). STAC and README are
 # canonical on NRP S3 and never committed to this repo, so they are generated locally
 # by catalog/usgs-paradox/make-stac.py, verified with scripts/verify-stac.py --no-data,
-# and uploaded from a ConfigMap by this job:
+# and uploaded from a ConfigMap by this job. The job reads the live bucket STAC and README and
+# adds this collection's child link and README section only if they are missing.
 #
 #   kubectl -n geo-workflows create configmap paradox-stac \
 #     --from-file=stac-collection.json=/tmp/stac-collection.json \
 #     --from-file=README.md=/tmp/README.md \
-#     --from-file=parent-stac-collection.json=/tmp/parent.json \
-#     --from-file=bucket-README.md=/tmp/bucket-readme.md \
+#     --from-file=bucket-section.md=/tmp/bucket-section.md \
 #     -o yaml --dry-run=client | kubectl apply -n geo-workflows -f -
 #   kubectl apply -n geo-workflows -f catalog/usgs-paradox/k8s/paradox-publish-stac.yaml
 apiVersion: batch/v1
@@ -45,10 +45,33 @@ spec:
             rclone copyto "/tmp/$1" "nrp:$2"
             echo "uploaded $2"
           }
-          publish stac-collection.json        public-usgs/paradox-basin-assessment-units/stac-collection.json
-          publish README.md                   public-usgs/paradox-basin-assessment-units/README.md
-          publish parent-stac-collection.json public-usgs/stac-collection.json
-          publish bucket-README.md            public-usgs/README.md
+          publish stac-collection.json public-usgs/paradox-basin-assessment-units/stac-collection.json
+          publish README.md            public-usgs/paradox-basin-assessment-units/README.md
+          rclone copyto nrp:public-usgs/stac-collection.json /tmp/parent.json
+          rclone copyto nrp:public-usgs/README.md /tmp/bucket-README.md
+          cat /stac/bucket-section.md > /tmp/bucket-section.md
+          python3 - <<'PY'
+          import json
+          child = json.load(open("/tmp/stac-collection.json"))
+          href = next(l["href"] for l in child["links"] if l["rel"] == "self")
+          p = json.load(open("/tmp/parent.json"))
+          if any(l.get("href") == href for l in p["links"]):
+              print("child link already present")
+          else:
+              p["links"].append({"rel": "child", "href": href, "type": "application/json",
+                                 "title": child["title"]})
+              json.dump(p, open("/tmp/parent.json", "w"), indent=1)
+              print("child link added")
+          readme = open("/tmp/bucket-README.md").read()
+          section = open("/tmp/bucket-section.md").read()
+          if section.splitlines()[0] in readme.splitlines():
+              print("bucket README section already present")
+          else:
+              open("/tmp/bucket-README.md", "w").write(readme.rstrip("\n") + "\n\n---\n\n" + section)
+              print("bucket README section added")
+          PY
+          rclone copyto /tmp/parent.json nrp:public-usgs/stac-collection.json
+          rclone copyto /tmp/bucket-README.md nrp:public-usgs/README.md
           echo done
         resources:
           requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}

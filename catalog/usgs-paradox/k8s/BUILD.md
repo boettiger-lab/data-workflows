@@ -28,9 +28,18 @@ kubectl apply -n geo-workflows -f catalog/usgs-paradox/k8s/paradox-preprocess.ya
 kubectl apply -n geo-workflows -f catalog/usgs-paradox/k8s/paradox-basin-assessment-units/configmap.yaml \
                                -f catalog/usgs-paradox/k8s/paradox-basin-assessment-units/workflow.yaml
 
-# 3. STAC + README (see the header of paradox-publish-stac.yaml)
-python3 catalog/usgs-paradox/make-stac.py --report build-report.json --stats stats.json --out-dir /tmp
+# 3. STAC + README, after step 2 has published the assets
+curl -sf -o /tmp/build-report.json \
+  https://s3-west.nrp-nautilus.io/public-usgs/raw/paradox-basin-assessment-units/build-report.json
+python3 catalog/usgs-paradox/make-stats.py --out /tmp/stats.json   # duckdb-geo MCP
+python3 catalog/usgs-paradox/make-stac.py --report /tmp/build-report.json --stats /tmp/stats.json --out-dir /tmp
+scripts/verify-stac.py --no-data /tmp/stac-collection.json
+
+# 4. publish (configmap command in the header of paradox-publish-stac.yaml)
+kubectl apply -n geo-workflows -f catalog/usgs-paradox/k8s/paradox-publish-stac.yaml
 ```
+
+`build-report.json` is written by step 1 to `s3://public-usgs/raw/paradox-basin-assessment-units/`.
 
 - The merge passes `-lco GEOMETRY_NAME=geom`. Without it, `ogr2ogr -sql` names the GeoPackage
   geometry column `_ogr_geometry_`, and `cng-convert-to-parquet` fails with

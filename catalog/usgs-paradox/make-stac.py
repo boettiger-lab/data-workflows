@@ -2,9 +2,10 @@
 """Write the STAC collection and README for usgs-paradox-basin-assessment-units (issue #722).
 
 Numbers are never typed in by hand: they come from `build-report.json` (written by
-k8s/paradox-preprocess.py) and `stats.json` (measured from the published parquet with
-the duckdb-geo MCP). Run it, check the output, then publish with k8s/paradox-publish-stac.yaml:
+k8s/paradox-preprocess.py) and `stats.json` (written by make-stats.py with the duckdb-geo MCP).
+Run it, check the output, then publish with k8s/paradox-publish-stac.yaml:
 
+  python3 catalog/usgs-paradox/make-stats.py --out /tmp/stats.json
   python3 catalog/usgs-paradox/make-stac.py --report /tmp/build-report.json \
       --stats /tmp/stats.json --out-dir /tmp
   scripts/verify-stac.py --no-data /tmp/stac-collection.json
@@ -457,6 +458,32 @@ WHERE h8 = 613168513569259519;
 """
 
 
+def bucket_section(stats):
+    t = stats["totals"]
+    return f"""## USGS Paradox Basin Undiscovered Oil and Gas Assessment Units (2011)
+
+The USGS 2011 assessment of undiscovered, technically recoverable oil, gas and natural gas
+liquids in the Paradox Basin Province (5021; Utah, Colorado, New Mexico, Arizona): **{stats['rows']}
+assessment units** with F95, F50, F5, mean and standard deviation volumes per unit, native H3
+resolution **8**. Mean totals are {t['oil']:,.0f} million barrels of oil, {t['gas']:,.0f} billion cubic feet of gas and
+{t['ngl']:,.0f} million barrels of NGL, matching USGS Fact Sheet 2012-3031. Province 5021 is not part of the
+national `noga-assessment-units` layer above.
+
+> Units **overlap**, only the **mean** is additive across units, and the source stores **0**
+> (never null) for quantities that do not apply to a unit's type and for the one unit that was not
+> quantitatively assessed.
+
+Full documentation:
+[`{DATASET}/README.md`]({BASE}/{DATASET}/README.md)
+and
+[`{DATASET}/stac-collection.json`]({SELF}).
+
+**Source:** USGS Paradox Basin Oil and Gas Assessments —
+<{LANDING}>
+(data release <{RELEASE}>, accessed {ACCESS_DATE})
+"""
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", required=True)
@@ -472,6 +499,8 @@ def main():
         fh.write("\n")
     with open(os.path.join(args.out_dir, "README.md"), "w") as fh:
         fh.write(readme(report, stats))
+    with open(os.path.join(args.out_dir, "bucket-section.md"), "w") as fh:
+        fh.write(bucket_section(stats))
     print(os.path.join(args.out_dir, "stac-collection.json"))
 
 
