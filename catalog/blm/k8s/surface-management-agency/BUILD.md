@@ -58,8 +58,13 @@ read 2026-10-10); every code present in the data is defined there.
    chunk, `--max-chunks 480`. Result: **473 chunks**, 13,450,428 estimated cells, largest chunk
    4,136,388 cells (one feature on its own; 2 features exceed the budget alone). A fixed
    chunk size would have put all 1,124 lower-48 giants into the first two chunks.
-5. `armada-surface-management-agency-hex.yaml` (Armada, 480 jobs; indexes 473..479 exit cleanly)
-   at H3 resolution 8, parents 0, 8Gi each.
+5. Hex on **k8s**, not Armada: Armada submission failed server-side (every `armadactl submit`
+   returned DeadlineExceeded; no job accepted cluster-wide since 2026-09-28). `split-k8s-hex.py`
+   derives four sequential indexed Jobs from the generated `surface-management-agency-hex.yaml`
+   (plan chunk ids via an offset on `JOB_COMPLETION_INDEX`): `-hex-lower48` chunks 0..9 at 48Gi
+   (the dissolved lower-48 multipolygons), `-hex-a` 10..209, `-hex-b` 210..409, `-hex-c` 410..479
+   at 8Gi; chunks 473..479 are past the plan and exit cleanly. `armada-*-hex.yaml` is kept for
+   when Armada works again.
 6. `surface-management-agency-repartition.yaml` (k8s) → `hex/h0=*/data_0.parquet`.
 
 Acceptance: hex `COUNT(DISTINCT _cng_fid)` must equal 464,680. STAC is written by `gen-stac.py`
