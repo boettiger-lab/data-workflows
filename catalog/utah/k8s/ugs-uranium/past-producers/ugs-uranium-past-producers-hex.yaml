@@ -6,8 +6,8 @@ metadata:
   labels:
     k8s-app: ugs-uranium-past-producers-hex
 spec:
-  completions: 4
-  parallelism: 4
+  completions: 1
+  parallelism: 1
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 1
