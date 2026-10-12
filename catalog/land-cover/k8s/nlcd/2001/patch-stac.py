@@ -5,7 +5,7 @@ Idempotent: run against a collection that already has the edits, it writes it un
 Edits: add the nlcd-cog-2001 asset, 19 -> 20 map years, the 2001 provenance paragraph,
 and drop the 250 NoData entry from classification:classes on every COG (#630).
 
-  python3 patch-stac.py [--add-license-link]
+  python3 patch-stac.py
   -> /tmp/nlcd-stac-collection.json
 """
 import argparse
@@ -34,7 +34,6 @@ LICENSE_LINK = {
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--add-license-link", action="store_true")
     args = ap.parse_args()
 
     with urllib.request.urlopen(URL) as r:
@@ -68,7 +67,7 @@ def main():
                     b["classification:classes"] = [
                         c for c in b["classification:classes"] if c.get("value") != 250]
 
-    if args.add_license_link and not any(l.get("rel") == "license" for l in doc["links"]):
+    if not any(l.get("rel") == "license" for l in doc["links"]):
         doc["links"].append(LICENSE_LINK)
 
     with open(OUT, "w") as f:
