@@ -10,8 +10,7 @@
 #
 # This is NOT recoverable from the unified collection: the standalone is C1V1 and
 # nlcd/nlcd-2024-cog.tif is C1V2 after MRLC reprocessing. Anything wanting the exact
-# C1V1 pixels must re-derive from upstream. The NRP -> MinIO mirror propagates
-# deletes, so this is a single NRP-side delete.
+# C1V1 pixels must re-derive from upstream.
 #
 # The job refuses to act unless every precondition still holds, and is safe to
 # re-run: a second run finds nothing and exits on the idempotency branch.
@@ -19,6 +18,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: nlcd-2024-purge-superseded
+  namespace: geo-workflows
   labels: {k8s-app: nlcd-2024-purge-superseded}
 spec:
   completions: 1
