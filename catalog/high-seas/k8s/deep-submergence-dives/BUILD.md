@@ -12,19 +12,32 @@ Source: `DeepSubmergenceMetadata.geojson`, supplied by the authors of Bell et al
 # 1. stage the raw (from a machine holding the file)
 rclone copyto DeepSubmergenceMetadata.geojson nrp:public-high-seas/raw/DeepSubmergenceMetadata.geojson
 
-# 2. build: setup-bucket -> convert -> pmtiles + hex -> repartition
-kubectl apply -n geo-workflows -f workflow-rbac.yaml
-kubectl apply -n geo-workflows -f configmap.yaml -f workflow.yaml
+# 2. build: setup-bucket -> convert -> pmtiles + hex -> repartition (from the repo root)
+D=catalog/high-seas/k8s/deep-submergence-dives
+kubectl apply -n geo-workflows -f $D/workflow-rbac.yaml
+kubectl apply -n geo-workflows -f $D/configmap.yaml -f $D/workflow.yaml
 kubectl -n geo-workflows get jobs | grep deep-submergence-dives
 
 # 3. STAC: size and sha256 measured from the staged object
-python3 gen_stac.py DeepSubmergenceMetadata.geojson /tmp/stac-collection.json <size> <sha256>
+python3 $D/gen_stac.py DeepSubmergenceMetadata.geojson /tmp/stac-collection.json <size> <sha256>
 scripts/verify-stac.py --no-data /tmp/stac-collection.json
 rclone copyto /tmp/stac-collection.json nrp:public-high-seas/deep-submergence-dives/stac-collection.json
 scripts/verify-stac.py --bucket public-high-seas --dataset deep-submergence-dives   # must exit 0
 ```
 
 Then add a `child` link to `public-high-seas/stac-collection.json` and upload the README.
+
+## Published (2026-10-12)
+
+| object | measured |
+|---|---|
+| raw | 22,594,453 bytes, sha256 `11d11dae…eb0cf`, recomputed from the staged object |
+| `deep-submergence-dives.parquet` | 43,422 rows, 43,422 distinct `_cng_fid` |
+| `deep-submergence-dives/hex` | 43,422 rows, 22,569 distinct h8, 110 h0 partitions |
+| `deep-submergence-dives.pmtiles` | 19,402,462 bytes |
+
+`gen_stac.py` reproduces the live `stac-collection.json` byte for byte. The parent lists the
+child. `verify-stac.py --bucket public-high-seas --dataset deep-submergence-dives` exits 0.
 
 The flat and hex carry an `OGC_FID` column added by the GeoJSON read; `gen_stac.py` documents it.
 
