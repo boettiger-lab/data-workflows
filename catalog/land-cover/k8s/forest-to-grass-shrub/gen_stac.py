@@ -2,13 +2,13 @@
 import json, sys
 
 BASE = "https://s3-west.nrp-nautilus.io/public-land-cover/forest-to-grass-shrub"
-binary_created = sys.argv[1] if len(sys.argv) > 1 else "2026-10-02T00:00:00Z"
+binary_created = sys.argv[1] if len(sys.argv) > 1 else "2026-10-02T21:11:20Z"
 
 H3COLS = [
     {"name": "h10", "type": "uint64", "description": "H3 cell ID at resolution 10 (native resolution)."},
     {"name": "h9", "type": "uint64", "description": "H3 cell ID at resolution 9."},
     {"name": "h8", "type": "uint64", "description": "H3 cell ID at resolution 8, the catalog's common join resolution."},
-    {"name": "h0", "type": "uint64", "description": "H3 cell ID at resolution 0, used as the partition key for hive-partitioned reads."},
+    {"name": "h0", "type": "int64", "description": "H3 cell ID at resolution 0, used as the partition key for hive-partitioned reads."},
 ]
 
 COMMON_HEX = (
