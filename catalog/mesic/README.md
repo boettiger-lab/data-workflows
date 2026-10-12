@@ -299,8 +299,9 @@ source raster and chunk, skipping` and exited 0. The entire Great Basin / Snake 
 Columbia Plateau half of the biome — Idaho, Nevada, Utah, Oregon, Washington, all in base cell 20 —
 was silently absent.
 
-Two things make this worth a permanent note. The tool's own docstring says "descendants of these h0
-**base cells**", which is what misled the first build; and a clean `succeeded` count proves nothing
+Two things make this worth a permanent note. The tool's docstring then called these values "h0
+**base cells**", which is what misled the first build (fixed in datasets #221, which also added
+`--h0-cells` to take base cell numbers directly); and a clean `succeeded` count proves nothing
 here, because a chunk that overlaps nothing is a success. **Verify the translation before
 submitting**, and always run the h0 coverage gate after:
 
