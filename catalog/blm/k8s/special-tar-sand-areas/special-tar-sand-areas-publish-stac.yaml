@@ -1,3 +1,8 @@
+# Uploads the STAC and README written by gen_stac.py and registers the collection in the live
+# public-blm parent (fetched and patched, never replaced):
+#   python3 gen_stac.py /tmp/stsa
+#   kubectl -n geo-workflows create configmap special-tar-sand-areas-stac --from-file=/tmp/stsa
+#   kubectl apply -n geo-workflows -f special-tar-sand-areas-publish-stac.yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -17,11 +22,24 @@ spec:
         - -c
         - |
           set -euo pipefail
-          mkdir -p /tmp/s && cp -L /config/*.json /config/README.md /tmp/s/
-          rclone copyto /tmp/s/stac-collection.json nrp:public-blm/special-tar-sand-areas/stac-collection.json
-          rclone copyto /tmp/s/README.md nrp:public-blm/special-tar-sand-areas/README.md
-          rclone copyto /tmp/s/parent.json nrp:public-blm/stac-collection.json
-          rclone cat nrp:public-blm/stac-collection.json | python3 -c "import json,sys; print([l['id'] for l in json.load(sys.stdin)['links'] if l['rel']=='child'][-3:])"
+          D=nrp:public-blm
+          mkdir -p /tmp/s && cp -L /config/stac-collection.json /config/README.md /tmp/s/
+          rclone copyto /tmp/s/stac-collection.json $D/special-tar-sand-areas/stac-collection.json
+          rclone copyto /tmp/s/README.md $D/special-tar-sand-areas/README.md
+          rclone copyto $D/stac-collection.json /tmp/s/parent.json
+          python3 - <<'PY'
+          import json
+          p = json.load(open("/tmp/s/parent.json"))
+          href = "https://s3-west.nrp-nautilus.io/public-blm/special-tar-sand-areas/stac-collection.json"
+          if not any(l.get("href") == href for l in p["links"]):
+              p["links"].append({"rel": "child", "href": href, "type": "application/json",
+                                 "title": "BLM Special Tar Sand Areas (Utah)"})
+              json.dump(p, open("/tmp/s/parent.json", "w"), indent=2)
+              print("child link added")
+          else:
+              print("child link already present")
+          PY
+          rclone copyto /tmp/s/parent.json $D/stac-collection.json
         resources:
           requests: {cpu: "1", memory: 1Gi, ephemeral-storage: 1Gi}
           limits: {cpu: "1", memory: 1Gi, ephemeral-storage: 1Gi}

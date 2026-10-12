@@ -69,7 +69,8 @@ data:
               cng-convert-to-parquet \
                 s3://public-blm/raw/special-tar-sand-areas.geojson \
                 s3://public-blm/special-tar-sand-areas.parquet \
-                --row-group-size 2000
+                --row-group-size 2000 \
+                --expect-features 37
             resources:
               requests:
                 cpu: '4'

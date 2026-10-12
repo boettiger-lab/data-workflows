@@ -33,7 +33,8 @@ pulls the Internet Archive capture of 2013-02-16 and refuses any bytes but:
 ```bash
 kubectl apply -n geo-workflows -f special-tar-sand-areas-stage-raw.yaml
 kubectl apply -n geo-workflows -f workflow-rbac.yaml -f configmap.yaml -f workflow.yaml
-# STAC + README are written to /tmp, loaded into the special-tar-sand-areas-stac ConfigMap, then:
+python3 gen_stac.py /tmp/stsa
+kubectl -n geo-workflows create configmap special-tar-sand-areas-stac --from-file=/tmp/stsa
 kubectl apply -n geo-workflows -f special-tar-sand-areas-publish-stac.yaml
 ```
 
