@@ -1,0 +1,40 @@
+# Publish the ugs-uranium STAC collection and README (#708).
+#   kubectl -n geo-workflows create configmap ugs-uranium-stac-src \
+#     --from-file=catalog/utah/scripts/gen_stac_ugs_uranium.py \
+#     --from-file=catalog/utah/scripts/gen_readme_ugs_uranium.py --dry-run=client -o yaml | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ugs-uranium-publish-stac
+  namespace: geo-workflows
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 /src/gen_stac_ugs_uranium.py
+          python3 /src/gen_readme_ugs_uranium.py
+          rclone copyto /tmp/ugs-uranium-stac-collection.json nrp:public-utah/ugs-uranium/stac-collection.json
+          rclone copyto /tmp/ugs-uranium-README.md nrp:public-utah/ugs-uranium/README.md
+          rclone lsl nrp:public-utah/ugs-uranium/ --include '{stac-collection.json,README.md}'
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: src, mountPath: /src, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: src, configMap: {name: ugs-uranium-stac-src}}

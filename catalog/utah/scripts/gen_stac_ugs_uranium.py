@@ -791,6 +791,8 @@ collection = {
         {"rel": "about", "href": "https://gis.utah.gov/products/sgid/energy/",
          "type": "text/html",
          "title": "UGRC SGID Energy theme (publisher landing page)"},
+        {"rel": "describedby", "href": f"{BASE}/ugs-uranium/README.md",
+         "type": "text/markdown", "title": "README"},
     ],
     "assets": {},
 }
