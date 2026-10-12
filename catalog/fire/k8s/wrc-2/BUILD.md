@@ -782,7 +782,7 @@ proposal (`boettiger-lab/datasets#173`):
 Once a unit is that small, the ~200-completion k8s cap is the only thing forcing them back
 together, which is exactly the case the `armada-pipeline` skill says Armada is for.
 
-### ⚠️ Smoke-tested before 2,205 jobs were submitted on the assumption it works
+### ⚠️ Smoke-tested before 2,181 jobs were submitted on the assumption it works
 
 `--chunk-resolution` had never been used in this repo. 13 chunk indexes were run as an ordinary
 k8s Job first, chosen to hit all eight of `wrc-2-bp-ak`'s h0 including the pentagon and the

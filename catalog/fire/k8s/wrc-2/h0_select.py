@@ -3,16 +3,15 @@
 
     kubectl -n geo-workflows logs job/wrc-2-make-cogs-rest --all-containers \
       | grep '^FOOTPRINT ' > footprints.jsonl
-    python3 h0_select.py footprints.jsonl > h0-selection.json   # what gen_hex_yaml.py reads
+    python3 h0_select.py footprints.jsonl > h0-selection.json   # what gen_armada.py reads
     python3 h0_select.py footprints.jsonl --boxes               # the boxes, for eyeballing
     python3 h0_select.py footprints.jsonl --sql                 # the equivalent MCP query
 
 WHY THIS EXISTS. At H3 resolution 10 an h0 index that holds no data is NOT free: `cng-datasets`
 prunes only h0 cells whose footprint misses the raster's BOUNDING BOX, and every surviving cell
-enumerates all 282,475,249 res-10 children before discovering they are nodata -- about five hours
-at 192Gi. A CONUS raster's bounding box touches twice as many h0 cells as its land does, so the
-122-completion fan-out, and even a bounding-box-derived one, spends most of its pods writing
-nothing.
+enumerates all 282,475,249 res-10 children before discovering they are nodata. A CONUS raster's
+bounding box touches twice as many h0 cells as its land does, so the 122-completion fan-out, and
+even a bounding-box-derived one, spends most of its pods writing nothing.
 
 The tempting fix is to reuse a neighbouring layer's populated h0 set. #592 measured why that is
 unsafe: RPS Alaska populates FIVE h0, but `whp-2023-classified-ak` over the identical clip box
