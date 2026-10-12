@@ -1,8 +1,8 @@
 # Publish the Paradox Basin Assessment Units STAC + README (issue #722). STAC and README are
 # canonical on NRP S3 and never committed to this repo, so they are generated locally
 # by catalog/usgs-paradox/make-stac.py, verified with scripts/verify-stac.py --no-data,
-# and uploaded from a ConfigMap by this job. The job reads the live bucket STAC and README and
-# adds this collection's child link and README section only if they are missing.
+# and uploaded from a ConfigMap by this job. The job reads the live bucket STAC and README,
+# adds this collection's child link if missing, and replaces or appends its own README section.
 #
 #   kubectl -n geo-workflows create configmap paradox-stac \
 #     --from-file=stac-collection.json=/tmp/stac-collection.json \
@@ -64,11 +64,16 @@ spec:
               print("child link added")
           readme = open("/tmp/bucket-README.md").read()
           section = open("/tmp/bucket-section.md").read()
-          if section.splitlines()[0] in readme.splitlines():
-              print("bucket README section already present")
-          else:
-              open("/tmp/bucket-README.md", "w").write(readme.rstrip("\n") + "\n\n---\n\n" + section)
+          start = readme.find("\n" + section.splitlines()[0] + "\n")
+          if start < 0:
+              readme = readme.rstrip("\n") + "\n\n---\n\n" + section
               print("bucket README section added")
+          else:
+              end = readme.find("\n---\n", start + 1)
+              end = len(readme) if end < 0 else end
+              readme = readme[:start + 1] + section + readme[end:]
+              print("bucket README section replaced")
+          open("/tmp/bucket-README.md", "w").write(readme)
           PY
           rclone copyto /tmp/parent.json nrp:public-usgs/stac-collection.json
           rclone copyto /tmp/bucket-README.md nrp:public-usgs/README.md
