@@ -65,7 +65,9 @@ count before staging).
 **Where "what the source should contain" comes from** depends on the source: an ArcGIS service
 answers `returnCountOnly` and a `groupByFieldsForStatistics` unit breakdown directly; a national
 file has a published record count or a unit list; upstream documentation often states the unit
-count ("FMMP surveys 38 counties"). Any of these beats trusting the file you were handed.
+count. Read that count from the source you are actually building from, never from a past build:
+the FMMP 2022 service covers 38 counties, but the Most Recent service `fmmp-2022` now builds from
+covers 49 survey areas. Any of these beats trusting the file you were handed.
 
 ⚠️ **A pre-built export is a claim, not the data.** The `fmmp-2022` truncation came from an ArcGIS
 Hub export artifact that had been cached since 2025-10-24 while the item's own metadata reported
