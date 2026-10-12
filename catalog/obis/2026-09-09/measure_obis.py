@@ -19,10 +19,18 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--created", default=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
 args = ap.parse_args()
 
+# The temporal extent ignores date ranges whose end year precedes the start year
+# (e.g. 2006-09-22/0200-10-02): OBIS takes date_year as the midpoint, giving years like 1103.
 r = _vs.MCPClient().query(f"""
+    WITH t AS (
+      SELECT dataset_id, date_year,
+             regexp_matches(eventdate, '^\\d{{4}}.*/\\d{{4}}-')
+               AND left(split_part(eventdate, '/', 2), 4) < left(eventdate, 4) AS reversed
+      FROM read_parquet('{HEX}'))
     SELECT COUNT(*) AS total, COUNT(DISTINCT dataset_id) AS datasets,
-           MIN(date_year) AS y0, MAX(date_year) AS y1
-    FROM read_parquet('{HEX}')
+           MIN(date_year) FILTER (WHERE reversed IS NOT TRUE) AS y0,
+           MAX(date_year) FILTER (WHERE reversed IS NOT TRUE) AS y1
+    FROM t
 """)[0]
 
 header = {}
