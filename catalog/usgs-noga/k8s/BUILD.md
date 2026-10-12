@@ -37,7 +37,19 @@ kubectl apply -n geo-workflows -f catalog/usgs-noga/k8s/noga-preprocess.yaml
 # 2. convert / hex / pmtiles / repartition
 kubectl apply -n geo-workflows -f catalog/usgs-noga/k8s/noga-assessment-units/configmap.yaml \
                                -f catalog/usgs-noga/k8s/noga-assessment-units/workflow.yaml
+
+# 3. STAC + README, after step 2 has published the assets
+curl -sf -o /tmp/build-report.json \
+  https://s3-west.nrp-nautilus.io/public-usgs/raw/noga-assessment-units/build-report.json
+python3 catalog/usgs-noga/make-stats.py --report /tmp/build-report.json --out /tmp/stats.json   # duckdb-geo MCP
+python3 catalog/usgs-noga/make-stac.py --report /tmp/build-report.json --stats /tmp/stats.json --out-dir /tmp
+scripts/verify-stac.py --no-data /tmp/stac-collection.json
+
+# 4. publish (configmap command in the header of noga-publish-stac.yaml)
+kubectl apply -n geo-workflows -f catalog/usgs-noga/k8s/noga-publish-stac.yaml
 ```
+
+`build-report.json` is written by step 1 to `s3://public-usgs/raw/noga-assessment-units/`.
 
 The build ran the steps individually (convert, then hex + pmtiles, then repartition) so the hex
 chunking could be sized against measured polygon areas.

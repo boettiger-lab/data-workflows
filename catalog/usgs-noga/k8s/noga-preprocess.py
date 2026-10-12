@@ -349,12 +349,14 @@ def main():
     if full_run and written < 200:
         sys.exit(f"ERROR: only {written} features written on a full run, expected several hundred")
 
-    size = os.path.getsize(OUT)
-    digest = hashlib.sha256()
-    with open(OUT, "rb") as fh:
-        while chunk := fh.read(1 << 22):
-            digest.update(chunk)
-    log(f"{OUT}: {size} bytes sha256={digest.hexdigest()}")
+    remote = f"nrp:{BUCKET}/raw/{DATASET}.gpkg"
+    if NO_UPLOAD:
+        data = open(OUT, "rb").read()
+    else:
+        subprocess.run(["rclone", "copyto", OUT, remote, "-P"], check=True)
+        data = subprocess.run(["rclone", "cat", remote], check=True, capture_output=True).stdout
+    size, sha256 = len(data), hashlib.sha256(data).hexdigest()
+    log(f"{remote}: {size} bytes sha256={sha256}")
 
     summary = {
         "access_date": manifest["access_date"],
@@ -367,7 +369,7 @@ def main():
         "gpkg": {
             "path": f"s3://{BUCKET}/raw/{DATASET}.gpkg",
             "bytes": size,
-            "sha256": digest.hexdigest(),
+            "sha256": sha256,
         },
         "releases": report,
     }
@@ -375,9 +377,6 @@ def main():
         json.dump(summary, fh, indent=1)
 
     if not NO_UPLOAD:
-        subprocess.run(
-            ["rclone", "copyto", OUT, f"nrp:{BUCKET}/raw/{DATASET}.gpkg", "-P"], check=True
-        )
         subprocess.run(
             [
                 "rclone",

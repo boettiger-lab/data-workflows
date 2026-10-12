@@ -2,14 +2,13 @@
 """Write the STAC collection and README for usgs-noga-assessment-units (issue #700).
 
 Numbers are never typed in by hand: they come from `build-report.json` (written by
-k8s/noga-preprocess.py) and `stats.json` (measured from the published parquet with
-the duckdb-geo MCP). Run it, check the output, then upload:
+k8s/noga-preprocess.py) and `stats.json` (written by make-stats.py with the duckdb-geo MCP).
+Run it, check the output, then publish with k8s/noga-publish-stac.yaml:
 
+  python3 catalog/usgs-noga/make-stats.py --report /tmp/build-report.json --out /tmp/stats.json
   python3 catalog/usgs-noga/make-stac.py --report /tmp/build-report.json \
       --stats /tmp/stats.json --out-dir /tmp
   scripts/verify-stac.py --no-data /tmp/stac-collection.json
-  rclone copyto /tmp/stac-collection.json nrp:public-usgs/noga-assessment-units/stac-collection.json
-  rclone copyto /tmp/README.md nrp:public-usgs/noga-assessment-units/README.md
 """
 
 import argparse
@@ -26,6 +25,16 @@ LANDING = (
 )
 COMMUNITY = "https://www.sciencebase.gov/catalog/item/59cab03de4b017cf314094df"
 ACCESS_DATE = "2026-09-21"
+PARADOX = "paradox-basin-assessment-units"
+WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+
+
+def word(n):
+    return WORDS[n] if n < len(WORDS) else str(n)
+
+
+def series(items):
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + ", and " + items[-1]
 
 FRACTILE = {
     "F95": "95th-percentile (F95) estimate, the low end of the assessed range",
@@ -112,24 +121,26 @@ def columns(stats):
             "name": "REGNUM",
             "type": "string",
             "description": (
-                "USGS world energy region number; 5 for North America. Null on the 30 "
-                "assessment units whose source release omits the region fields."
+                "USGS world energy region number; 5 for North America. Null on the "
+                f"{stats['null_region']} assessment units whose source release omits the "
+                "region fields."
             ),
         },
         {
             "name": "REGNAME",
             "type": "string",
             "description": (
-                "USGS world energy region name. Null on the 30 assessment units whose source "
-                "release omits the region fields."
+                f"USGS world energy region name. Null on the {stats['null_region']} assessment "
+                "units whose source release omits the region fields."
             ),
-            "values": ["North America", "Central and North America"],
+            "values": stats["values"]["REGNAME"],
         },
         code_list(
             "PROVCODE",
             "Four-digit USGS geologic province code, the stable identifier for the province: "
-            "the accompanying PROVNAME is missing on 30 assessment units and spelled two ways "
-            "for two codes, so group on the code.",
+            f"the accompanying PROVNAME is missing on {stats['null_provname']} assessment units "
+            f"and spelled two ways for {word(len(stats['provname_variants']))} codes, so group "
+            "on the code.",
             stats,
             "provcode_names",
         ),
@@ -139,17 +150,20 @@ def columns(stats):
             "description": (
                 "Geologic province name, for example Permian Basin, Gulf Coast Mesozoic or "
                 "Northern Alaska. Upstream spelling is inconsistent, so this is not a reliable "
-                "grouping key: it is null on 30 of the 240 assessment units, province 5034 "
-                "appears as both Big Horn Basin and Bighorn Basin, and province 5049 appears as "
-                "both Gulf Coast Mesozoic and Gulf Coast Cenozoic. Group on PROVCODE instead."
+                f"grouping key: it is null on {stats['null_provname']} of the {stats['rows']} "
+                "assessment units, "
+                + series([f"province {c} appears as both {' and '.join(n)}"
+                          for c, n in stats["provname_variants"].items()])
+                + ". Group on PROVCODE instead."
             ),
             "values": stats["values"]["PROVNAME"],
         },
         code_list(
             "TPSCODE",
             "Six-digit USGS Total Petroleum System code; the first four digits are the province "
-            "code. Three codes carry two upstream spellings of their name (503102, 503107, "
-            "503108), so group on the code rather than TPSNAME.",
+            f"code. {word(len(stats['tpsname_variants'])).capitalize()} codes carry two upstream "
+            f"spellings of their name ({', '.join(stats['tpsname_variants'])}), so group on the "
+            "code rather than TPSNAME.",
             stats,
             "tpscode_names",
         ),
@@ -160,7 +174,7 @@ def columns(stats):
                 "Total Petroleum System name. A Total Petroleum System groups the source rock, "
                 "the reservoirs and the traps that share one hydrocarbon charge; a province "
                 "usually contains several, and each is assessed as one or more assessment "
-                "units. Null on 2 of the 240 assessment units."
+                f"units. Null on {stats['null_tpsname']} of the {stats['rows']} assessment units."
             ),
         },
         {
@@ -246,7 +260,7 @@ def columns(stats):
             "type": "string",
             "description": (
                 "Publication date of that release, YYYY-MM-DD. This is the edition stamp for "
-                "the row: the merged national layer has no version of its own."
+                "the row: the merged layer has no version of its own."
             ),
         },
         {
@@ -322,6 +336,9 @@ def description(report, stats):
         "version number: the edition record is the release manifest, and every row names its own "
         "release in `sciencebase_id` and `release_pubdate`. Where two releases assess the same "
         f"`ASSESSCODE`, the newer one is kept ({stats['superseded']} superseded polygons dropped).\n\n"
+        "**Coverage is the releases in that community, not every assessed US province.** "
+        "Assessments published outside it are not included. The Paradox Basin (province 5021) "
+        f"is a separate collection, `{PARADOX}`.\n\n"
         f"**Volume estimates cover part of the layer.** Only {len(with_results)} of the "
         f"{report['us_releases']} releases publish a per-AU results table; the rest, published "
         "2018 to 2022, publish the boundaries and the assessment input forms only. So "
@@ -372,7 +389,8 @@ def hex_description(stats):
         "-- wrong: summing or area-weighting F95, F50 or F5 — only the mean is additive\n"
         "```\n\n"
         f"{stats['hex_rows']:,} rows over {stats['distinct_h8']:,} distinct resolution 8 cells: "
-        "assessment units overlap, so a cell carries 3.6 rows on average. Resolution 8 matches "
+        f"assessment units overlap, so a cell carries {stats['hex_rows'] / stats['distinct_h8']:.1f} "
+        "rows on average. Resolution 8 matches "
         "the source, because assessment unit boundaries are basin-scale interpretive lines drawn "
         "by the province geologist and a finer resolution would assert a precision the source "
         "does not have."
@@ -396,7 +414,7 @@ def collection(report, stats):
             "U.S. Geological Survey National and Global Oil and Gas Assessment Project, "
             f"{report['us_releases']} United States assessment unit data releases "
             f"({stats['pubdate_min']} to {stats['pubdate_max']}), ScienceBase community "
-            f"{COMMUNITY}. Merged national layer; accessed {ACCESS_DATE}."
+            f"{COMMUNITY}. Merged layer; accessed {ACCESS_DATE}."
         ),
         "created": stats["created"],
         "updated": stats["created"],
@@ -465,7 +483,8 @@ def collection(report, stats):
                 "title": "Assessment units with undiscovered oil, gas and NGL volumes (GeoParquet)",
                 "roles": ["data"],
                 "description": (
-                    "One row per assessment unit: 240 rows, 240 distinct `ASSESSCODE`, so no "
+                    f"One row per assessment unit: {stats['rows']} rows, "
+                    f"{stats['distinct_assesscode']} distinct `ASSESSCODE`, so no "
                     "dedup is needed before aggregating on this asset. `sciencebase_id` and "
                     "`release_pubdate` are provenance, not feature keys, and repeat across the "
                     "units that came from the same release. Assessment units still overlap one "
@@ -509,6 +528,9 @@ probability distribution (F95, F50, F5, mean) per unit.
 - **{stats['rows']} assessment units**, merged from the **{report['us_releases']} United States
   releases** of the USGS National and Global Oil and Gas Assessment Project
   ([ScienceBase community]({COMMUNITY})), accessed **{ACCESS_DATE}**.
+- **Coverage is the releases in that community**, not every assessed US province. The Paradox
+  Basin (province 5021) is a separate collection,
+  [`{PARADOX}`]({BASE}/{PARADOX}/README.md).
 - **No version number.** There is no national compilation upstream, so the edition record is the
   release manifest; each row names its release in `sciencebase_id` and `release_pubdate`.
 - **{stats['rows_with_volumes']} of {stats['rows']} units carry volume estimates.** Only
@@ -542,7 +564,7 @@ WHERE OIL_MN_MMB IS NOT NULL
 ORDER BY OIL_MN_MMB DESC
 LIMIT 10;
 
--- national mean undiscovered gas, deduped by assessment unit
+-- total mean undiscovered gas, deduped by assessment unit
 SELECT SUM(GAS_MN_BCF) AS bcf FROM (
   SELECT DISTINCT ASSESSCODE, GAS_MN_BCF
   FROM read_parquet('{BASE}/{DATASET}.parquet')
@@ -603,6 +625,46 @@ WHERE h8 = 613196570331971583;
 """
 
 
+def bucket_section(report, stats):
+    return f"""## USGS Undiscovered Oil and Gas Assessment Units — United States
+
+USGS estimates of undiscovered, technically recoverable oil, gas and natural gas liquids for
+the onshore and state-water United States, as Assessment Unit (AU) polygons with a probability
+distribution (F95, F50, F5, mean) per unit: **{stats['rows']} assessment units**, native H3 resolution **8**.
+
+USGS publishes the national assessment one province or formation release at a time and there is
+no national compilation upstream, so this layer was merged from the **{report['us_releases']} United States releases**
+in the [National and Global Oil and Gas Assessment Project ScienceBase community]({COMMUNITY}),
+accessed **{ACCESS_DATE}**. It carries **no version number**: the edition record is the release
+manifest, and each row names its own release in `sciencebase_id` and `release_pubdate`.
+Coverage is the releases in that community, not every assessed US province: the Paradox Basin
+(province 5021) is the separate `{PARADOX}` collection.
+
+> **Three things to know before aggregating.** Assessment units **overlap** (conventional and
+> continuous units and different Total Petroleum Systems cover the same ground), so dedup by
+> `ASSESSCODE` before any `SUM`. Only the **mean** is additive across units — `F95`, `F50` and
+> `F5` are fractiles of one unit's distribution. And **null is never zero**: only {stats['rows_with_volumes']} of the {stats['rows']}
+> units carry volume estimates, because the remaining releases publish boundaries and assessment
+> input forms without a results table.
+
+```sql
+-- total mean undiscovered gas, deduped by assessment unit
+SELECT SUM(GAS_MN_BCF) AS bcf FROM (
+  SELECT DISTINCT ASSESSCODE, GAS_MN_BCF
+  FROM read_parquet('{BASE}/{DATASET}.parquet')
+);
+```
+
+Full documentation:
+[`{DATASET}/README.md`]({BASE}/{DATASET}/README.md)
+and
+[`{DATASET}/stac-collection.json`]({SELF}).
+
+**Source:** USGS assessments of undiscovered oil and gas —
+<{LANDING}>
+"""
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", required=True)
@@ -620,6 +682,8 @@ def main():
     readme_path = os.path.join(args.out_dir, "README.md")
     with open(readme_path, "w") as fh:
         fh.write(readme(report, stats))
+    with open(os.path.join(args.out_dir, "bucket-section.md"), "w") as fh:
+        fh.write(bucket_section(report, stats))
     print(stac_path)
     print(readme_path)
 
