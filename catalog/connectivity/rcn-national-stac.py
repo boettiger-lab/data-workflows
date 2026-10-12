@@ -154,8 +154,9 @@ DESCRIPTION = (
 HEX_DESC = (
     "H3 hex at native resolution 10, hive-partitioned by h0, with rollup columns at "
     "resolutions 9, 8, 7, 6 and 5. One row per H3 cell, holding the mode (most common) "
-    "rcn_class over the 30 metre source pixels inside that cell. Resolution 10 matches "
-    "the 30 metre source and is the finest resolution this catalog carries. The mode "
+    "rcn_class over the 30 metre source pixels inside that cell. Resolution 10 is the "
+    "finest resolution this catalog carries and is the accepted floor for 30 metre "
+    "sources: each cell spans about 17 source pixels. The mode "
     "keeps only each cell's dominant class and discards the rest of the mix, so it "
     "answers \"which class dominates here\" but understates the area of classes that are "
     "common without ever dominating a cell. For class areas use the fractional-coverage "
@@ -213,12 +214,16 @@ def parent():
     ]]
 
     href = f"{BUCKET}/rcn-national/stac-collection.json"
-    links = [l for l in p["links"] if l.get("href") != href]
-    for l in links:
-        if l.get("rel") == "license":
-            l["title"] = ("Child licences: CC0-1.0 (Cameron, Schloss), CC-BY-4.0 (Beier, "
-                          "CDFW) and TNC non-commercial terms (Resilient and Connected "
-                          "Network)")
+    links = [l for l in p["links"]
+             if l.get("href") != href and l.get("rel") != "license"]
+    links += [
+        {"rel": "license", "href": "https://creativecommons.org/publicdomain/zero/1.0/",
+         "type": "text/html", "title": "CC0-1.0 (Cameron, Schloss children)"},
+        {"rel": "license", "href": "https://creativecommons.org/licenses/by/4.0/",
+         "type": "text/html", "title": "CC-BY-4.0 (Beier, CDFW children)"},
+        {"rel": "license", "href": TERMS, "type": "text/html",
+         "title": "TNC Geospatial Data Terms of Use, non-commercial (rcn-national)"},
+    ]
     links.append({
         "rel": "child",
         "href": href,

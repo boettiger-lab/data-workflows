@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Gate A for issue #606: the VAT is the complete value set of RCN_National_2024.
 
-`rcn-national-cog.yaml` reclassifies the TNC RCN composite codes to a publishable
+`rcn-national-reclass.yaml` reclassifies the TNC RCN composite codes to a publishable
 `rcn_class` band through a VRT ComplexSource <LUT>. A LUT interpolates linearly between
 its entries, so the reclass is exact only if every source pixel is either 0 (the mask
 background) or one of the 297 codes the VAT lists. A code the VAT omitted would silently

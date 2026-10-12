@@ -1,6 +1,6 @@
 # Gate A for issue #606: prove the VAT is the COMPLETE value set of RCN_National_2024.
 #
-# The reclass in rcn-national-cog.yaml is a VRT ComplexSource <LUT>, which interpolates
+# The reclass in rcn-national-reclass.yaml is a VRT ComplexSource <LUT>, which interpolates
 # linearly between its entries. That is exact only if every pixel is either 0 (the mask
 # background) or one of the 297 codes the VAT lists — a source value the VAT omitted
 # would silently receive an interpolated class instead of nodata.

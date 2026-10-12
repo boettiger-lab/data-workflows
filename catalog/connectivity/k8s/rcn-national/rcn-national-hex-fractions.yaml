@@ -1,3 +1,6 @@
+# HAND-ROLLED: the generator emits one reducer per recipe and has no fractions companion
+# beside mode, and this carries the boettiger-lab/datasets#238 workaround below (#606).
+#
 # TNC RCN CONUS (issue #606) — H3 res-10 per-class FRACTIONAL COVERAGE companion.
 #
 # `mode` (rcn-national-hex.yaml) keeps only each cell's dominant class and throws the
@@ -7,9 +10,10 @@
 #
 # Same grid as the mode build: native 10, parents 9,8,7,6,5,0, value column rcn_class,
 # nodata 255. Unlike the sparse mode layer this reducer writes a FULL h0 grid, including
-# 0-row partitions for all-nodata cells — that is expected, and it is the reference the
-# coverage gate compares the mode layer against. Purge the empty partitions afterwards
-# so they do not fake gaps for the next reader.
+# 0-row partitions for all-nodata cells. The handler below deletes them in-pod, and
+# rcn-national-purge-empty.yaml sweeps any that remain, so they do not fake a populated
+# h0 for the next reader. Verify coverage against the 7 populated h0 cells (see
+# rcn-national-hex.yaml), not against the mode layer.
 #
 # Run AFTER rcn-national-hex completes: one k8s hex workflow at a time (AGENTS.md).
 #
@@ -25,13 +29,7 @@ spec:
   parallelism: 12
   completionMode: Indexed
   backoffLimitPerIndex: 2
-  # NOT 0, unlike the mode build: boettiger-lab/datasets#238 makes an all-nodata h0
-  # exit non-zero after its (empty) work is done, and the in-pod handler below only
-  # converts that to success on a fresh run. A job already in flight when the defect
-  # was found was patched to this value so the multi-hour populated indexes could
-  # finish. Coverage is therefore NOT implied by the job condition here — it is
-  # proven separately against the mode layer's populated h0 set.
-  maxFailedIndexes: 20
+  maxFailedIndexes: 0        # a partial run must surface as Failed (#409)
   ttlSecondsAfterFinished: 604800
   template:
     metadata: {labels: {k8s-app: rcn-national-hex-fractions}}
