@@ -1,3 +1,4 @@
+# HAND-ROLLED: local gdalwarp + gdal_translate reprojection to EPSG:4326 COGs at 60Gi ephemeral; raster-workflow has no step that warps a projected source this way (#592)
 # Reproject the staged WRC v2 source rasters to EPSG:4326 COGs on NRP S3.
 #
 # ⛔ THIS STEP IS NOT OPTIONAL AND ITS ABSENCE FAILS SILENTLY.

@@ -1,3 +1,4 @@
+# HAND-ROLLED: 6-index h0 subset at default priority, 192Gi; raster-workflow emits all 122 h0 at opportunistic priority (#592)
 # WRC v2 Risk to Potential Structures (RPS), CONUS — res-10 `mean` hex.
 #
 # RPS is the "Risk to Homes" layer of the Wildfire Risk to Communities web application: the

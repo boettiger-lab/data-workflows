@@ -1,3 +1,4 @@
+# HAND-ROLLED: re-runs 3 named res-2 chunks as a k8s indexed Job; cng-datasets gapfill emits an Armada job set (#627)
 # Re-run the three res-2 chunks that never recorded completion in the Armada hex fan-out.
 #
 # 2,178 of 2,181 chunks wrote their `_manifest/chunk-N.parquet` marker. The three below did not,

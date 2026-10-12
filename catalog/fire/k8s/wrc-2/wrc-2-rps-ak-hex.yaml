@@ -1,3 +1,4 @@
+# HAND-ROLLED: default priority with per-index retries, 192Gi and CNG_HEX_WORKERS=8; raster-workflow emits opportunistic priority and its default sizing (#592)
 # WRC v2 Risk to Potential Structures (RPS), Alaska — res-10 `mean` hex.
 #
 # RPS is the "Risk to Homes" layer of the Wildfire Risk to Communities web application: the
