@@ -10,7 +10,7 @@
 #      as NAD83 displaces the data 212 m at the plateau centre.
 #
 # With no grid installed PROJ silently picks a ballpark Helmert (NAD27 to WGS 84 (4), 10 m).
-# This job fetches the NADCON grid so PROJ selects NAD27 to NAD83 (1) at 0.15 m instead.
+# The image ships the NADCON grid, so PROJ selects NAD27 to NAD83 (1) at 0.15 m instead.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -30,7 +30,7 @@ spec:
     spec:
       restartPolicy: Never
       # Keep ClusterFirst so the INTERNAL S3 endpoint still resolves via CoreDNS; the
-      # public resolvers are a fallback for the pubs.usgs.gov / cdn.proj.org fetches on
+      # public resolvers are a fallback for the pubs.usgs.gov fetch on
       # nodes whose CoreDNS upstream is flaky.
       dnsPolicy: ClusterFirst
       dnsConfig:
