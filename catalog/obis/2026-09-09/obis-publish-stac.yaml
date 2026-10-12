@@ -1,6 +1,11 @@
 # Publishes the STAC collection + README to public-obis and registers obis-derived in the
 # root catalog. Files come from the obis-2026-09-09-publish ConfigMap, generated from
 # measurements of the published hex (never edited by hand). Also removes the smoke-test prefix.
+# Create the ConfigMap first (see BUILD.md):
+#   python3 measure_obis.py && python3 build_stac.py && python3 build_readme.py
+#   kubectl -n geo-workflows create configmap obis-2026-09-09-publish \
+#     --from-file=/tmp/stac-collection.json --from-file=/tmp/README.md \
+#     --from-file=append_root_child.py
 apiVersion: batch/v1
 kind: Job
 metadata:

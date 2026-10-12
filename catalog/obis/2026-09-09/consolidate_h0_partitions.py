@@ -65,6 +65,14 @@ con.execute(f"""
         SCOPE 's3://{BUCKET}')
 """)
 
+# Every stage-1 shard must have finished and together cover every source file.
+k, n_shards, runs, covered, total = con.execute(f"""
+    SELECT COUNT(DISTINCT shard), MAX(total_shards), COUNT(DISTINCT total_shards), SUM(files), MAX(total_files)
+    FROM read_parquet('{BASE}/shards/*.parquet')
+""").fetchone()
+assert runs == 1 and k == n_shards and covered == total, \
+    f"SHARDS INCOMPLETE: {k}/{n_shards} shards, {covered}/{total} files, {runs} shard counts"
+
 src = f"{BASE}/chunks/h0={cell}/*.parquet"
 dst = f"{BASE}/hex/h0={cell}/data_0.parquet"
 print(f"job {job_index}: h0={cell} -> {dst}", flush=True)
@@ -77,5 +85,6 @@ con.execute(f"""
     ) TO '{dst}' (FORMAT PARQUET, COMPRESSION zstd, ROW_GROUP_SIZE 1000000)
 """)
 
-n = con.execute(f"SELECT COUNT(*) FROM read_parquet('{dst}')").fetchone()[0]
-print(f"job {job_index}: h0={cell} wrote {n} rows", flush=True)
+n, d = con.execute(f"SELECT COUNT(*), COUNT(DISTINCT _id) FROM read_parquet('{dst}')").fetchone()
+print(f"job {job_index}: h0={cell} wrote {n} rows, {d} distinct _id", flush=True)
+assert n == d, "DEDUP FAILED"

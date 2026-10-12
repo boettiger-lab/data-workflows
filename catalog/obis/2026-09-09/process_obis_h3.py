@@ -33,9 +33,12 @@ from botocore.config import Config
 SRC_BUCKET = "obis-open-data"
 SRC_PREFIX = "occurrence/"
 OUTPUT = os.environ.get("OUTPUT_PREFIX", "s3://public-obis/2026-09-09/chunks")
-TOTAL_SHARDS = int(os.environ.get("TOTAL_SHARDS", "100"))
+TOTAL_SHARDS = int(os.environ["TOTAL_SHARDS"])
+SHARDS = OUTPUT.rsplit("/", 1)[0] + "/shards"
 
 job_index = int(os.environ.get("JOB_COMPLETION_INDEX", "0"))
+if job_index >= TOTAL_SHARDS:
+    sys.exit(f"job {job_index}: index >= TOTAL_SHARDS={TOTAL_SHARDS}; completions and TOTAL_SHARDS disagree")
 
 # Canonical output schema: (output_name, source, duckdb_type).
 # source "top" = top-level parquet column, "interp" = field of the `interpreted` STRUCT.
@@ -67,6 +70,7 @@ COLUMNS = [
     ("redlist_category",              "interp", "VARCHAR"),
     ("flags",                         "top",    "VARCHAR[]"),
 ]
+REQUIRED_TOP = {n for n, src, _ in COLUMNS if src == "top"} | {"dropped", "absence", "interpreted"}
 
 # --- shard the source file list (anonymous public AWS bucket) ---
 s3 = boto3.client("s3", region_name="us-east-1", config=Config(signature_version=UNSIGNED))
@@ -82,9 +86,6 @@ files.sort()
 # pods and the job waits on a single straggler.
 chunk = files[job_index::TOTAL_SHARDS]
 print(f"job {job_index}: {len(chunk)} of {len(files)} source files", flush=True)
-if not chunk:
-    print(f"job {job_index}: nothing to do")
-    sys.exit(0)
 
 # --- DuckDB ---
 con = duckdb.connect("/tmp/duck.db")
@@ -115,12 +116,19 @@ con.execute(f'CREATE OR REPLACE TABLE staging ("h8" UBIGINT, "h0" UBIGINT, {cols
 
 
 def interpreted_keys(path):
-    """Actual field names of this file's `interpreted` STRUCT, lowercased -> as written."""
+    """Actual field names of this file's `interpreted` STRUCT, lowercased -> as written.
+    None only for a file with no rows; any schema surprise raises."""
+    top = {r[0] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{path}')").fetchall()}
+    missing = REQUIRED_TOP - top
+    if missing:
+        raise ValueError(f"missing top-level columns {sorted(missing)}")
     row = con.execute(
         f"SELECT json_keys(to_json(interpreted)) FROM read_parquet('{path}') LIMIT 1"
     ).fetchone()
-    if not row or row[0] is None:
+    if not row:
         return None
+    if row[0] is None:
+        raise ValueError("interpreted is NULL")
     return {k.lower(): k for k in row[0]}
 
 
@@ -141,14 +149,13 @@ for i, path in enumerate(chunk):
     try:
         keys = interpreted_keys(path)
         if keys is None:
+            print(f"  empty file, skipping {path}", flush=True)
             skipped += 1
             continue
-        lat = f'interpreted."{keys["decimallatitude"]}"' if "decimallatitude" in keys else None
-        lon = f'interpreted."{keys["decimallongitude"]}"' if "decimallongitude" in keys else None
-        if lat is None or lon is None:
-            print(f"  no coordinates in schema, skipping {path}", flush=True)
-            skipped += 1
-            continue
+        if "decimallatitude" not in keys or "decimallongitude" not in keys:
+            raise ValueError("no coordinate fields in interpreted")
+        lat = f'interpreted."{keys["decimallatitude"]}"'
+        lon = f'interpreted."{keys["decimallongitude"]}"'
         con.execute(f"""
             INSERT INTO staging
             SELECT h3_latlng_to_cell(decimallatitude, decimallongitude, 8) AS h8,
@@ -172,17 +179,23 @@ for i, path in enumerate(chunk):
 
 n = con.execute("SELECT COUNT(*) FROM staging").fetchone()[0]
 print(f"job {job_index}: {n} rows staged (ok={ok} skipped={skipped} failed={failed})", flush=True)
+if n:
+    con.execute(f"""
+        COPY (SELECT * FROM staging ORDER BY h0, h8)
+        TO '{OUTPUT}'
+        (FORMAT PARQUET, PARTITION_BY (h0), COMPRESSION zstd,
+         FILENAME_PATTERN 'part_{job_index}_{{uuid}}',
+         OVERWRITE_OR_IGNORE true, ROW_GROUP_SIZE 1000000)
+    """)
+    print(f"job {job_index}: wrote {n} rows to {OUTPUT}", flush=True)
+# Fail the index so it retries; a partial write above is deduped by stage 2.
 if failed:
-    # Surface partial-shard loss loudly rather than silently publishing a short hex.
-    print(f"job {job_index}: WARNING {failed} source files failed", flush=True)
-if n == 0:
-    sys.exit(0)
+    sys.exit(f"job {job_index}: {failed} source files failed")
 
+# Completion marker. Stage 2 refuses to run unless markers 0..TOTAL_SHARDS-1 all exist
+# and cover every source file, so completions and TOTAL_SHARDS cannot drift silently.
 con.execute(f"""
-    COPY (SELECT * FROM staging ORDER BY h0, h8)
-    TO '{OUTPUT}'
-    (FORMAT PARQUET, PARTITION_BY (h0), COMPRESSION zstd,
-     FILENAME_PATTERN 'part_{job_index}_{{uuid}}',
-     OVERWRITE_OR_IGNORE true, ROW_GROUP_SIZE 1000000)
+    COPY (SELECT {job_index} AS shard, {TOTAL_SHARDS} AS total_shards,
+                 {len(chunk)} AS files, {len(files)} AS total_files, {skipped} AS skipped)
+    TO '{SHARDS}/{job_index}.parquet' (FORMAT PARQUET)
 """)
-print(f"job {job_index}: wrote {n} rows to {OUTPUT}", flush=True)

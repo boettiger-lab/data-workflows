@@ -11,7 +11,7 @@ metadata:
   labels:
     k8s-app: obis-2026-09-09-hex
 spec:
-  completions: 100
+  completions: 100  # = TOTAL_SHARDS below
   parallelism: 50
   completionMode: Indexed
   backoffLimitPerIndex: 5
@@ -57,7 +57,7 @@ spec:
               value: "FALSE"
             - name: TMPDIR
               value: "/tmp"
-            - name: TOTAL_SHARDS
+            - name: TOTAL_SHARDS  # must equal completions; stage 2 fails if the shard markers disagree
               value: "100"
             - name: JOB_COMPLETION_INDEX
               valueFrom:
