@@ -113,6 +113,11 @@ kubectl -n geo-workflows describe pod <pod-name> | grep -A5 "Reason:\|Message:\|
 
 **Workflow stuck:** `kubectl logs job/<name>-workflow` and `kubectl get jobs | grep <name>`.
 
+**Values silently wrong after a warp or COG step → nodata passed as a literal.** One publication can
+use a different sentinel per file, including positive ones (255 on a UInt16 band valued 0 to 50),
+and the same theme can change dtype and sentinel between regions. Read nodata from each source band
+and assert it against the expected value; never carry one `-srcnodata` across files.
+
 **`exceeded quota: reached-quota`** → pod limit hit. Delete running hex jobs and resubmit sequentially (see Namespace Pod Quota):
 ```bash
 kubectl get jobs | grep -E 'dataset-a|dataset-b' | awk '{print $1}' | xargs kubectl delete job

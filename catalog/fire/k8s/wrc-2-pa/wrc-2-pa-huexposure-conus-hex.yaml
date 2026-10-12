@@ -1,4 +1,5 @@
 # WRC v2 populated areas: Housing Unit Exposure, continental United States -- res-10 `sum` hex.
+# ⛔ Re-run order: this job leaves zero-fill rows (datasets#232). Run coverage-mask-conus.yaml then repair-zero-fill-conus.yaml after it; see BUILD.md.
 #
 # Source publication RDS-2020-0060-2 (*Spatial datasets of wildfire risk for populated areas*).
 # ⚠️ A DIFFERENT DOI from `catalog/fire/k8s/wrc-2/` (RDS-2020-0016-2, the landscape-wide risk

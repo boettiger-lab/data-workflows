@@ -136,6 +136,10 @@ Also: `gdalinfo -stats` writes a `.tif.aux.xml` sidecar and **reads cached stats
 if you rebuild the COG in the same scratch dir, a stale `.aux.xml` reports the OLD min/max/mean. `rm`
 the `.aux.xml` too, or verify values with a fresh `gdallocationinfo`/`ComputeStatistics`, not the sidecar.
 
+`ComputeStatistics(True)` (`approx_ok`) answers from the overviews, which are resampled, so its
+max is biased low (28% to 53% measured) and it cannot give a pixel sum. Use
+`ComputeStatistics(False)` or a blockwise pass for any number that gates or gets published.
+
 ## ⚠️ COG overviews: `gdal_translate -of COG` defaults to CUBIC, which rings NEGATIVE
 
 The COG driver's default `RESAMPLING` is **CUBIC** (verified: output is byte-identical to an
@@ -180,6 +184,12 @@ for ringing (data-workflows #641). Zoomed-out renders were garbage; native resol
 To get a **total from a density raster**: use `mean` (area-weighted mean density per cell), then multiply by the H3 cell ground area downstream — `total = mean_density × cell_area` (h3 `cell_area`; cells are ~equal-area per resolution). There is no one-step density→total reducer yet ([`boettiger-lab/datasets#105`](https://github.com/boettiger-lab/datasets/issues/105)). For an existing density-`sum` build, the equivalent correction is `value × pixel_area_ha` per cell (pixel area is latitude-dependent on a WGS84 grid, ≈ `9·cos(lat)` ha for a ~300 m grid).
 
 **Correctness check:** for an amount-per-pixel `sum`, the catalog-wide `SUM(value)` over the hex parquet MUST equal the source COG's pixel sum within sub-pixel rounding (compute the COG sum with a GDAL block-sum job; query the hex sum via the MCP). **For a density layer, the COG pixel-sum is itself *not* a total — validate the area-corrected `SUM` against the published global total instead** (e.g. irrecoverable carbon 2018 ≈ 137 Gt vs Noon et al. 139.1 Gt). `mean`/`mode` have no global invariant — spot-check the hex against the COG over a known region.
+
+**The warp must conserve mass too.** For a `sum` layer, reproject with `gdalwarp -r sum`, not
+`-r near`: nearest-neighbour changes pixel count and ground area per pixel, and lost 1% to 12% of the
+total on an EPSG:5070 → 4326 warp, growing with latitude. Resampler follows the units like the reducer:
+`-r sum` for amounts, `-r near` for densities, indices and classes. The hex `sum` is already
+coverage-weighted, so `-r sum` + `sum` conserves the total end to end.
 
 **Species richness / "peak" quantities** (MOBI, IUCN richness): the correct reducer is `max` — **not** `sum` (double-counts species) and **not** `mean` (averages away hotspots). `max` (and `min`) are supported as of [`boettiger-lab/datasets#95`](https://github.com/boettiger-lab/datasets/issues/95) (closed 2026-06-01); MOBI and IUCN-richness were rebuilt with `max` at res 8/5 (data-workflows #194). Validate: hex `MAX(value)` == COG max, and every cell value within `[COG min, COG max]` (roll up to coarser resolutions with `GROUP BY h<parent> + MAX`, never `AVG`/`SUM`).
 

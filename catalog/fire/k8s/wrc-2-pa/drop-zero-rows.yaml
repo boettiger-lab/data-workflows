@@ -1,4 +1,5 @@
 # Drop the zero-fill rows from the `huexposure` hex (decided on #611, 2026-09-18).
+# ⛔ SUPERSEDED by coverage-mask + repair-zero-fill; do not apply. Kept as the record of what rewrote the CONUS hex; see BUILD.md.
 #
 # `cng-datasets raster --hex-resampling sum` emits a row valued 0 for H3 cells whose source pixels
 # are ALL nodata. On `wrc-2-pa-huexposure-conus` that is 2,370,329,630 of 2,495,198,033 rows (95%),
