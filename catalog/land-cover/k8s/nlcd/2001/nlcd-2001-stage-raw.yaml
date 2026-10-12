@@ -45,13 +45,11 @@ spec:
           python3 -c "import zipfile; zipfile.ZipFile('$Z').extract('$T', '.')"
           rm -f $Z
           gdalinfo $T | grep -E 'Size is|Pixel Size|Origin|NoData|EPSG'
-          echo "SIZE_BYTES=$(stat -c %s $T)"
-          echo "SHA256=$(sha256sum $T | cut -d' ' -f1)"
-          echo "MD5=$(md5sum $T | cut -d' ' -f1)"
           rclone copy $T nrp:public-land-cover/raw/ -P --retries 10 --low-level-retries 20 --retries-sleep 20s
-          # Checksum recomputed from the staged object, not the local copy.
-          rclone hashsum MD5 nrp:public-land-cover/raw/$T
           rclone check /tmp/ nrp:public-land-cover/raw/ --include $T --one-way
+          # Size and SHA256 from the staged object, not the local copy.
+          rclone size nrp:public-land-cover/raw/$T
+          echo "SHA256=$(rclone cat nrp:public-land-cover/raw/$T | sha256sum | cut -d' ' -f1)"
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         resources:

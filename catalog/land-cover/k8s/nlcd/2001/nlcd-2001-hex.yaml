@@ -1,3 +1,4 @@
+# HAND-ROLLED: raster-workflow writes one dataset per COG; this appends a year= partition to the multi-year nlcd hex (#739)
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -15,7 +16,6 @@ spec:
     metadata: {labels: {k8s-app: nlcd-2001-hex}}
     spec:
       restartPolicy: Never
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -45,8 +45,8 @@ spec:
           # Single-year (2001) run of ../nlcd-hex.yaml (#739): appends year=2001 to the same
           # hive-partitioned dataset. Kept separate so the 19-year idx/122 mapping is unchanged.
           # Output: nlcd/hex/year=2001/h0=<cell>/data_0.parquet
-          Y=2001; H0=${JOB_COMPLETION_INDEX}; IDX=${H0}
-          echo "=== NLCD $Y res-10 mode, h0-index $H0 (global idx $IDX) ==="
+          Y=2001; H0=${JOB_COMPLETION_INDEX}
+          echo "=== NLCD $Y res-10 mode, h0-index $H0 ==="
           cng-datasets raster \
             --input "s3://public-land-cover/nlcd/nlcd-${Y}-cog.tif" \
             --output-parquet "s3://public-land-cover/nlcd/hex/year=${Y}/" \

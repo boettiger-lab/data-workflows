@@ -51,40 +51,17 @@ spec:
         - -c
         - |
           set -euo pipefail
-          # AGENTS.md Hard Boundary 1: canonical STAC lives on NRP S3 and never in this repo.
-          # The usual route is `rclone copyto` from a workstation, which needs NRP credentials.
-          # This job exists because a build session may not have them: the geo-workflows
-          # namespace holds the NRP `aws` + `rclone-config` secrets, so publishing from here
-          # keeps the credential where it already lives instead of copying it to a laptop.
-          #
-          # Each key in the mounted ConfigMap is a FLATTENED destination path in which "__"
-          # stands for "/". So
-          #   stac-collection.json                      -> s3://public-land-cover/stac-collection.json
-          #   nlcd__stac-collection.json
-          #                                             -> s3://public-land-cover/nlcd/stac-collection.json
-          shopt -s nullglob
-          published=0
-          for f in /stac/*.json /stac/*.md; do
-            base=$(basename "$f")
-            dest=${base//__//}
-            echo "=== $base -> nrp:public-land-cover/$dest ==="
-            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" 2>/dev/null \
-              || { case "$f" in *.json) echo "FATAL: $base is not valid JSON"; exit 1;; esac; }
-            # ConfigMap volume entries are symlinks into ../data, and rclone will not follow a
-            # symlink source without --copy-links; materialize a real file instead so the
-            # upload does not depend on that flag's semantics.
-            cat "$f" > /tmp/payload
-            rclone copyto /tmp/payload "nrp:public-land-cover/$dest"
-            published=$((published+1))
-          done
-          [ "$published" -gt 0 ] || { echo "FATAL: no files mounted at /stac"; exit 1; }
-          echo
-          echo "=== published $published object(s); verifying each is readable ==="
-          for f in /stac/*.json /stac/*.md; do
-            base=$(basename "$f"); dest=${base//__//}
-            sz=$(rclone size --json "nrp:public-land-cover/$dest" | python3 -c "import json,sys; print(json.load(sys.stdin)['bytes'])")
-            echo "  $dest  $sz bytes"
-          done
+          # Publishes only s3://public-land-cover/nlcd/stac-collection.json, from the
+          # ConfigMap built by patch-stac.py:
+          #   python3 patch-stac.py
+          #   kubectl -n geo-workflows create configmap nlcd-2001-stac-files \
+          #     --from-file=stac-collection.json=/tmp/nlcd-stac-collection.json
+          f=/stac/stac-collection.json
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['id']=='nlcd'" "$f"
+          # ConfigMap entries are symlinks; copy to a real file for rclone.
+          cat "$f" > /tmp/payload
+          rclone copyto /tmp/payload nrp:public-land-cover/nlcd/stac-collection.json
+          rclone size nrp:public-land-cover/nlcd/stac-collection.json
           echo "ALL DONE"
         resources:
           requests:
