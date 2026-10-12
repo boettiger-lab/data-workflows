@@ -18,8 +18,9 @@ HDR_COMMON = """#
 # CONUS res-10 hex from hours into 30-50 h).
 """
 
-TMPL = """# WRC v2 populated areas: {title}, {domain_long} -- res-10 `{reducer}` hex.
-#
+TMPL = """# HAND-ROLLED: emitted by gen_hex_yaml.py with an explicit h0 index list instead of the 122-completion fan-out (#611)
+# WRC v2 populated areas: {title}, {domain_long} -- res-10 `{reducer}` hex.
+{rerun}#
 # Source publication RDS-2020-0060-2 (*Spatial datasets of wildfire risk for populated areas*).
 # ⚠️ A DIFFERENT DOI from `catalog/fire/k8s/wrc-2/` (RDS-2020-0016-2, the landscape-wide risk
 # components). The `-pa-` in this dataset id marks the split.
@@ -172,7 +173,9 @@ for ds, title, col, reducer, note in [
     ]:
         n = len(h0s)
         hdr = HDR_COMMON.format(saved=122 - n, orig=122)
-        body = TMPL.format(
+        rerun = (f"# ⛔ Re-run order: this job leaves zero-fill rows (datasets#232). Run coverage-mask-{domain}.yaml"
+                 f" then repair-zero-fill-{domain}.yaml after it; see BUILD.md.\n") if reducer == "sum" else ""
+        body = TMPL.format(rerun=rerun,
             title=title, domain_long=long, domain_short=short, domain=domain,
             reducer=reducer, reducer_note=note, clip_note=clip, hdr_common=hdr,
             job=f"{ds}-{domain}-hex", n=n, h0s=" ".join(str(x) for x in h0s),
