@@ -16,8 +16,8 @@ passes the acceptance checks below.
 | `namespace: biodiversity` -> `geo-workflows` | AGENTS.md HARD BOUNDARY 3 |
 | `priorityClassName: opportunistic` dropped from hex, consolidate, rechunk, taxonomy, sidecar | those pods run well over an hour and were a preemption target at -2000000000 (skill `pod-preemption`). Kept on the two registry-fetch jobs, which run in minutes |
 | Parallelism: hex 100 -> 50, consolidate 30 -> 15, taxonomy 30 -> 20 | fair trade for the priority increase, keeps the node claim flat |
-| `maxFailedIndexes` added to hex (10) and consolidate (25) | a partial fan-out surfaces as `Failed` instead of a quiet gap. Consolidate's is loose because the dense h0 partitions are expected to OOM at 120Gi and get picked up by the rechunk job |
-| Rechunk `REMAP` reset to `FILL_ME` | the 2026-06 index list is specific to that build's sorted h0 order. An unedited apply now crashes the pod instead of rechunking the wrong partitions |
+| `maxFailedIndexes` added to hex (10) and consolidate (25) | once more than that many indexes fail, the Job is terminated early and its running pods are killed, instead of burning nodes on a broken run. `backoffLimitPerIndex` alone already marks the Job `Failed`. Consolidate's cap is loose so the expected OOM set (dense h0 partitions at 120Gi, picked up by the rechunk job) does not trip it |
+| Rechunk `REMAP` = `4,12,15,19,20,21,34,95` (`completions: 8`) | this build's OOM set. The indices are positions in a build's own sorted h0 list, so the 2026-06 list (11 indices) does not carry over, and neither does this one |
 
 The Stage 1 and Stage 2 scripts are otherwise unchanged, including the `#244` dedup by `gbifid`,
 the one-file-per-h0 write (`#279`) and the clean output path (`#240`).
@@ -38,8 +38,10 @@ kubectl wait -n $NS job/gbif-2026-09-hex --for=condition=complete --timeout=8640
 # Stage 2: dedup + consolidate -> 2026-09/hex/h0=<int>/data_0.parquet   (122 completions)
 kubectl apply -n $NS -f gbif-2026-09-consolidate.yaml
 
-# Dense partitions that OOM at 120Gi: read the failed indices, fill REMAP, then apply
-kubectl -n $NS get job gbif-2026-09-consolidate -o jsonpath='{.status.failedIndexes}{"\n"}'
+# Dense partitions that OOM at 120Gi. REMAP must list every index not in completedIndexes
+# (failedIndexes misses an index still running or retrying; skill `pod-preemption`).
+kubectl -n $NS get job gbif-2026-09-consolidate \
+  -o jsonpath='{.spec.completions}{"\n"}{.status.completedIndexes}{"\n"}{.status.failedIndexes}{"\n"}'
 kubectl apply -n $NS -f gbif-2026-09-consolidate-rechunk.yaml
 
 # Sidecars (after the hex is complete)
