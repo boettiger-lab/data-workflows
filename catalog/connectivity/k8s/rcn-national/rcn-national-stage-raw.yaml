@@ -1,0 +1,100 @@
+# TNC RCN CONUS (issue #606), step 0 — stage the two raws every later job reads.
+#
+#   raw/Resilient_and_Connected_Network_National_2024.zip   the nationally consistent FGDB
+#   raw/vat/a00000020_vat_RCN_National_2024.csv              its VAT, dumped from the zip
+#
+# Source: CRCS data page https://crcs.tnc.org/pages/data-terrestrial-resilience, section
+# "DATASETS FOR THE CONTERMINOUS US", "Nationally Consistent FGDB". The link is a Box public
+# shared link (https://tnc.box.com/s/14g44i2273abcdcjmdacat77ikr27gd0), downloaded headlessly
+# through Box's shared-file endpoint. Box serves an HTML interstitial rather than a 404 when a
+# link is withdrawn, so the size and sha256 are asserted. Both are the values of the copy
+# staged 2026-09-15 that the published products were built from (stat + sha256sum of the S3
+# object). A mismatch means upstream changed: stop, do not overwrite the staged copy.
+#
+# GDAL attaches no RAT to RCN_National_2024, but the VAT is the table a00000020 in RCN.gdb.
+# OpenFileGDB opens that table file directly. The dump reproduces the staged CSV byte for byte
+# (75245 bytes, sha256 7660adcb12799d810476fbbae786a693e933c202a75d85f62eeacef90185ef89).
+#
+#   kubectl apply -n geo-workflows -f catalog/connectivity/k8s/rcn-national/rcn-national-stage-raw.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rcn-national-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: rcn-national-stage-raw}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: rcn-national-stage-raw}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 10800
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts.
+      dnsConfig:
+        nameservers: [8.8.8.8, 1.1.1.1]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: OPENFILEGDB_LIST_ALL_TABLES, value: 'YES'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          ZIP=Resilient_and_Connected_Network_National_2024.zip
+          VAT=a00000020_vat_RCN_National_2024.csv
+          BYTES=1470642324
+          SHA256=6993d6c4a5d2b244b8a26b880a48201f3666d8e18720002fde21978a98a4b45a
+          URL="https://tnc.app.box.com/index.php?rm=box_download_shared_file&shared_name=14g44i2273abcdcjmdacat77ikr27gd0&file_id=f_1537337437697"
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+
+          curl -sSL --retry 8 --retry-all-errors --retry-delay 5 -o "$ZIP" "$URL"
+          got=$(stat -c%s "$ZIP")
+          sum=$(sha256sum "$ZIP" | cut -d' ' -f1)
+          echo "bytes:  $got"
+          echo "sha256: $sum"
+          if [ "$got" != "$BYTES" ] || [ "$sum" != "$SHA256" ]; then
+            echo "FATAL: expected $BYTES bytes, sha256 $SHA256" >&2
+            head -c 400 "$ZIP" >&2 || true
+            exit 1
+          fi
+
+          python3 - "$ZIP" "$VAT" <<'PY'
+          import csv, sys
+          from osgeo import gdal, ogr
+          gdal.UseExceptions()
+          z = f"/vsizip/{sys.argv[1]}"
+          path = next(n for n in gdal.ReadDirRecursive(z) if n.endswith("RCN.gdb/a00000020.gdbtable"))
+          ds = ogr.Open(f"{z}/{path}")
+          lyr = ds.GetLayer(0)
+          assert lyr.GetName() == "vat_RCN_National_2024", lyr.GetName()
+          d = lyr.GetLayerDefn()
+          fields = [d.GetFieldDefn(j).GetName() for j in range(d.GetFieldCount())]
+          with open(sys.argv[2], "w", newline="") as fh:
+              w = csv.writer(fh)
+              w.writerow(fields)
+              for f in lyr:
+                  w.writerow([f.GetField(k) for k in fields])
+          print(f"{lyr.GetFeatureCount()} VAT rows -> {sys.argv[2]}")
+          PY
+          echo "vat sha256: $(sha256sum "$VAT" | cut -d' ' -f1)"
+
+          rclone copyto "$ZIP" "nrp:public-connectivity/raw/$ZIP" $R
+          rclone copyto "$VAT" "nrp:public-connectivity/raw/vat/$VAT" $R
+          rclone lsl nrp:public-connectivity/raw/ --max-depth 2
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
