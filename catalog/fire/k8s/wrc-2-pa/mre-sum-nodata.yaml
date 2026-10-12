@@ -1,3 +1,4 @@
+# HAND-ROLLED: minimal reproduction for a cng-datasets bug report (datasets#232), not a pipeline step (#611)
 # MRE for a cng-datasets bug report (AGENTS.md Hard Boundary 2: report, never patch).
 #
 # Claim: with `--hex-resampling sum`, `cng-datasets raster` emits a row valued 0 for H3 cells whose

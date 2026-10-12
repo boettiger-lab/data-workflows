@@ -1,3 +1,4 @@
+# HAND-ROLLED: mean pass over the sum layer's COG used as a coverage mask, written to _mask/ not hex/ (#611)
 # Coverage mask for the `sum` layers -- the fix decided on #611 (2026-09-21).
 #
 # `cng-datasets raster --hex-resampling sum` writes a row valued 0 for every cell it enumerates,

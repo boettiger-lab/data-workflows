@@ -1,3 +1,4 @@
+# HAND-ROLLED: one-off post-hex filter of the published sum hex; superseded, kept as record (#611)
 # Drop the zero-fill rows from the `huexposure` hex (decided on #611, 2026-09-18).
 # ⛔ SUPERSEDED by coverage-mask + repair-zero-fill; do not apply. Kept as the record of what rewrote the CONUS hex; see BUILD.md.
 #

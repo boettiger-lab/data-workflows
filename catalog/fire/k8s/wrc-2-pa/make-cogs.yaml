@@ -1,3 +1,4 @@
+# HAND-ROLLED: reprojects each staged raster to an EPSG:4326 COG with per-source nodata assertion and per-theme resampler (#611)
 # Reproject the staged WRC v2 populated-areas rasters (RDS-2020-0060-2) to EPSG:4326 COGs on NRP S3.
 #
 # ⛔ THIS STEP IS NOT OPTIONAL AND ITS ABSENCE FAILS SILENTLY.
