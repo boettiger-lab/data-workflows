@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wcmc-split-layers
+  namespace: geo-workflows
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: split
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+          split_one () {
+            bucket=$1; srczip=$2; layer=$3
+            echo ""
+            echo "=== $bucket : $layer ==="
+            rm -rf /tmp/work; mkdir -p /tmp/work
+            unzip -j -o "/tmp/$srczip" "*${layer}.*" -d /tmp/work > /dev/null
+            # drop sidecars that are not part of the shapefile the reader needs
+            rm -f /tmp/work/*.xml /tmp/work/*.sbn /tmp/work/*.sbx
+            ls -la /tmp/work
+            ( cd /tmp/work && python3 -m zipfile -c "/tmp/${layer}.zip" ./* )
+            ls -l "/tmp/${layer}.zip"
+            rclone copyto "/tmp/${layer}.zip" "nrp:${bucket}/raw/${layer}.zip"
+            echo "uploaded -> s3://${bucket}/raw/${layer}.zip"
+          }
+
+          echo "### fetching source archives ###"
+          rclone copyto nrp:public-coral-reefs/raw/WCMC008_CoralReefs2018_v4_1.zip /tmp/WCMC008_CoralReefs2018_v4_1.zip
+          rclone copyto nrp:public-seagrass/raw/WCMC013-014_SeagrassPtPy2021_v7_1.zip /tmp/WCMC013-014_SeagrassPtPy2021_v7_1.zip
+
+          split_one public-coral-reefs WCMC008_CoralReefs2018_v4_1.zip        WCMC008_CoralReef2018_Py_v4_1
+          split_one public-coral-reefs WCMC008_CoralReefs2018_v4_1.zip        WCMC008_CoralReef2018_Pt_v4_1
+          split_one public-seagrass    WCMC013-014_SeagrassPtPy2021_v7_1.zip  WCMC013_014_Seagrasses_Py_v7_1
+          split_one public-seagrass    WCMC013-014_SeagrassPtPy2021_v7_1.zip  WCMC013_014_Seagrasses_Pt_v7_1
+
+          echo ""
+          echo "### SMOKE TEST: convert from a single-layer zip (the workaround must actually work) ###"
+          cng-convert-to-parquet /tmp/WCMC008_CoralReef2018_Pt_v4_1.zip /tmp/smoke.parquet --row-group-size 2000
+          echo "smoke exit=$?"
+          python3 -c "
+          import duckdb
+          c=duckdb.connect(); c.execute('LOAD spatial;')
+          print(c.execute(\"SELECT COUNT(*) rows, COUNT(DISTINCT _cng_fid) fids, ST_GeometryType(geom) gt FROM read_parquet('/tmp/smoke.parquet') GROUP BY 3\").fetchdf())
+          "
+          echo "=== split done ==="
+
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
