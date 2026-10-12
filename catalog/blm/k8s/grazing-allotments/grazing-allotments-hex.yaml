@@ -6,8 +6,8 @@ metadata:
   labels:
     k8s-app: grazing-allotments-hex
 spec:
-  completions: 102
-  parallelism: 34
+  completions: 22
+  parallelism: 22
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 1

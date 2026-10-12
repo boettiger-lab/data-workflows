@@ -24,6 +24,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: grazing-allotments-stage-raw
+  namespace: geo-workflows
   labels:
     k8s-app: grazing-allotments-stage-raw
 spec:
