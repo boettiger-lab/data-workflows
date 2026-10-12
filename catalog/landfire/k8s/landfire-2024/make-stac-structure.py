@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""STAC for the eight LANDFIRE 2024 structure/fuels collections (data-workflows #515),
+"""STAC for the eleven LANDFIRE 2024 structure/fuels collections (#515, #623),
 plus the public-landfire bucket collection that links them.
 
-Two shapes in one tranche, and they need opposite treatment:
+Three shapes in one tranche, and they need different treatment:
 
   CONTINUOUS (cbd, cbh, cc, ch) -- linearly scaled physical quantities. The pixel is NOT
   the value: the shipped CSV gives the decode (KGM3 = VALUE/100, METERS = VALUE/10,
@@ -11,9 +11,12 @@ Two shapes in one tranche, and they need opposite treatment:
   No classification:classes: a continuous surface has no class list, and anything listed
   there gets painted.
 
-  CATEGORICAL (fbfm13, fvc, fvh, fvt) -- class codes. Reducer is `mode`. classification:classes
+  CATEGORICAL (fbfm13, fbfm40, fvc, fvh, fvt) -- class codes. Reducer is `mode`. classification:classes
   comes from the shipped legend with fill codes REMOVED (#628: that list becomes a render
   colormap, so a fill code in it paints over real ground).
+
+  COG-ONLY (evc, evh) -- published as a raster with no hex table, on purpose (#623). See
+  the COGONLY block below for why.
 
 Every range, mean and `values` array here is MEASURED from the published hex, never taken
 from upstream documentation (#518). Class legends come from the CSV shipped in each product
@@ -28,8 +31,8 @@ BASE = f"https://s3-west.nrp-nautilus.io/{BUCKET}"
 ROOT = "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
 LANDING = "https://landfire.gov/data/FullExtentDownloads"
 EDITION = "LF 2024 (2.5.0)"
-ACCESSED = "2026-09-07"   # the seven structure/fuels layers, staged in one pass
-# FBFM40 was staged in an earlier pass (#623). The access date must be the date WE pulled
+ACCESSED = "2026-09-07"   # every layer not in ACCESSED_BY_LAYER, staged in one pass
+# FBFM40 and EVC were staged in an earlier pass (#623). The access date must be the date WE pulled
 # the archive, and the staged raw object's mtime is exactly that -- upstream republishes
 # the full-extent downloads in place, so a wrong date makes the provenance chain point at
 # an edition that may no longer be what is at the URL (AGENTS.md Step 1b).

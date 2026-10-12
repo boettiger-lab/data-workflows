@@ -11,7 +11,10 @@
 #
 # Writes exactly two objects:
 #   public-landfire/landfire-2024-fbfm40/stac-collection.json   (new)
-#   public-landfire/stac-collection.json                        (10 -> 11 children)
+#   public-landfire/stac-collection.json                        (13 children)
+#
+# This first ran at 10 -> 11 children. publish-stac-evc-evh.yaml then took the bucket to 13,
+# and the generator now always emits all 13, so the gate checks 13.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -74,7 +77,7 @@ spec:
           assert {91, 92, 93, 98, 99} <= set(vals), 'NB classes missing from values'
           b = json.load(open('/tmp/stac/landfire-bucket.json'))
           kids = [l['id'] for l in b['links'] if l['rel'] == 'child']
-          assert len(kids) == 11, kids
+          assert len(kids) == 13, kids
           assert 'landfire-2024-fbfm40' in kids, kids
           print('gate OK:', len(vals), 'values,', len(kids), 'children')
           PY
