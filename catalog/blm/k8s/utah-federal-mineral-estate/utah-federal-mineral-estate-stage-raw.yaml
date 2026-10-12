@@ -27,6 +27,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: utah-federal-mineral-estate-stage-raw
+  namespace: geo-workflows
   labels:
     k8s-app: utah-federal-mineral-estate-stage-raw
 spec:
@@ -188,6 +189,8 @@ spec:
           rclone copyto /tmp/utah-federal-mineral-estate.geojson \
             nrp:public-blm/raw/utah-federal-mineral-estate.geojson --s3-no-check-bucket
           echo "staged raw -> s3://public-blm/raw/utah-federal-mineral-estate.geojson"
+          rclone size nrp:public-blm/raw/utah-federal-mineral-estate.geojson
+          rclone cat  nrp:public-blm/raw/utah-federal-mineral-estate.geojson | sha256sum
         resources:
           requests:
             cpu: '2'

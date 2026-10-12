@@ -94,7 +94,7 @@ Use `--max-completions >= ceil(n_features / 1000)`; 102 here.
 
 Raw staged at `s3://public-blm/raw/utah-federal-mineral-estate.geojson`, 117,231,722 bytes,
 sha256 `1636cf7c7bec6d9d796193cea6614e6cfedcfe377f1a8f00ec2191f795f7ec5a` (recomputed from the
-object by the `raw-fingerprint` job, not transcribed).
+stored object by `utah-federal-mineral-estate-stage-raw.yaml`, not transcribed).
 
 Licence evidence is direct rather than inferred — the layer metadata states:
 `Access Constraints: None, these data are considered public domain.`
