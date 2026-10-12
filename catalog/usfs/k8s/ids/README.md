@@ -30,8 +30,8 @@ those two years, and that has to be stated in the collection description.
 `cng-convert-to-parquet` applies one `--layer` to every source, but IDS layer names carry a
 per-region suffix, so no single `--layer` addresses all nine GDBs. The merge jobs normalize the
 nine layers into one GPKG under a uniform name (which also resolves the CONUS ESRI:102039 vs
-Alaska CRS split) and convert from there. Applying the generated orchestrator `workflow.yaml`
-would re-run `convert` against the public endpoint and undo that.
+Alaska CRS split) and convert from there. The generated orchestrator `workflow.yaml` is not
+committed, because it would re-run `convert` against the public endpoint and undo that.
 
 ```bash
 # 1. stage raw + provenance manifest (once)
@@ -44,7 +44,7 @@ kubectl apply -n geo-workflows -f ids-year-census.yaml
 kubectl apply -n geo-workflows -f ids-survey-extent-merge.yaml
 kubectl apply -n geo-workflows -f ids-damage-merge.yaml
 
-# 4. remaining steps, applied individually -- NOT via workflow.yaml
+# 4. remaining steps, applied individually
 kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-pmtiles.yaml
 kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-hex.yaml
 
@@ -52,7 +52,7 @@ kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-hex.
 kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-hex-subsplit.yaml
 kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-merge-subchunks.yaml
 
-# repartition: use the node-local job, NOT the generated or the PVC manifest
+# repartition: use the node-local job, NOT the generated manifest
 kubectl apply -n geo-workflows -f survey-extent/ids-survey-extent-1999-2025-repartition-local.yaml
 
 # damage, after the survey-extent hex finishes (one k8s hex workflow at a time)

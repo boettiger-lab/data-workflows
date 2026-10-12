@@ -145,7 +145,7 @@ ephemeral /tmp (node-local):             114 MB/s
 
 Same pod, same node, same moment. **Low CPU with no spill means the job is waiting on I/O, and the
 PVC is the first thing to measure** — not the query. Rule of thumb: the PVC exists for scratch that
-genuinely exceeds the 50Gi ephemeral cap; if the working set fits in 50Gi, write locally. A job
+genuinely exceeds the 50Gi ephemeral default; if the working set fits in 50Gi, write locally. A job
 that writes one big file at a time, uploads it and deletes it (the repartition shape) usually fits,
 even when its *total* output is many times 50Gi. Worked example:
 `catalog/usfs/k8s/ids/survey-extent/ids-survey-extent-1999-2025-repartition-local.yaml`, which
@@ -165,11 +165,11 @@ archive, not its contents.
 ⛔ **`cng-datasets repartition` stages to a hardcoded `/tmp/hex`, so a big repartition needs the PVC
 mounted AT `/tmp`, or a hand-written job.** `TMPDIR` does not move it. When the chunks are large
 enough that one `h0` partition plus the `ORDER BY` spill exceeds 50Gi ephemeral, write the
-repartition as a small DuckDB job against the PVC instead of calling the CLI — keep the contract
+repartition as a small DuckDB job instead of calling the CLI — keep the contract
 identical (one `data_0.parquet` per `h0`, attributes joined from the flat parquet, rows ordered by
 `_cng_fid`, the completeness gate, and the UBIGINT check on the H3 columns). Worked example:
-`catalog/usfs/k8s/ids/survey-extent/ids-survey-extent-1999-2025-repartition-pvc.yaml`, for 63 GB of
-chunks over 6.23 billion rows.
+`catalog/usfs/k8s/ids/survey-extent/ids-survey-extent-1999-2025-repartition-local.yaml`, for 63 GB of
+chunks over 6.23 billion rows, writing one partition at a time to node-local `/tmp` (see above).
 
 **Hex OOM** → regenerate with `--hex-memory 64Gi` and/or more `--max-completions`, delete failed job, reapply.
 
