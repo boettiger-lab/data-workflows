@@ -435,7 +435,7 @@ fbfm13 is the nearest analogue: same product family, same `--nodata "-9999,32767
 `mode`. It cleared the exact four cells that failed or never ran here, on a quarter of the request.
 So the 192 Gi request was never the thing keeping these slices alive, and the **~160 Gi sizing
 figure recorded elsewhere in this document is superseded**. See the FBFM40 finish job
-(`hex/fbfm40/landfire-2024-fbfm40-hex-finish.yaml`), which requests 64 Gi at default priority.
+(`hex/fbfm40/landfire-2024-fbfm40-hex.yaml`), which requests 64 Gi at default priority.
 
 The practical implication still held, and was acted on: **run FBFM40 without EVC alongside**, which
 is what the finish job does.
@@ -766,7 +766,7 @@ evidence the signal is real.
   cancels. The two partial `hex-fractions` prefixes (vcc 1/6, evt 2/6, ~9 GB) were purged so they
   cannot fake coverage. `fractions` remains the right reducer for absolute acreage, rare or
   interspersed classes, and ecotone work — none of which this issue asks for.
-- **`landfire-2024-fbfm40`** — COG built, hex 2/6. Tracked in #623.
+- **`landfire-2024-fbfm40`** — COG built, hex 6/6. Tracked in #623.
 - **`landfire-2024-evc`** — COG built (8.5 GB, valid, retained), hex 0/6. Dropped on purpose; see
   the heterogeneity section above and #623.
 

@@ -1,3 +1,4 @@
+# HAND-ROLLED: 4-index h0 subset at default priority with per-index retries; raster-workflow emits all 122 h0 at opportunistic priority with backoffLimit 0 (#623)
 apiVersion: batch/v1
 kind: Job
 metadata:
