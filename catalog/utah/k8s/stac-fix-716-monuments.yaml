@@ -1,0 +1,53 @@
+# data-workflows#716: republish the benm-boundaries / gsenm-boundaries STAC from
+# catalog/utah/scripts/gen_stac.py (2026 era enacted by Proc. 11043 / 11044, BLM source +
+# access date + staged raw checksum, open temporal end, GSENM title, per-monument keywords).
+# Metadata only; no data is rebuilt. Leaf collections only: the bucket collection is not
+# regenerated (it also links the UGS/UDOGM/coal children).
+#
+# The generator is mounted from a ConfigMap built from the committed script:
+#   kubectl -n geo-workflows create configmap stac-fix-716-monuments \
+#     --from-file=gen_stac.py=catalog/utah/scripts/gen_stac.py --dry-run=client -o yaml \
+#     | kubectl apply -f -
+#   kubectl -n geo-workflows apply -f catalog/utah/k8s/stac-fix-716-monuments.yaml
+#
+# Idempotent: re-running writes the same two documents.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-fix-716-monuments
+  namespace: geo-workflows
+  labels: {k8s-app: stac-fix-716-monuments}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-fix-716-monuments}}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: fix, mountPath: /config, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+          python3 /config/gen_stac.py
+          for seg in bears-ears grand-staircase-escalante; do
+            rclone copyto "/tmp/${seg}-stac-collection.json" "nrp:public-utah/${seg}/stac-collection.json"
+            rclone cat "nrp:public-utah/${seg}/stac-collection.json" | python3 -c \
+              "import json,sys; d=json.load(sys.stdin); print(d['id'], d['title'], d['extent']['temporal'])"
+          done
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: fix, configMap: {name: stac-fix-716-monuments}}
