@@ -1,3 +1,4 @@
+# HAND-ROLLED: one pod per species raster (109 COGs); the generator emits one raster per job and cannot fan out over a file list (datasets#172)
 apiVersion: batch/v1
 kind: Job
 metadata:
