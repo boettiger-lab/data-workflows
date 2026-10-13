@@ -1,0 +1,345 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mesic-huc12-2026-09-enrich
+  namespace: geo-workflows
+  labels:
+    k8s-app: mesic-huc12-2026-09-enrich
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: mesic-huc12-2026-09-enrich
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: enrich
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          # Issue #609: the MAP HUC12 GeoPackage ships no HUC code -- only `name`, which is
+          # ambiguous (28,978 WBD watersheds under 23,626 distinct names in this footprint).
+          # Recover the code by spatial join against our own usgs-wbd hu12, which is what
+          # upstream built these polygons from, so the match is near-identity.
+          # The derived column is documented in STAC as derived BY US, not shipped upstream.
+          #
+          # Scope corrected 2026-09-21 (issue #609 comment 5769248942). Upstream ALSO ships
+          # 1,179 exact duplicate rows -- identical geometry AND identical attributes, differing
+          # only in `fid`. 20,032 source rows are 18,853 distinct watersheds. They are copies,
+          # not multipart pieces: for a code carrying two rows the summed polygon area is 1.998x
+          # the WBD watershed area. Leaving them in makes an unguarded SUM(area_vb_m2)
+          # over-count by ~6%, and makes a 1:1 huc12 key impossible. So: dedup first.
+          cd /tmp
+          # Snapshot the convert output so a failed run cannot destroy it. This MUST be
+          # create-only. An unconditional copy is re-entrant-unsafe: re-running enrich after a
+          # SUCCESS copies the already-enriched parquet over the pristine snapshot, destroying
+          # the only pre-enrich copy and forcing a convert re-run. Snapshot only when the
+          # published parquet is still the convert output, i.e. has no huc12 column yet.
+          echo "=== Snapshot the pre-enrich parquet (create-only) ==="
+          PUBLISHED_IS_RAW=$(python3 -c "
+          import duckdb, os
+          con = duckdb.connect()
+          con.execute(\"INSTALL httpfs; LOAD httpfs;\")
+          con.execute(\"SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';\")
+          con.execute(\"SET s3_use_ssl=false; SET s3_url_style='path';\")
+          con.execute(f\"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';\")
+          con.execute(f\"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';\")
+          cols = [c[0] for c in con.execute(
+              \"DESCRIBE SELECT * FROM read_parquet('s3://public-mesic/mesic-huc12-2026-09.parquet')\"
+          ).fetchall()]
+          print('no' if 'huc12' in cols else 'yes')
+          ")
+          if [ "$PUBLISHED_IS_RAW" = "yes" ]; then
+            echo "published parquet is the convert output -- refreshing the snapshot"
+            rclone copyto nrp:public-mesic/mesic-huc12-2026-09.parquet \
+                          nrp:public-mesic/staging/mesic-huc12-2026-09.preenrich.parquet
+          else
+            echo "published parquet is already enriched -- keeping the existing pristine snapshot"
+          fi
+          rclone lsl nrp:public-mesic/staging/
+
+          python3 - <<'PY'
+          import duckdb, os, sys
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';")
+          con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+          con.execute("SET memory_limit='20GB';")
+
+          SRC = 's3://public-mesic/staging/mesic-huc12-2026-09.preenrich.parquet'
+          WBD = 's3://public-usgs-wbd/wbd/hu12.parquet'
+          N_SRC_ROWS, N_DISTINCT = 20032, 18853
+
+          cols = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{SRC}')").fetchall()
+          print('source schema:'); [print('   ', c[0], c[1]) for c in cols]
+          geom = [c[0] for c in cols if c[1].startswith('GEOMETRY')]
+          if len(geom) != 1:
+              sys.exit('FATAL: expected exactly one GEOMETRY column, found %r' % geom)
+          G = geom[0]
+          attrs = [c[0] for c in cols if c[0] != G]
+          if 'huc12' in attrs:
+              sys.exit('FATAL: source already has a huc12 column -- enrich already ran?')
+
+          con.execute(f"CREATE TABLE raw AS SELECT * FROM read_parquet('{SRC}')")
+          n_raw = con.execute("SELECT COUNT(*) FROM raw").fetchone()[0]
+          print('\nupstream rows:', n_raw)
+          if n_raw != N_SRC_ROWS:
+              sys.exit('FATAL: expected %d rows from convert, got %d' % (N_SRC_ROWS, n_raw))
+
+          # --- Dedup. Group on the geometry AND every attribute except the row ids, so a group
+          # is only collapsed when the records are genuinely identical. If upstream ever ships
+          # rows that share a geometry but differ in an attribute, this leaves them BOTH in and
+          # the 1:1 gate below fails loudly rather than silently discarding real data.
+          keyattrs = [a for a in attrs if a not in ('_cng_fid', 'fid')]
+          keylist = ', '.join(['ST_AsWKB(%s)' % G] + ['"%s"' % a for a in keyattrs])
+          con.execute(f"""
+              CREATE TABLE m AS
+              SELECT MIN(_cng_fid) AS _cng_fid, MIN(fid) AS fid,
+                     {', '.join('ANY_VALUE("%s") AS "%s"' % (a, a) for a in keyattrs)},
+                     ANY_VALUE({G}) AS {G},
+                     COUNT(*) AS n_source_rows
+              FROM raw GROUP BY {keylist}
+          """)
+          n_m = con.execute("SELECT COUNT(*) FROM m").fetchone()[0]
+          n_dropped = n_raw - n_m
+          print('distinct watersheds  :', n_m)
+          print('duplicate rows removed:', n_dropped)
+          print('duplication profile  :',
+                con.execute("SELECT n_source_rows, COUNT(*) FROM m GROUP BY 1 ORDER BY 1").fetchall())
+          if n_m != N_DISTINCT:
+              sys.exit('FATAL: expected %d distinct watersheds, got %d -- upstream changed, '
+                       're-verify before publishing' % (N_DISTINCT, n_m))
+
+          bb = con.execute(f"SELECT MIN(ST_XMin({G})), MIN(ST_YMin({G})), MAX(ST_XMax({G})), MAX(ST_YMax({G})) FROM m").fetchone()
+          con.execute(f"""
+              CREATE TABLE w AS
+              SELECT huc12, name AS wbd_name, shape AS wgeom
+              FROM read_parquet('{WBD}')
+              WHERE ST_XMax(shape) >= {bb[0]} AND ST_XMin(shape) <= {bb[2]}
+                AND ST_YMax(shape) >= {bb[1]} AND ST_YMin(shape) <= {bb[3]}
+          """)
+          print('wbd candidates in bbox:', con.execute("SELECT COUNT(*) FROM w").fetchone()[0])
+
+          # --- Candidate overlaps. `ia` is intersection area in square degrees: fine as a
+          # ranking key, and the ratio to the mesic polygon area is what we judge quality on.
+          con.execute(f"""
+              CREATE TABLE cand AS
+              SELECT m._cng_fid AS fid, w.huc12, w.wbd_name, m.name AS mname,
+                     ST_Area(ST_Intersection(m.{G}, w.wgeom)) AS ia,
+                     ST_Area(m.{G})                          AS ma
+              FROM m JOIN w ON ST_Intersects(m.{G}, w.wgeom)
+          """)
+
+          # Rank each watershed's candidates by how much of the mesic polygon the WBD
+          # watershed contains. A MAJORITY FLOOR applies: below half, no watershed has a
+          # majority claim and a code would be a guess, so the watershed is left unassigned.
+          #
+          # Name is NOT a ranking key. Preferring an exact name match was tried and is wrong:
+          # it lets a sliver overlap outrank a near-perfect one, and it stole codes from the
+          # only genuine claimant (`Lone Tree Creek-Redwater River`, 0.9999 into
+          # 100600020808, and `Lower Eighteenmile Creek`, 0.9999 into 140401030309). Greedy
+          # assignment on overlap alone already resolves the case name preference was added
+          # for: `Carter Creek-South Fork Shoshone River` overlaps 100800120306 by 0.749 and
+          # its true watershed 100800130303 by 0.251, and once the stronger claimant takes
+          # the former it falls through to the latter unaided. Name agreement is reported
+          # below as a diagnostic only.
+          MIN_OVERLAP = 0.5
+          rows = con.execute(f"""
+              SELECT fid, huc12, (mname = wbd_name) AS name_match,
+                     CASE WHEN ma > 0 THEN ia / ma ELSE 0 END AS ratio
+              FROM cand WHERE ia > 0 AND ma > 0 AND ia / ma >= {MIN_OVERLAP}
+              ORDER BY fid, ratio DESC
+          """).fetchall()
+
+          cands = {}
+          for fid, huc12, name_match, ratio in rows:
+              cands.setdefault(fid, []).append((float(ratio), str(huc12), bool(name_match)))
+
+          # --- Greedy 1:1 assignment, strongest claim first, so a watershed that contains a
+          # mesic polygon almost entirely keeps it and a weaker claimant falls through to its
+          # next free candidate. A watershed with no free candidate gets NULL rather than a
+          # code another already owns: a duplicated key would let a consumer silently
+          # double-count watersheds.
+          claims = sorted(((cl[0][0], fid) for fid, cl in cands.items()), reverse=True)
+
+          taken, assign = {}, {}
+          for _, fid in claims:
+              for ratio, huc12, name_match in cands[fid]:
+                  if huc12 not in taken:
+                      taken[huc12] = fid
+                      assign[fid] = (huc12, name_match, ratio)
+                      break
+              else:
+                  assign[fid] = (None, False, 0.0)
+
+          all_fids = [r[0] for r in con.execute("SELECT _cng_fid FROM m").fetchall()]
+          for f in all_fids:
+              assign.setdefault(f, (None, False, 0.0))
+
+          # --- Phase 2: name rescue. Overlap decides first and alone, so nothing above can be
+          # stolen by a sliver. Only a watershed that overlap could NOT place is reconsidered,
+          # and only onto a code still free, and only on an EXACT and UNAMBIGUOUS name match.
+          # This is what recovers `Carter Creek-South Fork Shoshone River`: the MAP polygon is
+          # drawn so that 0.749 of it falls in the adjacent Buffalo Bill watershed and only
+          # 0.251 in the WBD watershed carrying its own name, so it clears no majority floor
+          # anywhere -- but the name is decisive evidence, and 100800130303 is free.
+          unplaced = [f for f in all_fids if assign.get(f, (None,))[0] is None]
+          named = con.execute("""
+              SELECT fid, huc12, ratio FROM (
+                  SELECT fid, huc12, ia / ma AS ratio,
+                         COUNT(*) OVER (PARTITION BY fid) AS n_named
+                  FROM cand WHERE ia > 0 AND ma > 0 AND mname = wbd_name
+              ) WHERE n_named = 1
+          """).fetchall()
+          rescued = 0
+          for fid, huc12, ratio in named:
+              if fid in unplaced and str(huc12) not in taken:
+                  taken[str(huc12)] = fid
+                  assign[fid] = (str(huc12), True, float(ratio))
+                  rescued += 1
+
+
+          for f in all_fids:
+              assign.setdefault(f, (None, False, 0.0))
+          nulls = sorted(f for f in all_fids if assign[f][0] is None)
+          no_cand = sorted(f for f in all_fids if f not in cands)
+          matched = n_m - len(nulls)
+          codes = [v[0] for v in assign.values() if v[0] is not None]
+          name_agree = sum(1 for v in assign.values() if v[0] is not None and v[1])
+          poor = sum(1 for v in assign.values() if v[0] is not None and v[2] < 0.90)
+
+          print()
+          print('=== RECONCILIATION vs usgs-wbd hu12 ===')
+          print('  upstream rows                :', n_raw)
+          print('  exact duplicate rows removed :', n_dropped)
+          print('  distinct watersheds          :', n_m)
+          print('  assigned a huc12             :', matched)
+          print('  left NULL                    :', len(nulls))
+          print('  no candidate over the floor  :', len(no_cand))
+          print('  distinct huc12 assigned      :', len(set(codes)))
+          print('  duplicate huc12 codes        :', len(codes) - len(set(codes)))
+          print('  rescued by exact name match  :', rescued)
+          print('  assigned name also agrees    :', name_agree)
+          print('  assigned overlap below 0.90  :', poor)
+          if nulls:
+              print()
+              print('  unassigned watersheds (published with an empty huc12):')
+              for f in nulls:
+                  nm = con.execute("SELECT name FROM m WHERE _cng_fid = ?", [f]).fetchone()[0]
+                  best = con.execute("""
+                      SELECT huc12, ROUND(ia/ma, 4) FROM cand
+                      WHERE fid = ? AND ma > 0 ORDER BY ia/ma DESC LIMIT 1
+                  """, [f]).fetchone()
+                  print('    _cng_fid=%d name=%r best candidate=%s' % (f, nm, best))
+
+          # --- Gate. Uniqueness is the whole point of deriving this column, so a duplicate
+          # code fails the run and leaves the pre-enrich parquet in place. A low overlap is
+          # REPORTED but does not fail: the MAP export and the WBD edition differ slightly
+          # along some watershed boundaries, which changes the overlap without making the
+          # code ambiguous. A handful of unassigned watersheds is expected (upstream ships at
+          # least one record whose geometry spans two watersheds and whose name is a HUC code
+          # rather than a name); a large number means the join has broken and must be
+          # re-verified before publishing.
+          MAX_NULLS = 5
+          ok = True
+          if len(codes) != len(set(codes)):
+              print('FAIL: assignment is not 1:1 -- %d duplicate huc12 codes'
+                    % (len(codes) - len(set(codes)))); ok = False
+          if len(nulls) > MAX_NULLS:
+              print('FAIL: %d watersheds could not be assigned a unique code, over the %d '
+                    'expected -- re-verify the join before publishing' % (len(nulls), MAX_NULLS))
+              ok = False
+          if not ok:
+              raise SystemExit(1)
+          print('ASSIGNMENT VALIDATED 1:1 over %d of %d watersheds' % (matched, n_m))
+
+          con.execute("CREATE TABLE amap (fid BIGINT, huc12 VARCHAR)")
+          con.executemany("INSERT INTO amap VALUES (?, ?)",
+                          [(f, v[0]) for f, v in assign.items()])
+
+          out = '/tmp/mesic-huc12-2026-09.parquet'
+          sel = ', '.join(['m."%s"' % a for a in attrs])
+          con.execute(f"""
+              COPY (SELECT {sel}, a.huc12 AS huc12, m.{G} AS {G}
+                    FROM m LEFT JOIN amap a ON m._cng_fid = a.fid
+                    ORDER BY a.huc12 NULLS LAST)
+              TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 2000)
+          """)
+          print('wrote', out)
+
+          chk = con.execute(f"""
+              SELECT COUNT(*), COUNT(huc12), COUNT(DISTINCT huc12),
+                     MIN(ST_XMin({G})), MIN(ST_YMin({G})), MAX(ST_XMax({G})), MAX(ST_YMax({G})),
+                     COUNT(*) FILTER (WHERE {G} IS NULL)
+              FROM read_parquet('{out}')
+          """).fetchone()
+          print('rewrite check: rows=%d huc12=%d distinct=%d nullgeom=%d' % (chk[0], chk[1], chk[2], chk[7]))
+          if chk[0] != n_m or chk[1] != matched or chk[2] != len(set(codes)):
+              sys.exit('FATAL: row/huc12 counts changed on rewrite')
+          if chk[7] != 0:
+              sys.exit('FATAL: rewritten parquet lost a geometry')
+          if abs(chk[3]-bb[0]) > 1e-6 or abs(chk[6]-bb[3]) > 1e-6:
+              sys.exit('FATAL: bbox moved on rewrite -- coordinate order suspect')
+          print('REWRITE VALIDATED')
+          PY
+
+          echo
+          echo "=== Publishing enriched parquet over the convert output ==="
+          rclone copyto /tmp/mesic-huc12-2026-09.parquet nrp:public-mesic/mesic-huc12-2026-09.parquet -P
+          rclone lsl nrp:public-mesic/ | grep huc12
+          echo "ALL DONE"
+        resources:
+          requests:
+            cpu: '4'
+            memory: 24Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 24Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

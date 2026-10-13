@@ -1,0 +1,218 @@
+queue: geo-workflows
+jobSetId: mesic-huc12-2026-09-enrich
+jobs:
+- namespace: geo-workflows
+  priorityClassName: armada-default
+  podSpec:
+    restartPolicy: Never
+    containers:
+    - name: enrich
+      image: ghcr.io/boettiger-lab/datasets:latest
+      imagePullPolicy: Always
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: aws
+            key: AWS_SECRET_ACCESS_KEY
+      - name: AWS_S3_ENDPOINT
+        value: rook-ceph-rgw-nautiluss3.rook
+      - name: AWS_PUBLIC_ENDPOINT
+        value: s3-west.nrp-nautilus.io
+      - name: AWS_HTTPS
+        value: 'false'
+      - name: AWS_VIRTUAL_HOSTING
+        value: 'FALSE'
+      volumeMounts:
+      - name: rclone-config
+        mountPath: /root/.config/rclone
+        readOnly: true
+      command:
+      - bash
+      - -c
+      - |
+        set -e
+        # Issue #609: the MAP HUC12 GeoPackage ships no HUC code -- only `name`, which is
+        # ambiguous (28,978 WBD watersheds under 23,626 distinct names in this footprint).
+        # Recover the code by max-overlap spatial join against our own usgs-wbd hu12, which
+        # is what upstream built these polygons from, so the match should be near-identity.
+        # The derived column is documented in STAC as derived BY US, not shipped upstream.
+        cd /tmp
+        echo "=== Snapshot the pre-enrich parquet so a failed run cannot destroy convert output ==="
+        rclone copyto nrp:public-mesic/mesic-huc12-2026-09.parquet \
+                      nrp:public-mesic/staging/mesic-huc12-2026-09.preenrich.parquet
+        rclone lsl nrp:public-mesic/staging/
+
+        python3 - <<'PY'
+        import duckdb, json, sys
+        con = duckdb.connect()
+        con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+        con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+        con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+        import os
+        con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';")
+        con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+
+        SRC = 's3://public-mesic/staging/mesic-huc12-2026-09.preenrich.parquet'
+        WBD = 's3://public-usgs-wbd/wbd/hu12.parquet'
+
+        cols = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{SRC}')").fetchall()
+        print('source schema:'); [print('   ', c[0], c[1]) for c in cols]
+        geom = [c[0] for c in cols if c[1].startswith('GEOMETRY')]
+        if len(geom) != 1:
+            sys.exit('FATAL: expected exactly one GEOMETRY column, found %r' % geom)
+        G = geom[0]
+        attrs = [c[0] for c in cols if c[0] != G]
+        if 'huc12' in attrs:
+            sys.exit('FATAL: source already has a huc12 column -- enrich already ran?')
+        print('geometry column:', G)
+
+        con.execute(f"CREATE TABLE m AS SELECT * FROM read_parquet('{SRC}')")
+        n_m = con.execute("SELECT COUNT(*) FROM m").fetchone()[0]
+        print('mesic HUC12 features:', n_m)
+        if n_m != 20032:
+            sys.exit('FATAL: expected 20032 features from convert, got %d' % n_m)
+
+        bb = con.execute(f"SELECT MIN(ST_XMin({G})), MIN(ST_YMin({G})), MAX(ST_XMax({G})), MAX(ST_YMax({G})) FROM m").fetchone()
+        print('mesic bbox:', bb)
+
+        con.execute(f"""
+            CREATE TABLE w AS
+            SELECT huc12, name AS wbd_name, shape AS wgeom
+            FROM read_parquet('{WBD}')
+            WHERE ST_XMax(shape) >= {bb[0]} AND ST_XMin(shape) <= {bb[2]}
+              AND ST_YMax(shape) >= {bb[1]} AND ST_YMin(shape) <= {bb[3]}
+        """)
+        print('wbd candidates in bbox:', con.execute("SELECT COUNT(*) FROM w").fetchone()[0])
+
+        # Max-overlap match. `ia` is the intersection area in square degrees -- fine as a
+        # ranking key; the ratio below is what we actually judge the match on.
+        con.execute(f"""
+            CREATE TABLE best AS
+            WITH pairs AS (
+                SELECT m._cng_fid AS fid,
+                       w.huc12,
+                       w.wbd_name,
+                       ST_Area(ST_Intersection(m.{G}, w.wgeom)) AS ia,
+                       ST_Area(m.{G})                          AS ma
+                FROM m JOIN w ON ST_Intersects(m.{G}, w.wgeom)
+            ), ranked AS (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY fid ORDER BY ia DESC) AS rn,
+                          COUNT(*)     OVER (PARTITION BY fid)                  AS n_cand
+                FROM pairs WHERE ia > 0
+            )
+            SELECT fid, huc12, wbd_name, ia, ma, n_cand,
+                   CASE WHEN ma > 0 THEN ia / ma ELSE NULL END AS overlap_ratio
+            FROM ranked WHERE rn = 1
+        """)
+
+        stats = con.execute("""
+            SELECT COUNT(*)                                    AS matched,
+                   COUNT(DISTINCT huc12)                       AS distinct_huc12,
+                   MIN(overlap_ratio)                          AS min_ratio,
+                   quantile_cont(overlap_ratio, 0.01)          AS p01_ratio,
+                   median(overlap_ratio)                       AS median_ratio,
+                   SUM(CASE WHEN overlap_ratio < 0.90 THEN 1 ELSE 0 END) AS poor_matches,
+                   AVG(n_cand)                                 AS avg_candidates
+            FROM best
+        """).fetchone()
+        matched, distinct_huc12, min_ratio, p01, med, poor, avg_cand = stats
+
+        print()
+        print('=== RECONCILIATION vs usgs-wbd hu12 ===')
+        print('  mesic features          :', n_m)
+        print('  matched                 :', matched)
+        print('  unmatched               :', n_m - matched)
+        print('  distinct huc12 assigned :', distinct_huc12)
+        print('  duplicate huc12 codes   :', matched - distinct_huc12)
+        print('  overlap ratio  min      : %.4f' % min_ratio)
+        print('  overlap ratio  p01      : %.4f' % p01)
+        print('  overlap ratio  median   : %.4f' % med)
+        print('  matches below 0.90      :', poor)
+        print('  avg candidate overlaps  : %.2f' % avg_cand)
+
+        if matched < n_m:
+            print()
+            print('unmatched sample:')
+            for r in con.execute(f"SELECT m._cng_fid, m.name FROM m LEFT JOIN best b ON m._cng_fid=b.fid WHERE b.fid IS NULL LIMIT 20").fetchall():
+                print('   ', r)
+        if matched != distinct_huc12:
+            print()
+            print('duplicate-code sample:')
+            for r in con.execute("SELECT huc12, COUNT(*) n FROM best GROUP BY huc12 HAVING COUNT(*)>1 ORDER BY n DESC LIMIT 20").fetchall():
+                print('   ', r)
+
+        # Gate. A partial or many-to-one match is NOT publishable as a join key: it would
+        # let a consumer silently double-count watersheds. Fail loudly and leave the
+        # pre-enrich parquet in place rather than publish an ambiguous code.
+        ok = True
+        if matched != n_m:
+            print('FAIL: %d of %d features have no WBD match' % (n_m - matched, n_m)); ok = False
+        if matched != distinct_huc12:
+            print('FAIL: match is not 1:1 -- %d duplicate huc12 codes' % (matched - distinct_huc12)); ok = False
+        if poor > 0:
+            print('FAIL: %d matches overlap their WBD polygon by <90%% of the mesic polygon area' % poor); ok = False
+        if not ok:
+            raise SystemExit(1)
+        print('JOIN VALIDATED 1:1')
+
+        out = '/tmp/mesic-huc12-2026-09.parquet'
+        sel = ', '.join(['m."%s"' % a for a in attrs])
+        con.execute(f"""
+            COPY (SELECT {sel}, b.huc12 AS huc12, m.{G} AS {G}
+                  FROM m JOIN best b ON m._cng_fid = b.fid
+                  ORDER BY b.huc12)
+            TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 2000)
+        """)
+        print('wrote', out)
+
+        # Verify the rewrite kept a real geometry column and did not mangle coordinates.
+        chk = con.execute(f"""
+            SELECT COUNT(*), COUNT(huc12), COUNT(DISTINCT huc12),
+                   MIN(ST_XMin({G})), MIN(ST_YMin({G})), MAX(ST_XMax({G})), MAX(ST_YMax({G})),
+                   SUM(CASE WHEN NOT ST_IsValid({G}) THEN 1 ELSE 0 END)
+            FROM read_parquet('{out}')
+        """).fetchone()
+        print('rewritten: rows=%d huc12=%d distinct=%d bbox=(%.4f,%.4f,%.4f,%.4f) invalid_geom=%d' % chk)
+        outcols = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{out}')").fetchall()
+        if not any(c[1].startswith('GEOMETRY') for c in outcols):
+            sys.exit('FATAL: rewritten parquet lost its GEOMETRY column')
+        if chk[0] != n_m or chk[1] != n_m or chk[2] != n_m:
+            sys.exit('FATAL: row/huc12 counts changed on rewrite')
+        if abs(chk[3]-bb[0]) > 1e-6 or abs(chk[6]-bb[3]) > 1e-6:
+            sys.exit('FATAL: bbox moved on rewrite -- coordinate order suspect')
+        print('REWRITE VALIDATED')
+        PY
+
+        echo
+        echo "=== Publishing enriched parquet over the convert output ==="
+        rclone copyto /tmp/mesic-huc12-2026-09.parquet nrp:public-mesic/mesic-huc12-2026-09.parquet -P
+        rclone lsl nrp:public-mesic/ | grep huc12
+        echo "ALL DONE"
+      resources:
+        requests:
+          cpu: '4'
+          memory: 24Gi
+          ephemeral-storage: 20Gi
+        limits:
+          cpu: '4'
+          memory: 24Gi
+          ephemeral-storage: 20Gi
+    volumes:
+    - name: rclone-config
+      secret:
+        secretName: rclone-config
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-10de.present
+              operator: NotIn
+              values:
+              - 'true'

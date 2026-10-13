@@ -1,0 +1,113 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mesic-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: mesic-publish-stac
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: mesic-publish-stac
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish-stac
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: stac-files
+          mountPath: /stac
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # AGENTS.md Hard Boundary 1: canonical STAC lives on NRP S3 and never in this repo.
+          # The usual route is `rclone copyto` from a workstation, which needs NRP credentials.
+          # This job exists because a build session may not have them: the geo-workflows
+          # namespace holds the NRP `aws` + `rclone-config` secrets, so publishing from here
+          # keeps the credential where it already lives instead of copying it to a laptop.
+          #
+          # Each key in the mounted ConfigMap is a FLATTENED destination path in which "__"
+          # stands for "/". So
+          #   stac-collection.json                      -> s3://public-mesic/stac-collection.json
+          #   mesic-presence-2026-09__stac-collection.json
+          #                                             -> s3://public-mesic/mesic-presence-2026-09/stac-collection.json
+          shopt -s nullglob
+          published=0
+          for f in /stac/*.json /stac/*.md; do
+            base=$(basename "$f")
+            dest=${base//__//}
+            echo "=== $base -> nrp:public-mesic/$dest ==="
+            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" 2>/dev/null \
+              || { case "$f" in *.json) echo "FATAL: $base is not valid JSON"; exit 1;; esac; }
+            # ConfigMap volume entries are symlinks into ../data, and rclone will not follow a
+            # symlink source without --copy-links; materialize a real file instead so the
+            # upload does not depend on that flag's semantics.
+            cat "$f" > /tmp/payload
+            rclone copyto /tmp/payload "nrp:public-mesic/$dest"
+            published=$((published+1))
+          done
+          [ "$published" -gt 0 ] || { echo "FATAL: no files mounted at /stac"; exit 1; }
+          echo
+          echo "=== published $published object(s); verifying each is readable ==="
+          for f in /stac/*.json /stac/*.md; do
+            base=$(basename "$f"); dest=${base//__//}
+            sz=$(rclone size --json "nrp:public-mesic/$dest" | python3 -c "import json,sys; print(json.load(sys.stdin)['bytes'])")
+            echo "  $dest  $sz bytes"
+          done
+          echo "ALL DONE"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: stac-files
+        configMap:
+          name: mesic-stac-files
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
