@@ -1,0 +1,91 @@
+# Step 1b: stage the NFS roadless land-status stratification (Manley 2026, v1.0,
+# doi:10.5281/zenodo.23105982) at s3://public-usfs/raw/ so the convert step restarts
+# from S3 rather than re-hitting Zenodo, which rate-limits (HTTP 429).
+#
+# Source (Zenodo API, 2026-10-02): roadless_land_status_shapefile.zip, 196,065,585 bytes,
+# md5 6a3ef3ac5e8a4bdf9e16dde5bc6d956a. The zip carries the FGDC metadata
+# roadless_land_status_metadata.xml, extracted alongside so STAC provenance can cite it
+# without unpacking the archive. public-usfs already exists (#584), so no setup-bucket
+# ordering constraint applies.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: roadless-land-status-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: roadless-land-status-stage-raw
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: roadless-land-status-stage-raw
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cd /tmp
+          F=roadless_land_status_shapefile.zip
+          echo "Downloading ${F} ..."
+          curl -sSL --fail --retry 8 --retry-delay 30 --retry-all-errors -o "$F" \
+            "https://zenodo.org/records/23105982/files/${F}?download=1"
+
+          # Fail loudly on an HTML error page served with HTTP 200, or a truncated body.
+          SIZE=$(stat -c %s "$F")
+          echo "Downloaded ${SIZE} bytes"
+          if [ "$SIZE" -ne 196065585 ]; then
+            echo "ERROR: expected 196065585 bytes, got ${SIZE}" >&2
+            exit 1
+          fi
+          echo "6a3ef3ac5e8a4bdf9e16dde5bc6d956a  $F" | md5sum -c -
+          sha256sum "$F"
+
+          echo "Extracting FGDC metadata sidecar ..."
+          unzip -o -j "$F" 'roadless_land_status_metadata.xml'
+
+          echo "Staging to s3://public-usfs/raw/ ..."
+          rclone copy "$F" nrp:public-usfs/raw/ -P
+          rclone copy roadless_land_status_metadata.xml nrp:public-usfs/raw/ -P
+          rclone lsl nrp:public-usfs/raw/ | grep roadless_land_status
+          echo "✓ Complete"
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
