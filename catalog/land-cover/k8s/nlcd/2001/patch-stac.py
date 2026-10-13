@@ -2,7 +2,8 @@
 """Apply the #739 map-year-2001 edits to the live nlcd collection and write it to /tmp.
 
 Idempotent: run against a collection that already has the edits, it writes it unchanged.
-Edits: add the nlcd-cog-2001 asset, 19 -> 20 map years, the 2001 provenance paragraph,
+Edits: add the nlcd-cog-2001 asset, 19 -> 20 map years, the 2001 provenance paragraph
+(replacing any earlier version of it),
 and drop the 250 NoData entry from classification:classes on every COG (#630).
 
   python3 patch-stac.py
@@ -11,14 +12,15 @@ and drop the 250 NoData entry from classification:classes on every COG (#630).
 import argparse
 import copy
 import json
+import re
 import urllib.request
 
 URL = "https://s3-west.nrp-nautilus.io/public-land-cover/nlcd/stac-collection.json"
 OUT = "/tmp/nlcd-stac-collection.json"
 
 PROVENANCE = (
-    "**Map year 2001 provenance (#739):** added after the original 19-year build. Accessed "
-    "2026-10-01 from MRLC (`Annual_NLCD_LndCov_2001_CU_C1V2.zip`, Last-Modified 2026-04-20); "
+    "**Map year 2001:** accessed 2026-10-01 from MRLC "
+    "(`Annual_NLCD_LndCov_2001_CU_C1V2.zip`, Last-Modified 2026-04-20); "
     "upstream publishes no edition label beyond the collection version C1V2. Staged raw: "
     "`s3://public-land-cover/raw/Annual_NLCD_LndCov_2001_CU_C1V2.tif`, 1,367,828,587 bytes, "
     "SHA256 `0872ceddd4fa68351654f75cf06572a4ff34f64bb5f0c685f798796efda48900`. Processed with "
@@ -42,8 +44,10 @@ def main():
     d = doc["description"]
     d = d.replace("across 19 map years", "across 20 map years")
     d = d.replace("1998, 2000, 2005,", "1998, 2000, 2001, 2005,")
-    if "Map year 2001 provenance" not in d:
-        d = d.rstrip() + "\n\n" + PROVENANCE
+    # Replace any earlier version of the 2001 paragraph (it begins "**Map year 2001")
+    # rather than appending a second one.
+    d = re.sub(r"\n*\*\*Map year 2001[^\n]*(?=\n\n|\Z)", "", d)
+    d = d.rstrip() + "\n\n" + PROVENANCE
     doc["description"] = d
 
     for k in ("nlcd-hex", "nlcd-hex-fractions"):
