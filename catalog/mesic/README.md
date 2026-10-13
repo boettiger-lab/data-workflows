@@ -6,8 +6,9 @@ Issue [#609](https://github.com/boettiger-lab/data-workflows/issues/609). Bucket
 the 14-state sagebrush biome, from Working Lands for Wildlife / University of Montana NTSG.
 Source: <https://rangeland.ntsg.umt.edu/data/mesic/> (the `README` at that root is the authority).
 
-**Tier 1 (this build):** two persistence rasters, a derived presence-fraction raster, and the HUC12
-subwatershed table. **Tier 2 (separate build):** the 16.9 GB valley-bottom GeoPackage.
+**Tier 1:** two persistence rasters, a derived presence-fraction raster, and the HUC12
+subwatershed table. **Tier 2:** the 16.9 GB valley-bottom GeoPackage, published as GeoParquet and
+PMTiles only (see below).
 
 ## Upstream is replaced in place — read this before re-running
 
@@ -337,3 +338,24 @@ SELECT SUM(prV_PclH * area_vb_m2) / SUM(area_vb_m2) FROM (
 
 `prHuc_vb` is a share of the whole watershed, so its weight is watershed area, which this table does
 not carry; take `areasqkm` from `usgs-wbd-hu12`, joined on `huc12`.
+
+## Tier 2: valley bottoms, GeoParquet + PMTiles, no hex
+
+`mesic-valley-bottoms-2026-09` holds 24,690,182 valley-bottom segments. Most are smaller than one
+h10 cell (sampled means 3,300 to 10,800 m2; an h10 cell is about 15,000 m2), so a hex table would
+mostly repeat values the rasters, NHD and LANDFIRE layers already carry, and would lose the segment
+outlines. The layer is therefore published without hex (scope recorded in #609).
+
+`cng-datasets workflow` has no option to skip hex, so the hex, plan, repartition and orchestrator
+manifests it generated were deleted. Run the remaining steps by hand. The convert and pmtiles jobs
+carry raised memory and ephemeral storage, declared in each file.
+
+```bash
+kubectl apply $N -f $K/mesic-valley-bottoms-stage-raw.yaml       # 16.9 GB, size-asserted, sha256
+kubectl wait  $N --for=condition=complete job/mesic-valley-bottoms-stage-raw --timeout=7200s
+kubectl apply $N -f $K/mesic-valley-bottoms-2026-09/mesic-valley-bottoms-2026-09-convert.yaml
+kubectl wait  $N --for=condition=complete job/mesic-valley-bottoms-2026-09-convert --timeout=43200s
+kubectl apply $N -f $K/mesic-valley-bottoms-2026-09/mesic-valley-bottoms-2026-09-pmtiles.yaml
+```
+
+The only id upstream ships is `fid`. Convert writes it as `_cng_fid`.
