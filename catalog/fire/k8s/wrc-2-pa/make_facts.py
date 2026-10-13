@@ -56,6 +56,29 @@ STATIC = {
         "src_nodata_text": "-3.4028235e+38",
         "created": "2026-09-16T22:28:37Z",
     },
+    # #692.
+    "wrc-2-pa-buildingcount-conus": {
+        "raw_name": "BuildingCount_CONUS.tif",
+        # UInt16 band with a POSITIVE sentinel, in a 0-50 valid range.
+        "src_nodata_text": "255",
+        "created": "2026-10-13T22:00:10Z",
+    },
+    "wrc-2-pa-buildingcount-ak": {
+        "raw_name": "BuildingCount_AK.tif",
+        # Int16 here, not UInt16 as in CONUS; same sentinel.
+        "src_nodata_text": "255",
+        "created": "2026-10-13T21:09:22Z",
+    },
+    "wrc-2-pa-huimpact-conus": {
+        "raw_name": "HUImpact_CONUS.tif",
+        "src_nodata_text": "-2147483648",
+        "created": "2026-10-13T20:49:58Z",
+    },
+    "wrc-2-pa-huimpact-ak": {
+        "raw_name": "HUImpact_AK.tif",
+        "src_nodata_text": "-2147483648",
+        "created": "2026-10-13T20:47:27Z",
+    },
 }
 
 # Source pixel sums, measured in make-cogs.yaml before the warp. For a `sum` theme this is the
@@ -67,6 +90,14 @@ SRC_SUM = {
     # #692. BuildingCount is an integer count, so these sums are exact.
     "wrc-2-pa-buildingcount-conus": 145824593.0,
     "wrc-2-pa-buildingcount-ak": 311888.0,
+}
+
+# The Alaska COG is clipped at 180W (make-cogs.yaml), which drops the far-western Aleutians. That
+# area holds no HUExposure, so its check passed at 1e-5, but it does hold buildings: Shemya and Attu.
+# Measured on #692: source 311,888, COG 311,790.26, a loss of ~98 buildings (3.1e-4). The clip can
+# only remove mass, so the COG sum must not exceed the source, and the loss stays bounded.
+CLIP_TOL = {
+    "wrc-2-pa-buildingcount-ak": 1e-3,
 }
 
 REQUIRED = ("bbox", "cog_min", "cog_max", "cog_mean", "created", "raw_name", "rows",
@@ -106,7 +137,11 @@ def main() -> int:
         if "src_sum" in facts[ds] and "cog_sum" in facts[ds]:
             rel = abs(facts[ds]["cog_sum"] - facts[ds]["src_sum"]) / facts[ds]["src_sum"]
             print(f"  {ds}: COG sum vs source sum  rel {rel:.3e}", file=sys.stderr)
-            if rel > 1e-5:
+            tol = CLIP_TOL.get(ds, 1e-5)
+            if ds in CLIP_TOL and facts[ds]["cog_sum"] > facts[ds]["src_sum"] * (1 + 1e-5):
+                print(f"FATAL: {ds} gained mass across a clip that can only remove it", file=sys.stderr)
+                bad = True
+            if rel > tol:
                 print(f"FATAL: {ds} did not conserve its total across the warp", file=sys.stderr)
                 bad = True
     if bad:

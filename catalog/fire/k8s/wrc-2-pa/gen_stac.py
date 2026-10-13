@@ -259,6 +259,16 @@ def build_collection(dataset: str, facts: dict) -> dict:
         else ""
     )
 
+    # Data-driven: only where the measured COG total fell short of the source (the Alaska clip).
+    clip_loss = ""
+    if is_sum and "src_sum" in f and "cog_sum" in f:
+        lost = f["src_sum"] - f["cog_sum"]
+        if lost / f["src_sum"] > 1e-5:
+            clip_loss = (
+                f" The clip removes about {round(lost):,} {theme['units']} held in those islands, "
+                f"{100 * lost / f['src_sum']:.2f} percent of the source total."
+            )
+
     if is_sum:
         reducer_para = (
             f"Coverage is {domain['article']}{domain['label']} at a 30 metre source pixel "
@@ -269,7 +279,7 @@ def build_collection(dataset: str, facts: dict) -> dict:
             f"each cell gathers roughly 17 source pixels. Because the source value is an amount "
             f"held by each pixel rather than an intensity, both the reprojection and the hex "
             f"aggregation conserve the total, and the sum over any set of cells is the amount "
-            f"within them.{domain['clip_note']}"
+            f"within them.{domain['clip_note']}{clip_loss}"
         )
     else:
         reducer_para = (
