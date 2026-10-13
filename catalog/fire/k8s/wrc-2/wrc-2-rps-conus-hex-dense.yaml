@@ -1,3 +1,4 @@
+# HAND-ROLLED: single h0 slice (index 20) with a longer deadline; raster-workflow emits all 122 h0 under one deadline (#592)
 # WRC v2 RPS CONUS -- the DENSE slice (h0-index 20) on its own, with a deadline that fits it.
 #
 # WHY THIS EXISTS. wrc-2-rps-conus-hex.yaml carries activeDeadlineSeconds: 21600 (6 h) on the pod
