@@ -1,0 +1,72 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step; this copies the upstream archive to
+# s3://public-blm/raw/ so every later step reads NRP, not ArcGIS Online (AGENTS.md Step 1b).
+#
+# BLM National Surface Management Agency (SMA) area polygons, issue #561.
+#   About:    https://gbp-blm-egis.hub.arcgis.com/datasets/BLM-EGIS::blm-natl-sma-surface-management-agency-area-polygons
+#   Item:     6bf2e737c59d4111be92420ee5ab0b46 (File Geodatabase, owner blm_arcgis_hub_natl)
+#   Download: https://www.arcgis.com/sharing/rest/content/items/6bf2e737c59d4111be92420ee5ab0b46/data
+#             -> SMA_WM.gdb.zip, 1,113,064,445 bytes (verified 2026-10-10), EPSG:3857
+# The job asserts the byte size and prints the sha256 that the STAC records as provenance.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: surface-management-agency-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: surface-management-agency-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: surface-management-agency-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 7200
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          URL="https://www.arcgis.com/sharing/rest/content/items/6bf2e737c59d4111be92420ee5ab0b46/data"
+          curl -fL --retry 5 --retry-delay 10 -o /tmp/SMA_WM.gdb.zip "$URL"
+          SIZE=$(stat -c %s /tmp/SMA_WM.gdb.zip)
+          echo "size=$SIZE"
+          test "$SIZE" -eq 1113064445
+          unzip -l /tmp/SMA_WM.gdb.zip | tail -1
+          echo "sha256=$(sha256sum /tmp/SMA_WM.gdb.zip | cut -d' ' -f1)"
+          rclone copyto /tmp/SMA_WM.gdb.zip nrp:public-blm/raw/SMA_WM.gdb.zip --s3-no-check-bucket
+          rclone lsl nrp:public-blm/raw/SMA_WM.gdb.zip
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 5Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 5Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
