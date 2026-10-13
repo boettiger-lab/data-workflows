@@ -68,6 +68,27 @@ def main():
     )
     hexs = one(f"SELECT COUNT(*) AS n, COUNT(DISTINCT h8) AS h8 FROM {HEX}")
 
+    def any_of(*prefixes, unit):
+        return "COALESCE(" + ", ".join(
+            f"{p}_{f}_{unit}" for p in prefixes for f in ("F95", "F50", "F5", "MN")) + ") IS NOT NULL"
+
+    # GAS_* / NGL_* (combined) and AG_+NAGAS_* / AGL_+NAGL_* (split) are alternative
+    # reportings; the total-gas COALESCE in the STAC is only correct if no unit has both.
+    split = one(
+        f"SELECT COUNT(*) FILTER (WHERE {any_of('GAS', unit='BCF')}) AS gas, "
+        f"COUNT(*) FILTER (WHERE {any_of('AG', 'NAGAS', unit='BCF')}) AS gas_split, "
+        f"COUNT(*) FILTER (WHERE {any_of('GAS', unit='BCF')} AND {any_of('AG', 'NAGAS', unit='BCF')}) AS gas_both, "
+        f"COUNT(*) FILTER (WHERE {any_of('NGL', unit='MMB')}) AS ngl, "
+        f"COUNT(*) FILTER (WHERE {any_of('AGL', 'NAGL', unit='MMB')}) AS ngl_split, "
+        f"COUNT(*) FILTER (WHERE {any_of('NGL', unit='MMB')} AND {any_of('AGL', 'NAGL', unit='MMB')}) AS ngl_both, "
+        "SUM(GAS_MN_BCF) AS gas_mn_combined, "
+        "SUM(COALESCE(GAS_MN_BCF, COALESCE(AG_MN_BCF, 0) + COALESCE(NAGAS_MN_BCF, 0))) AS gas_mn_total "
+        f"FROM {FLAT}"
+    )
+    if int(split["gas_both"]) or int(split["ngl_both"]):
+        raise SystemExit(f"units carry both combined and split gas/NGL columns: {split}; "
+                         "the COALESCE total in make-stac.py would double-count")
+
     values = {
         c: [r["v"] for r in rows(f"SELECT DISTINCT {c} AS v FROM {FLAT} WHERE {c} IS NOT NULL ORDER BY 1")]
         for c in VALUE_COLUMNS
@@ -109,6 +130,12 @@ def main():
         "pubdate_min": flat["pmin"],
         "pubdate_max": flat["pmax"],
         "bbox": [float(flat[k]) for k in ("xmin", "ymin", "xmax", "ymax")],
+        "rows_combined_gas": int(split["gas"]),
+        "rows_split_gas": int(split["gas_split"]),
+        "rows_combined_ngl": int(split["ngl"]),
+        "rows_split_ngl": int(split["ngl_split"]),
+        "gas_mn_combined_bcf": float(split["gas_mn_combined"] or 0),
+        "gas_mn_total_bcf": float(split["gas_mn_total"] or 0),
         "hex_rows": int(hexs["n"]),
         "distinct_h8": int(hexs["h8"]),
         "values": values,

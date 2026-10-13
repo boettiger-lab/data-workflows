@@ -45,10 +45,10 @@ FRACTILE = {
 
 COMMODITY = {
     "OIL": ("undiscovered oil", "million barrels"),
-    "GAS": ("undiscovered gas, associated and nonassociated combined", "billion cubic feet"),
+    "GAS": ("undiscovered gas, reported as one combined figure", "billion cubic feet"),
     "AG": ("undiscovered associated gas, the gas dissolved in oil accumulations", "billion cubic feet"),
     "NAGAS": ("undiscovered nonassociated gas, the gas in accumulations without oil", "billion cubic feet"),
-    "NGL": ("undiscovered natural gas liquids, from associated and nonassociated gas combined", "million barrels"),
+    "NGL": ("undiscovered natural gas liquids, reported as one combined figure", "million barrels"),
     "AGL": ("undiscovered natural gas liquids from associated gas", "million barrels"),
     "NAGL": ("undiscovered natural gas liquids from nonassociated gas", "million barrels"),
 }
@@ -60,10 +60,28 @@ NOT_ASSESSED = (
 )
 
 
-def volume_columns():
+def combined_note(stats, split_cols, kind, n_combined, n_split):
+    """The GAS_*/NGL_* columns hold the unsplit figure; most units report the split instead."""
+    return (
+        f"Filled on only {n_combined} of the {stats['rows']} assessment units: those whose release "
+        f"reports {kind} without splitting it into associated and nonassociated. The other "
+        f"{n_split} units with {kind} estimates report it in {split_cols} and are null here, so "
+        f"this column alone is not the total {kind}. No unit has both. A stored 0 is a real "
+        "estimate."
+    )
+
+
+def volume_columns(stats):
+    notes = {
+        "GAS": combined_note(stats, "`AG_*_BCF` and `NAGAS_*_BCF`", "gas",
+                             stats["rows_combined_gas"], stats["rows_split_gas"]),
+        "NGL": combined_note(stats, "`AGL_*_MMB` and `NAGL_*_MMB`", "natural gas liquids",
+                             stats["rows_combined_ngl"], stats["rows_split_ngl"]),
+    }
     cols = []
     for prefix, (what, unit) in COMMODITY.items():
         suffix = "MMB" if unit == "million barrels" else "BCF"
+        note = notes.get(prefix, NOT_ASSESSED)
         for fractile, phrase in FRACTILE.items():
             cols.append(
                 {
@@ -71,7 +89,7 @@ def volume_columns():
                     "type": "double",
                     "description": (
                         f"Technically recoverable {what} at the {phrase}, in {unit}. "
-                        f"{NOT_ASSESSED}"
+                        f"{note}"
                     ),
                 }
             )
@@ -245,7 +263,7 @@ def columns(stats):
             "STATUS",
         )
     )
-    cols += volume_columns()
+    cols += volume_columns(stats)
     cols += [
         {
             "name": "sciencebase_id",
@@ -346,15 +364,21 @@ def description(report, stats):
         "NGL fractiles and the remainder carry nulls. A null is always \"not published\" or \"not "
         "assessed\", never an estimate of zero.\n\n"
         "**Assessment units overlap.** Conventional and continuous units, and different Total "
-        "Petroleum Systems, cover the same ground, so several polygons can stack over one "
-        "location. Volumes are per-unit totals, not densities:\n\n"
+        "Petroleum Systems, are separate resources that can stack over one location, so a "
+        "spatial join returns several units per location. Volumes are per-unit totals, not "
+        "densities, and the GeoParquet has one row per unit, so the means sum directly across "
+        "units.\n\n"
+        "**Gas is reported two ways.** Most units split gas into associated (`AG_*_BCF`) and "
+        f"nonassociated (`NAGAS_*_BCF`); {word(stats['rows_combined_gas'])} report only the combined "
+        "`GAS_*_BCF`. No unit has both, so total gas combines them (natural gas liquids work the "
+        "same way with `NGL_*`, `AGL_*` and `NAGL_*`):\n\n"
         "```sql\n"
-        "-- correct: one row per assessment unit before summing\n"
-        "SELECT SUM(OIL_MN_MMB) FROM (\n"
-        "  SELECT DISTINCT ASSESSCODE, OIL_MN_MMB\n"
-        f"  FROM read_parquet('s3://{BUCKET}/{DATASET}.parquet')\n"
-        ");\n"
-        "-- wrong: summing across overlapping units counts the same ground several times\n"
+        "-- correct: total mean undiscovered oil and gas\n"
+        "SELECT SUM(OIL_MN_MMB) AS oil_mmb,\n"
+        "       SUM(COALESCE(GAS_MN_BCF, COALESCE(AG_MN_BCF, 0) + COALESCE(NAGAS_MN_BCF, 0))) AS gas_bcf\n"
+        f"FROM read_parquet('s3://{BUCKET}/{DATASET}.parquet');\n"
+        f"-- wrong: SUM(GAS_MN_BCF) alone covers {word(stats['rows_combined_gas'])} units and is about "
+        f"{stats['gas_mn_total_bcf'] / stats['gas_mn_combined_bcf']:.0f} times too low\n"
         "-- wrong: summing F95, F50 or F5 across units — only the mean is additive\n"
         "```\n\n"
         f"**Provenance.** Landing page: {LANDING}. Read from the ScienceBase community "
@@ -537,8 +561,11 @@ probability distribution (F95, F50, F5, mean) per unit.
   {len([r for r in report['releases'] if r['results_csv']])} releases publish a results table; the
   others publish boundaries and assessment input forms only. Null is never zero.
 - **Units overlap.** Conventional and continuous units and different Total Petroleum Systems cover
-  the same ground. Dedup by `ASSESSCODE` before summing, and only the mean is additive across
-  units.
+  the same ground, so a spatial join returns several units per location. Only the mean is
+  additive across units.
+- **Gas is reported two ways.** Most units split it into `AG_*` (associated) and `NAGAS_*`
+  (nonassociated); {stats['rows_combined_gas']} report only the combined `GAS_*`. No unit has
+  both, so total gas is the `COALESCE` below, not `SUM(GAS_MN_BCF)`.
 - License: **US federal public domain**
   ([USGS copyright and credits](https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits)).
 
@@ -564,11 +591,9 @@ WHERE OIL_MN_MMB IS NOT NULL
 ORDER BY OIL_MN_MMB DESC
 LIMIT 10;
 
--- total mean undiscovered gas, deduped by assessment unit
-SELECT SUM(GAS_MN_BCF) AS bcf FROM (
-  SELECT DISTINCT ASSESSCODE, GAS_MN_BCF
-  FROM read_parquet('{BASE}/{DATASET}.parquet')
-);
+-- total mean undiscovered gas: combined GAS_ where reported, else associated + nonassociated
+SELECT SUM(COALESCE(GAS_MN_BCF, COALESCE(AG_MN_BCF, 0) + COALESCE(NAGAS_MN_BCF, 0))) AS gas_bcf
+FROM read_parquet('{BASE}/{DATASET}.parquet');
 ```
 
 `F95`, `F50` and `F5` are fractiles of a probability distribution: they describe one unit's range
@@ -641,18 +666,17 @@ Coverage is the releases in that community, not every assessed US province: the 
 (province 5021) is the separate `{PARADOX}` collection.
 
 > **Three things to know before aggregating.** Assessment units **overlap** (conventional and
-> continuous units and different Total Petroleum Systems cover the same ground), so dedup by
-> `ASSESSCODE` before any `SUM`. Only the **mean** is additive across units — `F95`, `F50` and
+> continuous units and different Total Petroleum Systems cover the same ground), so a spatial
+> join returns several units per location; on the hex asset, dedup by `ASSESSCODE` before any
+> `SUM`. Only the **mean** is additive across units — `F95`, `F50` and
 > `F5` are fractiles of one unit's distribution. And **null is never zero**: only {stats['rows_with_volumes']} of the {stats['rows']}
 > units carry volume estimates, because the remaining releases publish boundaries and assessment
 > input forms without a results table.
 
 ```sql
--- total mean undiscovered gas, deduped by assessment unit
-SELECT SUM(GAS_MN_BCF) AS bcf FROM (
-  SELECT DISTINCT ASSESSCODE, GAS_MN_BCF
-  FROM read_parquet('{BASE}/{DATASET}.parquet')
-);
+-- total mean undiscovered gas: most units split it into AG_ and NAGAS_; a few report only GAS_
+SELECT SUM(COALESCE(GAS_MN_BCF, COALESCE(AG_MN_BCF, 0) + COALESCE(NAGAS_MN_BCF, 0))) AS gas_bcf
+FROM read_parquet('{BASE}/{DATASET}.parquet');
 ```
 
 Full documentation:
