@@ -1,0 +1,61 @@
+# HAND-ROLLED: uploads the STAC and README written by gen_stac.py and registers the collection
+# in the public-high-seas catalog, for runs without a local rclone remote (#766).
+#   python3 gen_stac.py /tmp/bf
+#   kubectl -n geo-workflows create configmap bathymetric-features-stac --from-file=/tmp/bf
+#   kubectl apply -n geo-workflows -f bathymetric-features-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bathymetric-features-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: bathymetric-features-publish-stac
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: bathymetric-features-publish-stac
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: stac, mountPath: /stac, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          D=nrp:public-high-seas
+          mkdir -p /tmp/stac && cp -L /stac/stac-collection.json /stac/README.md /tmp/stac/
+          rclone copyto /tmp/stac/stac-collection.json $D/bathymetric-features/stac-collection.json
+          rclone copyto /tmp/stac/README.md $D/bathymetric-features/README.md
+          rclone copyto $D/stac-collection.json /tmp/parent.json
+          python3 - <<'PY'
+          import json
+          p = json.load(open("/tmp/parent.json"))
+          href = "https://s3-west.nrp-nautilus.io/public-high-seas/bathymetric-features/stac-collection.json"
+          if not any(l.get("href") == href for l in p["links"]):
+              p["links"].append({"rel": "child", "href": href, "type": "application/json",
+                                 "title": "Global seamounts and undersea peaks (prominence analysis of GEBCO 2025)"})
+              json.dump(p, open("/tmp/parent.json", "w"), indent=2)
+              print("child link added")
+          else:
+              print("child link already present")
+          PY
+          rclone copyto /tmp/parent.json $D/stac-collection.json
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: stac
+        configMap: {name: bathymetric-features-stac}

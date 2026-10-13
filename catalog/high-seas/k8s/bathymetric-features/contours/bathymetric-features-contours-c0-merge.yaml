@@ -1,0 +1,49 @@
+# Copies the 40 slices from bathymetric-features-contours-hex-c0.yaml into chunks/ under names
+# that cannot collide with the 1,000-row chunk files, so repartition picks them up.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bathymetric-features-contours-c0-merge
+  namespace: geo-workflows
+  labels:
+    k8s-app: bathymetric-features-contours-c0-merge
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: bathymetric-features-contours-c0-merge
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: merge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          D=nrp:public-high-seas/bathymetric-features/contours
+          files=$(rclone lsf $D/chunks-c0/ --include 'chunk_*.parquet')
+          n=$(echo "$files" | grep -c . || true)
+          echo "slices: $n"
+          [ "$n" -eq 40 ]
+          rclone deletefile $D/chunks/chunk_000000.parquet 2>/dev/null || true
+          for f in $files; do rclone copyto $D/chunks-c0/$f $D/chunks/c0_$f; done
+          rclone purge $D/chunks-c0/
+          echo "merged $n slices"
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
