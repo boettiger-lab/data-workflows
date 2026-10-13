@@ -26,6 +26,13 @@ CENSORED = (
     "The count saturates at 9: no cell anywhere in this collection exceeds 9, so the top class "
     "means nine or more observations rather than exactly nine."
 )
+TERMS_NOTE = (
+    "No licence has been granted for these data, and no Calflora terms page covering "
+    "redistribution of its climate-model range exports has been located. The study team that "
+    "supplied the exports considers them public, and a specific licence has been requested; "
+    "until one is recorded here, redistribution terms are unconfirmed. Cite Calflora and the "
+    "study team as given in the citation."
+)
 EFFORT = (
     "Observation counts record where people have botanised, not how much of the plant is present, "
     "so they should not be read as abundance, cover or population size."
@@ -95,6 +102,8 @@ def main() -> None:
         "political boundary. Observations outside California are part of the source data and are",
         f"retained: {n_south} species have records south of the state line, including a white fir",
         "population in the Sierra San Pedro Martir.",
+        "",
+        f"TERMS OF USE. {TERMS_NOTE}",
         "",
         "PROVENANCE. Each file was downloaded by hand from Calflora following the team's written",
         "protocol (staged alongside the raw data), then renamed to the species code. Calflora exports",
@@ -303,6 +312,10 @@ def main() -> None:
         "```",
         "",
         "Cells with no observation render at the pale end of the ramp. They are in range, not absent.",
+        "",
+        "## Terms of use",
+        "",
+        TERMS_NOTE,
         "",
     ])
     with open(args.out_readme, 'w') as fh:
