@@ -9,7 +9,7 @@ Re-measure rather than reuse if you rebuild.
 ## Run order
 
 There is no orchestrator for this build: apply the step manifests individually, in order —
-`stage-raw` → `setup-bucket` → `convert` → `pmtiles` + `hex` → `repartition` →
+`setup-bucket` → `stage-raw` → `convert` → `pmtiles` + `hex` → `repartition` →
 `publish-stac`. The generated `workflow.yaml`/`configmap.yaml` were removed because they
 embedded the original convert (no localize step, no `--trim-strings`) and would have
 overwritten the published GeoParquet.
