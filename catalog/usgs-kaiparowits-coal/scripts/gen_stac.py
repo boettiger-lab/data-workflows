@@ -659,6 +659,7 @@ def columns_for(cov: str, names: list[str], *, geometry: bool, hexed: bool, lean
 
 
 def build(cov: str, spec: dict, bbox: list[float], created: dict) -> dict:
+    slug = cov.replace("_", "-")
     attrs = spec["attrs"]
     geom_kind = spec["geom"]
     desc = spec["body"] + "\n\n"
@@ -676,7 +677,7 @@ def build(cov: str, spec: dict, bbox: list[float], created: dict) -> dict:
             "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
             "https://stac-extensions.github.io/version/v1.2.0/schema.json",
         ],
-        "id": f"usgs-kaiparowits-{cov.replace('_', '-')}",
+        "id": f"usgs-kaiparowits-{slug}",
         "title": spec["title"],
         "description": desc,
         "license": "public-domain",
@@ -703,7 +704,7 @@ def build(cov: str, spec: dict, bbox: list[float], created: dict) -> dict:
              "title": "Coverage descriptions (Appendix 1)"},
         ],
         "assets": {
-            f"{cov}-parquet": {
+            f"kaiparowits-{slug}-parquet": {
                 "href": f"{PREFIX}/{cov}.parquet",
                 "type": "application/x-parquet",
                 "title": f"{spec['short']} (GeoParquet)",
@@ -715,7 +716,7 @@ def build(cov: str, spec: dict, bbox: list[float], created: dict) -> dict:
                     "asset."),
                 "table:columns": columns_for(cov, attrs, geometry=True, hexed=False, lean=False),
             },
-            f"{cov}-pmtiles": {
+            f"kaiparowits-{slug}-pmtiles": {
                 "href": f"{PREFIX}/{cov}.pmtiles",
                 "type": "application/vnd.pmtiles",
                 "title": f"{spec['short']} (PMTiles)",
@@ -724,7 +725,7 @@ def build(cov: str, spec: dict, bbox: list[float], created: dict) -> dict:
                 "vector:layers": [cov],
                 "table:columns": columns_for(cov, attrs, geometry=False, hexed=False, lean=True),
             },
-            f"{cov}-hex": {
+            f"kaiparowits-{slug}-hex": {
                 "href": f"{PREFIX}/{cov}/hex/h0=*/data_0.parquet",
                 "type": "application/x-parquet",
                 "title": f"{spec['short']} as H3 resolution 8 cells",
