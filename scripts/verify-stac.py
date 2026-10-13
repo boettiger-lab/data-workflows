@@ -934,6 +934,42 @@ def _is_percell_aggregation(doc: dict, asset: dict) -> bool:
     return bool(attrs) and not (attrs & flat)
 
 
+def _is_hex_derived_source(doc: dict, asset: dict) -> bool:
+    """True for a per-cell hex that is the SOURCE of the collection's vector assets, not a
+    conversion of them (data-workflows#774 `meow-coastal-band`: the h8 hex is the product;
+    its GeoParquet/PMTiles are polygons dissolved FROM it, one per ecoregion x side x
+    distance class).
+
+    A cng-datasets vector hex carries every flat attribute forward (hex attrs >= flat
+    attrs). So when EVERY geometry-bearing vector asset in the collection (flat GeoParquet
+    with a geometry column, or PMTiles) documents `_cng_fid` itself and also has at least
+    one attribute the hex lacks, the hex cannot be a conversion of any of them, and
+    `_cng_fid` has no feature to identify on it. Positive schema test, as tight as
+    `_is_percell_aggregation`: a genuine conversion hex missing `_cng_fid` still carries
+    all of its flat's attributes and so still HARD-fails, and a vector asset that lacks
+    `_cng_fid` itself never grants the exemption. (An under-documented hex is caught
+    separately by the declared-schema-vs-data check.)
+    """
+    def attrs(cols):
+        return {c.get("name", "").lower() for c in cols} - SAFE_HEX_COLS - TIME_KEY_COLS
+
+    hex_attrs = {a for a in attrs(asset.get("table:columns", [])) if not _is_geom_col(a)}
+    sources = []
+    for key, a in doc.get("assets", {}).items():
+        if is_pmtiles(a) or (is_parquet(a) and not _is_hex_like(key, a) and _asset_has_geom(a)):
+            sources.append(a)
+    if not sources:
+        return False
+    for a in sources:
+        cols = a.get("table:columns", [])
+        if "_cng_fid" not in {c.get("name", "").lower() for c in cols}:
+            return False
+        src_attrs = {x for x in attrs(cols) if not _is_geom_col(x)}
+        if not (src_attrs - hex_attrs):
+            return False
+    return True
+
+
 def check_cng_fid(doc: dict) -> list[Finding]:
     """Enforce the universal `_cng_fid` contract (#369).
 
@@ -964,6 +1000,11 @@ def check_cng_fid(doc: dict) -> list[Finding]:
         dimension is aggregated away, so `_cng_fid` has nothing to identify. Detected by
         `_is_percell_aggregation`: it shares no attribute column with the collection's
         flat GeoParquet, whereas a real conversion always carries its source attributes.
+
+      exempt (silent) — a per-cell hex that is the SOURCE of the collection's vector
+        assets (#774 `meow-coastal-band`): every flat GeoParquet / PMTiles carries its own
+        `_cng_fid` plus attributes the hex lacks, so the hex is not a conversion of them.
+        Detected by `_is_hex_derived_source`.
 
       ADVISORY — a non-spatial parquet table (no geometry, not a vector hex): could be a
         fact table that SHOULD carry `_cng_fid` (tpl `…-funding`, keyed by tpl_id) or a
@@ -997,6 +1038,8 @@ def check_cng_fid(doc: dict) -> list[Finding]:
                 continue  # raster-derived hex → no per-feature id by design
             if _is_percell_aggregation(doc, asset):
                 continue  # per-cell aggregation → feature dimension collapsed by design
+            if _is_hex_derived_source(doc, asset):
+                continue  # the hex is the source; the vector assets are derived from it (#774)
             out.append(Finding(HARD, "cng-fid-missing",
                 f"vector hex asset '{key}' does not document '_cng_fid'. " + common))
         elif _asset_has_geom(asset):

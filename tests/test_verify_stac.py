@@ -247,6 +247,49 @@ class PerCellAggregationExemption(unittest.TestCase):
         self.assertEqual([x.code for x in f], ["cng-fid-missing"])
 
 
+class HexDerivedSourceExemption(unittest.TestCase):
+    """#774: a per-cell hex that is the SOURCE of polygons dissolved from it has no
+    per-feature id; a genuine vector hex missing `_cng_fid` must still HARD-fail."""
+
+    HEX = "https://s3-west.nrp-nautilus.io/public-x/band/hex/h0=*/data_0.parquet"
+    HEX_COLS = ["h8", "ECO_CODE", "ECOREGION", "side", "dist_km", "depth_m", "h0"]
+
+    def _doc(self, flat_cols, hex_cols=None, pmtiles_cols=None):
+        assets = {
+            "band-parquet": {"href": "https://x/band.parquet", "type": PARQUET,
+                             "table:columns": [{"name": c} for c in flat_cols]
+                             + [{"name": "geom", "type": "geometry"}]},
+            "band-hex": hex_asset(hex_cols or self.HEX_COLS, href=self.HEX),
+        }
+        if pmtiles_cols is not None:
+            assets["band-pmtiles"] = {"href": "https://x/band.pmtiles",
+                                      "type": "application/vnd.pmtiles",
+                                      "table:columns": [{"name": c} for c in pmtiles_cols]}
+        return {"assets": assets}
+
+    DERIVED = ["_cng_fid", "ECO_CODE", "ECOREGION", "side", "dist_min_km", "dist_max_km", "area_km2"]
+
+    def test_hex_that_is_the_source_is_exempt(self):
+        f = vs.check_cng_fid(self._doc(self.DERIVED, pmtiles_cols=self.DERIVED))
+        self.assertEqual([x.code for x in f], [])
+
+    def test_conversion_hex_missing_fid_still_hard_fails(self):
+        # the hex carries every flat attribute forward: a normal conversion missing its id
+        f = vs.check_cng_fid(self._doc(["_cng_fid", "ECO_CODE", "side"],
+                                       hex_cols=["ECO_CODE", "side", "h8", "h0"]))
+        self.assertEqual([x.code for x in f], ["cng-fid-missing"])
+        self.assertEqual(f[0].severity, vs.HARD)
+
+    def test_flat_without_its_own_fid_grants_no_exemption(self):
+        f = vs.check_cng_fid(self._doc([c for c in self.DERIVED if c != "_cng_fid"]))
+        self.assertEqual(sorted(x.code for x in f), ["cng-fid-missing", "cng-fid-missing"])
+
+    def test_any_vector_asset_the_hex_could_be_converted_from_blocks_it(self):
+        # a PMTiles whose attributes are all on the hex keeps the hex a plausible conversion
+        f = vs.check_cng_fid(self._doc(self.DERIVED, pmtiles_cols=["_cng_fid", "ECO_CODE", "side"]))
+        self.assertEqual([x.code for x in f], ["cng-fid-missing"])
+
+
 class ScriptedMCP:
     """Replays canned rows keyed by a substring of the SQL (first match wins), so a check
     that issues several different queries gets a different answer for each. Raises on an
