@@ -48,7 +48,7 @@ Both are written by one job, `dissolve.yaml`, with `dissolve.py` + `tilecheck.py
   --no-feature-limit --no-tile-size-limit --no-tiny-polygon-reduction
   ```
   - There is no drop or coalesce step. Coalescing would merge features with different attributes.
-  - `TIPPECANOE_MAX_THREADS=16`, the container limit. Using `os.cpu_count()` (the node's 256 cores) aborts with "745 shards not a power of 2". Reproduced locally: 16 and 128 work, 256 fails.
+  - `TIPPECANOE_MAX_THREADS=16`, the container limit. Using `os.cpu_count()` (the node's cores, rounded to a power of 2) aborts with "745 shards not a power of 2" on a large node. Reproduced locally: 16 and 128 work, 256 fails.
 
 ## Measured (job log, final run)
 - **Cell counts.** 53,330,207 cells in, 1,462 features out. The largest group is Sunda Shelf/Java Sea, sea 20–50 km: 399,690 cells. Every polygon is valid.
