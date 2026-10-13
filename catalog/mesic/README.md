@@ -223,12 +223,20 @@ kubectl apply $N -f $K/mesic-huc12-2026-09/mesic-huc12-2026-09-repartition.yaml
 ```
 
 After each hex job, check the `succeeded` vs `failed` gap (skill `pod-preemption`) and run the h0
-coverage gate before treating a build as done:
+coverage gate before treating a build as done. The expected h0 set differs by dataset:
+`mesic-presence-2026-09` has all five base cells (9, 19, 20, 34, 36); the two persistence layers
+and `mesic-huc12-2026-09` have four, because base cell 34 is a sliver at the edge of the footprint
+(31.3–32.1 N, 96.7–95.3 W) with no mesic pixels — every presence cell there is `mesic_fraction = 0`,
+so a nodata-0 raster writes nothing. A missing base cell 34 on those layers is correct, not a gap.
 
 ```bash
 kubectl $N get job <name>-hex -o jsonpath='succeeded={.status.succeeded} failed={.status.failed} failedIndexes={.status.failedIndexes}{"\n"}'
-scripts/check-hex-coverage.sh nrp:public-mesic/<dataset>/hex/ \
+# mesic-presence-2026-09: base cells 9, 19, 20, 34, 36
+scripts/check-hex-coverage.sh nrp:public-mesic/mesic-presence-2026-09/hex/ \
   --expect-h0 576812596024311807,577164439745200127,577199624117288959,577692205326532607,577762574070710271
+# mesic-persistence-{unmasked,masked}-2026-09 and mesic-huc12-2026-09: base cells 9, 19, 20, 36
+scripts/check-hex-coverage.sh nrp:public-mesic/<dataset>/hex/ \
+  --expect-h0 576812596024311807,577164439745200127,577199624117288959,577762574070710271
 ```
 
 ## ⛔ Re-running a hex into a prefix that already holds an earlier run
@@ -314,6 +322,18 @@ WHERE h3_get_base_cell_number(h0::UBIGINT) IN (9,19,20,34,36) ORDER BY i;
 ## Never SUM these on hex
 
 Per-feature totals are repeated on every cell a feature covers. On `mesic-huc12-2026-09` that is
-`area_vb_m2`, `area_vb_ac`, **and every `pr*` proportion column** — a proportion is a per-watershed
-value, so averaging across cells is valid only weighted by cell count within the watershed. Dedup on
-`huc12` (or `_cng_fid`).
+`area_vb_m2`, `area_vb_ac`, **and every `pr*` proportion column**. Dedup on `huc12` (or `_cng_fid`)
+first. The `prV_*` columns are shares of one watershed's valley bottom, so a regional share weights
+each watershed by `area_vb_m2`:
+
+```sql
+-- correct: valley-bottom-weighted share, one row per watershed
+SELECT SUM(prV_PclH * area_vb_m2) / SUM(area_vb_m2) FROM (
+  SELECT DISTINCT _cng_fid, prV_PclH, area_vb_m2
+  FROM read_parquet('s3://public-mesic/mesic-huc12-2026-09/hex/h0=*/data_0.parquet')
+);
+-- wrong: AVG(prV_PclH) over hex rows weights each watershed by its cell count
+```
+
+`prHuc_vb` is a share of the whole watershed, so its weight is watershed area, which this table does
+not carry; take `areasqkm` from `usgs-wbd-hu12`, joined on `huc12`.
