@@ -1,0 +1,229 @@
+# Stage the USFS Insect & Disease Detection Survey (IDS) source GDBs to
+# s3://public-usfs/raw/ids/ and record the provenance the STAC will cite (#591).
+#
+# There is NO national IDS file. The nine per-region FileGDB zips below ARE the national set:
+# CONUS Regions 1-6, 8, 9 plus Alaska Region 10. There is no Region 7, and Alaska uses the `AK_`
+# prefix -- `CONUS_Region10_*` 404s.
+#
+# Every zip carries all three layers (damage areas, damage points, surveyed areas), so the
+# survey-extent asset needs no separate acquisition.
+#
+# /!\ www.fs.usda.gov RATE-LIMITS AGGRESSIVELY (429 observed on plain sequential HEADs from one
+# host, 2026-09-16). This job therefore downloads at concurrency 3, not 9-wide like the FACTS
+# staging job, and retries on 429 via --retry-all-errors. Staging to S3 first is what makes the
+# rest of the pipeline restartable without ever touching the rate-limited origin again.
+#
+# Provenance (AGENTS.md Step 1b): upstream publishes no edition string and no dated archive, so the
+# staged copy plus its checksum IS the provenance. This job writes raw/ids/source-manifest.tsv with
+# per-file bytes, recomputed sha256, upstream Last-Modified and the access date. The sha256 is
+# recomputed from the object, never transcribed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ids-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: ids-stage-raw
+spec:
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ids-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      # Cluster-internal DNS intermittently fails to resolve external hosts on some nodes.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "20Gi"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "30Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-usfs"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          BASE="https://www.fs.usda.gov/foresthealth/docs/IDS_Data_for_Download"
+          DEST="nrp:${BUCKET}/raw/ids"
+          ACCESS_DATE="$(date -u +%Y-%m-%d)"
+
+          # file<TAB>expected bytes -- pinned 2026-09-15 (#591), re-verified 2026-09-16.
+          # A size mismatch means upstream republished in place: FAIL, do not silently stage a
+          # different edition under the same name.
+          read -r -d '' FILES <<'EOF' || true
+          CONUS_Region1_AllYears.gdb.zip	192060434
+          CONUS_Region2_AllYears.gdb.zip	304177828
+          CONUS_Region3_AllYears.gdb.zip	117202143
+          CONUS_Region4_AllYears.gdb.zip	138931099
+          CONUS_Region5_AllYears.gdb.zip	166329732
+          CONUS_Region6_AllYears.gdb.zip	289610899
+          CONUS_Region8_AllYears.gdb.zip	173597485
+          CONUS_Region9_AllYears.gdb.zip	265368558
+          AK_Region10_AllYears.gdb.zip	95989302
+          EOF
+
+          mkdir -p /tmp/dl /tmp/hdr
+          cd /tmp/dl
+
+          echo "############ 1. ACQUIRE (S3 first, origin only for what is missing) ############"
+          # Anything already staged is pulled from S3, not re-downloaded. Reruns therefore never
+          # touch the rate-limited origin, which is the whole point of Step 1b.
+          PRIOR=/tmp/prior-manifest.tsv
+          rclone copyto "${DEST}/source-manifest.tsv" "${PRIOR}" --s3-no-check-bucket 2>/dev/null \
+            || : > "${PRIOR}"
+
+          fetch() {
+            f="$1"
+            if rclone lsf "${DEST}/${f}" --s3-no-check-bucket 2>/dev/null | grep -q .; then
+              rclone copyto "${DEST}/${f}" "${f}" --s3-no-check-bucket \
+                --retries 10 --low-level-retries 20 \
+                && echo "  from S3   ${f} ($(stat -c %s "${f}") bytes)"
+            else
+              curl -fsSL --retry 8 --retry-delay 10 --retry-all-errors \
+                   --connect-timeout 30 --max-time 3600 \
+                   -D "/tmp/hdr/${f}.hdr" -o "${f}" "${BASE}/${f}" \
+                && echo "  from origin ${f} ($(stat -c %s "${f}") bytes)"
+            fi
+          }
+          n=0
+          while IFS=$'\t' read -r f _; do
+            [ -n "${f}" ] || continue
+            fetch "${f}" &
+            n=$((n+1))
+            if [ $((n % 3)) -eq 0 ]; then wait; fi
+          done <<< "${FILES}"
+          wait
+          echo "--- acquired ---"; ls -lh /tmp/dl
+
+          echo "############ 2. VERIFY + CHECKSUM ############"
+          MANIFEST=/tmp/source-manifest.tsv
+          printf 'file\tbytes\tsha256\tupstream_last_modified\taccess_date\turl\n' > "${MANIFEST}"
+          while IFS=$'\t' read -r f want; do
+            [ -n "${f}" ] || continue
+            got=$(stat -c %s "${f}")
+            [ "${got}" = "${want}" ] || { echo "FATAL: ${f} is ${got} bytes, pinned ${want} -- upstream republished in place"; exit 1; }
+            [ "$(head -c 2 "${f}")" = "PK" ] || { echo "FATAL: ${f} is not a zip"; exit 1; }
+            unzip -t "${f}" > /dev/null || { echo "FATAL: ${f} failed zip integrity"; exit 1; }
+            sha=$(sha256sum "${f}" | cut -d' ' -f1)
+            if [ -f "/tmp/hdr/${f}.hdr" ]; then
+              lm=$(tr -d '\r' < "/tmp/hdr/${f}.hdr" | grep -i '^last-modified:' | tail -1 | sed 's/^[Ll]ast-[Mm]odified: *//')
+            else
+              # Came from S3: carry the originally-recorded Last-Modified forward rather than
+              # inventing one. A derived file's mtime is NOT an edition stamp (AGENTS.md Step 1b).
+              lm=$(awk -F'\t' -v f="${f}" '$1==f {print $4}' "${PRIOR}" | tail -1)
+            fi
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${f}" "${got}" "${sha}" "${lm:-unknown}" "${ACCESS_DATE}" "${BASE}/${f}" >> "${MANIFEST}"
+            echo "  OK ${f}  ${got} bytes  sha256=${sha}  last-modified=${lm:-unknown}"
+          done <<< "${FILES}"
+          echo "--- total staged bytes ---"
+          awk -F'\t' 'NR>1 {s+=$2} END {print s}' "${MANIFEST}"
+
+          echo "############ 3. STAGE TO S3 ############"
+          rclone copy /tmp/dl "${DEST}/" --include '*.gdb.zip' -P \
+            --transfers 4 --retries 10 --low-level-retries 20 --retries-sleep 20s \
+            --s3-no-check-bucket
+          rclone copyto "${MANIFEST}" "${DEST}/source-manifest.tsv" --s3-no-check-bucket
+          echo "--- raw listing ---"; rclone ls "${DEST}/"
+
+          echo "############ 4. LAYER + TEMPORAL CENSUS (all 9 regions) ############"
+          # The dataset id encodes the temporal range, so the first year is a scoping fact, not a
+          # detail: census every region rather than trusting a spot check. Unzip one GDB at a time
+          # and delete it after, so peak ephemeral stays ~1 GB rather than accumulating all nine.
+          CENSUS=/tmp/layer-census.tsv
+          printf 'region\tlayer\tgeom_type\tfeatures\tmin_survey_year\tmax_survey_year\n' > "${CENSUS}"
+          mkdir -p /tmp/ex
+          while IFS=$'\t' read -r f _; do
+            [ -n "${f}" ] || continue
+            R="${f%%_AllYears*}"
+            rm -rf /tmp/ex/*; unzip -q -o "/tmp/dl/${f}" -d /tmp/ex
+            GDB=$(find /tmp/ex -maxdepth 3 -iname '*.gdb' -type d | head -1)
+            echo "===== ${R} :: ${GDB} ====="
+            ogrinfo -q "${GDB}"
+            for L in $(ogrinfo -q "${GDB}" | awk '/^Layer: /{print $2}'); do
+              GT=$(ogrinfo -q "${GDB}" | awk -v l="${L}" '$2==l {sub(/^[^(]*\(/,""); sub(/\)$/,""); print}')
+              ROW=$(ogrinfo -q -dialect OGRSQL -sql \
+                "SELECT COUNT(*) AS n, MIN(SURVEY_YEAR) AS a, MAX(SURVEY_YEAR) AS b FROM \"${L}\"" \
+                "${GDB}" 2>/dev/null \
+                | awk -F'= *' '/n \(Integer/{n=$2} /a \(Integer/{a=$2} /b \(Integer/{b=$2} END{print n"\t"a"\t"b}')
+              printf '%s\t%s\t%s\t%s\n' "${R}" "${L}" "${GT}" "${ROW}" >> "${CENSUS}"
+              echo "  ${L}  ${GT}  ${ROW}"
+            done
+            # Full field schema + CRS, once, from the first region processed.
+            if [ ! -f /tmp/.schema_done ]; then
+              for L in $(ogrinfo -q "${GDB}" | awk '/^Layer: /{print $2}'); do
+                echo "----- FULL SCHEMA ${L} -----"
+                ogrinfo -so "${GDB}" "${L}" || true
+              done
+              touch /tmp/.schema_done
+            fi
+          done <<< "${FILES}"
+          rm -rf /tmp/ex
+
+          echo "############ 5. NATIONAL TOTALS BY LAYER FAMILY ############"
+          awk -F'\t' 'NR>1 {
+              fam = $2; sub(/_AllYears.*$/, "", fam);
+              n[fam]+=$4;
+              if (mn[fam]==""||$5<mn[fam]) mn[fam]=$5;
+              if (mx[fam]==""||$6>mx[fam]) mx[fam]=$6;
+            } END { for (k in n) printf "%-22s features=%-10s years=%s-%s\n", k, n[k], mn[k], mx[k] }' "${CENSUS}"
+
+          echo "############ 6. PUBLISH CENSUS ############"
+          rclone copyto "${CENSUS}" "${DEST}/layer-census.tsv" --s3-no-check-bucket
+          cat "${CENSUS}"
+
+          echo "=== DONE ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
