@@ -1,4 +1,4 @@
-# Publish the four wrc-2-pa collections and the patched public-fire bucket collection to NRP S3.
+# Publish wrc-2-pa collections, and optionally the patched public-fire bucket collection, to NRP S3.
 #
 # In-cluster because STAC is canonical on NRP S3 (AGENTS.md Hard Boundary 1) and the laptop has no
 # `nrp` rclone remote -- its AWS_* environment points at MinIO, a different store entirely. The
@@ -71,27 +71,35 @@ spec:
             echo "  valid JSON: $(basename "$f") ($sz bytes)"
           done
 
-          echo "--- copying the bucket collection aside first ---"
-          rclone copyto "nrp:public-fire/stac-collection.json" \
-                        "nrp:public-fire/stac-collection.backup.json" --retries 6
-          echo "  kept at nrp:public-fire/stac-collection.backup.json"
+          # Publishes whichever dataset collections the ConfigMap holds, and the bucket
+          # collection only when public-fire-stac-collection.json is among them (#692).
+          DS=$(cd /work && ls wrc-2-pa-*-stac-collection.json | sed 's/-stac-collection.json$//')
+          [ -n "$DS" ] || { echo "FATAL: no dataset collections in the ConfigMap"; exit 1; }
+          READBACK=""
 
-          echo "--- publishing the four dataset collections ---"
-          for ds in wrc-2-pa-hurisk-conus wrc-2-pa-hurisk-ak \
-                    wrc-2-pa-huexposure-conus wrc-2-pa-huexposure-ak; do
+          echo "--- publishing the dataset collections ---"
+          for ds in $DS; do
             rclone copyto "/work/${ds}-stac-collection.json" \
                           "nrp:public-fire/${ds}/stac-collection.json" --retries 6
             echo "  published ${ds}/stac-collection.json"
+            READBACK="$READBACK ${ds}/"
           done
 
-          echo "--- publishing the patched bucket collection ---"
-          rclone copyto "/work/public-fire-stac-collection.json" \
-                        "nrp:public-fire/stac-collection.json" --retries 6
-          echo "  published public-fire/stac-collection.json"
+          if [ -f /work/public-fire-stac-collection.json ]; then
+            echo "--- copying the bucket collection aside first ---"
+            rclone copyto "nrp:public-fire/stac-collection.json" \
+                          "nrp:public-fire/stac-collection.backup.json" --retries 6
+            echo "  kept at nrp:public-fire/stac-collection.backup.json"
+            echo "--- publishing the patched bucket collection ---"
+            rclone copyto "/work/public-fire-stac-collection.json" \
+                          "nrp:public-fire/stac-collection.json" --retries 6
+            echo "  published public-fire/stac-collection.json"
+            READBACK="$READBACK -"
+          fi
 
           echo "--- reading each back from S3 ---"
-          for p in wrc-2-pa-hurisk-conus/ wrc-2-pa-hurisk-ak/ \
-                   wrc-2-pa-huexposure-conus/ wrc-2-pa-huexposure-ak/ ""; do
+          for p in $READBACK; do
+            [ "$p" = "-" ] && p=""
             rclone cat "nrp:public-fire/${p}stac-collection.json" \
               | python3 -c "import json,sys; d=json.load(sys.stdin); \
                   print('  ok', d.get('id'), '--', len(d.get('links', [])), 'links,', \

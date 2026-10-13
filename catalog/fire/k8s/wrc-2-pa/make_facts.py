@@ -64,6 +64,9 @@ STATIC = {
 SRC_SUM = {
     "wrc-2-pa-huexposure-conus": 50484.404891164275,
     "wrc-2-pa-huexposure-ak": 325.4611482655238,
+    # #692. BuildingCount is an integer count, so these sums are exact.
+    "wrc-2-pa-buildingcount-conus": 145824593.0,
+    "wrc-2-pa-buildingcount-ak": 311888.0,
 }
 
 REQUIRED = ("bbox", "cog_min", "cog_max", "cog_mean", "created", "raw_name", "rows",
