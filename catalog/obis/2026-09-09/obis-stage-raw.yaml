@@ -1,0 +1,88 @@
+# OBIS 2026-09-09 raw staging (AGENTS.md Step 1b, provenance).
+# Runs CONCURRENTLY with the hex job, not ahead of it: the hex reads AWS directly, so
+# serialising the build behind a 98.7 GB transfer would buy nothing. This job exists
+# because `occurrence/` is a ROLLING export overwritten in place with no upstream
+# edition, so the staged copy plus its manifest ARE the provenance for #660.
+# No AWS_* env vars here on purpose: rclone must reach the source anonymously, and
+# NRP credentials in the environment would otherwise be offered to AWS.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: obis-2026-09-09-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: obis-2026-09-09-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: obis-2026-09-09-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: RCLONE_CONFIG_OBISSRC_TYPE
+          value: s3
+        - name: RCLONE_CONFIG_OBISSRC_PROVIDER
+          value: AWS
+        - name: RCLONE_CONFIG_OBISSRC_REGION
+          value: us-east-1
+        - name: RCLONE_CONFIG_OBISSRC_ENV_AUTH
+          value: "false"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "== staging licenses.tsv =="
+          rclone copyto obissrc:obis-open-data/licenses.tsv \
+            nrp:public-obis/raw/licenses.tsv --s3-no-check-bucket
+
+          echo "== staging occurrence/ (98.7 GB, 7102 files) =="
+          rclone copy obissrc:obis-open-data/occurrence/ \
+            nrp:public-obis/raw/occurrence/ \
+            --transfers 64 --checkers 64 --s3-no-check-bucket \
+            --retries 5 --low-level-retries 20 --stats 60s --stats-one-line
+
+          echo "== manifest =="
+          # Recomputed from the staged objects, never transcribed (AGENTS.md Step 1b).
+          rclone lsjson nrp:public-obis/raw/occurrence/ --hash > /tmp/objects.json
+          python3 - <<'PY' > /tmp/MANIFEST.txt
+          import json, datetime
+          o = json.load(open('/tmp/objects.json'))
+          files = [x for x in o if not x.get('IsDir')]
+          total = sum(x['Size'] for x in files)
+          print("source_landing_page: https://obis.org/data/access/")
+          print("source_path:         s3://obis-open-data/occurrence/")
+          print("upstream_edition:    NONE PUBLISHED (rolling export, overwritten in place)")
+          print(f"access_date:         2026-09-09")
+          print(f"staged_path:         s3://public-obis/raw/occurrence/")
+          print(f"file_count:          {len(files)}")
+          print(f"total_bytes:         {total}")
+          print(f"manifest_generated:  {datetime.datetime.now(datetime.timezone.utc).isoformat()}")
+          print()
+          print("name\tsize\tmd5")
+          for x in sorted(files, key=lambda y: y['Name']):
+              print(f"{x['Name']}\t{x['Size']}\t{(x.get('Hashes') or {}).get('md5','')}")
+          PY
+          head -10 /tmp/MANIFEST.txt
+          rclone copyto /tmp/MANIFEST.txt nrp:public-obis/raw/MANIFEST.txt --s3-no-check-bucket
+          echo "staging complete"
+        resources:
+          requests: {cpu: "4", memory: 8Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: "4", memory: 8Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
