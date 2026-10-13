@@ -1,3 +1,4 @@
+# HAND-ROLLED: folds year x h0 (19 x 122 = 2318) into one indexed Job; raster-workflow emits one raster with a fixed 122 h0 fan-out (#453)
 apiVersion: batch/v1
 kind: Job
 metadata:
