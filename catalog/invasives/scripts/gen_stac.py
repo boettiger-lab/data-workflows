@@ -564,6 +564,7 @@ else:
 assets = {}
 n_hex = 0
 hexed_species = []          # order-preserving; drives the honest "what ships" paragraph
+hexed_products = []         # likewise: species coverage and product coverage move independently
 for slug, sci, common, _sb in SPECIES:
     for product in PRODUCTS:
         k, a = cog_asset(slug, sci, common, product)
@@ -574,6 +575,8 @@ for slug, sci, common, _sb in SPECIES:
             n_hex += 1
             if common not in hexed_species:
                 hexed_species.append(common)
+            if product not in hexed_products:
+                hexed_products.append(product)
 
 # The hex can legitimately cover fewer species than the COGs (the fan-out was scoped down to the
 # five the road-bias audit clears, then to four when it was stopped for schedule -- see #610).
@@ -583,9 +586,21 @@ _n_sp = len(SPECIES)
 if n_hex == 0:
     HEX_COVERAGE = ("**No H3 hex assets are published yet** -- the COGs are final and the res-10 "
                     "fan-out has not landed. Read the COGs.\n\n")
+elif len(hexed_species) == _n_sp and len(hexed_products) == len(PRODUCTS):
+    HEX_COVERAGE = (f"**All {_n_sp} species are hexed to H3, for every product** ({n_hex} hex "
+                    f"assets), so an `h8` join resolves for any layer in this collection.\n\n")
 elif len(hexed_species) == _n_sp:
-    HEX_COVERAGE = (f"**All {_n_sp} species are hexed to H3** ({n_hex} hex assets), so an `h8` "
-                    f"join resolves for every species in this collection.\n\n")
+    # Species coverage complete, product coverage not. Saying only "all 12 species are hexed"
+    # reads as "every layer joins", and a consumer who then joins an un-hexed product at h8 gets
+    # an empty result with nothing to tell them it was never built. Name the products instead of
+    # the count, derived from the ready set so this cannot drift from what actually shipped.
+    HEX_COVERAGE = (
+        f"**All {_n_sp} species are hexed to H3** ({n_hex} hex assets), so an `h8` join resolves "
+        f"for every species in this collection — but only for {len(hexed_products)} of the "
+        f"{len(PRODUCTS)} products: {', '.join('`' + p + '`' for p in hexed_products)}. Every "
+        f"other product is published as a COG only, and an `h8` join against one returns nothing. "
+        f"That is scope, not breakage: those products serve sensitivity analysis, the COGs are "
+        f"complete and final, and adding their hex later is additive and needs no rebuild.\n\n")
 else:
     HEX_COVERAGE = (
         f"⚠️ **The H3 hex covers {len(hexed_species)} of the {_n_sp} species, not all of them** "
