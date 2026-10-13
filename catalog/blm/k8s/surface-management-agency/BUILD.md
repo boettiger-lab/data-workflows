@@ -69,3 +69,16 @@ read 2026-10-10); every code present in the data is defined there.
 
 Acceptance: hex `COUNT(DISTINCT _cng_fid)` must equal 464,680. STAC is written by `gen-stac.py`
 (to /tmp, never this repo).
+
+## Results (2026-10-13)
+
+- Hex Jobs: `-hex-lower48` 10/10 (chunk 1, the 3.05 M km² Eastern States "Undetermined"
+  multipolygon, ran 106 min at ~1.7 GiB; the rest of the job finished in under 45 min), `-hex-a` 200/200,
+  `-hex-b` 200/200, `-hex-c` 70/70; no failed indexes, so no gap-fill.
+- Repartition → 10 h0 partitions. Hex: 13,338,786 rows, 12,819,129 distinct h8 cells,
+  `COUNT(DISTINCT _cng_fid)` = 464,680 (= flat). Columns: all 14 attributes + `h8`, `h0` (UBIGINT).
+- PMTiles fields (zoom 0–11, layer `surface-management-agency`): all 14 attributes, i.e.
+  ADMIN_AGENCY_CODE, ADMIN_DEPT_CODE, ADMIN_ST, ADMIN_UNIT_NAME, ADMIN_UNIT_TYPE, FAU_ID,
+  HOLD_AGENCY_CODE, HOLD_DEPT_CODE, HOLD_ID, OBJECTID, SHAPE_Area, SHAPE_Length, SMA_ID, _cng_fid.
+- STAC published; `verify-stac.py --bucket public-blm --dataset surface-management-agency` exit 0
+  (one advisory: title names Alaska, bbox reaches the lower 48; the title names both).
