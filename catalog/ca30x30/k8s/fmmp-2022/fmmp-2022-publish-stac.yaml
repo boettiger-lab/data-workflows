@@ -1,0 +1,54 @@
+# Publish the fmmp-2022 STAC collection and README (#615).
+#
+# STAC and README are not kept in this repo (AGENTS.md Hard Boundary 1). They are passed in
+# through a configMap built from the local files, then copied to the bucket:
+#
+#   kubectl create configmap fmmp-2022-stac -n geo-workflows \
+#     --from-file=stac-collection.json=<local stac-collection.json> \
+#     --from-file=README.md=<local README.md> \
+#     --dry-run=client -o yaml | kubectl apply -n geo-workflows -f -
+#   kubectl apply -n geo-workflows -f catalog/ca30x30/k8s/fmmp-2022/fmmp-2022-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fmmp-2022-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: fmmp-2022-publish-stac
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: fmmp-2022-publish-stac
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: stac, mountPath: /stac, readOnly: true}
+        command: [bash, -c]
+        args:
+        - |
+          set -euo pipefail
+          # configMap keys mount as symlinks, which rclone copyto rejects as a source
+          mkdir -p /tmp/stac && cp -L /stac/stac-collection.json /stac/README.md /tmp/stac/
+          python3 -m json.tool /tmp/stac/stac-collection.json >/dev/null
+          rclone copyto /tmp/stac/stac-collection.json nrp:public-ca30x30/fmmp-2022/stac-collection.json -v
+          rclone copyto /tmp/stac/README.md nrp:public-ca30x30/fmmp-2022/README.md -v
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: stac
+        configMap:
+          name: fmmp-2022-stac
