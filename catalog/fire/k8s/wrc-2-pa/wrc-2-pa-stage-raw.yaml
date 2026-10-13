@@ -1,0 +1,458 @@
+# Stage the WRC v2 POPULATED-AREAS source rasters (RDS-2020-0060-2) to
+# s3://public-fire/raw/wrc-2-pa/, one indexed pod per (theme, domain). Twenty in all.
+#
+# ⚠️ THIS IS A DIFFERENT DOI FROM catalog/fire/k8s/wrc-2/.
+# `RDS-2020-0016-2` (that directory, #592/#627) is the LANDSCAPE-WIDE publication: BP, CFL, cRPS,
+# Exposure, FLEP4, FLEP8, RPS, WHP. It has no building or housing-unit layer. THIS publication,
+# `RDS-2020-0060-2`, is *Spatial datasets of wildfire risk for POPULATED AREAS*, and it is where the
+# building, population and housing-unit products live. The `-pa-` in every dataset id here marks
+# that split so the two DOIs never blur in the catalog.
+#
+# Edition confirmed 2026-09-16 by GREPPING THE RESPONSE BODY, not the status code -- the RDS archive
+# soft-200s on an invalid publication id, returning HTTP 200 with an "Invalid publication id" body:
+#     RDS-2020-0060    VALID
+#     RDS-2020-0060-2  VALID  <- latest, this build
+#     RDS-2020-0060-3  INVALID
+#
+# ⚠️ WHY THIS IS NOT A `curl | unzip`
+#
+# 1. DISTRIBUTION IS SPLIT. Four CONUS themes (BuildingCount, BuildingCover, HUCount, PopCount) and
+#    the Alaska archive are served from the stable
+#    https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/<name>.zip path. The other six
+#    CONUS themes (BuildingDensity, HUDen, HUExposure, HUImpact, HURisk, PopDen) are served ONLY
+#    from opaque Box hash URLs that have to be scraped off the catalog HTML. That is why URL[] below
+#    holds whole URLs rather than Box hashes -- unlike wrc-2, where every archive was Box-only.
+#    If a pod 404s, re-scrape rather than assuming the file moved:
+#      curl -sL https://www.fs.usda.gov/rds/archive/catalog/RDS-2020-0060-2 \
+#        | grep -oE '<a[^>]+box\.com/shared/static/[^"]+"[^>]*>[^<]+'
+#
+# 2. Every zip carries a `.tif.ovr` pyramid we do not want -- ~7.8 GB across the CONUS archives,
+#    and for BuildingCover and BuildingDensity the pyramid is a THIRD of the payload.
+#
+# 3. Alaska ships all TEN themes in ONE 187,604,524-byte zip, interleaved with their pyramids and
+#    value-attribute tables. A streaming `unzip -p` for one theme would read most of the archive,
+#    ten times over.
+#
+# 4. FOUR MEMBERS ARE DEFLATE64, NOT DEFLATE -- BuildingDensity_CONUS, HUDen_CONUS,
+#    HUExposure_CONUS and PopDen_CONUS, which are four of the six Box-hosted archives. `zlib`
+#    cannot read method 9, and `unzip` as shipped usually cannot either. The extractor dispatches
+#    on the method and pip-installs `inflate64` for those four; it REFUSES any method it does not
+#    know rather than falling through to "stored".
+#
+# So each pod does a RANGED SINGLE-MEMBER extraction: read the Zip64 end-of-central-directory, walk
+# the central directory, seek to just that member's local header, and inflate only its compressed
+# byte range. Every member name and uncompressed size in BYTES[] below was read from the LIVE
+# central directory on 2026-09-16 and is asserted in the pod, so a truncated or soft-200'd download
+# fails here rather than silently producing a short raster that hexes to garbage.
+#
+# ⚠️ EACH POD ALSO PRINTS `gdalinfo`. That is deliberate, not debug noise. Unlike the landscape
+# publication -- uniformly Float32 / -9999 -- this one mixes "continuous integer" and "continuous
+# floating point" themes (the file index says so per theme, and six of the ten ship a `.vat.dbf`
+# value-attribute table). make-cogs.yaml needs the real dtype and nodata PER RASTER, and #611 asks
+# specifically whether HUImpact's 1,952,625,152 maximum is a real value or a sentinel. Staging is
+# the one pass that already holds every file locally, so it is where those facts get measured.
+#
+# Index order puts the two themes #611 scoped first (HURisk, HUExposure) at 0-3, so a partial run is
+# `sed 's/^  completions: 20$/  completions: 4/'`.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wrc-2-pa-stage-raw-src
+  namespace: geo-workflows
+data:
+  extract_member.py: |
+    """Extract one member from a remote Zip64 archive over HTTP range requests.
+
+    Usage: extract_member.py <archive-url> <member-path> <out-path> <expected-uncompressed-bytes>
+
+    Box redirects usfs-public.box.com -> public.boxcloud.com with a signed URL, and urllib follows
+    the chain on every request, so we re-issue against the stable URL for each range; that keeps us
+    immune to a signed URL expiring part-way through a multi-GB read. The fs.usda.gov product path
+    needs no such care but behaves identically (verified 206 + Content-Range on both).
+
+    ⚠️ FOUR MEMBERS ARE DEFLATE64 (method 9), NOT DEFLATE.
+    BuildingDensity_CONUS, HUDen_CONUS, HUExposure_CONUS and PopDen_CONUS -- and only those four,
+    which are exactly four of the six Box-hosted archives -- use enhanced deflate. `zlib` cannot
+    read it: it has a 64 KiB window and 64 KiB maximum match length against deflate's 32 KiB/258 B.
+    The first revision of this script treated "not method 8" as STORED and copied the compressed
+    bytes through unchanged, which produced a file of exactly the compressed length full of
+    garbage; only the uncompressed-size assertion caught it. So this version dispatches on the
+    method explicitly and REFUSES anything it does not know, rather than assuming stored.
+    """
+    import os
+    import struct
+    import subprocess
+    import sys
+    import time
+    import urllib.request
+    import zlib
+
+    CHUNK = 256 << 20  # 256 MiB per range request for deflate/stored
+    # Deflate64 is decompressed in one shot per range, so the chunk bounds PEAK RSS rather than
+    # just socket buffering: an 8 MiB compressed slice of HUExposure_CONUS expands to ~220 MB, and
+    # the format's worst case is far higher. 8 MiB keeps the pod inside its 16Gi with margin.
+    CHUNK64 = 8 << 20
+    RETRIES = 8
+
+    DEFLATE, DEFLATE64, STORED = 8, 9, 0
+
+
+    def _inflater64():
+        """Return an inflate64 streaming decompressor, pip-installing the wheel if needed.
+
+        The image does not ship it. Verified in-cluster that the install succeeds and that
+        successive .inflate() calls on 8 MiB slices reproduce the single-shot output byte for byte.
+        """
+        try:
+            import inflate64
+        except ImportError:
+            print("    installing inflate64 (Deflate64 member)", flush=True)
+            subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--no-input",
+                            "inflate64"], check=True)
+            import inflate64
+        return inflate64.Inflater()
+
+
+    def _range(url, start, end):
+        """GET bytes [start, end] inclusive, with retries. Returns (body, total_size)."""
+        last = None
+        for attempt in range(RETRIES):
+            try:
+                req = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}"})
+                with urllib.request.urlopen(req, timeout=300) as r:
+                    body = r.read()
+                    cr = r.headers.get("Content-Range")
+                    total = int(cr.split("/")[-1]) if cr else None
+                if len(body) != end - start + 1:
+                    raise IOError(f"short range read: got {len(body)}, want {end - start + 1}")
+                return body, total
+            except Exception as exc:  # noqa: BLE001 - retry anything transient
+                last = exc
+                wait = min(2 ** attempt, 60)
+                print(f"    range {start}-{end} attempt {attempt + 1} failed: {exc!r}; "
+                      f"retry in {wait}s", flush=True)
+                time.sleep(wait)
+        raise RuntimeError(f"range {start}-{end} failed after {RETRIES} attempts: {last!r}")
+
+
+    def central_directory(url):
+        """Return {name: entry} from the central directory, Zip64 or classic."""
+        _, total = _range(url, 0, 0)
+        tail_len = min(70000, total)
+        tail, _ = _range(url, total - tail_len, total - 1)
+
+        i = tail.rfind(b"PK\x06\x07")  # Zip64 EOCD locator
+        if i >= 0:
+            z64_off = struct.unpack("<Q", tail[i + 8:i + 16])[0]
+            z64, _ = _range(url, z64_off, z64_off + 55)
+            if z64[:4] != b"PK\x06\x06":
+                raise RuntimeError(f"bad Zip64 EOCD signature {z64[:4]!r}")
+            cd_size, cd_off = struct.unpack("<QQ", z64[40:56])
+        else:
+            # The Alaska archive is under 4 GB and is a classic zip, so accept both forms.
+            j = tail.rfind(b"PK\x05\x06")
+            if j < 0:
+                raise RuntimeError("no end-of-central-directory record found")
+            cd_size, cd_off = struct.unpack("<II", tail[j + 12:j + 20])
+        cd, _ = _range(url, cd_off, cd_off + cd_size - 1)
+
+        out, p = {}, 0
+        while p < len(cd) and cd[p:p + 4] == b"PK\x01\x02":
+            method = struct.unpack("<H", cd[p + 10:p + 12])[0]
+            csz, usz = struct.unpack("<II", cd[p + 20:p + 28])
+            nlen, elen, clen = struct.unpack("<HHH", cd[p + 28:p + 34])
+            lho = struct.unpack("<I", cd[p + 42:p + 46])[0]
+            name = cd[p + 46:p + 46 + nlen].decode("utf-8", "replace")
+            extra = cd[p + 46 + nlen:p + 46 + nlen + elen]
+            q = 0
+            while q + 4 <= len(extra):
+                hid, hsz = struct.unpack("<HH", extra[q:q + 4])
+                val, o = extra[q + 4:q + 4 + hsz], 0
+                if hid == 1:  # Zip64 extended information
+                    if usz == 0xFFFFFFFF:
+                        usz = struct.unpack("<Q", val[o:o + 8])[0]
+                        o += 8
+                    if csz == 0xFFFFFFFF:
+                        csz = struct.unpack("<Q", val[o:o + 8])[0]
+                        o += 8
+                    if lho == 0xFFFFFFFF:
+                        lho = struct.unpack("<Q", val[o:o + 8])[0]
+                q += 4 + hsz
+            out[name] = dict(name=name, method=method, csz=csz, usz=usz, lho=lho)
+            p += 46 + nlen + elen + clen
+        return out
+
+
+    def extract(url, ent, out_path):
+        """Stream-inflate one member to out_path. Returns bytes written."""
+        lh, _ = _range(url, ent["lho"], ent["lho"] + 29)
+        if lh[:4] != b"PK\x03\x04":
+            raise RuntimeError(f"bad local header signature {lh[:4]!r}")
+        nlen, elen = struct.unpack("<HH", lh[26:30])
+        start = ent["lho"] + 30 + nlen + elen
+        end = start + ent["csz"] - 1
+
+        method = ent["method"]
+        if method == DEFLATE:
+            dec = zlib.decompressobj(-15)
+            step, inflate, flush = CHUNK, dec.decompress, dec.flush
+        elif method == DEFLATE64:
+            inf = _inflater64()
+            step, inflate, flush = CHUNK64, inf.inflate, lambda: b""
+        elif method == STORED:
+            step, inflate, flush = CHUNK, (lambda b: b), lambda: b""
+        else:
+            raise RuntimeError(
+                f"unsupported zip compression method {method} for {ent['name']!r}. "
+                f"Do NOT assume stored -- that silently writes compressed bytes through.")
+
+        written = 0
+        with open(out_path, "wb") as fh:
+            pos = start
+            while pos <= end:
+                stop = min(pos + step - 1, end)
+                body, _ = _range(url, pos, stop)
+                out = inflate(body)
+                fh.write(out)
+                written += len(out)
+                pos = stop + 1
+                pct = 100.0 * (pos - start) / ent["csz"]
+                print(f"    {pct:5.1f}%  compressed {pos - start:,}/{ent['csz']:,}"
+                      f"  ->  {written:,} bytes", flush=True)
+            tail = flush()
+            fh.write(tail)
+            written += len(tail)
+        return written
+
+
+    def main():
+        url, member, out_path, expect = sys.argv[1:5]
+        expect = int(expect)
+
+        print(f"=== archive {url}", flush=True)
+        entries = central_directory(url)
+        print(f"    {len(entries)} members in central directory", flush=True)
+        if member not in entries:
+            print("FATAL: member not found. Archive contains:", flush=True)
+            for n in sorted(entries):
+                print(f"      {n}  ({entries[n]['usz']:,} bytes)", flush=True)
+            sys.exit(1)
+
+        ent = entries[member]
+        print(f"=== extracting {member}", flush=True)
+        print(f"    compressed {ent['csz']:,}  uncompressed {ent['usz']:,}  method {ent['method']}",
+              flush=True)
+        if ent["usz"] != expect:
+            print(f"FATAL: central directory says {ent['usz']:,} uncompressed bytes but this "
+                  f"build expects {expect:,}. The upstream publication changed -- re-verify the "
+                  f"edition and sizes before proceeding.", flush=True)
+            sys.exit(1)
+
+        written = extract(url, ent, out_path)
+        on_disk = os.path.getsize(out_path)
+        print(f"=== wrote {written:,} bytes ({on_disk:,} on disk)", flush=True)
+        if written != expect or on_disk != expect:
+            print(f"FATAL: size mismatch, expected {expect:,}", flush=True)
+            sys.exit(1)
+        # A GeoTIFF starts II*\0 / II+\0 (little-endian classic / BigTIFF), or the MM forms.
+        with open(out_path, "rb") as fh:
+            magic = fh.read(4)
+        if magic not in (b"II\x2a\x00", b"II\x2b\x00", b"MM\x00\x2a", b"MM\x00\x2b"):
+            print(f"FATAL: not a TIFF (magic {magic!r})", flush=True)
+            sys.exit(1)
+        print(f"=== OK  magic {magic!r}", flush=True)
+
+
+    if __name__ == "__main__":
+        main()
+  grid_facts.py: |
+    """Print the grid facts make-cogs.yaml needs, from the staged raster itself.
+
+    Header-only: no ComputeStatistics, no full read. The point is dtype / nodata / CRS per theme,
+    because this publication -- unlike the landscape one -- mixes integer and floating-point
+    themes. Also prints the band's declared min/max if the source recorded them, which is what
+    answers #611's question about whether HUImpact's 1,952,625,152 is a value or a sentinel.
+    """
+    import sys
+
+    from osgeo import gdal, osr
+
+    gdal.UseExceptions()
+
+    ds = gdal.Open(sys.argv[1])
+    b = ds.GetRasterBand(1)
+    srs = osr.SpatialReference(wkt=ds.GetProjection()) if ds.GetProjection() else None
+    gt = ds.GetGeoTransform()
+    auth = None
+    if srs is not None:
+        srs.AutoIdentifyEPSG()
+        auth = f"{srs.GetAuthorityName(None)}:{srs.GetAuthorityCode(None)}"
+    blk = b.GetBlockSize()
+    print("GRIDFACTS " + repr({
+        "size": [ds.RasterXSize, ds.RasterYSize],
+        "crs": auth,
+        "crs_name": srs.GetName() if srs is not None else None,
+        "pixel": [gt[1], gt[5]],
+        "origin": [gt[0], gt[3]],
+        "dtype": gdal.GetDataTypeName(b.DataType),
+        "nodata": b.GetNoDataValue(),
+        "block": blk,
+        "tiled": blk[1] > 1,
+        "overviews": b.GetOverviewCount(),
+        "declared_min": b.GetMinimum(),
+        "declared_max": b.GetMaximum(),
+        "scale": b.GetScale(),
+        "offset": b.GetOffset(),
+        "color_table": b.GetColorTable() is not None,
+        "category_names": b.GetCategoryNames(),
+    }), flush=True)
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-pa-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: wrc-2-pa-stage-raw
+spec:
+  completions: 20
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 0
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: wrc-2-pa-stage-raw
+    spec:
+      restartPolicy: Never
+      # ClusterFirst so rclone's nrp: remote can resolve the INTERNAL endpoint
+      # rook-ceph-rgw-nautiluss3.rook; the extra public nameservers cover box.com and
+      # fs.usda.gov, whose resolution is per-node flaky on this cluster.
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      activeDeadlineSeconds: 21600
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: src
+          mountPath: /src
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # (theme, domain) -> archive URL, member path inside it, expected .tif bytes.
+          # Indexes 0-3 are the two themes #611 scoped first. CONUS ships one zip per theme and the
+          # source is split between the stable product path and Box; ALASKA ships all ten themes in
+          # ONE zip, so the ten AK rows share a URL and differ only in member path.
+          NAME=(HURisk_CONUS HURisk_AK HUExposure_CONUS HUExposure_AK BuildingCount_CONUS BuildingCount_AK PopCount_CONUS PopCount_AK HUCount_CONUS HUCount_AK BuildingDensity_CONUS BuildingDensity_AK BuildingCover_CONUS BuildingCover_AK PopDen_CONUS PopDen_AK HUDen_CONUS HUDen_AK HUImpact_CONUS HUImpact_AK)
+          URL=(https://usfs-public.box.com/shared/static/ojr4i72a7gyzpfqvwbzf2pvmit6h7q9z.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2_Alaska.zip https://usfs-public.box.com/shared/static/9daudw45srposnbypere2k99ti2pisky.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2_Alaska.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2__CONUS_BuildingCount.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2_Alaska.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2__CONUS_PopCount.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2_Alaska.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2__CONUS_HUCount.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2_Alaska.zip https://usfs-public.box.com/shared/static/slkg4dyrfdg83q2rvvhonf9r7ymtn7y3.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2_Alaska.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2__CONUS_BuildingCover.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2_Alaska.zip https://usfs-public.box.com/shared/static/3xwr6uozu3iflob9r0qtyl792lydb1fi.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2_Alaska.zip https://usfs-public.box.com/shared/static/g9v52r7m228jw3ue741hf9qa539vf738.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2_Alaska.zip https://usfs-public.box.com/shared/static/qzp8w75ofug7k143fzuort1dkmk2izrv.zip https://www.fs.usda.gov/rds/archive/products/RDS-2020-0060-2/RDS-2020-0060-2_Alaska.zip)
+          MEMBER=(HURisk_CONUS.tif AK/HURisk_AK.tif HUExposure_CONUS.tif AK/HUExposure_AK.tif BuildingCount_CONUS.tif AK/BuildingCount_AK.tif PopCount_CONUS.tif AK/PopCount_AK.tif HUCount_CONUS.tif AK/HUCount_AK.tif BuildingDensity_CONUS.tif AK/BuildingDensity_AK.tif BuildingCover_CONUS.tif AK/BuildingCover_AK.tif PopDen_CONUS.tif AK/PopDen_AK.tif HUDen_CONUS.tif AK/HUDen_AK.tif HUImpact_CONUS.tif AK/HUImpact_AK.tif)
+          BYTES=(3930077598 483203658 7466094445 492258415 489285478 243345790 1291805345 414967801 1267733949 414931855 1633170834 186230848 887640016 244330510 3094454526 231003574 2825789724 255173556 5783361566 486918970)
+
+          i=${JOB_COMPLETION_INDEX}
+          n=${NAME[$i]}; u=${URL[$i]}; m=${MEMBER[$i]}; b=${BYTES[$i]}
+          DEST="nrp:public-fire/raw/wrc-2-pa/${n}.tif"
+
+          echo "=== [$i] $n  <-  $m   (expect ${b} bytes) ==="
+
+          # Idempotent: a completed index does not re-download on a retry of a later index.
+          if rclone lsjson "$DEST" >/dev/null 2>&1; then
+            SZ=$(rclone size --json "$DEST" | python3 -c 'import json,sys; print(json.load(sys.stdin)["bytes"])')
+            if [ "$SZ" = "$b" ]; then
+              echo "already staged at $DEST with correct size ($SZ)"
+              # Still report grid facts: they are the reason this job exists a second time.
+              rclone copyto "$DEST" "/tmp/${n}.tif" --transfers 4 --retries 6 --stats-one-line --stats 60s
+              python3 /src/grid_facts.py "/tmp/${n}.tif"
+              rm -f "/tmp/${n}.tif"
+              exit 0
+            fi
+            echo "present but wrong size ($SZ != $b); re-staging"
+          fi
+
+          python3 /src/extract_member.py "$u" "$m" "/tmp/${n}.tif" "$b"
+          ls -la "/tmp/${n}.tif"
+
+          # Grid facts for make-cogs.yaml -- header-only, costs nothing, and this is the only pass
+          # that already holds the file locally.
+          python3 /src/grid_facts.py "/tmp/${n}.tif"
+
+          echo "=== uploading to $DEST ==="
+          rclone copyto "/tmp/${n}.tif" "$DEST" -P --transfers 4 --retries 6
+          rclone size "$DEST"
+          rm -f "/tmp/${n}.tif"
+          echo "STAGED $n"
+        resources:
+          # Largest single member is HUExposure_CONUS at 7.47 GB; 20Gi ephemeral is ample and
+          # keeps twenty pods cheap on shared nodes.
+          requests:
+            cpu: '2'
+            memory: 16Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '2'
+            memory: 16Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: src
+        configMap:
+          name: wrc-2-pa-stage-raw-src
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              # Known-bad egress/S3 hosts: pods schedule but hang on download/localize.
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
