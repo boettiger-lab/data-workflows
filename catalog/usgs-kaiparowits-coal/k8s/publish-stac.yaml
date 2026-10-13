@@ -1,0 +1,103 @@
+# Publishes the Kaiparowits STAC (14 leaf collections + the grouping collection + README)
+# and registers the grouping collection in the public-usgs sub-catalog.
+#
+# The STAC JSON is NOT in this repo (AGENTS.md Hard Boundary 1). Generate it, gate it, and
+# hand it to the job as a ConfigMap:
+#
+#   scripts/verify-stac.py --no-data /tmp/kaiparowits-stac/*.json     # must be clean
+#   kubectl create configmap kaiparowits-stac -n geo-workflows \
+#     --from-file=/tmp/kaiparowits-stac/ --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/usgs-kaiparowits-coal/k8s/publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kaiparowits-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: kaiparowits-publish-stac
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: kaiparowits-publish-stac
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {memory: "2Gi", cpu: "1", ephemeral-storage: "2Gi"}
+          limits:   {memory: "2Gi", cpu: "1", ephemeral-storage: "2Gi"}
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: stac, mountPath: /stac, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          DEST=nrp:public-usgs/kaiparowits-coal-resources
+
+          # A ConfigMap mount is a symlink into ../data and `rclone copyto` will not follow
+          # one, so everything is staged through /tmp first.
+          cp /stac/*.json /stac/README.md /tmp/
+          python3 -c "
+          import glob, json
+          for f in sorted(glob.glob('/tmp/*.json')):
+              json.load(open(f))
+              print('  parsed', f)
+          "
+
+          echo '=== Leaf collections ==='
+          for f in /tmp/*.json; do
+            base=$(basename "$f" .json)
+            [ "$base" = "_parent" ] && continue
+            rclone copyto "$f" "$DEST/$base/stac-collection.json"
+            echo "  published $base"
+          done
+
+          echo '=== Grouping collection + README ==='
+          rclone copyto /tmp/_parent.json "$DEST/stac-collection.json"
+          rclone copyto /tmp/README.md "$DEST/README.md"
+
+          echo '=== Register in the public-usgs sub-catalog ==='
+          python3 - <<'PY'
+          import json, subprocess, sys
+
+          KEY = 'nrp:public-usgs/stac-collection.json'
+          HREF = ('https://s3-west.nrp-nautilus.io/public-usgs/'
+                  'kaiparowits-coal-resources/stac-collection.json')
+          TITLE = 'Kaiparowits Plateau coal resources (USGS Open-File Report 97-709)'
+
+          doc = json.loads(subprocess.check_output(['rclone', 'cat', KEY]))
+          links = doc.setdefault('links', [])
+          if any(l.get('rel') == 'child' and l.get('href') == HREF for l in links):
+              print('  child link ALREADY present')
+              sys.exit(0)
+          links.append({'rel': 'child', 'href': HREF,
+                        'type': 'application/json', 'title': TITLE})
+          open('/tmp/parent-catalog.json', 'w').write(json.dumps(doc, indent=2))
+          json.load(open('/tmp/parent-catalog.json'))   # re-parse before publishing
+          subprocess.check_call(['rclone', 'copyto', '/tmp/parent-catalog.json', KEY])
+          print('  child link ADDED')
+          PY
+          echo DONE
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: stac, configMap: {name: kaiparowits-stac}}
