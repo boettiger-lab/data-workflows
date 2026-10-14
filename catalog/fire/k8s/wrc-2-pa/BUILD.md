@@ -856,6 +856,7 @@ against 1.5e9 for HUExposure, which is why its `-r sum` warp took 75 min at 14.8
 | `buildingcount-conus` | 520,990,243 | yes | 6 of 12 | 145,824,616.13 (= COG) | 4h13m, 12 pods at 7-13 GiB |
 | `buildingcount-ak` | 120,376,065 | yes | 5 of 7 | 311,790.26 (= COG) | 2h30m |
 | `huimpact-conus` | 126,907,283 | yes | 6 of 12 | (mean) | 4h37m at 64Gi |
+| `huimpact-ak` | 365,692 | yes | 4 of 7 | (mean) | 3h13m at 64Gi |
 
 Zero NULL `h9`/`h8`, zero `-9999` or NaN, `MIN` 0, no all-zero partition. The six populated h0 cells
 are exactly HURisk-CONUS's six. Peak memory was 7-13 GiB against #611's ~132 GiB: the windowed h0
@@ -873,3 +874,14 @@ case it does not distinguish.
 
 The hex chain ran unattended overnight and was killed with the session after submitting
 `huimpact-conus`; `huimpact-ak` was submitted by hand at 17:50Z on 2026-10-14.
+
+`huimpact-ak` covers the same four h0 cells as `hurisk-ak` (12 fewer rows, 365,692 vs 365,704),
+including the dateline cell. The dateline h0 set the pace in both Alaska jobs: it alone reaches
+248,126,145 res-10 cells and is read without a window because it straddles the antimeridian.
+
+### STAC
+
+All four collections published 2026-10-14 via `publish-stac.yaml`, and the `public-fire` bucket
+collection gained their four child links (30 -> 34; non-link fields and existing links unchanged,
+backup at `stac-collection.backup.json`). `verify-stac.py --bucket public-fire` passes with no hard
+findings on all eight `wrc-2-pa-*` collections.

@@ -1,4 +1,68 @@
 {
+  "wrc-2-pa-buildingcount-ak": {
+    "bbox": [
+      -179.2284194,
+      51.15941046,
+      -129.9736509,
+      71.43983585
+    ],
+    "cog_dtype": "Float32",
+    "cog_grid_bbox": [
+      -180.0,
+      48.8,
+      -129.0,
+      71.6
+    ],
+    "cog_max": 5.014981746673584,
+    "cog_mean": 0.0001153441315200611,
+    "cog_min": 0.0,
+    "cog_nodata": -9999.0,
+    "cog_overviews": 9,
+    "cog_size": [
+      150764,
+      67401
+    ],
+    "cog_std": 0.008377048024586263,
+    "cog_sum": 311790.25974707917,
+    "cog_valid_px": 2703130672,
+    "created": "2026-10-13T21:09:22Z",
+    "raw_name": "BuildingCount_AK.tif",
+    "rows": 120376065,
+    "src_nodata_text": "255",
+    "src_sum": 311888.0
+  },
+  "wrc-2-pa-buildingcount-conus": {
+    "bbox": [
+      -124.8617974,
+      24.39437171,
+      -66.88468074,
+      49.38491788
+    ],
+    "cog_dtype": "Float32",
+    "cog_grid_bbox": [
+      -128.3869052521,
+      22.428354333912207,
+      -64.0540429585268,
+      52.48156003561288
+    ],
+    "cog_max": 48.70639419555664,
+    "cog_mean": 0.018207010315555626,
+    "cog_min": 0.0,
+    "cog_nodata": -9999.0,
+    "cog_overviews": 9,
+    "cog_size": [
+      197514,
+      92269
+    ],
+    "cog_std": 0.1378186846752422,
+    "cog_sum": 145824616.1341922,
+    "cog_valid_px": 8009256523,
+    "created": "2026-10-13T22:00:10Z",
+    "raw_name": "BuildingCount_CONUS.tif",
+    "rows": 520990243,
+    "src_nodata_text": "255",
+    "src_sum": 145824593.0
+  },
   "wrc-2-pa-huexposure-ak": {
     "bbox": [
       -176.6430384,
@@ -62,6 +126,68 @@
     "rows": 134660659,
     "src_nodata_text": "-3.4028235e+38",
     "src_sum": 50484.404891164275
+  },
+  "wrc-2-pa-huimpact-ak": {
+    "bbox": [
+      -176.6430384,
+      51.86767981,
+      -130.0193411,
+      71.32702844
+    ],
+    "cog_dtype": "Int32",
+    "cog_grid_bbox": [
+      -180.0,
+      48.8,
+      -129.0,
+      71.6
+    ],
+    "cog_max": 155192256.0,
+    "cog_mean": 1268387.5069325832,
+    "cog_min": 0.0,
+    "cog_nodata": -9999.0,
+    "cog_overviews": 9,
+    "cog_size": [
+      150764,
+      67401
+    ],
+    "cog_std": 2395426.297245169,
+    "cog_sum": 6691681437437.0,
+    "cog_valid_px": 5275739,
+    "created": "2026-10-13T20:47:27Z",
+    "raw_name": "HUImpact_AK.tif",
+    "rows": 365692,
+    "src_nodata_text": "-2147483648"
+  },
+  "wrc-2-pa-huimpact-conus": {
+    "bbox": [
+      -124.6811344,
+      24.54265695,
+      -66.94937587,
+      49.36907384
+    ],
+    "cog_dtype": "Int32",
+    "cog_grid_bbox": [
+      -128.38690525210004,
+      22.42835433391221,
+      -64.05404295852681,
+      52.481560035612894
+    ],
+    "cog_max": 1931999488.0,
+    "cog_mean": 756755.0530032201,
+    "cog_min": 0.0,
+    "cog_nodata": -9999.0,
+    "cog_overviews": 9,
+    "cog_size": [
+      197514,
+      92269
+    ],
+    "cog_std": 2245296.1235623215,
+    "cog_sum": 1056667528268658.0,
+    "cog_valid_px": 1396313806,
+    "created": "2026-10-13T20:49:58Z",
+    "raw_name": "HUImpact_CONUS.tif",
+    "rows": 126907283,
+    "src_nodata_text": "-2147483648"
   },
   "wrc-2-pa-hurisk-ak": {
     "bbox": [
