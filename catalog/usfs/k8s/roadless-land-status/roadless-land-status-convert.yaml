@@ -51,10 +51,10 @@ spec:
         - |
           set -e
           cng-convert-to-parquet \
-            https://s3-west.nrp-nautilus.io/public-usfs/raw/roadless_land_status_shapefile.zip \
+            https://s3-west.nrp-nautilus.io/public-usfs/raw/roadless_land_status_shapefile_23265719.zip \
             s3://public-usfs/roadless-land-status.parquet \
             --row-group-size 100000 \
-            --expect-features 709
+            --expect-features 702
         resources:
           requests:
             cpu: '4'

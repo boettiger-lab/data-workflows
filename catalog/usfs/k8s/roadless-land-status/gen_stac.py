@@ -360,8 +360,14 @@ GROUP BY STRATUM ORDER BY STRATUM;
 
 
 def patch_readme(r):
-    if f"`{DATASET}`" in r:
-        return r
+    row = f"| `{DATASET}` |"
+    if row in r:
+        # Already published: replace our row and section in place so a rebuild's numbers land.
+        i = r.index(row)
+        r = r[:i] + README_ROW + r[r.index("\n", i) + 1:]
+        i = r.index("## Roadless land status:")
+        j = r.index("\n## ", i) + 1
+        return r[:i] + README_SECTION + r[j:]
     anchor = "| `ids-survey-extent-1999-2025`"
     i = r.index(anchor)
     j = r.index("\n", i) + 1
