@@ -314,7 +314,10 @@ def build_collection(dataset: str, facts: dict) -> dict:
         "The fire likelihood inputs behind this layer were modelled at 270 metres and upsampled "
         "to the 30 metre resolution of the LANDFIRE fuel and vegetation grid, so the 30 metre "
         "grid is finer than the independent information content of those inputs. " + currency
-        if theme["fire_inputs"] else currency
+        if theme["fire_inputs"] else
+        "Building footprints reflect 2022 conditions. The temporal extent is 2021 to 2022, the "
+        "period of content the publication states for its population and building layers, "
+        "rather than the 2024 publication date."
     )
 
     join_para = (

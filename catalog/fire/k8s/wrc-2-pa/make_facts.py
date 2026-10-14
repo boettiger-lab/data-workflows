@@ -25,6 +25,7 @@ what the provenance paragraph quotes -- live in STATIC below. They are propertie
 publication, not of a build, and each was measured in `wrc-2-pa-stage-raw`.
 
     python3 make_facts.py --cog-facts /tmp/cog-facts.log --hex-facts /tmp/hex-facts.json > facts.json
+    python3 make_facts.py --base facts.json --cog-facts <new.log> --hex-facts <new.json> > facts.new.json
 """
 from __future__ import annotations
 
@@ -108,9 +109,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cog-facts", required=True)
     ap.add_argument("--hex-facts", required=True)
+    # Start from an existing facts.json so a later build (#692) adds its datasets without
+    # re-measuring the earlier ones (#611).
+    ap.add_argument("--base")
     args = ap.parse_args()
 
-    facts: dict = {}
+    facts: dict = json.load(open(args.base)) if args.base else {}
     for line in open(args.cog_facts):
         if line.startswith("FACTS "):
             for ds, f in json.loads(line[len("FACTS "):]).items():
