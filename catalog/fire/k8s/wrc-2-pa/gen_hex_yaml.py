@@ -107,8 +107,8 @@ spec:
           # sibling wrc-2 CONUS run, four pods spanning 47.8 M to 226.7 M output cells all sat at
           # 132-134 GiB -- a 4.7x range in cells giving 1.8% in memory. So 128Gi (131,072 Mi) sits
           # BELOW the steady state and would OOM every slice, not merely the dense one.
-          requests: {{cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}}
-          limits:   {{cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}}
+          {mem_note}requests: {{cpu: '8', memory: {mem}, ephemeral-storage: 50Gi}}
+          limits:   {{cpu: '8', memory: {mem}, ephemeral-storage: 50Gi}}
       volumes:
       - {{name: rclone-config, secret: {{secretName: rclone-config}}}}
       affinity:
@@ -199,6 +199,11 @@ for ds, title, col, reducer, note in [
             title=title, domain_long=long, domain_short=short, domain=domain,
             reducer=reducer, reducer_note=note, clip_note=clip, hdr_common=hdr,
             job=f"{ds}-{domain}-hex", n=n, h0s=" ".join(str(x) for x in h0s),
-            ds=f"{ds}-{domain}", col=col, issue=issue)
+            ds=f"{ds}-{domain}", col=col, issue=issue,
+            mem="64Gi" if ds == "wrc-2-pa-huimpact" else "192Gi",
+            mem_note=("# DEVIATION (#692): 64Gi. With datasets#248's windowed h0 reads,\n"
+                      "          # buildingcount-conus peaked at 7-13 GiB across all 12 pods (BUILD.md).\n"
+                      "          ")
+                     if ds == "wrc-2-pa-huimpact" else "")
         open(f"{ds}-{domain}-hex.yaml", "w").write(body)
         print("wrote", f"{ds}-{domain}-hex.yaml", n, "completions")

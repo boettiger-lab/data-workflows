@@ -112,8 +112,10 @@ spec:
           # sibling wrc-2 CONUS run, four pods spanning 47.8 M to 226.7 M output cells all sat at
           # 132-134 GiB -- a 4.7x range in cells giving 1.8% in memory. So 128Gi (131,072 Mi) sits
           # BELOW the steady state and would OOM every slice, not merely the dense one.
-          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
-          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
+          # DEVIATION (#692): 64Gi. With datasets#248's windowed h0 reads,
+          # buildingcount-conus peaked at 7-13 GiB across all 12 pods (BUILD.md).
+          requests: {cpu: '8', memory: 64Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 64Gi, ephemeral-storage: 50Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
       affinity:
