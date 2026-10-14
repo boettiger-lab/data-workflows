@@ -1,3 +1,6 @@
+# DEVIATION from generated output (#743, boettiger-lab/datasets#275): convert memory 8Gi -> 32Gi. The Zenodo 23265719
+# shapefile (391 MB zip, 2x v1.0) OOMKilled convert twice at the generated 8Gi, and
+# `cng-datasets workflow` has no flag for convert memory.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -58,10 +61,10 @@ spec:
         resources:
           requests:
             cpu: '4'
-            memory: 8Gi
+            memory: 32Gi
           limits:
             cpu: '4'
-            memory: 8Gi
+            memory: 32Gi
       volumes:
       - name: rclone-config
         secret:
