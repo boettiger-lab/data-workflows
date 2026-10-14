@@ -56,17 +56,18 @@ spec:
             --row-group-size 2000 \
             --layer biome_Mesic_Valley_Bottom_Layers_Table \
             --expect-features 24690182
-        # DEVIATION from generated output (#609): 24.7M polygons from a 16.9 GB GeoPackage; the generated job sets no ephemeral, so it
-        # would get the 50Gi default, below the localized source plus the output parquet.
+        # DEVIATION from generated output (#609): ephemeral-storage set for a 5.4 GB output
+        # parquet written locally before upload. Memory left at the generated 8Gi: the
+        # 2026-10-13 run peaked near 0.6 GiB, since the GeoPackage is streamed, not localized.
         resources:
           requests:
             cpu: '4'
-            memory: 16Gi
-            ephemeral-storage: 80Gi
+            memory: 8Gi
+            ephemeral-storage: 20Gi
           limits:
             cpu: '4'
-            memory: 16Gi
-            ephemeral-storage: 80Gi
+            memory: 8Gi
+            ephemeral-storage: 20Gi
       volumes:
       - name: rclone-config
         secret:

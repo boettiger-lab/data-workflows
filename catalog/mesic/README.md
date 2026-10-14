@@ -353,9 +353,33 @@ carry raised memory and ephemeral storage, declared in each file.
 ```bash
 kubectl apply $N -f $K/mesic-valley-bottoms-stage-raw.yaml       # 16.9 GB, size-asserted, sha256
 kubectl wait  $N --for=condition=complete job/mesic-valley-bottoms-stage-raw --timeout=7200s
-kubectl apply $N -f $K/mesic-valley-bottoms-2026-09/mesic-valley-bottoms-2026-09-convert.yaml
+kubectl apply $N -f $K/mesic-valley-bottoms-2026-09/mesic-valley-bottoms-2026-09-convert.yaml   # ~2.5 h
 kubectl wait  $N --for=condition=complete job/mesic-valley-bottoms-2026-09-convert --timeout=43200s
+kubectl apply $N -f $K/mesic-valley-bottoms-2026-09/mesic-valley-bottoms-2026-09-dedup.yaml
+kubectl wait  $N --for=condition=complete job/mesic-valley-bottoms-2026-09-dedup --timeout=7200s
 kubectl apply $N -f $K/mesic-valley-bottoms-2026-09/mesic-valley-bottoms-2026-09-pmtiles.yaml
 ```
 
-The only id upstream ships is `fid`. Convert writes it as `_cng_fid`.
+The only id upstream ships is `fid`. It equals `_cng_fid` on every row.
+
+### Upstream duplicates: dedup before pmtiles
+
+1,628,137 of the 24,690,182 source rows repeat a geometry already in the table, some up to 10
+times. With them in, `SUM(Area_m2)` reads 298,295 km2 against a true 230,690 km2. `dedup` keeps the
+lowest `_cng_fid` per geometry, leaving **23,062,045** segments. 21 repeat groups differ only by a
+0.1 rounding step and collapse the same way. Decided in #609.
+
+`dedup` publishes over its own input. It snapshots the convert output to
+`staging/mesic-valley-bottoms-2026-09.predup.parquet` only when no snapshot exists, so a re-run
+always reads the original. To rebuild from scratch, delete that snapshot and re-run convert first.
+The job fails unless it reads exactly 24,690,182 rows and writes exactly 23,062,045.
+
+### Two upstream columns are documented, not altered
+
+Measured on the published table:
+
+| column | finding |
+|---|---|
+| `DstCore_Km` | 8,302,507 segments read 1,000 to 1,262 km and track latitude (r = -0.997). They do not measure distance to core. All others read below 1,000 km, and only 13,766 between 100 and 1,000. |
+| `FldPln_Pct` | Not capped at 100. 2,516,447 segments read above 100, almost all 101 to 110. The extremes, up to 47,540, are slivers of a few m2. |
+| `Area_m2` | Agrees with the polygon's spheroidal area. 1,591 slivers read 0. |

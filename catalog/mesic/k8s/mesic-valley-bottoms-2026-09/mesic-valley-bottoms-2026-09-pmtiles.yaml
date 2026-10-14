@@ -79,16 +79,17 @@ spec:
           # Upload to S3 using rclone
           rclone copy /tmp/$DATASET.pmtiles nrp:public-mesic/
           rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles
-        # DEVIATION from generated output (#609): 24.7M polygons expand to an estimated 40-60 GB of GeoJSONSeq, and tippecanoe
-        # writes temp files of similar size, so 50Gi default ephemeral is far too small.
+        # DEVIATION from generated output (#609): 23.1M polygons expand to an estimated
+        # 40-60 GB of GeoJSONSeq, and tippecanoe writes temp files of similar size, so the
+        # 50Gi default ephemeral is far too small. Memory raised to 16Gi for tippecanoe.
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 16Gi
             ephemeral-storage: 250Gi
           limits:
             cpu: '4'
-            memory: 32Gi
+            memory: 16Gi
             ephemeral-storage: 250Gi
       volumes:
       - name: rclone-config
