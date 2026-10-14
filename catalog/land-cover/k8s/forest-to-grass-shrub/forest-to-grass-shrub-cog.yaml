@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: forest-to-grass-shrub-cog
+  namespace: geo-workflows
+  labels: {k8s-app: forest-to-grass-shrub-cog}
+spec:
+  completions: 3
+  parallelism: 3
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: forest-to-grass-shrub-cog}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /tmp}
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          # One WGS84 COG per layer (#738). -r near: integer flags/years, never interpolate.
+          # max_run_years is computed upstream for EVERY pixel; mask it to binary=1 (nodata 0)
+          # so all three layers cover the same qualifying pixels.
+          LAYERS=(binary max_run_years change_year)
+          NODATA=(255 0 0)
+          L=${LAYERS[$JOB_COMPLETION_INDEX]}; ND=${NODATA[$JOB_COMPLETION_INDEX]}
+          f="forest_to_grassshrub_${L}.tif"
+          out="forest-to-grass-shrub-${L//_/-}-cog.tif"
+          RAW=nrp:public-land-cover/raw/forest-to-grass-shrub
+          cd /tmp
+          rclone copy $RAW/$f /tmp/ --retries 10 --low-level-retries 20 --retries-sleep 20s
+          if [ "$L" = max_run_years ]; then
+            rclone copy $RAW/forest_to_grassshrub_binary.tif /tmp/ --retries 10 --low-level-retries 20 --retries-sleep 20s
+            python3 - <<'PY'
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          src = gdal.Open("/tmp/forest_to_grassshrub_max_run_years.tif")
+          msk = gdal.Open("/tmp/forest_to_grassshrub_binary.tif")
+          out = gdal.GetDriverByName("GTiff").Create("/tmp/masked.tif", src.RasterXSize, src.RasterYSize, 1,
+              gdal.GDT_Byte, ["TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"])
+          out.SetGeoTransform(src.GetGeoTransform()); out.SetProjection(src.GetProjection())
+          ob = out.GetRasterBand(1); ob.SetNoDataValue(0)
+          hist = np.zeros(256, dtype=np.int64); B = 4096
+          for y in range(0, src.RasterYSize, B):
+              for x in range(0, src.RasterXSize, B):
+                  w, h = min(B, src.RasterXSize - x), min(B, src.RasterYSize - y)
+                  a = src.GetRasterBand(1).ReadAsArray(x, y, w, h)
+                  m = msk.GetRasterBand(1).ReadAsArray(x, y, w, h)
+                  a = np.where(m == 1, a, 0).astype(np.uint8)
+                  hist += np.bincount(a.ravel(), minlength=256)
+                  ob.WriteArray(a, x, y)
+          out.FlushCache(); out = None
+          for v in np.nonzero(hist)[0]: print(f"masked value {v}: {hist[v]}")
+          assert hist[1:10].sum() == 0, "binary=1 pixel with run < 10"
+          PY
+            mv /tmp/masked.tif /tmp/$f
+          fi
+          gdalwarp -t_srs EPSG:4326 -r near -of COG \
+            -srcnodata $ND -dstnodata $ND \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 4096 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BLOCKSIZE=512 \
+            -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS \
+            /tmp/$f /tmp/$out
+          gdalinfo /tmp/$out | grep -E 'Size is|Pixel Size|Lower Left|Upper Right|NoData|Type='
+          rclone copyto /tmp/$out nrp:public-land-cover/forest-to-grass-shrub/$out --retries 10 --low-level-retries 20 --retries-sleep 20s
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

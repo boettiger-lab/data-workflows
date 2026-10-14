@@ -1,0 +1,58 @@
+# Publish the STAC collection and register it in the live land-cover parent (#738).
+# The parent is fetched and patched in the job, never replaced. The README is not regenerated;
+# a README.md placed in /tmp/f2g is uploaded alongside the STAC.
+#   mkdir -p /tmp/f2g && python3 gen_stac.py 2026-10-02T21:11:20Z /tmp/f2g/stac-collection.json
+#   kubectl -n geo-workflows create configmap forest-to-grass-shrub-stac --from-file=/tmp/f2g
+#   kubectl apply -n geo-workflows -f forest-to-grass-shrub-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: forest-to-grass-shrub-publish-stac
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          B=nrp:public-land-cover
+          # ConfigMap files are symlinks, which rclone copyto rejects; dereference first.
+          mkdir -p /tmp/stac && cp -L /src/stac-collection.json /tmp/stac/ && cd /tmp/stac
+          rclone copyto stac-collection.json $B/forest-to-grass-shrub/stac-collection.json
+          # The README is not generated; publish it only when one is supplied in the ConfigMap.
+          if [ -e /src/README.md ]; then
+            cp -L /src/README.md /tmp/stac/README.md
+            rclone copyto README.md $B/forest-to-grass-shrub/README.md
+          fi
+          rclone copyto $B/stac-collection.json parent.json
+          python3 - <<'PY'
+          import json
+          p = json.load(open("parent.json"))
+          href = "https://s3-west.nrp-nautilus.io/public-land-cover/forest-to-grass-shrub/stac-collection.json"
+          title = "Persistent Forest to Grass/Shrub Conversion, Western US, 2001-2012"
+          link = next((l for l in p["links"] if l.get("href") == href), None)
+          if link is None:
+              p["links"].append({"rel": "child", "href": href, "type": "application/json", "title": title})
+              print("child link added")
+          else:
+              link["title"] = title
+              print("child link present; title set")
+          json.dump(p, open("parent.json", "w"), indent=2)
+          PY
+          rclone copyto parent.json $B/stac-collection.json
+          rclone lsl $B/forest-to-grass-shrub/ --max-depth 1
+        resources: {requests: {cpu: '1', memory: 1Gi}, limits: {cpu: '1', memory: 1Gi}}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: src, mountPath: /src, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: src, configMap: {name: forest-to-grass-shrub-stac}}
