@@ -824,3 +824,37 @@ drops its own empty cells, these become dead weight and should go.
 
 `stac-collection.backup.json` at the bucket root is the pre-patch bucket collection, kept by
 `publish-stac.yaml` for the same reason.
+
+## #692: BuildingCount and HUImpact
+
+#692 narrowed the follow-up to these two themes (the other six are redundant with
+`silvis-wui-2020`, `acs-2020-2024-blockgroup` and `ghs-pop-2020`). Built 2026-10-13/14 on
+`ghcr.io/boettiger-lab/datasets:latest`, which carries datasets#248 (fixes #232 zero-fill and
+#209 windowed h0 reads), so no coverage-mask or repair pass was run.
+
+### COGs (make-cogs.yaml, indexes 4-7)
+
+| dataset | source sum | COG sum | COG max | warp |
+|---|---:|---:|---:|---|
+| `buildingcount-conus` | 145,824,593 | 145,824,616.13 (rel 1.6e-7) | 48.71 | `sum`, 75 min |
+| `buildingcount-ak` | 311,888 | 311,790.26 (rel 3.1e-4) | 5.01 | `sum`, 2 min |
+| `huimpact-conus` | | | 1,931,999,488 (source 1,952,625,152) | `near`, 4 min |
+| `huimpact-ak` | | | 155,192,256 (= source) | `near`, 4 min |
+
+`buildingcount-ak` loses ~98 buildings to the 180W clip, which drops Shemya and Attu. HUExposure
+has no mass there, which is why #611's 1e-5 check passed; `make_facts.py` now bounds this one loss
+at 1e-3 and fails on any gain. The `huimpact-conus` max is lower because `near` skips some source
+pixels.
+
+`BuildingCount` has a valid value on 8.98e9 of CONUS's source pixels (zeros on all mapped land),
+against 1.5e9 for HUExposure, which is why its `-r sum` warp took 75 min at 14.8 GiB.
+
+### Hex
+
+| dataset | rows | = distinct h10 | populated h0 | SUM | wall |
+|---|---:|---|---:|---:|---|
+| `buildingcount-conus` | 520,990,243 | yes | 6 of 12 | 145,824,616.13 (= COG) | 4h13m, 12 pods at 7-13 GiB |
+
+Zero NULL `h9`/`h8`, zero `-9999` or NaN, `MIN` 0, no all-zero partition. The six populated h0 cells
+are exactly HURisk-CONUS's six. Peak memory was 7-13 GiB against #611's ~132 GiB: the windowed h0
+reads in datasets#248 are the likely reason, so 192Gi is now far oversized for this publication.
