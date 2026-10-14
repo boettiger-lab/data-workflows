@@ -3,6 +3,8 @@ import json, sys
 
 BASE = "https://s3-west.nrp-nautilus.io/public-land-cover/forest-to-grass-shrub"
 binary_created = sys.argv[1] if len(sys.argv) > 1 else "2026-10-02T21:11:20Z"
+# Last-Modified of the converted-pixels hex partitions (#738, added at review on #745).
+count_created = "2026-10-14T03:19:12Z"
 
 H3COLS = [
     {"name": "h10", "type": "uint64", "description": "H3 cell ID at resolution 10 (native resolution)."},
@@ -14,8 +16,29 @@ H3COLS = [
 COMMON_HEX = (
     "One row per resolution 10 H3 cell (about 15,000 m², roughly 17 source pixels). "
     "A cell is present only if at least one qualifying 30 m pixel falls in it, so the count or area of "
-    "cells overstates converted area; the converted area itself is about 43,840 km² "
-    "(48,709,853 qualifying pixels of 900 m²). Values are whole numbers stored as double."
+    "cells overstates converted area about fivefold; the converted area itself is about 43,840 km² "
+    "(48,709,853 qualifying pixels of 900 m²). For converted area inside a region, use the converted-pixels "
+    "hex. Values are whole numbers stored as double."
+)
+
+COUNT_HEX = (
+    "Converted pixels per resolution 10 H3 cell, for converted area inside any region. The value is how many "
+    "qualifying pixels of the binary COG fall in the cell, with a pixel on a cell edge split by the share of it "
+    "inside the cell, so values are fractional, from near 0 to about 18. The cells are the same as in the other "
+    "three hex layers.\n\n"
+    "The COG is in WGS84 with square pixels of 0.000311463 degrees, so a pixel's ground area shrinks with "
+    "latitude: 1,199.45 m² times the cosine of the latitude, about 1,080 m² at 26°N and 790 m² at 49°N. "
+    "Summed over every cell this gives 43,784 km², within 0.2% of the 43,840 km² counted on the source grid.\n\n"
+    "```sql\n"
+    "-- correct: converted area in km² for a set of cells\n"
+    "SELECT SUM(converted_pixels * 1199.45 * cos(radians(h3_cell_to_lat(h10)))) / 1e6 AS km2\n"
+    "FROM read_parquet('s3://public-land-cover/forest-to-grass-shrub/converted-pixels/hex/h0=*/data_0.parquet')\n"
+    "WHERE ...;\n"
+    "-- wrong: totalling the area of the cells counts every touched cell in full, about five times too high\n"
+    "-- wrong: converted_pixels * 900 assumes 30 m pixels, but these are WGS84 pixels of 790 to 1,080 m²\n"
+    "```\n\n"
+    "To roll up to a coarser cell, SUM again: SELECT h8, SUM(converted_pixels) FROM ... GROUP BY h8. "
+    "Take the latitude from the resolution 10 cell before rolling up, or compute the area first and sum that."
 )
 
 def cog(key, title, band, created, desc):
@@ -73,11 +96,17 @@ assets = dict([
         "2026-10-02T09:28:46Z",
         COMMON_HEX + " Cell value is the earliest onset over its converted pixels (min reducer). To roll up to a coarser cell, take MIN again:\n"
         "SELECT h8, MIN(change_year) FROM ... GROUP BY h8"),
+    hex_asset("forest-to-grass-shrub-converted-pixels-hex", "converted-pixels", "Converted pixels per cell, H3 hex (resolution 10)",
+        {"name": "converted_pixels", "type": "double",
+         "description": "Qualifying pixels of the binary COG in the cell, with edge pixels split by the share inside the cell. "
+                        "Multiply by 1,199.45 m² times the cosine of the cell's latitude for converted area."},
+        count_created,
+        COUNT_HEX),
 ])
 
 desc = """Where forest in the western United States turned into grass or shrubland and stayed that way, 2001-2021. A 30 m pixel qualifies when it was Tree Cover in 2001 and, at any point afterwards, spent at least 10 consecutive years as Grass/Shrub, according to the USGS LCMAP Land Cover Primary (LCPRI) annual maps for 1985-2021. Only 2002-2021 are scanned, so the longest possible run is 20 years and a qualifying run starts no later than 2012. Classes between 2001 and the start of the run are not restricted. About 43,840 km² qualify (48,709,853 pixels).
 
-Three layers, each as a map COG and an H3 hex table at resolution 10 (parents 9, 8 and 0): whether a pixel qualifies (`binary`), the longest Grass/Shrub run in years (`max_run_years`), and the year the qualifying run began (`change_year`). All three cover the same qualifying pixels. Upstream computes the longest run for every pixel, including land that was never forest; here it is kept only where the rule is met.
+Three layers, each as a map COG and an H3 hex table at resolution 10 (parents 9, 8 and 0): whether a pixel qualifies (`binary`), the longest Grass/Shrub run in years (`max_run_years`), and the year the qualifying run began (`change_year`). All three cover the same qualifying pixels. Upstream computes the longest run for every pixel, including land that was never forest; here it is kept only where the rule is met. A fourth hex table, `converted_pixels`, counts the qualifying pixels in each cell, on the same cells, so converted area can be totalled inside any region; counting cells instead overstates it about fivefold.
 
 Coverage is the western conterminous US, from about 124.7°W to 97.0°W and 25.8°N to 49.0°N, on the LCMAP Albers grid; it is not clipped to state boundaries. Rasters were reprojected to WGS84 with nearest-neighbour resampling.
 
@@ -99,7 +128,7 @@ stac = {
     "sci:doi": "10.5281/zenodo.23045000",
     "sci:citation": "Ilangakoon, N. (2026). Forest to Grass/Shrub transformation in the Western US from 2001-2012 [Data set]. Zenodo. https://doi.org/10.5281/zenodo.23045000 (accessed 2026-10-01)",
     "created": "2026-10-01T19:55:30Z",
-    "updated": binary_created,
+    "updated": count_created,
     "extent": {
         "spatial": {"bbox": [[-124.72, 25.84, -97.04, 49.01]]},
         "temporal": {"interval": [["2001-01-01T00:00:00Z", "2021-12-31T23:59:59Z"]]},

@@ -1,5 +1,6 @@
 # Publish the STAC collection and register it in the live land-cover parent (#738).
-# The parent is fetched and patched in the job, never replaced. The README is not regenerated.
+# The parent is fetched and patched in the job, never replaced. The README is not regenerated;
+# a README.md placed in /tmp/f2g is uploaded alongside the STAC.
 #   mkdir -p /tmp/f2g && python3 gen_stac.py 2026-10-02T21:11:20Z /tmp/f2g/stac-collection.json
 #   kubectl -n geo-workflows create configmap forest-to-grass-shrub-stac --from-file=/tmp/f2g
 #   kubectl apply -n geo-workflows -f forest-to-grass-shrub-publish-stac.yaml
@@ -26,6 +27,11 @@ spec:
           # ConfigMap files are symlinks, which rclone copyto rejects; dereference first.
           mkdir -p /tmp/stac && cp -L /src/stac-collection.json /tmp/stac/ && cd /tmp/stac
           rclone copyto stac-collection.json $B/forest-to-grass-shrub/stac-collection.json
+          # The README is not generated; publish it only when one is supplied in the ConfigMap.
+          if [ -e /src/README.md ]; then
+            cp -L /src/README.md /tmp/stac/README.md
+            rclone copyto README.md $B/forest-to-grass-shrub/README.md
+          fi
           rclone copyto $B/stac-collection.json parent.json
           python3 - <<'PY'
           import json
