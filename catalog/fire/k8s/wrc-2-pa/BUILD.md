@@ -824,3 +824,64 @@ drops its own empty cells, these become dead weight and should go.
 
 `stac-collection.backup.json` at the bucket root is the pre-patch bucket collection, kept by
 `publish-stac.yaml` for the same reason.
+
+## #692: BuildingCount and HUImpact
+
+#692 narrowed the follow-up to these two themes (the other six are redundant with
+`silvis-wui-2020`, `acs-2020-2024-blockgroup` and `ghs-pop-2020`). Built 2026-10-13/14 on
+`ghcr.io/boettiger-lab/datasets:latest`, which carries datasets#248 (fixes #232 zero-fill and
+#209 windowed h0 reads), so no coverage-mask or repair pass was run.
+
+### COGs (make-cogs.yaml, indexes 4-7)
+
+| dataset | source sum | COG sum | COG max | warp |
+|---|---:|---:|---:|---|
+| `buildingcount-conus` | 145,824,593 | 145,824,616.13 (rel 1.6e-7) | 48.71 | `sum`, 75 min |
+| `buildingcount-ak` | 311,888 | 311,790.26 (rel 3.1e-4) | 5.01 | `sum`, 2 min |
+| `huimpact-conus` | | | 1,931,999,488 (source 1,952,625,152) | `near`, 4 min |
+| `huimpact-ak` | | | 155,192,256 (= source) | `near`, 4 min |
+
+`buildingcount-ak` loses ~98 buildings to the 180W clip, which drops Shemya and Attu. HUExposure
+has no mass there, which is why #611's 1e-5 check passed; `make_facts.py` now bounds this one loss
+at 1e-3 and fails on any gain. The `huimpact-conus` max is lower because `near` skips some source
+pixels.
+
+`BuildingCount` has a valid value on 8.98e9 of CONUS's source pixels (zeros on all mapped land),
+against 1.5e9 for HUExposure, which is why its `-r sum` warp took 75 min at 14.8 GiB.
+
+### Hex
+
+| dataset | rows | = distinct h10 | populated h0 | SUM | wall |
+|---|---:|---|---:|---:|---|
+| `buildingcount-conus` | 520,990,243 | yes | 6 of 12 | 145,824,616.13 (= COG) | 4h13m, 12 pods at 7-13 GiB |
+| `buildingcount-ak` | 120,376,065 | yes | 5 of 7 | 311,790.26 (= COG) | 2h30m |
+| `huimpact-conus` | 126,907,283 | yes | 6 of 12 | (mean) | 4h37m at 64Gi |
+| `huimpact-ak` | 365,692 | yes | 4 of 7 | (mean) | 3h13m at 64Gi |
+
+Zero NULL `h9`/`h8`, zero `-9999` or NaN, `MIN` 0, no all-zero partition. The six populated h0 cells
+are exactly HURisk-CONUS's six. Peak memory was 7-13 GiB against #611's ~132 GiB: the windowed h0
+reads in datasets#248 are the likely reason, so 192Gi is now far oversized for this publication.
+
+`huimpact-conus` covers the same six h0 cells and the same data bbox as `hurisk-conus`, and has 19
+more rows (126,907,283 vs 126,907,264). Both are defined only where housing-unit density is above
+zero, so they should match closely.
+
+**One all-zero partition, and it is real.** `buildingcount-ak` h0 `576882964768489471` holds 1,979
+rows, all 0: 30 km2 at 51.9N, 177.7-178.1W, around Tanaga and Kanaga in the Aleutians, which are
+uninhabited. With datasets#248 a row is written only where the cell has valid pixels, so these are
+measured zeros, not fill. #611's "no partition entirely zero" gate targets zero-fill; this is the
+case it does not distinguish.
+
+The hex chain ran unattended overnight and was killed with the session after submitting
+`huimpact-conus`; `huimpact-ak` was submitted by hand at 17:50Z on 2026-10-14.
+
+`huimpact-ak` covers the same four h0 cells as `hurisk-ak` (12 fewer rows, 365,692 vs 365,704),
+including the dateline cell. The dateline h0 set the pace in both Alaska jobs: it alone reaches
+248,126,145 res-10 cells and is read without a window because it straddles the antimeridian.
+
+### STAC
+
+All four collections published 2026-10-14 via `publish-stac.yaml`, and the `public-fire` bucket
+collection gained their four child links (30 -> 34; non-link fields and existing links unchanged,
+backup at `stac-collection.backup.json`). `verify-stac.py --bucket public-fire` passes with no hard
+findings on all eight `wrc-2-pa-*` collections.

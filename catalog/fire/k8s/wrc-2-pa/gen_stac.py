@@ -43,9 +43,11 @@ CITATION = (
     f"Service Research Data Archive. {DOI}. Accessed {ACCESS_DATE}."
 )
 
-# The source's own currency, not its publication date: the data reflect landscape conditions as
-# of the end of 2014 (LANDFIRE 2020, version 2.2.0).
-TEMPORAL = ["2014-01-01T00:00:00Z", "2014-12-31T23:59:59Z"]
+# The source's own currency, not its publication date: the metadata's Time_Period_of_Content is
+# 2021 and 2022 (ground condition). Burn probability reflects the end of 2020, fire intensity the
+# end of 2022, housing units are 2020 Census estimates, population 2021, building footprints 2022.
+# #611 published 2014 here, which the current metadata does not support (#692).
+TEMPORAL = ["2021-01-01T00:00:00Z", "2022-12-31T23:59:59Z"]
 
 # ---------------------------------------------------------------------------
 # Per-theme copy. Descriptions are USER-FACING: the geo-agent quotes them nearly
@@ -69,6 +71,8 @@ THEMES = {
             "is greater than zero, so it describes risk where people actually live rather than "
             "risk to a hypothetical structure."
         ),
+        fire_inputs=True,
+        keywords=["wildfire risk", "housing units"],
         interpretation=(
             "The value is a relative index with no physical unit, so it is meaningful for "
             "ranking and comparison rather than as a quantity. Combine cells by averaging; "
@@ -90,12 +94,67 @@ THEMES = {
             "modelled fire likelihood, not a count of housing units exposed in any particular "
             "year."
         ),
+        fire_inputs=True,
+        keywords=["wildfire risk", "housing units"],
+        zero_meaning="mapped ground with no expected exposure",
+        sql_comment="expected housing units exposed per year inside inventoried roadless areas",
         interpretation=(
             "This is an amount rather than an index: each cell holds the expected housing units "
             "within that cell, so cells add. Summing over an area gives the expected housing "
             "units exposed per year in that area, and the catalog total is meaningful. Values "
             "per cell are small because the quantity is an annual expectation."
         ),
+    ),
+    "buildingcount": dict(
+        column="buildingcount",
+        label="Building Count",
+        webapp=None,
+        units="buildings",
+        reducer="sum",
+        dtype="float32",
+        source_range="0 to 50 per 30 metre pixel across the United States",
+        what=(
+            "Building Count is the number of buildings whose centroid falls within each 30 metre "
+            "pixel. The buildings come from 2022 building footprint data (Onegeo and USA "
+            "Structures), filtered by the producers to remove structures unlikely to be primary "
+            "residential, commercial or industrial buildings."
+        ),
+        interpretation=(
+            "This is an amount rather than a density: each cell holds the number of buildings "
+            "within it, so cells add, and summing over an area gives the number of buildings in "
+            "that area. It counts buildings of every use, not homes or people; the housing-unit "
+            "layers in this bucket answer those questions."
+        ),
+        fire_inputs=False,
+        keywords=["buildings", "building footprints"],
+        zero_meaning="mapped ground with no buildings",
+        sql_comment="buildings inside inventoried roadless areas",
+    ),
+    "huimpact": dict(
+        column="huimpact",
+        label="Housing Unit Impact",
+        webapp=None,
+        units="unitless index",
+        reducer="mean",
+        dtype="int32",
+        source_range="0 to 1,952,625,152 across the United States",
+        what=(
+            "Housing Unit Impact is the relative potential impact of fire to housing units at a "
+            "location if a fire were to occur. The producers compute it from the housing units "
+            "in each pixel, the conditional probability of each fire intensity and its "
+            "consequence to a structure, and the reduction of potential loss with distance from "
+            "burnable land, then scale it by one million and round to an integer. It is defined "
+            "only where housing-unit density is greater than zero."
+        ),
+        interpretation=(
+            "The value is a relative index meant for ranking and comparison, and the producers "
+            "describe it as a landscape metric rather than one specific to any single home. It "
+            "does not include how likely a fire is; Housing Unit Risk adds that. Combine cells "
+            "by averaging. An absence of data means no housing units, not an absence of "
+            "potential impact."
+        ),
+        fire_inputs=True,
+        keywords=["wildfire risk", "housing units"],
     ),
 }
 
@@ -200,6 +259,16 @@ def build_collection(dataset: str, facts: dict) -> dict:
         else ""
     )
 
+    # Data-driven: only where the measured COG total fell short of the source (the Alaska clip).
+    clip_loss = ""
+    if is_sum and "src_sum" in f and "cog_sum" in f:
+        lost = f["src_sum"] - f["cog_sum"]
+        if lost / f["src_sum"] > 1e-5:
+            clip_loss = (
+                f" The clip removes about {round(lost):,} {theme['units']} held in those islands, "
+                f"{100 * lost / f['src_sum']:.2f} percent of the source total."
+            )
+
     if is_sum:
         reducer_para = (
             f"Coverage is {domain['article']}{domain['label']} at a 30 metre source pixel "
@@ -210,7 +279,7 @@ def build_collection(dataset: str, facts: dict) -> dict:
             f"each cell gathers roughly 17 source pixels. Because the source value is an amount "
             f"held by each pixel rather than an intensity, both the reprojection and the hex "
             f"aggregation conserve the total, and the sum over any set of cells is the amount "
-            f"within them.{domain['clip_note']}"
+            f"within them.{domain['clip_note']}{clip_loss}"
         )
     else:
         reducer_para = (
@@ -235,13 +304,20 @@ def build_collection(dataset: str, facts: dict) -> dict:
         "structure."
     )
 
+    currency = (
+        "Burn probability reflects landscape conditions as of the end of 2020 and fire "
+        "intensity as of the end of 2022. Housing units are 2020 Census Bureau estimates, "
+        "population is 2021, and building footprints reflect 2022, which is why the temporal "
+        "extent is 2021 to 2022 rather than the 2024 publication date."
+    )
     oversampling_para = (
-        "The fire likelihood and intensity inputs behind these layers were modelled at 270 "
-        "metres and upsampled to the 30 metre resolution of the LANDFIRE fuel and vegetation "
-        "grid, so the 30 metre grid is finer than the independent information content of those "
-        "inputs. The data reflect landscape conditions as of the end of 2014, from LANDFIRE 2020 "
-        "version 2.2.0, which is why the temporal extent is 2014 rather than the 2024 "
-        "publication date."
+        "The fire likelihood inputs behind this layer were modelled at 270 metres and upsampled "
+        "to the 30 metre resolution of the LANDFIRE fuel and vegetation grid, so the 30 metre "
+        "grid is finer than the independent information content of those inputs. " + currency
+        if theme["fire_inputs"] else
+        "Building footprints reflect 2022 conditions. The temporal extent is 2021 to 2022, the "
+        "period of content the publication states for its population and building layers, "
+        "rather than the 2024 publication date."
     )
 
     join_para = (
@@ -292,10 +368,10 @@ def build_collection(dataset: str, facts: dict) -> dict:
             f"intensity, so cells add: sum the column to total an area, and roll up to a coarser "
             f"resolution with a sum rather than an average. A cell is present only where the "
             f"source raster holds data, so a cell whose value is zero is a measured zero, "
-            f"meaning mapped ground with no expected exposure, while ground the mapping does "
+            f"meaning {theme['zero_meaning']}, while ground the mapping does "
             f"not cover has no row at all.\n\n"
             f"```sql\n"
-            f"-- expected housing units exposed per year inside inventoried roadless areas\n"
+            f"-- {theme['sql_comment']}\n"
             f"SELECT SUM(w.{theme['column']}) AS {theme['column']}_total\n"
             f"FROM read_parquet('{hex_href}') w\n"
             f"JOIN (\n"
@@ -352,9 +428,9 @@ def build_collection(dataset: str, facts: dict) -> dict:
         "license": "public-domain",
         "keywords": [
             "wildfire",
-            "wildfire risk",
+            *[k for k in theme["keywords"] if k == "wildfire risk"],
             "fire",
-            "housing units",
+            *[k for k in theme["keywords"] if k != "wildfire risk"],
             theme["label"].lower(),
             domain["short"].lower(),
             "h3",

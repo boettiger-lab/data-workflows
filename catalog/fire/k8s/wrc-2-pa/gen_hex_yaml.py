@@ -18,7 +18,7 @@ HDR_COMMON = """#
 # CONUS res-10 hex from hours into 30-50 h).
 """
 
-TMPL = """# HAND-ROLLED: emitted by gen_hex_yaml.py with an explicit h0 index list instead of the 122-completion fan-out (#611)
+TMPL = """# HAND-ROLLED: emitted by gen_hex_yaml.py with an explicit h0 index list instead of the 122-completion fan-out ({issue})
 # WRC v2 populated areas: {title}, {domain_long} -- res-10 `{reducer}` hex.
 {rerun}#
 # Source publication RDS-2020-0060-2 (*Spatial datasets of wildfire risk for populated areas*).
@@ -107,8 +107,8 @@ spec:
           # sibling wrc-2 CONUS run, four pods spanning 47.8 M to 226.7 M output cells all sat at
           # 132-134 GiB -- a 4.7x range in cells giving 1.8% in memory. So 128Gi (131,072 Mi) sits
           # BELOW the steady state and would OOM every slice, not merely the dense one.
-          requests: {{cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}}
-          limits:   {{cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}}
+          {mem_note}requests: {{cpu: '8', memory: {mem}, ephemeral-storage: 50Gi}}
+          limits:   {{cpu: '8', memory: {mem}, ephemeral-storage: 50Gi}}
       volumes:
       - {{name: rclone-config, secret: {{secretName: rclone-config}}}}
       affinity:
@@ -163,9 +163,28 @@ SUM_NOTE = """# Reducer `sum`: HUExposure is the expected number of housing unit
 # index. Do not generalise one reducer across this publication.
 """
 
+BUILDINGCOUNT_NOTE = """# Reducer `sum`: BuildingCount is the number of buildings WITHIN A 30 m PIXEL (0-50) -- an amount,
+# not a density. `sum` gives the buildings inside the cell and totals correctly under any further
+# aggregation; it is the one theme in this publication that yields a total building count inside
+# an arbitrary boundary. make-cogs.yaml warps it with `-r sum` so the chain conserves mass: hex
+# SUM(buildingcount) must equal the COG pixel sum within rounding.
+#
+# No zero-fill repair is needed: the image carries the datasets#232 fix (PR #248, 2026-09-28), so
+# cells with no valid pixel are dropped and genuine zeros are kept.
+#
+# ⚠️ `BuildingDensity` and `BuildingCover` differ from this theme only in a suffix and take `mean`.
+"""
+
+HUIMPACT_NOTE = """# Reducer `mean`: HUImpact is a unitless relative index of the potential impact of fire to
+# housing units (0-1,952,625,152; the maximum is a value, not a sentinel -- see BUILD.md). An index
+# is an intensity, so `sum` would be meaningless; consumers compare means across land classes.
+"""
+
 for ds, title, col, reducer, note in [
     ("wrc-2-pa-hurisk", "Housing Unit Risk", "hurisk", "mean", MEAN_NOTE),
     ("wrc-2-pa-huexposure", "Housing Unit Exposure", "huexposure", "sum", SUM_NOTE),
+    ("wrc-2-pa-buildingcount", "Building Count", "buildingcount", "sum", BUILDINGCOUNT_NOTE),
+    ("wrc-2-pa-huimpact", "Housing Unit Impact", "huimpact", "mean", HUIMPACT_NOTE),
 ]:
     for domain, h0s, long, short, clip in [
         ("conus", CONUS_H0, "continental United States", "CONUS", ""),
@@ -174,11 +193,17 @@ for ds, title, col, reducer, note in [
         n = len(h0s)
         hdr = HDR_COMMON.format(saved=122 - n, orig=122)
         rerun = (f"# ⛔ Re-run order: this job leaves zero-fill rows (datasets#232). Run coverage-mask-{domain}.yaml"
-                 f" then repair-zero-fill-{domain}.yaml after it; see BUILD.md.\n") if reducer == "sum" else ""
+                 f" then repair-zero-fill-{domain}.yaml after it; see BUILD.md.\n") if ds == "wrc-2-pa-huexposure" else ""
+        issue = "#611" if ds in ("wrc-2-pa-hurisk", "wrc-2-pa-huexposure") else "#692"
         body = TMPL.format(rerun=rerun,
             title=title, domain_long=long, domain_short=short, domain=domain,
             reducer=reducer, reducer_note=note, clip_note=clip, hdr_common=hdr,
             job=f"{ds}-{domain}-hex", n=n, h0s=" ".join(str(x) for x in h0s),
-            ds=f"{ds}-{domain}", col=col)
+            ds=f"{ds}-{domain}", col=col, issue=issue,
+            mem="64Gi" if ds == "wrc-2-pa-huimpact" else "192Gi",
+            mem_note=("# DEVIATION (#692): 64Gi. With datasets#248's windowed h0 reads,\n"
+                      "          # buildingcount-conus peaked at 7-13 GiB across all 12 pods (BUILD.md).\n"
+                      "          ")
+                     if ds == "wrc-2-pa-huimpact" else "")
         open(f"{ds}-{domain}-hex.yaml", "w").write(body)
         print("wrote", f"{ds}-{domain}-hex.yaml", n, "completions")

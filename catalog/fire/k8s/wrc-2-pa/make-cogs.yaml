@@ -91,8 +91,9 @@
 # 53% (Alaska) and had to be re-measured afterwards. These rasters are small enough that a full
 # blockwise pass costs minutes, so the numbers this job prints are publishable as-is.
 #
-# Indexes 0-3 are the two themes #611 scoped first, so `completions: 4` builds exactly those. The
-# follow-up issue raises it to 20 after filling in RESAMPLE/OTYPE/EXPECT_ND for indexes 4-19.
+# Indexes 0-3 are #611's two themes. Indexes 4-7 are #692's, BuildingCount and HUImpact; #692
+# narrowed the follow-up to those two, so the other six staged themes have no entry here. As
+# committed, `completions: 4` with `INDEX_OFFSET: '4'` builds exactly #692's four.
 #
 # To rebuild ONE index without redoing the others, set INDEX_OFFSET and completions together --
 # e.g. index 2 alone is `completions: 1` with `INDEX_OFFSET: '2'`. Each COG is written to a fixed
@@ -246,7 +247,7 @@ metadata:
     k8s-app: wrc-2-pa-make-cogs
 spec:
   completions: 4
-  parallelism: 2
+  parallelism: 4
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 0
@@ -297,7 +298,7 @@ spec:
           value: '1024'
         # 0 unless rebuilding a single index; see the header.
         - name: INDEX_OFFSET
-          value: '0'
+          value: '4'
         - name: GDAL_NUM_THREADS
           value: ALL_CPUS
         - name: TMPDIR
@@ -317,23 +318,27 @@ spec:
         - |
           set -euo pipefail
 
-          # Same index order as wrc-2-pa-stage-raw.yaml. Indexes 0-3 are #611's scope.
-          SRC=(HURisk_CONUS HURisk_AK HUExposure_CONUS HUExposure_AK)
-          OUT=(wrc-2-pa-hurisk-conus wrc-2-pa-hurisk-ak wrc-2-pa-huexposure-conus wrc-2-pa-huexposure-ak)
+          # Indexes 0-3 are #611's scope, 4-7 are #692's. Not stage-raw's order past index 3.
+          SRC=(HURisk_CONUS HURisk_AK HUExposure_CONUS HUExposure_AK
+               BuildingCount_CONUS BuildingCount_AK HUImpact_CONUS HUImpact_AK)
+          OUT=(wrc-2-pa-hurisk-conus wrc-2-pa-hurisk-ak wrc-2-pa-huexposure-conus wrc-2-pa-huexposure-ak
+               wrc-2-pa-buildingcount-conus wrc-2-pa-buildingcount-ak wrc-2-pa-huimpact-conus wrc-2-pa-huimpact-ak)
           # `sum` for an amount, `near` for an index. See the header -- this is the choice that
           # decides whether a total survives the reprojection.
-          RESAMPLE=(near near sum sum)
+          RESAMPLE=(near near sum sum sum sum near near)
           # Output dtype. Empty keeps the source's. A `sum` warp yields fractional contributions,
           # so those must be floating point.
-          OTYPE=('' '' Float32 Float32)
+          OTYPE=('' '' Float32 Float32 Float32 Float32 '' '')
           # Measured in the staging job; asserted, never assumed.
-          EXPECT_ND=(-2147483648 -2147483648 -3.4028230607370965e+38 -3.4028230607370965e+38)
+          EXPECT_ND=(-2147483648 -2147483648 -3.4028230607370965e+38 -3.4028230607370965e+38
+                     255 255 -2147483648 -2147483648)
           # Alaska is clipped east of the antimeridian; CONUS needs no clip.
-          TE=('' '-te -180 48.8 -129.0 71.6' '' '-te -180 48.8 -129.0 71.6')
+          TE=('' '-te -180 48.8 -129.0 71.6' '' '-te -180 48.8 -129.0 71.6'
+              '' '-te -180 48.8 -129.0 71.6' '' '-te -180 48.8 -129.0 71.6')
           # DEFLATE predictor follows the OUTPUT dtype: 2 is horizontal differencing
           # for integers, 3 is the floating-point predictor. Using 2 on a float band
           # costs most of the compression; using 3 on an integer band is invalid.
-          PRED=(2 2 3 3)
+          PRED=(2 2 3 3 3 3 2 2)
           DST_ND=-9999
 
           i=$(( ${INDEX_OFFSET:-0} + JOB_COMPLETION_INDEX ))
