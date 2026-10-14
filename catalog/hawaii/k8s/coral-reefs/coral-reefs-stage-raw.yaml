@@ -1,0 +1,107 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step for an ArcGIS REST source; this pulls and
+# stages the raw before the generated workflow converts it.
+#
+# Stage raw Hawaii Statewide GIS "Coral Reefs (Nautical Chart)" polygons to S3.
+#
+# Upstream is a live ArcGIS MapServer layer with no edition label and no dated archive, so the
+# staged service response plus its sha256 (printed below and recorded in the STAC) IS the
+# provenance. 474 features fit under the layer's maxRecordCount (1000) in one query; the job
+# asserts the count and that the transfer limit was not hit.
+#
+# Staged to s3://public-hawaii/raw/:
+#   coral-reefs-service-response.geojson  query response, untouched (outSR=4326)
+#   coral-reefs.geojson                   what convert reads: drops `id` (0 on all 474 rows)
+#   coral-reefs-layer.json                layer definition (fields, extent, copyrightText)
+#   coralreefs_nc.pdf                     upstream FGDC metadata
+#
+#   Source: https://geodata.hawaii.gov/arcgis/rest/services/CoastalMarine/MapServer/7
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/782
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coral-reefs-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: coral-reefs-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: coral-reefs-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts. Append public
+      # resolvers as a fallback; cluster DNS is still tried first so the internal
+      # rook-ceph-rgw-nautiluss3.rook rclone endpoint keeps resolving.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          LAYER="https://geodata.hawaii.gov/arcgis/rest/services/CoastalMarine/MapServer/7"
+          Q="$LAYER/query?where=1%3D1&outFields=objectid,id,acres,chart1,chart2,notes,sourcethm&outSR=4326&f=geojson"
+          cd /tmp
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o coral-reefs-service-response.geojson "$Q"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o coral-reefs-layer.json "$LAYER?f=json"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o coralreefs_nc.pdf https://files.hawaii.gov/dbedt/op/gis/data/coralreefs_nc.pdf
+
+          python3 - <<'PY2'
+          import json
+          fc = json.load(open("coral-reefs-service-response.geojson"))
+          assert not fc.get("exceededTransferLimit"), "transfer limit hit; paginate"
+          feats = fc["features"]
+          assert len(feats) == 474, f"expected 474 polygons, got {len(feats)}"
+          assert {f["properties"]["id"] for f in feats} == {0}, "id is no longer constant; keep it"
+          for f in feats:
+              del f["properties"]["id"]
+          json.dump(fc, open("coral-reefs.geojson", "w"))
+          print(f"{len(feats)} features")
+          PY2
+
+          ls -l coral-reefs-service-response.geojson coral-reefs.geojson coral-reefs-layer.json coralreefs_nc.pdf
+          sha256sum coral-reefs-service-response.geojson coral-reefs.geojson coral-reefs-layer.json coralreefs_nc.pdf
+          for f in coral-reefs-service-response.geojson coral-reefs.geojson coral-reefs-layer.json coralreefs_nc.pdf; do
+            rclone copyto "$f" "nrp:public-hawaii/raw/$f" --s3-no-check-bucket
+          done
+          echo "staged raw -> s3://public-hawaii/raw/"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
