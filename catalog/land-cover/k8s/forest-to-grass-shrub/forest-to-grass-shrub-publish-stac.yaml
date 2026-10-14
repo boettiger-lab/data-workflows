@@ -37,13 +37,15 @@ spec:
           import json
           p = json.load(open("parent.json"))
           href = "https://s3-west.nrp-nautilus.io/public-land-cover/forest-to-grass-shrub/stac-collection.json"
-          if not any(l.get("href") == href for l in p["links"]):
-              p["links"].append({"rel": "child", "href": href, "type": "application/json",
-                                 "title": "Persistent Forest to Grass/Shrub Conversion, Western US 2001-2021"})
-              json.dump(p, open("parent.json", "w"), indent=2)
+          title = "Persistent Forest to Grass/Shrub Conversion, Western US, 2001-2012"
+          link = next((l for l in p["links"] if l.get("href") == href), None)
+          if link is None:
+              p["links"].append({"rel": "child", "href": href, "type": "application/json", "title": title})
               print("child link added")
           else:
-              print("child link already present")
+              link["title"] = title
+              print("child link present; title set")
+          json.dump(p, open("parent.json", "w"), indent=2)
           PY
           rclone copyto parent.json $B/stac-collection.json
           rclone lsl $B/forest-to-grass-shrub/ --max-depth 1

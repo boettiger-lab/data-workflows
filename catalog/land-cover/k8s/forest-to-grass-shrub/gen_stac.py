@@ -104,7 +104,9 @@ assets = dict([
         COUNT_HEX),
 ])
 
-desc = """Where forest in the western United States turned into grass or shrubland and stayed that way, 2001-2021. A 30 m pixel qualifies when it was Tree Cover in 2001 and, at any point afterwards, spent at least 10 consecutive years as Grass/Shrub, according to the USGS LCMAP Land Cover Primary (LCPRI) annual maps for 1985-2021. Only 2002-2021 are scanned, so the longest possible run is 20 years and a qualifying run starts no later than 2012. Classes between 2001 and the start of the run are not restricted. About 43,840 km² qualify (48,709,853 pixels).
+desc = """Where forest in the western United States turned into grass or shrubland between 2001 and 2012 and stayed that way for at least 10 years. A 30 m pixel qualifies when it was Tree Cover in 2001 and, at any point afterwards, spent at least 10 consecutive years as Grass/Shrub, according to the USGS LCMAP Land Cover Primary (LCPRI) annual maps. Only the 2001-2021 maps are read: 2001 is the baseline, chosen by the author to study change after the 2001 Roadless Rule, and no earlier year is required to be forest. Runs are scanned over 2002-2021, so a qualifying run begins between 2002 and 2012 and lasts at most 20 years. Classes between 2001 and the start of the run are not restricted, and only Tree Cover to Grass/Shrub change is captured. About 43,840 km² qualify (48,709,853 pixels).
+
+No independent accuracy assessment was made of these layers. They inherit the accuracy of the annual LCMAP maps, and a misclassified year can break or shorten a run and so change whether a pixel qualifies.
 
 Three layers, each as a map COG and an H3 hex table at resolution 10 (parents 9, 8 and 0): whether a pixel qualifies (`binary`), the longest Grass/Shrub run in years (`max_run_years`), and the year the qualifying run began (`change_year`). All three cover the same qualifying pixels. Upstream computes the longest run for every pixel, including land that was never forest; here it is kept only where the rule is met. A fourth hex table, `converted_pixels`, counts the qualifying pixels in each cell, on the same cells, so converted area can be totalled inside any region; counting cells instead overstates it about fivefold.
 
@@ -121,7 +123,7 @@ stac = {
         "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
     ],
     "id": "forest-to-grass-shrub",
-    "title": "Persistent Forest to Grass/Shrub Conversion, Western US 2001-2021 (LCMAP-derived)",
+    "title": "Persistent Forest to Grass/Shrub Conversion, Western US, 2001-2012 (LCMAP-derived)",
     "description": desc,
     "license": "CC-BY-4.0",
     "keywords": ["land cover change", "forest loss", "type conversion", "grass/shrub", "LCMAP", "western US", "H3"],
