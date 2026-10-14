@@ -1,0 +1,113 @@
+# HAND-ROLLED: cng-datasets has no stage-raw generator; mirrors mesic-stage-raw.yaml (#609)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mesic-valley-bottoms-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: mesic-valley-bottoms-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: mesic-valley-bottoms-stage-raw
+    spec:
+      restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          BASE='https://rangeland.ntsg.umt.edu/data/mesic'
+          REL='biome/BIOME_Mesic_Valley_Bottom_Layers_Table.gpkg'
+          F=$(basename "$REL")
+          # Upstream replaces files in place, so assert the size verified by HEAD on
+          # 2026-10-13 and stop rather than stage a different edition (issue #609).
+          WANT=16900259840
+          mkdir -p /tmp/mesic && cd /tmp/mesic
+
+          curl -sI "$BASE/$REL" | tr -d '\r' | grep -iE 'content-length|last-modified' | tee "$F.headers.txt"
+          curl -L --retry 8 --retry-all-errors --no-progress-meter -o "$F" "$BASE/$REL"
+          GOT=$(stat -c%s "$F")
+          if [ "$GOT" != "$WANT" ]; then
+            echo "FATAL: $F is $GOT bytes, expected $WANT -- upstream replaced the file in place."
+            exit 1
+          fi
+          sha256sum "$F" | tee "$F.sha256"
+          {
+            echo "# Mesic Analysis Platform raw staging: valley bottoms"
+            echo "# source: $BASE/biome/"
+            echo "# access date (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "file: $F"
+            echo "  url: $BASE/$REL"
+            echo "  bytes: $GOT"
+            sed 's/^/  /' "$F.headers.txt"
+            echo "  sha256: $(cut -d' ' -f1 "$F.sha256")"
+          } | tee PROVENANCE-valley-bottoms.txt
+
+          rclone copy /tmp/mesic nrp:public-mesic/raw/ -P --transfers 4 --checkers 8
+          rclone lsl nrp:public-mesic/raw/ | grep -i valley
+          ogrinfo -so -al "/tmp/mesic/$F" | head -40
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 30Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 30Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

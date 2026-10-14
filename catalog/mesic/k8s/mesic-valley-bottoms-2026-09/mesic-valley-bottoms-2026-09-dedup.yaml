@@ -1,0 +1,127 @@
+# HAND-ROLLED: cng-datasets has no dedup step; drops upstream duplicate rows before pmtiles (#609)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mesic-valley-bottoms-2026-09-dedup
+  namespace: geo-workflows
+  labels:
+    k8s-app: mesic-valley-bottoms-2026-09-dedup
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: mesic-valley-bottoms-2026-09-dedup
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: enrich
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # Upstream ships 1,628,137 rows that repeat a geometry already in the table
+          # (24,690,182 rows, 23,062,045 distinct geometries). Keep the lowest _cng_fid per
+          # geometry. 21 repeat groups differ only by 0.1 rounding and collapse the same way.
+          # Decided in issue #609.
+          #
+          # This publishes over its own input, so snapshot the convert output to staging/
+          # only if no snapshot exists yet. Re-running then always reads the original.
+          SNAP=nrp:public-mesic/staging/mesic-valley-bottoms-2026-09.predup.parquet
+          if ! rclone lsf "$SNAP" | grep -q .; then
+            rclone copyto nrp:public-mesic/mesic-valley-bottoms-2026-09.parquet "$SNAP"
+          fi
+          rclone lsl nrp:public-mesic/staging/ | grep valley
+
+          python3 - <<'PY'
+          import duckdb, os, sys
+          con = duckdb.connect()
+          con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
+          con.execute("SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook';")
+          con.execute("SET s3_use_ssl=false; SET s3_url_style='path';")
+          con.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}';")
+          con.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}';")
+          con.execute("SET memory_limit='20GB'; SET temp_directory='/tmp/duckdb-spill';")
+          SRC = 's3://public-mesic/staging/mesic-valley-bottoms-2026-09.predup.parquet'
+          OUT = '/tmp/mesic-valley-bottoms-2026-09.parquet'
+          EXPECT_SRC, EXPECT_OUT = 24690182, 23062045
+
+          n_src = con.execute(f"SELECT count(*) FROM read_parquet('{SRC}')").fetchone()[0]
+          print('source rows:', n_src)
+          if n_src != EXPECT_SRC:
+              sys.exit(f'FATAL: source has {n_src} rows, expected {EXPECT_SRC}')
+
+          con.execute(f"""
+            CREATE TEMP TABLE keep AS
+            SELECT min(_cng_fid) AS _cng_fid FROM read_parquet('{SRC}')
+            GROUP BY ST_AsWKB(geom)""")
+          n_keep = con.execute("SELECT count(*) FROM keep").fetchone()[0]
+          print('distinct geometries:', n_keep, ' dropped:', n_src - n_keep)
+          if n_keep != EXPECT_OUT:
+              sys.exit(f'FATAL: {n_keep} distinct geometries, expected {EXPECT_OUT}')
+
+          con.execute(f"""
+            COPY (SELECT s.* FROM read_parquet('{SRC}') s SEMI JOIN keep USING (_cng_fid)
+                  ORDER BY s._cng_fid)
+            TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 2000)""")
+          n_out, n_fid = con.execute(f"SELECT count(*), count(DISTINCT _cng_fid) FROM read_parquet('{OUT}')").fetchone()
+          print('written rows:', n_out, ' distinct _cng_fid:', n_fid)
+          if not (n_out == n_fid == EXPECT_OUT):
+              sys.exit('FATAL: written parquet failed the row gate')
+          print(con.execute(f"SELECT * FROM parquet_kv_metadata('{OUT}') WHERE key = 'geo'").fetchall()[:1])
+          PY
+
+          rclone copyto /tmp/mesic-valley-bottoms-2026-09.parquet nrp:public-mesic/mesic-valley-bottoms-2026-09.parquet -P --stats 60s
+          rclone lsl nrp:public-mesic/ | grep valley
+          echo ALL DONE
+        resources:
+          requests:
+            cpu: '4'
+            memory: 24Gi
+            ephemeral-storage: 60Gi
+          limits:
+            cpu: '4'
+            memory: 24Gi
+            ephemeral-storage: 60Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
