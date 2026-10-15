@@ -80,3 +80,7 @@ record count. That total goes into the STAC asset description.
 
 STAC and README for the release are written to `/tmp/` and uploaded with `rclone`, never
 committed here (HARD BOUNDARY 1).
+
+The collection `gbif-derived` keeps its asset keys across releases (`gbif-hex`,
+`gbif-species-h0-index`, ...); only the hrefs, titles and `version` move to the new prefix.
+`catalog/gbif/stable-asset-keys.py` enforces that and checks every asset points at one release (#780).
