@@ -8,7 +8,7 @@ other ingests (#585, #588, #591) own sections of them.
 
 One source schema (COLUMNS) is written identically to the flat GeoParquet and the hex so the
 mcp-data-server#303 per-column fold never drops a variant. PMTiles gets the lean form.
-Every number below was measured on the published data on 2026-10-02 (see BUILD.md).
+Every number below was measured on the published data on 2026-10-15 (see BUILD.md).
 """
 import json
 import urllib.request
@@ -17,18 +17,20 @@ BUCKET = "public-usfs"
 DATASET = "roadless-land-status"
 BASE = f"https://s3-west.nrp-nautilus.io/{BUCKET}"
 ROOT = "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
-BBOX = [-150.0079281, 18.23123567, -65.69967, 61.51899025]
-ZENODO = "https://zenodo.org/records/23105982"
-DOI = "10.5281/zenodo.23105982"
+BBOX = [-150.0079284, 18.03374337, -65.70660199, 61.51899038]
+ZENODO = "https://zenodo.org/records/23265719"
+DOI = "10.5281/zenodo.23265719"
+# The first build used v1.0, Zenodo 23105982; same concept record 23105981.
+PREV_ZENODO = "https://zenodo.org/records/23105982"
 TITLE = "National Forest System Roadless Land-Status Strata (Roadless Rule exposure)"
 
 STATE_NAMES = {
     "AK": "Alaska", "AL": "Alabama", "AR": "Arkansas", "AZ": "Arizona", "CA": "California",
-    "CO": "Colorado", "FL": "Florida", "GA": "Georgia", "ID": "Idaho", "IL": "Illinois",
+    "CO": "Colorado", "CT": "Connecticut", "FL": "Florida", "GA": "Georgia", "ID": "Idaho", "IL": "Illinois",
     "IN": "Indiana", "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana", "MA": "Massachusetts",
     "ME": "Maine", "MI": "Michigan", "MN": "Minnesota", "MO": "Missouri", "MS": "Mississippi",
     "MT": "Montana", "NC": "North Carolina", "ND": "North Dakota", "NE": "Nebraska",
-    "NH": "New Hampshire", "NM": "New Mexico", "NV": "Nevada", "NY": "New York", "OH": "Ohio",
+    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NV": "Nevada", "NY": "New York", "OH": "Ohio",
     "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania", "PR": "Puerto Rico",
     "SC": "South Carolina", "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
     "VA": "Virginia", "VT": "Vermont", "WA": "Washington", "WI": "Wisconsin",
@@ -36,7 +38,7 @@ STATE_NAMES = {
 }
 STATES = sorted(STATE_NAMES)
 STATE_LIST = ", ".join(f"{k}={v}" for k, v in sorted(STATE_NAMES.items()))
-REGIONS = ["01", "02", "03", "04", "05", "06", "08", "09", "10"]
+REGIONS = ["01", "02", "03", "04", "05", "06", "08", "09", "10", "NA"]
 STRATA = ["N", "R1", "R1s", "R2", "R3"]
 
 STRATUM_DEF = (
@@ -60,37 +62,40 @@ STRATUM_DEF = (
 
 COLUMNS = [
     ("_cng_fid", "int64",
-     "Stable per-feature identifier assigned during conversion, unique on each of the 709 rows. "
+     "Stable per-feature identifier assigned during conversion, unique on each of the 702 rows. "
      "Use it as the row key.", None),
     ("OGC_FID", "int64", "Sequential row identifier carried over from the source shapefile.", None),
     ("STATE", "string",
-     "Two-letter state or territory abbreviation. 44 states plus Puerto Rico. Values: " + STATE_LIST,
+     "Two-letter state or territory abbreviation. 45 states plus Puerto Rico. Connecticut and New "
+     "Jersey carry only slivers under 150 acres. Values: " + STATE_LIST,
      STATES),
     ("ST_NAME", "string", "Full state or territory name matching STATE.", None),
     ("FOR_ID", "string",
-     "Forest Service identifier of the administrative national forest, a bracketed GUID. 111 "
-     "distinct values, one per FOR_NAME. Treat as a label, not a number.", None),
+     "Forest Service identifier of the administrative national forest, a bracketed GUID. 112 "
+     "distinct values, one per FOR_NAME, including the one for Unassigned NFS. Treat as a label, "
+     "not a number.", None),
     ("FOR_NAME", "string",
-     "Name of the administrative national forest or grassland. 111 distinct names.", None),
+     "Name of the administrative national forest or grassland. 111 forest names plus "
+     "'Unassigned NFS', which the producer gives to 113 pieces (57,988 acres in all) that fall "
+     "outside every administrative forest boundary. One of them is a 55,515-acre N piece in Utah; "
+     "the rest are under 65 acres each and are boundary slivers.", None),
     ("REGION", "string",
      "Forest Service region as a two-digit string. Values: 01=Northern, 02=Rocky Mountain, "
      "03=Southwestern, 04=Intermountain, 05=Pacific Southwest, 06=Pacific Northwest, 08=Southern, "
-     "09=Eastern, 10=Alaska. There is no region 07.", REGIONS),
+     "09=Eastern, 10=Alaska, NA=no region (the Unassigned NFS rows). There is no region 07.", REGIONS),
     ("STRATUM", "string", STRATUM_DEF, STRATA),
     ("IRA_CAT", "string",
      "Unpopulated: empty on every row. The 2001 inventory's forest-plan field was used to separate "
      "R2 from R3 but was not carried into this layer; use STRATUM instead.", None),
     ("ACRES", "float64",
      "Area of the row's polygon in acres, computed by the producer on an equal-area projection. "
-     "Use this, not row counts, for area totals. All 709 rows sum to 231,739,395 acres.", None),
+     "Use this, not row counts, for area totals. All 702 rows sum to 193,201,589 acres.", None),
     ("SRC_ID", "int64",
      "Identifier of the producer's original analysis feature, one per state, forest and stratum. "
-     "591 distinct values. One feature, the N stratum of Los Padres National Forest in California, "
-     "had to be split into 119 rows to be stored as valid shapefile polygons; those rows share "
-     "SRC_ID 204. Group by SRC_ID to count original features.", None),
+     "Unique on every row (702 values).", None),
     ("PART_ID", "int64",
-     "Part number within SRC_ID. 0 means the feature was not split; 1 and above number the parts "
-     "of a split feature.", None),
+     "Part number within SRC_ID, for features the producer splits for the shapefile format. 0 on "
+     "every row in this version: no feature is split.", None),
 ]
 
 H3_COLUMNS = [
@@ -117,19 +122,19 @@ def cols(entries, lean=False):
 
 
 HEX_NOTE = (
-    "One row per (polygon, resolution 10 cell) pair: 62,873,382 rows for 709 polygons. Every "
+    "One row per (polygon, resolution 10 cell) pair: 52,916,466 rows for 702 polygons. Every "
     "attribute is repeated on every cell the polygon covers, so totals go through _cng_fid:\n\n"
     "```sql\n"
-    "-- correct: exposed roadless acres, 23,972,530\n"
+    "-- correct: exposed roadless acres, 23,848,420\n"
     "SELECT SUM(ACRES) FROM (SELECT DISTINCT _cng_fid, ACRES\n"
     "                        FROM read_parquet('…/hex/h0=*/data_0.parquet')\n"
     "                        WHERE STRATUM = 'R3');\n"
     "-- wrong: COUNT(*) counts cells, not polygons\n"
     "-- wrong: SUM(ACRES) over raw rows multiplies each polygon's acres by its cell count\n"
     "```\n\n"
-    "Cells on the boundary between two strata appear once for each (99,096 such rows), so a cell "
-    "can carry more than one stratum. For the area of a selection, the H3 footprint of its "
-    "distinct cells agrees with ACRES to within 0.2% for every stratum except R1 (2.4% higher, "
+    "Cells on the boundary between two strata appear once for each, so a cell can carry more than "
+    "one stratum (123,243 such cells). For the area of a selection, the H3 footprint of its "
+    "distinct cells agrees with ACRES to within 0.75% for every stratum except R1 (2.7% higher, "
     "from many sliver polygons each occupying at least one whole cell). Join to other catalog "
     "datasets on h8."
 )
@@ -137,24 +142,26 @@ HEX_NOTE = (
 DESCRIPTION = (
     "A single classification of National Forest System land into five strata for analysing the "
     "proposed rescission of the 2001 Roadless Rule: which roadless land would lose its only "
-    "protection from new roads, and which stays protected under other authorities. 709 polygons "
-    "covering 231,739,395 acres in 44 states and Puerto Rico, produced by Kyle Manley (CIRES, "
+    "protection from new roads, and which stays protected under other authorities. 702 polygons "
+    "covering 193,201,589 acres in 45 states and Puerto Rico, produced by Kyle Manley (CIRES, "
     "University of Colorado Boulder) for the recreation part of a Roadless Rule analysis, and "
-    "published on Zenodo as version 1.0 (doi:" + DOI + ").\n\n"
+    "published on Zenodo on 2026-10-09 (doi:" + DOI + "). This version replaces version 1.0 "
+    "(Zenodo 23105982), which this catalog published until 2026-10-15; see the end of this "
+    "description for what changed.\n\n"
     "STRATUM is the field that carries the analysis; the other columns give state, national forest, "
     "region and area.\n\n"
     "| Stratum | Meaning | Acres |\n"
     "|---|---|---:|\n"
-    "| N | National Forest System land outside any roadless area | 173,795,718 |\n"
+    "| N | National Forest System land outside any roadless area | 135,478,432 |\n"
     "| R1 | Roadless, with an independent federal protection (Wilderness, Wilderness Study Area, "
     "Potential Wilderness Area, Wild river corridor, National Monument, National Volcanic "
-    "Monument, Tongass LUD II) | 5,865,752 |\n"
+    "Monument, Tongass LUD II) | 5,849,268 |\n"
     "| R1s | Colorado and Idaho roadless land under those states' own federal roadless rules | "
-    "13,117,915 |\n"
-    "| R2 | Roadless, where the pre-2001 forest plan prohibited road construction | 14,987,479 |\n"
-    "| R3 | Roadless, exposed to the rescission | 23,972,530 |\n\n"
-    "Roadless land in all (R1, R1s, R2 and R3) is 57,943,676 acres. Protected without the 2001 rule "
-    "(R1, R1s and R2) is 33,971,146 acres, and exposed (R3) is 23,972,530 acres.\n\n"
+    "13,134,206 |\n"
+    "| R2 | Roadless, where the pre-2001 forest plan prohibited road construction | 14,891,263 |\n"
+    "| R3 | Roadless, exposed to the rescission | 23,848,420 |\n\n"
+    "Roadless land in all (R1, R1s, R2 and R3) is 57,723,157 acres. Protected without the 2001 rule "
+    "(R1, R1s and R2) is 33,874,737 acres, and exposed (R3) is 23,848,420 acres.\n\n"
     "```sql\n"
     "SELECT CASE WHEN STRATUM = 'R3' THEN 'exposed'\n"
     "            WHEN STRATUM = 'N'  THEN 'not roadless'\n"
@@ -172,25 +179,27 @@ DESCRIPTION = (
     "**R3 measures exposure, not outcome.** It identifies roadless land whose only identified bar on "
     "new roads is the 2001 rule. It does not predict that roads, timber harvest or development will "
     "follow.\n\n"
-    "**N is wider than Forest Service-owned land.** Measured against the Forest Service surface "
-    "ownership layer in this catalog, 99% or more of each roadless stratum is Forest Service-owned, "
-    "but about 38.8 million acres of N (22%) are not: N follows national forest boundaries and so "
-    "includes private, state and other inholdings. Use Forest Service-owned land as the base for any "
-    "share of National Forest System land:\n\n"
+    "**The strata cover Forest Service-owned land.** Measured against the Forest Service surface "
+    "ownership layer in this catalog, 99.4% or more of every stratum, N included, is Forest "
+    "Service-owned, and the five strata together (193.2 million acres) match that layer's "
+    "Forest Service-owned total. Either works as the base for a share of National Forest System "
+    "land:\n\n"
     "```sql\n"
     "-- National Forest System land: 193,174,461 acres\n"
     "SELECT SUM(GIS_ACRES)\n"
     "FROM read_parquet('" + BASE + "/nfs-surface-ownership.parquet')\n"
     "WHERE OWNERCLASS = 'USDA FOREST SERVICE';\n"
     "```\n\n"
-    "This layer's roadless total of 57.9 million acres differs from the 58.4 million acres of the "
+    "This layer's roadless total of 57.7 million acres differs from the 58.4 million acres of the "
     "Forest Service's 2001 inventoried roadless areas (roadless-areas-2001 in this catalog), mainly "
     "because Colorado and Idaho are represented here by their state-rule roadless boundaries (R1s "
     "and the Colorado and Idaho part of R1) rather than the superseded 2001 boundaries.\n\n"
-    "One original feature, the N stratum of Los Padres National Forest, is split across 119 rows "
-    "for the shapefile format; SRC_ID groups them. Sum ACRES after "
-    "filtering or grouping; row counts are not a measure of area. The IRA_CAT column is empty on "
-    "every row.\n\n"
+    "Sum ACRES after filtering or grouping; row counts are not a measure of area. The IRA_CAT "
+    "column is empty on every row. 113 rows (57,988 acres) have FOR_NAME 'Unassigned NFS' and "
+    "REGION 'NA': land outside every administrative forest boundary. All but one (55,515 acres of "
+    "N in Utah) are slivers under 65 acres, and a few of these carry very many tiny parts "
+    "(the Alaska N row is 33 acres in about 1.56 million parts), so filter them out when drawing "
+    "or overlaying geometry if speed matters.\n\n"
     "The classification is the producer's analytical construction, not a legal determination of "
     "management authority, current forest plan direction or future project decisions. R1 covers the "
     "protection types listed above and is not a complete inventory of every possible restriction. "
@@ -198,16 +207,25 @@ DESCRIPTION = (
     "units, administrative forests, wilderness, Wild and Scenic Rivers, other designated areas, and "
     "the Colorado and Idaho roadless rules, with Census TIGER state boundaries for state attribution. "
     "The full classification logic is in the FGDC metadata linked from this collection.\n\n"
-    "Provenance: accessed 2026-10-02 from Zenodo record 23105982, version 1.0. The staged source is "
-    "s3://public-usfs/raw/roadless_land_status_shapefile.zip, 196,065,585 bytes, md5 "
-    "6a3ef3ac5e8a4bdf9e16dde5bc6d956a, sha256 "
-    "f8161cd8a4d0a0c996496eb1565eaf32d894392693a3ba11658730537cc5e44d."
+    "Changes from version 1.0, measured on both: N fell from 173,795,718 to 135,478,432 acres, "
+    "because version 1.0's N included about 38.8 million acres of non-Forest Service inholdings "
+    "and this version does not; the roadless strata each moved by under 1%, from the producer's "
+    "removal of slivers left by projection differences between source layers; the Los Padres "
+    "feature split across 119 rows is now one row; 'Unassigned NFS' rows are new. The FGDC "
+    "metadata text is unchanged apart from dates and counts.\n\n"
+    "Provenance: accessed 2026-10-14 from Zenodo record 23265719 (published 2026-10-09; FGDC "
+    "publication date 2026-10-08; no version label). The staged source is "
+    "s3://public-usfs/raw/roadless_land_status_shapefile_23265719.zip, 390,739,112 bytes, md5 "
+    "a289574b63722aef99ea0c2bf6e57fa7, sha256 "
+    "93886dea5c329db494acc29b070c0e3982516c0e0d49affb6a385f5635a2e322. The version 1.0 source "
+    "stays staged at s3://public-usfs/raw/roadless_land_status_shapefile.zip, md5 "
+    "6a3ef3ac5e8a4bdf9e16dde5bc6d956a."
 )
 
 CITATION = (
     "Manley, K. (2026). National Forest System Roadless Land-Status Stratification for Roadless "
-    "Rule Exposure Analysis (Version 1.0) [Data set]. Zenodo. https://doi.org/" + DOI
-    + ". Accessed 2026-10-02."
+    "Rule Exposure Analysis [Data set]. Zenodo. https://doi.org/" + DOI
+    + ". Accessed 2026-10-14."
 )
 
 
@@ -220,11 +238,11 @@ def dataset_collection():
         "title": f"{TITLE} — national",
         "description": DESCRIPTION,
         "license": "CC-BY-4.0",
-        "version": "1.0",
+        # Upstream gave this Zenodo version no label; do not synthesise one.
         "sci:doi": DOI,
         "sci:citation": CITATION,
         "created": "2026-10-02T17:49:29Z",
-        "updated": "2026-10-02T18:45:20Z",
+        "updated": "2026-10-15T01:20:07Z",
         "stac_extensions": [
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
             "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
@@ -234,7 +252,7 @@ def dataset_collection():
                      "forest plans", "wilderness", "policy exposure"],
         "extent": {
             "spatial": {"bbox": [BBOX]},
-            "temporal": {"interval": [["2026-10-02T00:00:00Z", "2026-10-02T00:00:00Z"]]},
+            "temporal": {"interval": [["2026-10-08T00:00:00Z", "2026-10-08T00:00:00Z"]]},
         },
         "providers": [
             {"name": "Kyle Manley, Cooperative Institute for Research in Environmental Sciences "
@@ -253,11 +271,13 @@ def dataset_collection():
             {"rel": "license", "href": "https://creativecommons.org/licenses/by/4.0/",
              "type": "text/html", "title": "CC-BY-4.0, as stated on the Zenodo record"},
             {"rel": "about", "href": ZENODO, "type": "text/html",
-             "title": "Zenodo record (version 1.0)"},
+             "title": "Zenodo record (version of 2026-10-09)"},
+            {"rel": "predecessor-version", "href": PREV_ZENODO, "type": "text/html",
+             "title": "Zenodo record version 1.0, used by the first build"},
             {"rel": "cite-as", "href": f"https://doi.org/{DOI}", "type": "text/html"},
             {"rel": "via", "href": f"{ZENODO}/files/roadless_land_status_shapefile.zip",
              "type": "application/zip", "title": "Source shapefile on Zenodo"},
-            {"rel": "describedby", "href": f"{BASE}/raw/roadless_land_status_metadata.xml",
+            {"rel": "describedby", "href": f"{BASE}/raw/roadless_land_status_metadata_23265719.xml",
              "type": "application/xml", "title": "FGDC metadata as published with the source"},
         ],
         "assets": {
@@ -265,10 +285,10 @@ def dataset_collection():
                 "href": f"{BASE}/{DATASET}.parquet",
                 "type": "application/x-parquet",
                 "title": f"{TITLE} {extent} — GeoParquet",
-                "description": "One row per polygon (709 rows). Use this asset for acreage "
+                "description": "One row per polygon (702 rows). Use this asset for acreage "
                                "summaries, which come from ACRES, and for boundary geometry.",
                 "roles": ["data"],
-                "created": "2026-10-02T17:49:29Z",
+                "created": "2026-10-14T20:12:03Z",
                 "table:columns": cols(COLUMNS) + cols([GEOM]),
             },
             f"{DATASET}-pmtiles": {
@@ -277,7 +297,7 @@ def dataset_collection():
                 "title": f"{TITLE} {extent} — PMTiles",
                 "description": "Vector tiles for web maps. Style on STRATUM.",
                 "roles": ["data", "visual"],
-                "created": "2026-10-02T17:53:34Z",
+                "created": "2026-10-14T20:17:31Z",
                 "vector:layers": [DATASET],
                 # tippecanoe drops IRA_CAT: it is NULL on every row, so no tile carries it.
                 "table:columns": cols([c for c in COLUMNS if c[0] != "IRA_CAT"], lean=True),
@@ -288,7 +308,7 @@ def dataset_collection():
                 "title": f"{TITLE} {extent} — H3 Hex (resolution 10)",
                 "description": HEX_NOTE,
                 "roles": ["data"],
-                "created": "2026-10-02T18:45:20Z",
+                "created": "2026-10-15T01:20:07Z",
                 "h3:native_resolution": 10,
                 "h3:parent_resolutions": [9, 8, 0],
                 "table:columns": cols(COLUMNS) + cols(H3_COLUMNS),
@@ -324,7 +344,7 @@ def patch_bucket(b):
 
 
 README_ROW = ("| `roadless-land-status` | Roadless land-status strata: exposed (R3) vs. still-protected "
-              "roadless land (CC-BY-4.0, CIRES) | 231,739,395 (57,943,676 roadless) |\n")
+              "roadless land (CC-BY-4.0, CIRES) | 193,201,589 (57,723,157 roadless) |\n")
 
 README_SECTION = f"""## Roadless land status: which roadless land the rescission exposes
 
@@ -335,7 +355,7 @@ prohibited roads, and `R3` roadless land exposed to a rescission of the 2001 rul
 Kyle Manley (CIRES) and published on Zenodo (doi:{DOI}), CC-BY-4.0.
 
 ```sql
--- exposed 23,972,530 acres; still protected (R1, R1s, R2) 33,971,146 acres
+-- exposed 23,848,420 acres; still protected (R1, R1s, R2) 33,874,737 acres
 SELECT STRATUM, SUM(ACRES) AS acres
 FROM read_parquet('{BASE}/{DATASET}.parquet')
 GROUP BY STRATUM ORDER BY STRATUM;
@@ -344,11 +364,10 @@ GROUP BY STRATUM ORDER BY STRATUM;
 - `R2` rests on historical forest plans, which may differ from the current plan and can be
   changed, so it is a weaker protection than `R1` or `R1s`.
 - `R3` measures exposure, not a prediction that roads will be built.
-- `N` follows national forest boundaries and includes about 38.8 million acres of inholdings
-  that the Forest Service does not own. For shares of Forest Service land, use
-  `nfs-surface-ownership` as the denominator (above).
-- Sum `ACRES`, not row counts; `SRC_ID` groups the 119 rows Los Padres N was split into.
-  `IRA_CAT` is empty on every row.
+- Built from the Zenodo version of 2026-10-09, which replaces version 1.0. `N` no longer
+  includes non-Forest Service inholdings (173.8M acres in version 1.0, 135.5M now).
+- Sum `ACRES`, not row counts. `IRA_CAT` is empty on every row. `FOR_NAME = 'Unassigned NFS'`
+  marks 113 small pieces outside any administrative forest.
 - MapLibre `source-layer`: `{DATASET}`. Colour on `STRATUM`:
 
 ```js
