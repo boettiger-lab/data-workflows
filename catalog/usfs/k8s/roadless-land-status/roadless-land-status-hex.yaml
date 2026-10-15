@@ -6,7 +6,7 @@ metadata:
   labels:
     k8s-app: roadless-land-status-hex
 spec:
-  completions: 709
+  completions: 702
   parallelism: 50
   completionMode: Indexed
   backoffLimitPerIndex: 2
@@ -52,6 +52,8 @@ spec:
           value: public-usfs
         - name: DATASET
           value: roadless-land-status
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 6963MiB
         command:
         - bash
         - -c

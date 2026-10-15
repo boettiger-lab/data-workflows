@@ -1,6 +1,9 @@
 # Auto-generated ConfigMap containing job definitions
 # Generated from: roadless-land-status-setup-bucket.yaml, roadless-land-status-convert.yaml, roadless-land-status-pmtiles.yaml, roadless-land-status-hex.yaml, roadless-land-status-repartition.yaml
-# Generation command: cng-datasets workflow --dataset roadless-land-status --source-url https://s3-west.nrp-nautilus.io/public-usfs/raw/roadless_land_status_shapefile.zip --bucket public-usfs --h3-resolution 10 --parent-resolutions "9,8,0"
+# Generation command: cng-datasets workflow --dataset roadless-land-status --source-url https://s3-west.nrp-nautilus.io/public-usfs/raw/roadless_land_status_shapefile_23265719.zip --bucket public-usfs --h3-resolution 10 --parent-resolutions "9,8,0" --chunk-size 1
+# DEVIATION from generated output (#743, boettiger-lab/datasets#275): convert memory 8Gi -> 32Gi. The Zenodo 23265719
+# shapefile (391 MB zip, 2x v1.0) OOMKilled convert twice at the generated 8Gi, and
+# `cng-datasets workflow` has no flag for convert memory.
 #
 # This ConfigMap is equivalent to running:
 #   kubectl create configmap roadless-land-status-yamls \
@@ -67,17 +70,17 @@ data:
             - |
               set -e
               cng-convert-to-parquet \
-                https://s3-west.nrp-nautilus.io/public-usfs/raw/roadless_land_status_shapefile.zip \
+                https://s3-west.nrp-nautilus.io/public-usfs/raw/roadless_land_status_shapefile_23265719.zip \
                 s3://public-usfs/roadless-land-status.parquet \
                 --row-group-size 100000 \
-                --expect-features 709
+                --expect-features 702
             resources:
               requests:
                 cpu: '4'
-                memory: 8Gi
+                memory: 32Gi
               limits:
                 cpu: '4'
-                memory: 8Gi
+                memory: 32Gi
           volumes:
           - name: rclone-config
             secret:
@@ -100,7 +103,7 @@ data:
       labels:
         k8s-app: roadless-land-status-hex
     spec:
-      completions: 709
+      completions: 702
       parallelism: 50
       completionMode: Indexed
       backoffLimitPerIndex: 2
@@ -146,6 +149,8 @@ data:
               value: public-usfs
             - name: DATASET
               value: roadless-land-status
+            - name: DUCKDB_MEMORY_LIMIT
+              value: 6963MiB
             command:
             - bash
             - -c

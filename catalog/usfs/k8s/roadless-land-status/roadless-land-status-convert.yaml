@@ -1,3 +1,6 @@
+# DEVIATION from generated output (#743, boettiger-lab/datasets#275): convert memory 8Gi -> 32Gi. The Zenodo 23265719
+# shapefile (391 MB zip, 2x v1.0) OOMKilled convert twice at the generated 8Gi, and
+# `cng-datasets workflow` has no flag for convert memory.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -51,17 +54,17 @@ spec:
         - |
           set -e
           cng-convert-to-parquet \
-            https://s3-west.nrp-nautilus.io/public-usfs/raw/roadless_land_status_shapefile.zip \
+            https://s3-west.nrp-nautilus.io/public-usfs/raw/roadless_land_status_shapefile_23265719.zip \
             s3://public-usfs/roadless-land-status.parquet \
             --row-group-size 100000 \
-            --expect-features 709
+            --expect-features 702
         resources:
           requests:
             cpu: '4'
-            memory: 8Gi
+            memory: 32Gi
           limits:
             cpu: '4'
-            memory: 8Gi
+            memory: 32Gi
       volumes:
       - name: rclone-config
         secret:
