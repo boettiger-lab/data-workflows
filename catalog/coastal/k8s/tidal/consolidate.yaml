@@ -1,0 +1,123 @@
+# HAND-ROLLED: the generator has no epoch dimension (datasets#172), so the per-epoch staging hexes
+# written by the generated workflows in hex/ are joined here. Pattern follows
+# catalog/wetlands/k8s/gmw-v4-1-12/hex-consolidate.yaml (#792).
+#
+# Input:  <collection>/staging-<epoch>/hex/h0=*/data_0.parquet, <col>_px = coverage-weighted
+#         count of ecosystem pixels per h8 cell (`sum`, nodata 0/255 -> only cells with presence).
+# Output: one index per asset, <out>/hex/h0=<h0>/data_0.parquet with
+#         [epoch,] <eco>_km2, <eco>_fraction, h8, h0.
+# Pixel and H3 cell areas are both ellipsoidal (WGS84), so km2 and fraction share one basis.
+# Prints global km2 per epoch for comparison with the published totals.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tidal-hex-consolidate
+  namespace: geo-workflows
+  labels:
+    k8s-app: tidal-hex-consolidate
+spec:
+  completions: 4
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
+  maxFailedIndexes: 4
+  ttlSecondsAfterFinished: 259200
+  template:
+    metadata:
+      labels:
+        k8s-app: tidal-hex-consolidate
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 14400
+      containers:
+      - name: consolidate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '4', memory: 24Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 24Gi, ephemeral-storage: 20Gi}
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          import duckdb, os, subprocess
+          ASSETS = [  # (collection, epochs, out prefix, column stem, pixel size in degrees)
+              ("tidal-flats-v1-2", ["1999-2001", "2002-2004", "2005-2007", "2008-2010",
+                                    "2011-2013", "2014-2016", "2017-2019"],
+               "tidal-flats-v1-2", "tidal_flat", 0.00026949458523585647),
+              ("tidal-flats-v1-1", ["1984-1986", "1987-1989", "1990-1992", "1993-1995", "1996-1998"],
+               "tidal-flats-v1-1", "tidal_flat", 0.00026949458523585647),
+              ("tidal-flats-v1-1", ["datamask"], "tidal-flats-v1-1/datamask", "mapped", 0.00026949458523585647),
+              ("tidal-marsh-2020", ["2020"], "tidal-marsh-2020", "tidal_marsh", 8.983152841195213e-05),
+          ]
+          coll, epochs, out, stem, PX = ASSETS[int(os.environ["JOB_COMPLETION_INDEX"])]
+          multi = len(epochs) > 1
+          pxcol = {"tidal_flat": "flat_px", "mapped": "mapped_px", "tidal_marsh": "marsh_px"}[stem]
+          B = "s3://public-coastal"
+          con = duckdb.connect()
+          for ext in ("h3 FROM community", "spatial", "httpfs"):
+              con.execute(f"INSTALL {ext}; LOAD {ext.split()[0]}")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000; SET preserve_insertion_order=false")
+          con.execute(f"""CREATE SECRET s3 (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
+              URL_STYLE 'path', USE_SSL false)""")
+
+          def h0s_of(epoch):
+              out_ = subprocess.run(["rclone", "lsf", "--dirs-only",
+                  f"nrp:public-coastal/{coll}/staging-{epoch}/hex/"], capture_output=True, text=True, check=True).stdout
+              return {d.strip("/").split("=")[1] for d in out_.split() if d.startswith("h0=")}
+          per = {e: h0s_of(e) for e in epochs}
+          for e in epochs: print(f"{coll} {e}: {len(per[e])} h0 partitions", flush=True)
+          h0s = set().union(*per.values())
+
+          for h0 in sorted(h0s):
+              srcs = [f"{B}/{coll}/staging-{e}/hex/h0={h0}/data_0.parquet" for e in epochs if h0 in per[e]]
+              lst = ", ".join(f"'{s}'" for s in srcs)
+              ep = "regexp_extract(filename, 'staging-([^/]+)/', 1) AS epoch," if multi else ""
+              ep_out = "epoch," if multi else ""
+              con.execute(f"""
+                COPY (
+                  WITH px AS (
+                    SELECT {ep} h8, h0, {pxcol} AS n
+                    FROM read_parquet([{lst}], filename = true, hive_partitioning = false)
+                    WHERE {pxcol} > 0
+                  ), a AS (
+                    SELECT *,
+                      ST_Area_Spheroid(ST_FlipCoordinates(ST_MakeEnvelope(
+                          h3_cell_to_lng(h8) - {PX}/2, h3_cell_to_lat(h8) - {PX}/2,
+                          h3_cell_to_lng(h8) + {PX}/2, h3_cell_to_lat(h8) + {PX}/2))) / 1e6 AS px_km2,
+                      ST_Area_Spheroid(ST_FlipCoordinates(
+                          ST_GeomFromText(h3_cell_to_boundary_wkt(h8)))) / 1e6 AS cell_km2
+                    FROM px
+                  )
+                  SELECT {ep_out}
+                         n * px_km2 AS {stem}_km2,
+                         LEAST(n * px_km2 / cell_km2, 1.0) AS {stem}_fraction,  -- clamp ~1e-9 float excess on full cells
+                         h8::UBIGINT AS h8, h0::UBIGINT AS h0
+                  FROM a ORDER BY {ep_out} h8
+                ) TO '{B}/{out}/hex/h0={h0}/data_0.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)
+              """)
+          print(f"wrote {len(h0s)} h0 partitions to {out}/hex/", flush=True)
+
+          g = "epoch" if multi else "'all'"
+          print(con.sql(f"""
+            SELECT {g} AS epoch, COUNT(*) AS cells, ROUND(SUM({stem}_km2), 1) AS km2,
+                   ROUND(MAX({stem}_fraction), 4) AS max_frac, COUNT(*) FILTER (WHERE {stem}_km2 IS NULL) AS nulls
+            FROM read_parquet('{B}/{out}/hex/h0=*/data_0.parquet') GROUP BY 1 ORDER BY 1"""))
+          PYEOF
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
