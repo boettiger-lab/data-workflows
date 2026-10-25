@@ -71,10 +71,11 @@ spec:
           # a COG pass reading them through a VRT read ~7% of one epoch in an hour. Per-tile conversion
           # to 512x512 ZSTD with NEAREST overviews measured 10 s/tile, 8 tiles in 21 s on 8 CPU.
           mkdir -p tiled
-          conv() { gdal_translate -q "$1" "tiled/$(basename "$1")" -a_nodata none \
+          # GDAL_CACHEMAX is per process: 8 converters at the pod-wide 6000 MB OOMed at 16Gi.
+          conv() { GDAL_CACHEMAX=512 gdal_translate -q "$1" "tiled/$(basename "$1")" -a_nodata none \
                      -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 -co COMPRESS=ZSTD \
                      -co SPARSE_OK=TRUE -co BIGTIFF=YES \
-                   && gdaladdo -q -r nearest "tiled/$(basename "$1")" 2 4 8 16 32 64 128; }
+                   && GDAL_CACHEMAX=512 gdaladdo -q -r nearest "tiled/$(basename "$1")" 2 4 8 16 32 64 128; }
           export -f conv
           time (find tiles -name '*.tif' | xargs -P8 -I{} bash -c 'conv {}')
           rm -rf tiles
