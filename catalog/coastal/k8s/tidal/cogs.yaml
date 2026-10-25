@@ -66,18 +66,31 @@ spec:
           rclone copyto "nrp:public-coastal/raw/$RAW" src.zip
           python3 -c "import zipfile; zipfile.ZipFile('src.zip').extractall('tiles')"
           rm src.zip
-          find tiles -name '*.tif' | sort > tiles.txt
-          echo "tiles=$(wc -l < tiles.txt)  unzipped=$(du -sh tiles | cut -f1)"
+          echo "tiles=$(find tiles -name '*.tif' | wc -l)  unzipped=$(du -sh tiles | cut -f1)"
+          # Re-tile each source first. The v1.2 and marsh tiles are row-striped (block = full width x 1):
+          # a COG pass reading them through a VRT read ~7% of one epoch in an hour. Per-tile conversion
+          # to 512x512 ZSTD with NEAREST overviews measured 10 s/tile, 8 tiles in 21 s on 8 CPU.
+          mkdir -p tiled
+          conv() { gdal_translate -q "$1" "tiled/$(basename "$1")" -a_nodata none \
+                     -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 -co COMPRESS=ZSTD \
+                     -co SPARSE_OK=TRUE -co BIGTIFF=YES \
+                   && gdaladdo -q -r nearest "tiled/$(basename "$1")" 2 4 8 16 32 64 128; }
+          export -f conv
+          time (find tiles -name '*.tif' | xargs -P8 -I{} bash -c 'conv {}')
+          rm -rf tiles
+          find tiled -name '*.tif' | sort > tiles.txt
           gdalbuildvrt -q -resolution highest -srcnodata None -vrtnodata 255 \
             -input_file_list tiles.txt mosaic.vrt
           python3 -c "
           from osgeo import gdal; gdal.UseExceptions()
           ds = gdal.Open('mosaic.vrt', gdal.GA_Update); b = ds.GetRasterBand(1)
-          b.SetDescription('$DESC'); b.SetNoDataValue(255); ds = None"
+          b.SetDescription('$DESC'); b.SetNoDataValue(255); ds = None
+          n = gdal.Open('mosaic.vrt').GetRasterBand(1).GetOverviewCount()
+          print('vrt implicit overviews:', n); assert n > 0, 'VRT exposes no overviews'"
           time gdal_translate mosaic.vrt $OUT -of COG \
             -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co SPARSE_OK=TRUE \
-            -co NUM_THREADS=ALL_CPUS -co BIGTIFF=YES -co OVERVIEW_RESAMPLING=NEAREST
-          rm -rf tiles mosaic.vrt
+            -co NUM_THREADS=ALL_CPUS -co BIGTIFF=YES -co OVERVIEWS=FORCE_USE_EXISTING
+          rm -rf tiled mosaic.vrt
           gdalinfo $OUT | grep -E 'Size is|Pixel Size|Origin|NoData|Description|Overviews' | head
           ls -la $OUT
           rclone copyto $OUT nrp:public-coastal/$DS/$OUT --s3-no-check-bucket
