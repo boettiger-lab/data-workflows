@@ -1,7 +1,7 @@
 ---
 name: raster-hexing
 description: >-
-  Build and hex raster datasets: choosing the native H3 resolution from the source pixel, selecting the --hex-resampling reducer (sum, mean, mode, max, min), mosaicking a many-tile source into one COG, raster-workflow parameters, and the campaign checklist for re-hexing an existing raster. Use for any GeoTIFF or COG ingest, or any re-hex of published raster data.
+  Build and hex raster datasets: choosing the native H3 resolution from the source pixel, selecting the --hex-resampling reducer (sum, mean, mode, fractions, max, min), mosaicking a many-tile source into one COG, raster-workflow parameters, and the campaign checklist for re-hexing an existing raster. Use for any GeoTIFF or COG ingest, or any re-hex of published raster data.
 ---
 
 # Raster Hexing
@@ -19,11 +19,12 @@ cng-datasets raster-workflow \
 
 Differences from vector:
 - Command: `raster-workflow`
-- Completions always 122 (one per h0 cell) — not configurable
+- Completions default to 122 (one per h0 cell). For a regional source pass `--h0-cells` (H3 base-cell numbers, e.g. CONUS `9,19,20,21,34,36`) or `--h0-subset` (h0 grid *positions*, CONUS `12,14,20,50,71,78`); both run 0–121, so the wrong one validates silently and builds other cells (datasets#191, #213)
 - Defaults: `--h3-resolution` 8, `--parent-resolutions "0"`, `--hex-memory 32Gi`, `--max-parallelism 61`
 - `--value-column` — raster band name in output (default `value`)
-- `--nodata` — value to exclude (auto from metadata)
-- `--hex-resampling` — **how pixels aggregate into each cell (`sum`/`mean`/`mode`/`max`/`min`, default `mean`). Picking the wrong one silently corrupts the data — see "Choosing the aggregation reducer" below. As important as `--value-column`.**
+- `--nodata` — value(s) to exclude (auto from metadata); comma-separate multiple fill codes
+- `--band <n>` — required for a multi-band source; adds a preprocess-cog step that subsets the band (the hex step refuses an ambiguous multi-band input, datasets#214)
+- `--hex-resampling` — **how pixels aggregate into each cell (`sum`/`mean`/`mode`/`fractions`/`max`/`min`, default `mean`). Picking the wrong one silently corrupts the data — see "Choosing the aggregation reducer" below. As important as `--value-column`.**
 - Always creates a WGS84 COG on NRP S3 first; hex reads from that COG
 
 **Multi-tile rasters** (e.g. multiple UTM zones): repeat `--source-url`. Adds `preprocess-cog` step that mosaics into one WGS84 COG:
@@ -36,6 +37,14 @@ cng-datasets raster-workflow --dataset wyoming/rap-arte \
   --output-dir catalog/wyoming/k8s/rap-arte
 ```
 Extra options: `--target-extent "xmin,ymin,xmax,ymax"` (EPSG:4326 clip), `--target-resolution <degrees>`, `--band <n>` (1-indexed), `--output-cog-name <key>`.
+
+⚠️ Two open preprocess-cog defects: it hardcodes `--resampling bilinear` for the warp, which
+interpolates class codes in a categorical (`mode`/`fractions`) source (datasets#272); and
+`create_mosaic_cog` warps each CRS group to a `COMPRESS=NONE` GTiff and then writes a second
+uncompressed `intermediate.tif`, even when tiles are already EPSG:4326 on a shared grid — ~2×
+grid pixels × bytes of local disk, prohibitive for global 10–30 m tiled sources (datasets#TBD
+(mosaic intermediates); `cng_datasets/raster/cog.py` `create_mosaic_cog`). Size `--cog-storage`
+from the grid, or use the many-tile pattern below.
 
 ## ⭐ For RASTERS, native resolution is set by the SOURCE PIXEL — match it, never oversample
 
@@ -78,16 +87,14 @@ missing `h8` and conclude the dataset is broken.
 discards detail the source genuinely has — do it only when feature size or RAM forces it, and
 record the reason in the issue.
 
-⛔ **ALWAYS pass `--h3-resolution` explicitly for a raster — never rely on auto-detection.**
-`cng-datasets` picks the resolution whose average H3 *edge* is nearest **3× the pixel width**
-(~9 source pixels per cell). That agrees with the table above at fine pixels (100 m → 9,
-300 m → 8) and **diverges as pixels coarsen**: 500 m → h7 and **~1 km → h6**, neither of which
-carries **`h8`**, so the resulting dataset silently fails to join the rest of the catalog. The
-mismatch is only ever reported as an informational log line (`ℹ Using finer resolution h8 (user
-specified) instead of detected h6`), never an error. This is the likely origin of the gHM `h7`
-outlier — a 1 km raster sitting near where auto-detection points rather than at
-the convention. Tracked upstream in
-[`boettiger-lab/datasets#182`](https://github.com/boettiger-lab/datasets/issues/182).
+⛔ **ALWAYS pass `--h3-resolution` explicitly for a raster.** `raster-workflow` defaults to 8
+regardless of pixel; a direct `cng-datasets raster` without it auto-detects the resolution whose
+H3 *edge* is nearest **3× the pixel width**, which diverges from the table above (300 m → h7,
+~1 km → h6). Since datasets#182 (fixed in #185 by warning, not by changing detection) the tool
+prints `⚠ This build emits …, no h8 column` when a build has no `h8` path — either a native
+coarser than 8, or a finer native without `8` in `--parent-resolutions` (the raster default is
+`"0"`, so a res-10 build emits only h10 and h0). Treat that warning as a stop unless the
+coarse-source case below applies. This is the likely origin of the gHM `h7` outlier.
 
 ⛔ **`cng-datasets raster` output is in PHYSICAL units — do NOT apply the GeoTIFF scale/offset
 again.** The hex step hands the raster *path* to `exactextract`, whose GDAL source applies the
@@ -226,7 +233,7 @@ coverage-weighted, so `-r sum` + `sum` conserves the total end to end.
 
 **Species richness / "peak" quantities** (MOBI, IUCN richness): the correct reducer is `max` — **not** `sum` (double-counts species) and **not** `mean` (averages away hotspots). `max` (and `min`) are supported as of [`boettiger-lab/datasets#95`](https://github.com/boettiger-lab/datasets/issues/95) (closed 2026-06-01); MOBI and IUCN-richness were rebuilt with `max` at res 8/5 (data-workflows #194). Validate: hex `MAX(value)` == COG max, and every cell value within `[COG min, COG max]` (roll up to coarser resolutions with `GROUP BY h<parent> + MAX`, never `AVG`/`SUM`).
 
-**`mode` keeps only the *dominant* class** per cell; the class mix is discarded. Fine for "dominant class" maps, but **inadequate for area-accounting** ("how much wetland?"), which then undercounts to plurality cells only. Per-class fractional coverage (one column per class) is not produced by the current pipeline — flag it if a use case needs class areas.
+**`mode` keeps only the *dominant* class** per cell; the class mix is discarded. Fine for "dominant class" maps, but **inadequate for area-accounting** ("how much wetland?"), which then undercounts to plurality cells only. For class areas use **`fractions`**: one `(value, frac)` row per class per cell (datasets#142).
 
 **Reducer choice is independent of geometry correctness.** The raster pipeline integrates each cell's true footprint, including the antimeridian/poles (fixed in `cng-datasets` #88/#92). But any **global** raster hexed before that fix is inflated at the ±180/pole seam and must be re-hexed regardless of reducer.
 
@@ -234,14 +241,18 @@ coverage-weighted, so `-r sum` + `sum` conserves the total end to end.
 
 | Param | Default | When to change |
 |---|---|---|
-| `--h3-resolution` | auto (from pixel size) | Override if auto is wrong |
+| `--h3-resolution` | 8 | Always set from the source pixel (table above) |
 | `--hex-memory` | 32Gi | Raise if OOM. **Res-8 hex of a 300 m global raster needs 64Gi** — `exact_extract` on the densest h0 cells (~5.76 M cells/h0) OOMs at 32Gi (`exit 137`); with `backoffLimit: 0` it silently retries forever, with `backoffLimitPerIndex` it can blow `maxFailedIndexes` and **fail the job** (observed on nci-frontiers `flii`/forestry). Use 64Gi for res-8 300 m layers; coarser res or coarser source can stay at 32Gi. |
+| `--hex-workers` / `--hex-chunk-size` | one per `--hex-cpu` (4) / 100000 | **The memory lever** — peak RSS ≈ workers × chunk-size × bytes per cell. Lower these before raising `--hex-memory` (datasets#195) |
+| `--chunk-resolution` / `--max-hex-memory` | 0 / unset | Split each h0 into res-N children (~7× less peak RAM per level) plus a merge step; `--max-hex-memory 8Gi` picks the coarsest level that fits (datasets#173). Pair with `--backend auto`, which switches to Armada past ~200 chunks |
+| `--hex-retries` / `--max-failed-indexes` | 2 / 1 | Emitted as `backoffLimitPerIndex` / `maxFailedIndexes`; priority is omitted (default 0) unless `--priority-class` is passed (datasets#201) |
+| `--hex-storage` / `--cog-storage` | 20Gi / 50Gi | Hex: localized COG + margin. COG: see the mosaic warning above |
 | `--max-parallelism` | 61 | k8s only; reduce on quota hit; cap 122 |
 | `--parent-resolutions` | "0" | Add intermediate (e.g. `"7,0"`) if needed |
 | `--value-column` | "value" | Use meaningful name (`carbon`, `arte`, `nlcd`) |
 | `--nodata` | auto | Override if metadata nodata is wrong/missing |
 
-Raster completions are always **122** — not configurable.
+Raster completions are **122**, or the length of `--h0-cells`/`--h0-subset`, times ~7^N (pentagons have six children) under `--chunk-resolution N`.
 
 ## Re-hexing an existing raster (campaign-style reprocessing)
 
@@ -249,8 +260,8 @@ Most rework here comes from skipped pre-flight checks, not hard problems. Do, in
 
 1. **Pre-flight the COG** with one GDAL job (rclone-localize → read; never `/vsis3` for GDAL — it's flaky/node-dependent). Report size, dtype, **real nodata** (published STAC nodata is often wrong), and the value summary that becomes your validation truth (class histogram for `mode`; pixel-SUM for `sum`; min/max/mean for `mean`). **Confirm the COG is non-empty** — published "total" COGs have shipped 100% nodata.
 2. **Resolution = match the source pixel** — see the resolution table in *For RASTERS, native resolution is set by the SOURCE PIXEL* above (≈100 m → res 9; ≈500 m → res 8; 0.25° → res 5). Don't bump blindly; res finer than the pixel is 7× cost for no gain.
-3. **Hex job musts:** mount the `rclone-config` secret (the tool localizes the COG via rclone first; generated YAML omits it → fails), `backoffLimitPerIndex: 2` + `maxFailedIndexes` (not `backoffLimit: 0`), output to a **staging** prefix. `:latest` has the seam fix — no runtime clone.
-4. **Validate value AND coverage.** `sum`: hex `SUM` == COG pixel-SUM. Note `sum`/area layers are a **full h0 grid** (one row per cell, `value = 0` where the feature is absent) — same shape as carbon/ghs-pop; that's expected, not bloat. Check that the count of **nonzero** cells matches the feature extent, not the total. `mode`: sparse (cells with no valid pixel are dropped); only canonical codes + distribution tracks the histogram. **Seam (all reducers):** dateline h0 `576707042908045311` — fixed builds span ±180°, buggy ones are bloated and miss the dateline.
+3. **Hex job musts:** the `rclone-config` mount (the tool localizes the COG via rclone first) and `backoffLimitPerIndex` + `maxFailedIndexes` (not `backoffLimit: 0`) are now emitted by the generator — keep them in any hand-edited copy; output to a **staging** prefix. `:latest` has the seam fix — no runtime clone.
+4. **Validate value AND coverage.** `sum`: hex `SUM` == COG pixel-SUM. Since datasets#232, `sum` keeps only cells that cover a valid pixel (filtered on exactextract `count > 0`), like `mean`; builds before it are a **full h0 grid** with `value = 0` rows where the source is absent (carbon/ghs-pop), so count **nonzero** cells against the feature extent on those. `mode`: sparse (cells with no valid pixel are dropped); only canonical codes + distribution tracks the histogram. **Seam (all reducers):** dateline h0 `576707042908045311` — fixed builds span ±180°, buggy ones are bloated and miss the dateline.
    **⛔ h0-partition COVERAGE gate (data-workflows #409).** An indexed 122-completion hex Job that dies/gets-preempted mid-run can leave a *subset* of h0 partitions on S3 and get published as if complete. Two defenses, both required: (a) never treat a hex build as done unless the k8s Job reports `Complete=True` with empty `failedIndexes` — a partial run must surface as `Failed`, so keep `backoffLimitPerIndex` + `maxFailedIndexes` (never `backoffLimit: 0`); and (b) after the job, run the cheap partition-set gate against a reference build from the same COG (e.g. the fractional-coverage layer) or an explicit expected h0 set:
    ```bash
    scripts/check-hex-coverage.sh nrp:<bucket>/<dataset>/hex/ \
