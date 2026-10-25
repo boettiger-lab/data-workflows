@@ -86,7 +86,7 @@ spec:
           from osgeo import gdal; gdal.UseExceptions()
           ds = gdal.Open('mosaic.vrt', gdal.GA_Update); b = ds.GetRasterBand(1)
           b.SetDescription('$DESC'); b.SetNoDataValue(255); ds = None
-          n = gdal.Open('mosaic.vrt').GetRasterBand(1).GetOverviewCount()
+          ds = gdal.Open('mosaic.vrt'); n = ds.GetRasterBand(1).GetOverviewCount()
           print('vrt implicit overviews:', n); assert n > 0, 'VRT exposes no overviews'"
           time gdal_translate mosaic.vrt $OUT -of COG \
             -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co SPARSE_OK=TRUE \
