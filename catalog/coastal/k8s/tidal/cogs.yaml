@@ -1,0 +1,90 @@
+# HAND-ROLLED: the generator's preprocess-cog takes repeated --source-url, not a zip of 108-154
+# tiles, and cannot fan out one COG per epoch (datasets#172). Pattern follows
+# catalog/wetlands/k8s/gmw-v4-1-12/epoch-cogs.yaml (#792).
+#
+# One WGS84 COG per index from the tiles staged by stage-raw.yaml:
+#   0-6   tidal flats v1.2 epochs 1999-2001 .. 2017-2019  -> tidal-flats-v1-2/
+#   7-11  tidal flats v1.1 epochs 1984-1986 .. 1996-1998  -> tidal-flats-v1-1/
+#   12    tidal flats v1.1 data mask (mapped area)        -> tidal-flats-v1-1/
+#   13    tidal marsh 2020 v2.6, 10 m                      -> tidal-marsh-2020/
+# Values: 1 = ecosystem present (or mapped, for the mask), 0 = absent, kept VALID; 255 = nodata
+# outside the upstream tile footprint. Upstream tags the marsh tiles NoData=0; that tag is
+# overridden so absence inside a mapped tile stays distinguishable from no tile. Overviews NEAREST
+# (0/1 field; AVERAGE on Byte would round thin features away).
+# Default priority: the 10 m marsh mosaic runs well over an hour (pod-preemption skill).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tidal-cogs
+  namespace: geo-workflows
+  labels:
+    k8s-app: tidal-cogs
+spec:
+  completions: 14
+  parallelism: 7
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 3
+  ttlSecondsAfterFinished: 259200
+  template:
+    metadata:
+      labels:
+        k8s-app: tidal-cogs
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 43200
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: GDAL_CACHEMAX
+          value: '6000'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          I=$JOB_COMPLETION_INDEX
+          V12=(1999-2001 2002-2004 2005-2007 2008-2010 2011-2013 2014-2016 2017-2019)
+          V11=(1984-1986 1987-1989 1990-1992 1993-1995 1996-1998)
+          if   [ $I -le 6 ];  then E=${V12[$I]};      RAW=tidal-flats/v1_2/global_intertidal/$E.zip; DS=tidal-flats-v1-2; OUT=tidal-flats-$E-cog.tif;  DESC=tidal_flat_$E
+          elif [ $I -le 11 ]; then E=${V11[$I-7]};    RAW=tidal-flats/v1_1/global_intertidal/$E.zip; DS=tidal-flats-v1-1; OUT=tidal-flats-$E-cog.tif;  DESC=tidal_flat_$E
+          elif [ $I -eq 12 ]; then                    RAW=tidal-flats/v1_1/datamask/datamask.zip;     DS=tidal-flats-v1-1; OUT=datamask-cog.tif;           DESC=mapped
+          else                                        RAW=tidal-marsh-2020/tidal_marsh_v2_6.zip;      DS=tidal-marsh-2020; OUT=tidal-marsh-2020-cog.tif;  DESC=tidal_marsh_2020
+          fi
+          echo "index=$I raw=$RAW -> $DS/$OUT"
+          W=/tmp/w && mkdir -p $W/tiles && cd $W
+          rclone copyto "nrp:public-coastal/raw/$RAW" src.zip
+          python3 -c "import zipfile; zipfile.ZipFile('src.zip').extractall('tiles')"
+          rm src.zip
+          find tiles -name '*.tif' | sort > tiles.txt
+          echo "tiles=$(wc -l < tiles.txt)  unzipped=$(du -sh tiles | cut -f1)"
+          gdalbuildvrt -q -resolution highest -srcnodata None -vrtnodata 255 \
+            -input_file_list tiles.txt mosaic.vrt
+          python3 -c "
+          from osgeo import gdal; gdal.UseExceptions()
+          ds = gdal.Open('mosaic.vrt', gdal.GA_Update); b = ds.GetRasterBand(1)
+          b.SetDescription('$DESC'); b.SetNoDataValue(255); ds = None"
+          time gdal_translate mosaic.vrt $OUT -of COG \
+            -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co SPARSE_OK=TRUE \
+            -co NUM_THREADS=ALL_CPUS -co BIGTIFF=YES -co OVERVIEW_RESAMPLING=NEAREST
+          rm -rf tiles mosaic.vrt
+          gdalinfo $OUT | grep -E 'Size is|Pixel Size|Origin|NoData|Description|Overviews' | head
+          ls -la $OUT
+          rclone copyto $OUT nrp:public-coastal/$DS/$OUT --s3-no-check-bucket
+        resources:
+          requests: {cpu: '8', memory: 16Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 16Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
