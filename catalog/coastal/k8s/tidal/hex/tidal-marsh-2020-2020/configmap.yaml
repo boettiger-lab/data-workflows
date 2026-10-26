@@ -89,6 +89,7 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
+          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -169,6 +170,7 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
+          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:

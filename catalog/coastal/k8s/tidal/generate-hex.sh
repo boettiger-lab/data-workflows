@@ -12,8 +12,11 @@ gen() {  # gen <collection> <epoch> <cog key> <value column> <hex memory>
     --source-url "s3://public-coastal/$1/$3" --bucket public-coastal --namespace geo-workflows \
     --h3-resolution 8 --parent-resolutions 0 --value-column "$4" \
     --hex-resampling sum --nodata "0,255" --hex-memory "$5" --hex-cpu 4 --max-parallelism 40 \
+    --priority-class opportunistic \
     --output-dir "hex/$1-$2"
 }
+# Opportunistic: each h0 unit runs minutes to under an hour, and many sit idle (ocean-only h0 or
+# localizing the COG), which default priority puts outside the NRP usage policy (#804).
 # Hex memory: densest h0 cells peaked at ~4 GiB at 16Gi (NRP flags pods far below their request).
 for e in 1999-2001 2002-2004 2005-2007 2008-2010 2011-2013 2014-2016 2017-2019; do
   gen tidal-flats-v1-2 "$e" "tidal-flats-$e-cog.tif" flat_px 8Gi

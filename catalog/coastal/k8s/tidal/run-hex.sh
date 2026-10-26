@@ -4,7 +4,9 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 PUB=https://s3-west.nrp-nautilus.io/public-coastal
+START=${START:-}   # hex dir to resume from; earlier ones are skipped (their jobs may be TTL-deleted)
 run() {  # run <hex dir> <cog key>
+  if [ -n "$START" ]; then [ "$1" = "$START" ] && START= || { echo "skip $1"; return; }; fi
   until [ "$(curl -s -o /dev/null -w '%{http_code}' -I "$PUB/$2")" = 200 ]; do sleep 60; done
   name=$(awk '/^metadata:/{f=1} f&&/name:/{print $2; exit}' "hex/$1/workflow.yaml")
   kubectl apply -n geo-workflows -f "hex/$1/configmap.yaml" -f "hex/$1/workflow.yaml" >/dev/null
