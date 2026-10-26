@@ -1,0 +1,74 @@
+# HAND-ROLLED: per-cell exceedance histograms are a custom reduction over Zarr; `cng-datasets mdim`
+# covers mean/min/max only, so this job uses its CubeSource reader as a library (data-workflows #669).
+#
+# Step 1 of #669: one pod per (model, experiment), reading s3://cadcat in place (public, anonymous)
+# and writing per-period histograms + annual max as .npz to
+#   s3://public-caladapt/loca2-hybrid/work/tasmax-histograms/<model>_<experiment>_<y0>-<y1>.npz
+# Those are intermediates, not a published collection; the assemble step (H3 res 7, ensemble
+# mean/min/max) reads them.
+#
+# The scripts ship as a ConfigMap built from the committed files:
+#   kubectl -n geo-workflows create configmap loca2-exceedance-scripts \
+#     --from-file=catalog/caladapt/scripts/loca2_exceedance.py \
+#     --from-file=catalog/caladapt/scripts/loca2_zarr.py \
+#     --from-file=catalog/caladapt/scripts/loca2_assemble.py --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n geo-workflows apply -f catalog/caladapt/k8s/tasmax-exceedance/reduce.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: loca2-tasmax-reduce
+  namespace: geo-workflows
+  labels: {k8s-app: loca2-tasmax-reduce}
+spec:
+  completionMode: Indexed
+  completions: 6
+  parallelism: 6
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: loca2-tasmax-reduce}}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: reduce
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: OUT, value: 'nrp:public-caladapt/loca2-hybrid/work/tasmax-histograms'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /scripts, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # Index -> (model, experiment). Periods follow the experiment: the historical run ends
+          # in 2014, so the baseline is 1985-2014; ssp370 carries mid- and end-century.
+          MODELS=(GFDL-ESM4 GFDL-ESM4 MPI-ESM1-2-HR MPI-ESM1-2-HR ACCESS-CM2 ACCESS-CM2)
+          EXPS=(historical ssp370 historical ssp370 historical ssp370)
+          M=${MODELS[$JOB_COMPLETION_INDEX]}
+          E=${EXPS[$JOB_COMPLETION_INDEX]}
+          if [ "$E" = historical ]; then PERIODS="--period 1985-2014"
+          else PERIODS="--period 2040-2069 --period 2070-2099"; fi
+          mkdir -p /tmp/out
+          cd /scripts
+          python3 loca2_exceedance.py --model "$M" --experiment "$E" $PERIODS \
+            --out-prefix "/tmp/out/${M}_${E}" --workers 6
+          rclone copy /tmp/out "$OUT" --s3-no-check-bucket -v
+          echo "DONE $M $E"
+        resources:
+          requests: {cpu: '4', memory: 10Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '6', memory: 14Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: loca2-exceedance-scripts}}

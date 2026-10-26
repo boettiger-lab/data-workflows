@@ -37,5 +37,9 @@ jobs:
       - name: Install duckdb (optional test dependency)
         run: pip install --quiet duckdb || echo "duckdb unavailable — those tests will skip"
 
+      # numpy is required by the catalog/caladapt reduction tests (test_loca2_*).
+      - name: Install numpy
+        run: pip install --quiet numpy
+
       - name: Run tests
         run: python3 -m unittest discover -s tests -v
