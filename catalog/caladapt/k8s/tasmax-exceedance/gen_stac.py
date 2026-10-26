@@ -188,8 +188,9 @@ def exceedance() -> dict:
         "threshold means 0 days. A cell's rows always run without gaps from 20.0 °C up to its "
         "highest threshold that any model reaches. A cell that never reaches 20 °C has no rows "
         "here; its annual maximum temperature is in the companion annual-maximum collection. "
-        "The grid stops at 60.0 °C: for the few desert cells with days at 60.0 °C (at most 0.3 "
-        "days a year), hotter thresholds are not available rather than zero.\n\n"
+        "The grid stops at 60.0 °C: for the few desert cells with days at 60.0 °C under SSP3-7.0 "
+        "(at most 0.3 days a year on the three-model average, 0.8 in the hottest model), hotter "
+        "thresholds are not available rather than zero.\n\n"
         + FOOTPRINT + "\n\n" + RESOLUTION + "\n\n" + ENSEMBLE + "\n\n" + PROVENANCE + "\n\n" + LICENCE
     )
     asset_desc = (
