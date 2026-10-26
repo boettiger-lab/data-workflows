@@ -42,8 +42,6 @@ import warnings
 
 import numpy as np
 
-from loca2_zarr import open_store
-
 T_MIN, T_MAX, T_STEP = 20.0, 60.0, 0.5
 N_BINS = int(round((T_MAX - T_MIN) / T_STEP)) + 1  # 81: 20.0, 20.5, ... 60.0
 THRESHOLDS = (T_MIN + T_STEP * np.arange(N_BINS)).astype(np.float32)
@@ -66,6 +64,8 @@ def main() -> int:
     ap.add_argument("--time-block", type=int, default=512, help="days per histogram pass")
     ap.add_argument("--max-tiles", type=int, default=0, help="preflight only: stop after N tiles")
     args = ap.parse_args()
+
+    from loca2_zarr import open_store  # GDAL is needed only to read; the binning tests run without it
 
     t_start = time.time()
     store = open_store(args.model, args.experiment, args.member)
