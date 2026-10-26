@@ -85,11 +85,15 @@ def reduce_group(members: list[dict]):
         amax_mean.append(d["mean_annual_max"])
         amax_max.append(d["max_annual"])
     stack = np.stack(curves)
-    out = (land, stack.mean(axis=0), stack.min(axis=0), stack.max(axis=0),
+    lo, hi = stack.min(axis=0), stack.max(axis=0)
+    # float32 rounding can put the mean ~1e-5 outside [min, max]; clamp so the bounds hold exactly.
+    mean = np.clip(stack.mean(axis=0), lo, hi)
+    out = (land, mean, lo, hi,
            np.mean(amax_mean, axis=0).astype(np.float32),
            np.max(amax_max, axis=0).astype(np.float32), len(members))
     for arr in out[1:4]:
         assert np.all(np.diff(arr, axis=0) <= 1e-6), "ensemble curve not monotone"
+    assert np.all((out[2] <= out[1]) & (out[1] <= out[3])), "ensemble mean outside [min, max]"
     return out
 
 
