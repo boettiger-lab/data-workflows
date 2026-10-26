@@ -57,15 +57,11 @@ kubectl create configmap crw-5km-daily-script -n geo-workflows \
   --from-file=update-daily.sh --dry-run=client -o yaml   # paste below the header in crw-5km-daily-script.yaml
 ```
 
-### ⚠️ Out-of-range pixels are masked before `mdim`
+### Out-of-range pixels
 
-Upstream ships pixels outside each variable's declared `valid_min`/`valid_max`, all at Arctic and sub-Arctic ice edges. On 2026-10-24 there were 2,413 DHW pixels above 100 °C-weeks (up to 162.27) and 793 HotSpot pixels below −15 °C.
+Upstream ships pixels outside each variable's declared `valid_min`/`valid_max`, all at Arctic and sub-Arctic ice edges. On 2026-10-24 there were 2,413 DHW pixels above 100 °C-weeks (up to 162.27) and 793 HotSpot pixels below −15 °C. CF treats them as missing.
 
-CF treats values outside the valid range as missing:
-- GDAL's classic netCDF driver honours that, so the COGs are correct.
-- The multidim reader that `mdim` uses does not, so those pixels used to reach the hex. The cells came out as 158.67 °C-weeks where every in-range pixel was nodata.
-
-`update-daily.sh` therefore masks those pixels (boettiger-lab/datasets#278) to nodata on its working copy before hexing. The staged raw stays byte-identical to upstream. SST, SSTA and both BAA products had no out-of-range pixels.
+GDAL's classic netCDF driver (the COGs) always honoured that. `mdim` did not before cng-datasets 0.11.3 (boettiger-lab/datasets#278), so the script used to mask those pixels itself; the pinned 0.11.3 image now drops them, and the mask step is gone. SST, SSTA and both BAA products have no out-of-range pixels.
 
 ### Resources
 

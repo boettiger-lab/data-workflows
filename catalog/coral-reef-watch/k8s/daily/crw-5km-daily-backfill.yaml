@@ -31,7 +31,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: update
-        image: ghcr.io/boettiger-lab/datasets@sha256:e326b7e38b6d1197ac6f0a00e55c80b0033d60997941f5cdb531cbb07054cb2e  # DEVIATION (#802): pinned to a tested digest so an unattended run cannot pick up a broken :latest (as 04c8b5e6 did, 2026-10-26); bump deliberately, e.g. for datasets#278
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3  # DEVIATION (#802): pinned to a tested digest so an unattended run cannot pick up a broken :latest (as 04c8b5e6 did, 2026-10-26); cng-datasets 0.11.3 (datasets#278 fix); bump deliberately
         imagePullPolicy: IfNotPresent
         command:
         - bash

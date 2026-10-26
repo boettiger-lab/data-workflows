@@ -99,26 +99,6 @@ data:
         rclone copyto "$f" "nrp:$BUCKET/raw/daily/$p/$name"
         rclone copyto "$f.json" "nrp:$BUCKET/raw/daily/$p/$name.json"
 
-        # CF valid_min/valid_max: values outside are missing. GDAL's classic netCDF driver (the COG
-        # below) honours this but the multidim reader `mdim` uses does not, and upstream ships such
-        # pixels (2026-10-24: 2,413 DHW > 100 °C-weeks, 793 HotSpot < -15 °C, at ice edges). Mask
-        # them on the working copy (boettiger-lab/datasets#278); the staged raw stays byte-identical.
-        python3 - "$f" "${VAR[$p]}" <<'EOF'
-    import sys
-    from osgeo import gdal
-    gdal.UseExceptions()
-    path, var = sys.argv[1], sys.argv[2]
-    arr = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER | gdal.OF_UPDATE).GetRootGroup().OpenMDArray(var)
-    attrs = {a.GetName(): a.Read() for a in arr.GetAttributes()}
-    lo, hi, nd = attrs.get("valid_min"), attrs.get("valid_max"), arr.GetNoDataValueAsDouble()
-    a = arr.ReadAsArray()
-    bad = (a != nd) & (((a < lo) if lo is not None else False) | ((a > hi) if hi is not None else False))
-    print(f"{var}: masked {int(bad.sum())} pixel(s) outside valid range [{lo}, {hi}]")
-    if bad.any():
-        a[bad] = nd
-        arr.Write(a)
-    EOF
-
         # Eight batches of h0 grid positions (0-121): the whole grid in one call peaks above 4.5 GiB
         # in DuckDB, and the densest quarter-grid batches exceeded a 1800MiB cap. Batches write
         # disjoint h0 partitions.
