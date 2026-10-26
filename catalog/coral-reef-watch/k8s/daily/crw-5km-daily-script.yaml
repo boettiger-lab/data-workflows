@@ -6,7 +6,7 @@ data:
     #!/usr/bin/env bash
     # HAND-ROLLED: cng-datasets has no mode that adds one time slice to a rolling
     # series or emits a CronJob, so this script drives `cng-datasets mdim` itself
-    # (boettiger-lab/data-workflows#802; tool request: boettiger-lab/datasets#TBD).
+    # (boettiger-lab/data-workflows#802).
     #
     # NOAA Coral Reef Watch 5 km daily tier: stage raw, COG, H3 res-6 hex, and the
     # NE Pacific blob summary, for every day in [START, END] not already published.
@@ -102,7 +102,7 @@ data:
         # CF valid_min/valid_max: values outside are missing. GDAL's classic netCDF driver (the COG
         # below) honours this but the multidim reader `mdim` uses does not, and upstream ships such
         # pixels (2026-10-24: 2,413 DHW > 100 °C-weeks, 793 HotSpot < -15 °C, at ice edges). Mask
-        # them on the working copy; the staged raw above stays byte-identical to upstream.
+        # them on the working copy (boettiger-lab/datasets#278); the staged raw stays byte-identical.
         python3 - "$f" "${VAR[$p]}" <<'EOF'
     import sys
     from osgeo import gdal

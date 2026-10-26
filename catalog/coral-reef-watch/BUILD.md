@@ -65,7 +65,7 @@ CF treats values outside the valid range as missing:
 - GDAL's classic netCDF driver honours that, so the COGs are correct.
 - The multidim reader that `mdim` uses does not, so those pixels used to reach the hex. The cells came out as 158.67 °C-weeks where every in-range pixel was nodata.
 
-`update-daily.sh` therefore masks those pixels to nodata on its working copy before hexing. The staged raw stays byte-identical to upstream. SST, SSTA and both BAA products had no out-of-range pixels.
+`update-daily.sh` therefore masks those pixels (boettiger-lab/datasets#278) to nodata on its working copy before hexing. The staged raw stays byte-identical to upstream. SST, SSTA and both BAA products had no out-of-range pixels.
 
 ### Resources
 
