@@ -8,10 +8,10 @@ Scope (products, tiers, window, resolution, reducers, naming) is in #802. This f
 |---|---|
 | `k8s/crw-setup-bucket.yaml` | creates `public-coral-reef-watch` (generated; run once) |
 | `k8s/daily/update-daily.sh` | the whole daily pipeline for a date range |
-| `k8s/daily/crw-5km-daily-script.yaml` | both scripts as a ConfigMap (regenerate after editing either) |
-| `k8s/daily/crw-5km-daily-cronjob.yaml` | 18:00 UTC daily: last 10 days + prune beyond 13 months |
-| `k8s/daily/crw-5km-daily-backfill.yaml` | one-off fill of the window, one week per index |
-| `k8s/daily/migrate-date-partitions.sh`, `crw-5km-daily-migrate.yaml` | one-off move of the first layout's hex into `date=` partitions (2026-10-26) |
+| `k8s/daily/crw-5km-daily-script.yaml` | the script as a ConfigMap (regenerate after editing it) |
+| `k8s/daily/crw-5km-daily-cronjob.yaml` | 18:00 UTC daily: last 10 days, monthly compaction, prune beyond 13 months |
+| `k8s/daily/crw-5km-daily-backfill.yaml` | one-off fill of the window, one week per index (`COMPACT=0`) |
+| `k8s/daily/crw-5km-daily-compact.yaml` | one-off first compaction after the backfill, one index per product |
 
 For each day and product, `update-daily.sh` does the following:
 
@@ -23,20 +23,25 @@ For each day and product, `update-daily.sh` does the following:
 
 The COG goes up last and doubles as the completion marker. A failed day is redone on the next run, and a finished day is skipped.
 
+After the days, `update-daily.sh` compacts (unless `COMPACT=0`). Any daily hex file from a month that has closed is folded into its cell's `data_0.parquet`, sorted by `time` then `h6`, and deleted. A day present in both (posted late or reprocessed) takes the daily file's values. With `PRUNE=1`, the same rewrite drops months older than the window, so the hex, COGs and raw are all pruned to the first of a month.
+
 ### Layout
 
 ```
 public-coral-reef-watch/
   raw/daily/<product>/<upstream name>.nc{,.json}
   crw-5km-daily/<product>/cog/<product>-YYYYMMDD.tif
-  crw-5km-daily/<product>/hex/date=YYYY-MM-DD/h0=<cell>/part-tYYYYMMDD-0.parquet   # columns: h6, h0, time, <variable>
-  crw-5km-daily/<product>/hex/date=YYYY-MM-DD/_manifest/chunk-YYYYMMDD.parquet
+  crw-5km-daily/<product>/hex/h0=<cell>/data_0.parquet              # closed months; columns: h6, h0, time, <variable>
+  crw-5km-daily/<product>/hex/h0=<cell>/part-tYYYYMMDD-0.parquet    # current month, one file a day until compacted
+  crw-5km-daily/<product>/hex/_manifest/chunk-YYYYMMDD.parquet      # mdim's, deleted at compaction
   crw-5km-daily/ne-pacific-blob/date=YYYY-MM-DD/data_0.parquet
 ```
 
-The hex is **one file per day per h0**, not the catalog's usual `data_0.parquet`. A rolling series cannot be merged into a single file without rewriting the whole window every day. Read it with the glob `hex/date=*/h0=*/*.parquet` and filter on `date` (or `time`, the same day as a column inside each file).
+The hex is one file per h0 cell, about 46 MB for 13 months of a dense cell, with row groups of 100,000 rows in time order. Read it with `hex/h0=*/*.parquet`, which picks up the current month's daily files too, and filter on `time`: the row-group statistics let a one-day query skip the rest of each file.
 
-The date is a path partition because each product holds about 46,000 files over the window. With the date only inside the files (the first layout), a one-day global query had to open every file and took over 2 minutes; with `date=` in the path it opens about 117.
+One file per cell per day, the layout as mdim writes it, came to about 46,000 files of 70-220 KB per product over the window; a one-day global query had to open every footer and took over 2 minutes. Partitioning by `date=` above `h0` was considered and rejected: it keeps files that small and still opens thousands of footers for any query across time. Rewriting every cell daily would cost about 36 GB of writes a day, so compaction is monthly, and the current month stays as daily files.
+
+The first compaction reads about 340 small files per cell (1.5-3 minutes a cell, measured on three ssta cells), so it runs as a one-off job; a monthly pass with one month of daily files took 33 s for one cell.
 
 ### Why `mdim` and not `raster-workflow`
 
@@ -50,6 +55,7 @@ The generator cannot emit a CronJob or add one day to a rolling series, so these
 kubectl apply -f k8s/crw-setup-bucket.yaml                     # once
 kubectl apply -f k8s/daily/crw-5km-daily-script.yaml
 kubectl apply -f k8s/daily/crw-5km-daily-backfill.yaml          # once
+kubectl apply -f k8s/daily/crw-5km-daily-compact.yaml           # once, after the backfill
 kubectl apply -f k8s/daily/crw-5km-daily-cronjob.yaml
 ```
 

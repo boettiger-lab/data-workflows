@@ -1,0 +1,62 @@
+# HAND-ROLLED: one-off first compaction of the backfilled daily hex into one file per h0 cell
+# (data-workflows#802), one index per product. update-daily.sh with an empty date range only
+# compacts: daily files from closed months are folded into hex/h0=<cell>/data_0.parquet. The
+# first pass reads ~340 small files per cell (1.5-3 min a cell, ~1 h a product), which overruns
+# the CronJob's deadline; later monthly passes take minutes. Run after the backfill finishes and
+# outside the 18:00 UTC CronJob run. Pod shape follows crw-5km-daily-cronjob.yaml.
+# DEVIATION (#802): default priority, not opportunistic, since each pod runs about an hour.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crw-5km-daily-compact
+  namespace: geo-workflows
+  labels: {k8s-app: crw-5km-daily-compact}
+spec:
+  completions: 6
+  parallelism: 6
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  activeDeadlineSeconds: 14400
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: crw-5km-daily-compact}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+      - name: compact
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3  # DEVIATION (#802): pinned, as in the CronJob
+        imagePullPolicy: IfNotPresent
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          products=(sst ssta hs dhw baa baa-max-7d)
+          ONLY_PRODUCTS=${products[$JOB_COMPLETION_INDEX]} exec bash /scripts/update-daily.sh 2000-01-02 2000-01-01
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: BUCKET, value: public-coral-reef-watch}
+        - {name: DUCKDB_MEMORY_LIMIT, value: 1800MiB}
+        - {name: PRUNE, value: '0'}
+        resources:
+          requests: {cpu: '2', memory: 3Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 3584Mi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /scripts, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: crw-5km-daily-script, defaultMode: 0755}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

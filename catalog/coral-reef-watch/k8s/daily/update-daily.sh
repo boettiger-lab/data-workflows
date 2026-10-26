@@ -11,24 +11,36 @@
 # With no dates it covers the last LOOKBACK_DAYS ending yesterday (UTC), which
 # also catches days NOAA posted late or reprocessed. A day/product is done when
 # its COG exists; the COG is uploaded last, so a failed run is redone next time.
-# PRUNE=1 also removes daily outputs older than WINDOW_MONTHS.
+#
+# Hex layout: one file per h0 cell, hex/h0=<cell>/data_0.parquet, sorted by time. A new day
+# lands as hex/h0=<cell>/part-tYYYYMMDD-0.parquet beside it; once its month has closed,
+# COMPACT=1 (the default) folds those daily files into data_0.parquet. COMPACT=0 is for
+# parallel backfill pods, which must not rewrite the same files concurrently.
+# PRUNE=1 also removes whole months older than WINDOW_MONTHS, from the hex, COGs and raw.
 set -euo pipefail
 
 BUCKET=${BUCKET:-public-coral-reef-watch}
 WINDOW_MONTHS=${WINDOW_MONTHS:-13}
 LOOKBACK_DAYS=${LOOKBACK_DAYS:-10}
 PRUNE=${PRUNE:-0}
+COMPACT=${COMPACT:-1}
 SRC=https://www.star.nesdis.noaa.gov/pub/sod/mecb/crw/data/5km/v3.1_op/nc/v1.0/daily
-PREFIX=crw-5km-daily
+PREFIX=${PREFIX:-crw-5km-daily}
 
 END=${2:-$(date -u -d yesterday +%F)}
 START=${1:-$(date -u -d "$END -$((LOOKBACK_DAYS - 1)) days" +%F)}
+# First day kept: the first of the month WINDOW_MONTHS before END's month.
+CUTOFF=$(date -u -d "$(date -u -d "$END" +%Y-%m-01) -$WINDOW_MONTHS months" +%Y%m%d)
+# Guard: never prune anything less than ~12 months old, whatever the env says.
+if [ "$PRUNE" = 1 ] && (( CUTOFF > $(date -u -d "-360 days" +%Y%m%d) )); then
+  echo "refusing to prune: cutoff $CUTOFF is under 12 months old" >&2; exit 1
+fi
 
 # product -> netCDF variable, reducer (#802: mean for continuous, max for ordinal alert levels)
 declare -A VAR=([sst]=analysed_sst [ssta]=sea_surface_temperature_anomaly [hs]=hotspot
                 [dhw]=degree_heating_week [baa]=bleaching_alert_area [baa-max-7d]=bleaching_alert_area)
 declare -A REDUCER=([sst]=mean [ssta]=mean [hs]=mean [dhw]=mean [baa]=max [baa-max-7d]=max)
-PRODUCTS=(sst ssta hs dhw baa baa-max-7d)
+PRODUCTS=(${ONLY_PRODUCTS:-sst ssta hs dhw baa baa-max-7d})  # ONLY_PRODUCTS: a space-separated subset
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -41,14 +53,14 @@ blob_summary() {  # YYYYMMDD, YYYY-MM-DD; box and threshold fixed in #802
   python3 - "$1" "$2" <<'EOF'
 import os, sys, duckdb
 ymd, iso = sys.argv[1], sys.argv[2]
-bucket, prefix = os.environ.get("BUCKET", "public-coral-reef-watch"), "crw-5km-daily"
+bucket, prefix = os.environ.get("BUCKET", "public-coral-reef-watch"), os.environ.get("PREFIX", "crw-5km-daily")
 con = duckdb.connect()
 con.execute("INSTALL h3 FROM community; LOAD h3; INSTALL httpfs; LOAD httpfs")
 con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
   SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
   USE_SSL false, URL_STYLE 'path')""")
-src = f"s3://{bucket}/{prefix}/ssta/hex/date={iso}/h0=*/*.parquet"
-out = f"s3://{bucket}/{prefix}/ne-pacific-blob/date={iso}/data_0.parquet"
+src = f"s3://{bucket}/{prefix}/ssta/hex/h0=*/part-t{ymd}-*.parquet"
+out = f"s3://{bucket}/{prefix}/ne-pacific-blob/part-{ymd}.parquet"  # folded into data_0.parquet by compact_blob
 con.execute(f"""COPY (
   WITH cells AS (
     SELECT h3_cell_to_lat(h6) AS lat, h3_cell_to_lng(h6) AS lng,
@@ -65,6 +77,99 @@ con.execute(f"""COPY (
   FROM cells WHERE lat BETWEEN 20 AND 60 AND lng BETWEEN -180 AND -110
 ) TO '{out}' (FORMAT PARQUET)""")
 print(con.sql(f"SELECT * FROM read_parquet('{out}')"))
+EOF
+}
+
+compact() {  # product; folds daily files from closed months into each h0's data_0.parquet
+  local p=$1 cutoff=""
+  [ "$PRUNE" = 1 ] && cutoff=$CUTOFF
+  rclone lsf -R --files-only --include "h0=*/*.parquet" "nrp:$BUCKET/$PREFIX/$p/hex/" > "$WORK/hex-$p.txt"
+  python3 - "$p" "$WORK/hex-$p.txt" "$(date -u +%Y%m01)" "$cutoff" "$WORK" "$PREFIX" <<'EOF'
+import os, re, subprocess, sys
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+import duckdb
+p, listing, month_start, cutoff, work, prefix = sys.argv[1:7]
+bucket = os.environ.get("BUCKET", "public-coral-reef-watch")
+hexdir = f"{bucket}/{prefix}/{p}/hex"
+compacted, parts = set(), defaultdict(list)
+for line in open(listing):
+    m = re.fullmatch(r"(h0=\d+)/(?:data_0|part-t(\d{8})-\d+)\.parquet", line.strip())
+    if not m:
+        continue
+    if m.group(2) is None:
+        compacted.add(m.group(1))
+    elif m.group(2) < month_start:
+        parts[m.group(1)].append(line.strip())
+if not parts:
+    sys.exit(print(f"{p}: no daily files from closed months to compact"))
+days = sorted({re.search(r"part-t(\d{8})", f).group(1) for fs in parts.values() for f in fs})
+# Without a cutoff, only cells with new days change; with one, every cell drops expired months.
+cells = sorted(set(parts) | (compacted if cutoff else set()))
+print(f"{p}: compacting {len(days)} days ({days[0]}..{days[-1]}) into {len(cells)} h0 files")
+con = duckdb.connect()
+con.execute("INSTALL httpfs; LOAD httpfs")
+con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+  SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
+  USE_SSL false, URL_STYLE 'path')""")
+keep = f"WHERE time >= DATE '{cutoff[:4]}-{cutoff[4:6]}-{cutoff[6:]}'" if cutoff else ""
+
+def one(cell):
+    # hive_partitioning=false keeps h0 as the UBIGINT stored in the files.
+    new = [f"s3://{hexdir}/{f}" for f in parts.get(cell, [])]
+    sel = []
+    if new:
+        sel.append(f"SELECT * FROM read_parquet({new!r}, hive_partitioning=false)")
+    if cell in compacted:
+        # A day present in both (reprocessed or posted late) takes the daily file's values.
+        redo = f"WHERE time NOT IN (SELECT DISTINCT time FROM read_parquet({new!r}, hive_partitioning=false))" if new else ""
+        sel.append(f"SELECT * FROM read_parquet('s3://{hexdir}/{cell}/data_0.parquet', hive_partitioning=false) {redo}")
+    out = os.path.join(work, f"{cell}.parquet")
+    con.cursor().execute(f"""COPY (SELECT * FROM ({" UNION ALL BY NAME ".join(sel)}) {keep} ORDER BY time, h6)
+      TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)""")
+    subprocess.run(["rclone", "copyto", out, f"nrp:{hexdir}/{cell}/data_0.parquet"], check=True)
+    os.remove(out)
+    if new:  # only the daily files read above, so a file added meanwhile is kept for next time
+        lst = os.path.join(work, f"{cell}.txt")
+        open(lst, "w").write("\n".join(parts[cell]) + "\n")
+        subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{hexdir}/"], check=True)
+
+with ThreadPoolExecutor(4) as pool:
+    list(pool.map(one, cells))
+lst = os.path.join(work, "manifest.txt")
+open(lst, "w").write("".join(f"_manifest/chunk-{d}.parquet\n" for d in days))
+subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{hexdir}/"], check=True)
+EOF
+}
+
+compact_blob() {  # folds the blob summary's one-row daily files into ne-pacific-blob/data_0.parquet
+  rclone lsf -R --files-only "nrp:$BUCKET/$PREFIX/ne-pacific-blob/" > "$WORK/blob.txt"
+  python3 - "$WORK/blob.txt" "$WORK" "$PREFIX" <<'EOF'
+import os, re, subprocess, sys
+import duckdb
+listing, work, prefix = sys.argv[1:4]
+blobdir = f"{os.environ.get('BUCKET', 'public-coral-reef-watch')}/{prefix}/ne-pacific-blob"
+files = [l.strip() for l in open(listing)]
+# part-YYYYMMDD.parquet, or date=YYYY-MM-DD/data_0.parquet as the first backfill wrote them
+new = [f"s3://{blobdir}/{f}" for f in files if re.fullmatch(r"part-\d{8}\.parquet|date=[\d-]{10}/data_0\.parquet", f)]
+if not new:
+    sys.exit()
+con = duckdb.connect()
+con.execute("INSTALL httpfs; LOAD httpfs")
+con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+  SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
+  USE_SSL false, URL_STYLE 'path')""")
+sel = [f"SELECT * FROM read_parquet({new!r}, hive_partitioning=false)"]
+if "data_0.parquet" in files:
+    sel.append(f"""SELECT * FROM read_parquet('s3://{blobdir}/data_0.parquet')
+      WHERE date NOT IN (SELECT date FROM read_parquet({new!r}, hive_partitioning=false))""")
+out = os.path.join(work, "blob.parquet")
+con.execute(f"COPY (SELECT * FROM ({' UNION ALL BY NAME '.join(sel)}) ORDER BY date) TO '{out}' (FORMAT PARQUET)")
+subprocess.run(["rclone", "copyto", out, f"nrp:{blobdir}/data_0.parquet"], check=True)
+lst = os.path.join(work, "blob-new.txt")
+open(lst, "w").write("".join(f[len(f"s3://{blobdir}/"):] + "\n" for f in new))
+subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{blobdir}/"], check=True)
+print(f"ne-pacific-blob: folded {len(new)} days into data_0.parquet")
 EOF
 }
 
@@ -94,15 +199,13 @@ while [[ ! "$d" > "$END" ]]; do
     rclone copyto "$f" "nrp:$BUCKET/raw/daily/$p/$name"
     rclone copyto "$f.json" "nrp:$BUCKET/raw/daily/$p/$name.json"
 
-    # Output goes under hex/date=YYYY-MM-DD/ so a query on a date opens only that day's files;
-    # with the date only inside the files, a one-day global query had to open all ~46k of them.
     # Eight batches of h0 grid positions (0-121): the whole grid in one call peaks above 4.5 GiB
     # in DuckDB, and the densest quarter-grid batches exceeded a 1800MiB cap. Batches write
     # disjoint h0 partitions.
     for s0 in $(seq 0 16 121); do
       batch=$(seq -s, "$s0" $((s0 + 15 > 121 ? 121 : s0 + 15)))
       cng-datasets mdim --input "$f" --variable "${VAR[$p]}" \
-        --output-parquet "s3://$BUCKET/$PREFIX/$p/hex/date=$d/" \
+        --output-parquet "s3://$BUCKET/$PREFIX/$p/hex/" \
         --resolution 6 --parent-resolutions 0 --hex-resampling "${REDUCER[$p]}" \
         --fan-out time --unit-index "$ymd" --h0-subset "$batch"
     done
@@ -119,12 +222,13 @@ while [[ ! "$d" > "$END" ]]; do
   d=$(date -u -d "$d +1 day" +%F)
 done
 
+if [ "$COMPACT" = 1 ]; then
+  for p in "${PRODUCTS[@]}"; do compact "$p"; done
+  compact_blob
+fi
+
 if [ "$PRUNE" = 1 ]; then
-  cutoff=$(date -u -d "$END -$WINDOW_MONTHS months" +%Y%m%d)
-  # Guard: never prune anything less than ~12 months old, whatever the env says.
-  if (( cutoff > $(date -u -d "-360 days" +%Y%m%d) )); then
-    echo "refusing to prune: cutoff $cutoff is under 12 months old" >&2; exit 1
-  fi
+  cutoff=$CUTOFF
   echo "Pruning daily outputs dated before $cutoff"
   for p in "${PRODUCTS[@]}"; do
     # Only names carrying an 8-digit date strictly before the cutoff are listed.

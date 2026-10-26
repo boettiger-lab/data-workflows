@@ -2,6 +2,8 @@
 # pod shape, env and resources follow `cng-datasets mdim-workflow` output (data-workflows#802).
 # Daily at 18:00 UTC (NOAA posts day D on D+1 at ~13:40-14:50 UTC). Each run re-checks the last
 # 10 days, skips what is published, and prunes daily outputs older than 13 months.
+# On the first run of a month it also folds the closed month's daily files into each
+# hex/h0=<cell>/data_0.parquet (a few minutes); see update-daily.sh.
 # DEVIATION (#802): memory 3Gi/3.5Gi (hex in 8 h0 batches) per NRP limit/request <= 1.2.
 apiVersion: batch/v1
 kind: CronJob

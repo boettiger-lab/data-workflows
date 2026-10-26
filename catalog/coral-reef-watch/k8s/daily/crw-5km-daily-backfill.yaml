@@ -55,6 +55,7 @@ spec:
         - {name: GDAL_CACHEMAX, value: '1024'}
         - {name: WINDOW_START, value: '2025-09-25'}
         - {name: WINDOW_END, value: '2026-10-25'}
+        - {name: COMPACT, value: '0'}  # parallel pods must not rewrite the same h0 files; crw-5km-daily-compact.yaml folds them afterwards
         resources:
           requests: {cpu: '2', memory: 3Gi, ephemeral-storage: 10Gi}
           limits: {cpu: '2', memory: 3584Mi, ephemeral-storage: 10Gi}
