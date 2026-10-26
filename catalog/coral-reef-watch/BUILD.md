@@ -69,7 +69,7 @@ CF treats values outside the valid range as missing:
 
 ### Resources
 
-One pod with 2 CPU and 16Gi memory (DuckDB limit 13GiB). A 6Gi/4GiB pod ran out of memory during the global hex, even though 15-second samples peaked at 2.3 GiB. One day of all six products takes about 6–8 minutes, and the two hex-heavy products produce about 9–10M rows per day.
+One pod with 2 CPU and 16Gi memory (DuckDB limit 13GiB). A 6Gi/4GiB pod ran out of memory during the global hex, even though 15-second samples peaked at 2.3 GiB. One day of all six products takes about 6–8 minutes, and each product produces about 9–10M H3 cells per day.
 
 ## Monthly and annual tiers
 
