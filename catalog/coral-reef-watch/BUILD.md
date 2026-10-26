@@ -8,9 +8,10 @@ Scope (products, tiers, window, resolution, reducers, naming) is in #802. This f
 |---|---|
 | `k8s/crw-setup-bucket.yaml` | creates `public-coral-reef-watch` (generated; run once) |
 | `k8s/daily/update-daily.sh` | the whole daily pipeline for a date range |
-| `k8s/daily/crw-5km-daily-script.yaml` | that script as a ConfigMap (regenerate after editing the script) |
+| `k8s/daily/crw-5km-daily-script.yaml` | both scripts as a ConfigMap (regenerate after editing either) |
 | `k8s/daily/crw-5km-daily-cronjob.yaml` | 18:00 UTC daily: last 10 days + prune beyond 13 months |
 | `k8s/daily/crw-5km-daily-backfill.yaml` | one-off fill of the window, one week per index |
+| `k8s/daily/migrate-date-partitions.sh`, `crw-5km-daily-migrate.yaml` | one-off move of the first layout's hex into `date=` partitions (2026-10-26) |
 
 For each day and product, `update-daily.sh` does the following:
 
@@ -28,12 +29,14 @@ The COG goes up last and doubles as the completion marker. A failed day is redon
 public-coral-reef-watch/
   raw/daily/<product>/<upstream name>.nc{,.json}
   crw-5km-daily/<product>/cog/<product>-YYYYMMDD.tif
-  crw-5km-daily/<product>/hex/h0=<cell>/part-tYYYYMMDD-0.parquet     # columns: h6, h0, time, <variable>
-  crw-5km-daily/<product>/hex/_manifest/chunk-YYYYMMDD.parquet
+  crw-5km-daily/<product>/hex/date=YYYY-MM-DD/h0=<cell>/part-tYYYYMMDD-0.parquet   # columns: h6, h0, time, <variable>
+  crw-5km-daily/<product>/hex/date=YYYY-MM-DD/_manifest/chunk-YYYYMMDD.parquet
   crw-5km-daily/ne-pacific-blob/date=YYYY-MM-DD/data_0.parquet
 ```
 
-The hex is **one file per day per h0**, not the catalog's usual `data_0.parquet`. A rolling series cannot be merged into a single file without rewriting the whole window every day. Read it with the glob `hex/h0=*/*.parquet`, and filter on `time`.
+The hex is **one file per day per h0**, not the catalog's usual `data_0.parquet`. A rolling series cannot be merged into a single file without rewriting the whole window every day. Read it with the glob `hex/date=*/h0=*/*.parquet` and filter on `date` (or `time`, the same day as a column inside each file).
+
+The date is a path partition because each product holds about 46,000 files over the window. With the date only inside the files (the first layout), a one-day global query had to open every file and took over 2 minutes; with `date=` in the path it opens about 117.
 
 ### Why `mdim` and not `raster-workflow`
 

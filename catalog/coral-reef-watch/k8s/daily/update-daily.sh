@@ -47,7 +47,7 @@ con.execute("INSTALL h3 FROM community; LOAD h3; INSTALL httpfs; LOAD httpfs")
 con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
   SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
   USE_SSL false, URL_STYLE 'path')""")
-src = f"s3://{bucket}/{prefix}/ssta/hex/h0=*/part-t{ymd}-*.parquet"
+src = f"s3://{bucket}/{prefix}/ssta/hex/date={iso}/h0=*/*.parquet"
 out = f"s3://{bucket}/{prefix}/ne-pacific-blob/date={iso}/data_0.parquet"
 con.execute(f"""COPY (
   WITH cells AS (
@@ -94,13 +94,15 @@ while [[ ! "$d" > "$END" ]]; do
     rclone copyto "$f" "nrp:$BUCKET/raw/daily/$p/$name"
     rclone copyto "$f.json" "nrp:$BUCKET/raw/daily/$p/$name.json"
 
+    # Output goes under hex/date=YYYY-MM-DD/ so a query on a date opens only that day's files;
+    # with the date only inside the files, a one-day global query had to open all ~46k of them.
     # Eight batches of h0 grid positions (0-121): the whole grid in one call peaks above 4.5 GiB
     # in DuckDB, and the densest quarter-grid batches exceeded a 1800MiB cap. Batches write
     # disjoint h0 partitions.
     for s0 in $(seq 0 16 121); do
       batch=$(seq -s, "$s0" $((s0 + 15 > 121 ? 121 : s0 + 15)))
       cng-datasets mdim --input "$f" --variable "${VAR[$p]}" \
-        --output-parquet "s3://$BUCKET/$PREFIX/$p/hex/" \
+        --output-parquet "s3://$BUCKET/$PREFIX/$p/hex/date=$d/" \
         --resolution 6 --parent-resolutions 0 --hex-resampling "${REDUCER[$p]}" \
         --fan-out time --unit-index "$ymd" --h0-subset "$batch"
     done
@@ -143,6 +145,25 @@ for line in sys.stdin:
     echo "$p: $(wc -l < "$WORK/old-$p.txt") outputs, $(wc -l < "$WORK/old-raw-$p.txt") raw files"
     [ -s "$WORK/old-$p.txt" ] && rclone delete --files-from-raw "$WORK/old-$p.txt" "nrp:$BUCKET/$PREFIX/$p/"
     [ -s "$WORK/old-raw-$p.txt" ] && rclone delete --files-from-raw "$WORK/old-raw-$p.txt" "nrp:$BUCKET/raw/daily/$p/"
+  done
+  # Keep each rolling collection's STAC temporal start at the oldest day still published.
+  # (The ne-pacific-blob table is not pruned, so its collection keeps its own start.)
+  start=$(date -u -d "$cutoff" +%F)
+  for c in "${PRODUCTS[@]/#/$PREFIX/}" "$PREFIX"; do
+    stac="nrp:$BUCKET/$c/stac-collection.json"
+    rclone cat "$stac" > "$WORK/stac.json" 2>/dev/null || continue
+    python3 - "$WORK/stac.json" "$start" <<'EOF'
+import json, sys
+from datetime import datetime, timezone
+path, start = sys.argv[1], sys.argv[2]
+d = json.load(open(path))
+interval = d["extent"]["temporal"]["interval"][0]
+if interval[0] and interval[0][:10] < start:
+    interval[0] = f"{start}T00:00:00Z"
+    d["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+json.dump(d, open(path, "w"), indent=2, ensure_ascii=False)
+EOF
+    rclone copyto "$WORK/stac.json" "$stac"
   done
 fi
 echo "done: $START .. $END"
