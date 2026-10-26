@@ -1,6 +1,6 @@
-# data-workflows #669, step 0. public-caladapt DOES NOT EXIST YET (verified 404), so this MUST run
-# and succeed before any job writes to it -- rclone's --s3-no-check-bucket would otherwise let a
-# reduction burn its whole runtime and then fail the upload with NoSuchBucket.
+# HAND-ROLLED: one-off bucket setup for a bucket with no cng-datasets workflow yet (data-workflows #669).
+# public-caladapt was created 2026-09-18 and serves public reads (verified 2026-10-26), so this
+# step is done; it is idempotent and kept only to rebuild the bucket from scratch.
 apiVersion: batch/v1
 kind: Job
 metadata:
