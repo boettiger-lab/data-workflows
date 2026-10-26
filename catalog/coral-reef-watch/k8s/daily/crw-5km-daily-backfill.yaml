@@ -31,7 +31,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: update
-        image: ghcr.io/boettiger-lab/datasets@sha256:7b9c4fd11144c2a7574e5cf46f40fa184111bf214a0d5c7f25c28eb97bbe6721  # DEVIATION (#802): pinned; :latest 04c8b5e6 (2026-10-26) breaks pyarrow (numpy 1.26)
+        image: ghcr.io/boettiger-lab/datasets@sha256:e326b7e38b6d1197ac6f0a00e55c80b0033d60997941f5cdb531cbb07054cb2e  # DEVIATION (#802): pinned to a tested digest so an unattended run cannot pick up a broken :latest (as 04c8b5e6 did, 2026-10-26); bump deliberately, e.g. for datasets#278
         imagePullPolicy: IfNotPresent
         command:
         - bash
