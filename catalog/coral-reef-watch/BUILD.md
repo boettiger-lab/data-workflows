@@ -69,7 +69,9 @@ CF treats values outside the valid range as missing:
 
 ### Resources
 
-Each pod requests 2 CPU and 3Gi memory, with a 3.5Gi limit and a DuckDB cap of 1800MiB. One day of all six products takes about 6–8 minutes, and each product produces about 9–10M H3 cells per day.
+Both the CronJob and the backfill run at `priorityClassName: opportunistic`. A daily run takes about 8 minutes and a backfill week 10–16 minutes. Preempted work is simply redone, because finished days are skipped, and opportunistic pods are exempt from NRP's usage check (#804). Under 8-batch hexing the pods sit at 0.2–0.55 GiB, which would be 7–18% of the 3Gi request and outside NRP's 20–150% range at default priority.
+
+Each pod requests 2 CPU and 3Gi memory, with a 3.5Gi limit and a DuckDB cap of 1800MiB. Each product produces about 9–10M H3 cells per day.
 
 Each product-day is hexed in eight `mdim --h0-subset` batches of 16 h0 grid positions (the last holds 10):
 - A whole-grid call peaks above 4.5 GiB in DuckDB, even though the pod averages 0.9–2.5 GiB. It ran out of memory at caps of 4 and 4.5 GiB.
