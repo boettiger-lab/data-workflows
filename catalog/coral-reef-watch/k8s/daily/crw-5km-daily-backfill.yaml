@@ -1,6 +1,8 @@
 # HAND-ROLLED: one-off fill of the 13-month daily window with the CronJob's script, one week
 # per index (data-workflows#802). WINDOW_START + 7*index .. +6 days, capped at WINDOW_END;
-# 2025-09-25 .. 2026-10-25 is 396 days = 57 indexes. Pod shape follows `cng-datasets mdim-workflow`.
+# 2025-09-25 .. 2026-10-25 is 396 days = 57 indexes. Pod shape follows `cng-datasets mdim-workflow`,
+# DEVIATION (#802): memory sized to measured use (0.9-2.5Gi typical; DuckDB OOMed at a 4GiB cap) and
+# NRP policy (limit/request <= 1.2, low-utilization block on over-requesting accounts).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -9,7 +11,7 @@ metadata:
   labels: {k8s-app: crw-5km-daily-backfill}
 spec:
   completions: 57
-  parallelism: 10
+  parallelism: 5
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 10
@@ -47,13 +49,13 @@ spec:
         - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
         - {name: GDAL_DATA, value: /usr/share/gdal}
         - {name: BUCKET, value: public-coral-reef-watch}
-        - {name: DUCKDB_MEMORY_LIMIT, value: 13GiB}
+        - {name: DUCKDB_MEMORY_LIMIT, value: 4600MiB}
         - {name: GDAL_CACHEMAX, value: '1024'}
         - {name: WINDOW_START, value: '2025-09-25'}
         - {name: WINDOW_END, value: '2026-10-25'}
         resources:
-          requests: {cpu: '2', memory: 16Gi, ephemeral-storage: 10Gi}
-          limits: {cpu: '2', memory: 16Gi, ephemeral-storage: 10Gi}
+          requests: {cpu: '2', memory: 5Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 6Gi, ephemeral-storage: 10Gi}
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         - {name: script, mountPath: /scripts, readOnly: true}

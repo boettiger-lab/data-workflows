@@ -69,7 +69,11 @@ CF treats values outside the valid range as missing:
 
 ### Resources
 
-One pod with 2 CPU and 16Gi memory (DuckDB limit 13GiB). A 6Gi/4GiB pod ran out of memory during the global hex, even though 15-second samples peaked at 2.3 GiB. One day of all six products takes about 6–8 minutes, and each product produces about 9–10M H3 cells per day.
+Each pod requests 2 CPU and 5Gi memory, with a 6Gi limit and a DuckDB cap of 4600MiB. One day of all six products takes about 6–8 minutes, and each product produces about 9–10M H3 cells per day. The sizing has three constraints:
+
+- **Measured use:** typically 0.9–2.5 GiB. DuckDB ran out of memory once at a 4GiB cap, so the pod needs more headroom than the average suggests.
+- **NRP's limit/request ratio:** must be ≤ 1.2 for both CPU and memory (`container-must-meet-memory-and-cpu-ratio`).
+- **NRP's low-utilization block:** pods that request far more than they use block every deployment change on the account. The first 16Gi backfill did this on 2026-10-26, blocking a rollout of another app.
 
 ## Monthly and annual tiers
 

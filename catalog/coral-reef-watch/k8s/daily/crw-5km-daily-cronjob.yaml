@@ -2,6 +2,7 @@
 # pod shape, env and resources follow `cng-datasets mdim-workflow` output (data-workflows#802).
 # Daily at 18:00 UTC (NOAA posts day D on D+1 at ~13:40-14:50 UTC). Each run re-checks the last
 # 10 days, skips what is published, and prunes daily outputs older than 13 months.
+# DEVIATION (#802): memory 5Gi/6Gi, sized to measured use and NRP limit/request <= 1.2 policy.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -39,12 +40,12 @@ spec:
             - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
             - {name: GDAL_DATA, value: /usr/share/gdal}
             - {name: BUCKET, value: public-coral-reef-watch}
-            - {name: DUCKDB_MEMORY_LIMIT, value: 13GiB}
+            - {name: DUCKDB_MEMORY_LIMIT, value: 4600MiB}
             - {name: GDAL_CACHEMAX, value: '1024'}
             - {name: PRUNE, value: '1'}
             resources:
-              requests: {cpu: '2', memory: 16Gi, ephemeral-storage: 10Gi}
-              limits: {cpu: '2', memory: 16Gi, ephemeral-storage: 10Gi}
+              requests: {cpu: '2', memory: 5Gi, ephemeral-storage: 10Gi}
+              limits: {cpu: '2', memory: 6Gi, ephemeral-storage: 10Gi}
             volumeMounts:
             - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
             - {name: script, mountPath: /scripts, readOnly: true}
