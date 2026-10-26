@@ -29,8 +29,8 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: update
-        image: ghcr.io/boettiger-lab/datasets:latest
-        imagePullPolicy: Always
+        image: ghcr.io/boettiger-lab/datasets@sha256:7b9c4fd11144c2a7574e5cf46f40fa184111bf214a0d5c7f25c28eb97bbe6721  # DEVIATION (#802): pinned; :latest 04c8b5e6 (2026-10-26) breaks pyarrow (numpy 1.26)
+        imagePullPolicy: IfNotPresent
         command:
         - bash
         - -c
