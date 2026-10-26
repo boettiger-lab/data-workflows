@@ -71,9 +71,9 @@ CF treats values outside the valid range as missing:
 
 Each pod requests 2 CPU and 3Gi memory, with a 3.5Gi limit and a DuckDB cap of 1800MiB. One day of all six products takes about 6–8 minutes, and each product produces about 9–10M H3 cells per day.
 
-Each product-day is hexed in four `mdim --h0-subset` batches (h0 grid positions 0–30, 31–61, 62–91, 92–121):
+Each product-day is hexed in eight `mdim --h0-subset` batches of 16 h0 grid positions (the last holds 10):
 - A whole-grid call peaks above 4.5 GiB in DuckDB, even though the pod averages 0.9–2.5 GiB. It ran out of memory at caps of 4 and 4.5 GiB.
-- A quarter-grid batch measured 2.0 GiB peak RSS under a 1500MiB DuckDB cap.
+- Quarter-grid batches mostly fit under an 1800MiB cap (one measured 2.0 GiB peak RSS under 1500MiB), but the densest quarter did not.
 - Each batch writes its own h0 partitions, so the output is the same.
 
 NRP policy sets two further constraints:

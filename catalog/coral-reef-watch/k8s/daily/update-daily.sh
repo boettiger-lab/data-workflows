@@ -114,9 +114,11 @@ if bad.any():
     arr.Write(a)
 EOF
 
-    # Four batches of h0 grid positions (0-121): the whole grid in one call peaks above 4.5 GiB
-    # in DuckDB, a quarter peaks at ~2 GiB RSS. Batches write disjoint h0 partitions.
-    for batch in "$(seq -s, 0 30)" "$(seq -s, 31 61)" "$(seq -s, 62 91)" "$(seq -s, 92 121)"; do
+    # Eight batches of h0 grid positions (0-121): the whole grid in one call peaks above 4.5 GiB
+    # in DuckDB, and the densest quarter-grid batches exceeded a 1800MiB cap. Batches write
+    # disjoint h0 partitions.
+    for s0 in $(seq 0 16 121); do
+      batch=$(seq -s, "$s0" $((s0 + 15 > 121 ? 121 : s0 + 15)))
       cng-datasets mdim --input "$f" --variable "${VAR[$p]}" \
         --output-parquet "s3://$BUCKET/$PREFIX/$p/hex/" \
         --resolution 6 --parent-resolutions 0 --hex-resampling "${REDUCER[$p]}" \
