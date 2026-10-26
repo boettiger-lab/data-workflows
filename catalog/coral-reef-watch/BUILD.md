@@ -69,11 +69,16 @@ CF treats values outside the valid range as missing:
 
 ### Resources
 
-Each pod requests 2 CPU and 5Gi memory, with a 6Gi limit and a DuckDB cap of 4600MiB. One day of all six products takes about 6–8 minutes, and each product produces about 9–10M H3 cells per day. The sizing has three constraints:
+Each pod requests 2 CPU and 3Gi memory, with a 3.5Gi limit and a DuckDB cap of 1800MiB. One day of all six products takes about 6–8 minutes, and each product produces about 9–10M H3 cells per day.
 
-- **Measured use:** typically 0.9–2.5 GiB. DuckDB ran out of memory once at a 4GiB cap, so the pod needs more headroom than the average suggests.
-- **NRP's limit/request ratio:** must be ≤ 1.2 for both CPU and memory (`container-must-meet-memory-and-cpu-ratio`).
-- **NRP's low-utilization block:** pods that request far more than they use block every deployment change on the account. The first 16Gi backfill did this on 2026-10-26, blocking a rollout of another app.
+Each product-day is hexed in four `mdim --h0-subset` batches (h0 grid positions 0–30, 31–61, 62–91, 92–121):
+- A whole-grid call peaks above 4.5 GiB in DuckDB, even though the pod averages 0.9–2.5 GiB. It ran out of memory at caps of 4 and 4.5 GiB.
+- A quarter-grid batch measured 2.0 GiB peak RSS under a 1500MiB DuckDB cap.
+- Each batch writes its own h0 partitions, so the output is the same.
+
+NRP policy sets two further constraints:
+- **Limit/request ratio:** must be ≤ 1.2 for both CPU and memory (`container-must-meet-memory-and-cpu-ratio`).
+- **Low-utilization block:** pods that request far more than they use block every deployment change on the account. The first 16Gi backfill did this on 2026-10-26.
 
 ## Monthly and annual tiers
 

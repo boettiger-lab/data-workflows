@@ -114,10 +114,14 @@ if bad.any():
     arr.Write(a)
 EOF
 
-    cng-datasets mdim --input "$f" --variable "${VAR[$p]}" \
-      --output-parquet "s3://$BUCKET/$PREFIX/$p/hex/" \
-      --resolution 6 --parent-resolutions 0 --hex-resampling "${REDUCER[$p]}" \
-      --fan-out time --unit-index "$ymd"
+    # Four batches of h0 grid positions (0-121): the whole grid in one call peaks above 4.5 GiB
+    # in DuckDB, a quarter peaks at ~2 GiB RSS. Batches write disjoint h0 partitions.
+    for batch in "$(seq -s, 0 30)" "$(seq -s, 31 61)" "$(seq -s, 62 91)" "$(seq -s, 92 121)"; do
+      cng-datasets mdim --input "$f" --variable "${VAR[$p]}" \
+        --output-parquet "s3://$BUCKET/$PREFIX/$p/hex/" \
+        --resolution 6 --parent-resolutions 0 --hex-resampling "${REDUCER[$p]}" \
+        --fan-out time --unit-index "$ymd" --h0-subset "$batch"
+    done
 
     if [ "$p" = ssta ]; then
       blob_summary "$ymd" "$d"
