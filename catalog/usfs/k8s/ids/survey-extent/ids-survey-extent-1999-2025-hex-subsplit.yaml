@@ -1,0 +1,110 @@
+# Sub-split the 6 survey-extent hex chunks that hit the DuckDB parquet page-size limit (#591).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ids-survey-extent-1999-2025-hex-subsplit
+  namespace: geo-workflows
+  labels:
+    k8s-app: ids-survey-extent-1999-2025-hex-subsplit
+spec:
+  completions: 60
+  parallelism: 30
+  completionMode: Indexed
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ids-survey-extent-1999-2025-hex-subsplit
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-usfs
+        - name: DATASET
+          value: ids-survey-extent-1999-2025
+        command:
+        - bash
+        - -c
+        - 'set -e
+
+          # Chunks 4,18,24,25,35,73 do NOT fail on memory. They fail in the DuckDB parquet writer:
+
+          #   INTERNAL Error: Parquet writer: 2210203080 uncompressed page size out of range for type integer
+
+          # A single uncompressed page of the H3 cell column overflows the int32 page-size limit, so
+
+          # raising --hex-memory cannot help (64Gi failed identically). `cng-datasets vector` exposes no
+
+          # row-group/page-size knob, so the only lever is fewer rows per output file.
+
+          #
+
+          # chunk-size 1000 -> 100 splits each stuck chunk into 10, cutting rows per file ~10x and taking
+
+          # the page back under the limit. Sub-chunk id m*10+k covers exactly the feature range of
+
+          # original chunk m, so coverage is identical with no gaps or overlap.
+
+          #
+
+          # Output goes to rechunk-tmp/, NOT chunks/: at chunk-size 100 the writer would emit
+
+          # chunk_000040.parquet for sub-chunk 40, overwriting the good chunk 40 from the 1000-sized run.
+
+          # A follow-up job renames these into chunks/ under non-colliding names.
+
+          SUBCHUNKS=(40 41 42 43 44 45 46 47 48 49 180 181 182 183 184 185 186 187 188 189 240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 259 350 351 352 353 354 355 356 357 358 359 730 731 732 733 734 735 736 737 738 739)
+
+          CHUNK_ID=${SUBCHUNKS[$JOB_COMPLETION_INDEX]}
+
+          echo "sub-chunk ${CHUNK_ID} (features $((CHUNK_ID*100))-$((CHUNK_ID*100+99)))"
+
+          cng-datasets vector --input s3://public-usfs/ids-survey-extent-1999-2025.parquet --output s3://public-usfs/ids-survey-extent-1999-2025/rechunk-tmp --chunk-id ${CHUNK_ID} --chunk-size 100 --intermediate-chunk-size 2 --resolution 10 --parent-resolutions 9,8,0 --id-column _cng_fid'
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+  backoffLimit: 0

@@ -16,19 +16,33 @@ directly if it has no skill support.
 | `job-troubleshooting` | a job fails, hangs, or a published parquet will not read |
 | `dataset-recipes` | starting an ingest that resembles a worked example |
 | `armada-pipeline` | `armadactl` will not authenticate, a k8s job hits the 200-completion cap, or you are choosing between the k8s and Armada pathways |
-| `pod-preemption` | indexed-job pods die and retry for no apparent reason, or before submitting any job whose pods run over an hour |
+| `pod-preemption` | indexed-job pods die and retry for no apparent reason, you are working out which indexes actually need re-running, you are choosing a priority class or sizing requests (NRP usage policy), or before submitting any job whose pods run over an hour |
 
 Everything below is always in force, skill or no skill.
 
 ## ⛔ HARD BOUNDARY: Scoping decisions live in the GitHub issue, NEVER in memory
 
-Every decision that defines *what* a dataset task delivers — **spatial extent** (full upstream coverage vs. a regional clip), **H3 resolution**, reducer, source product/version, target bucket and naming, acceptance criteria — MUST be written into the GitHub issue before you act on it. Sessions are disposable: the laptop dies, agent memory is wiped, a different agent picks up the task. The issue is the single source of truth that survives all of that. Treat yourself like any professional developer — nobody is expected to carry scope "in their head," and you must not rely on agent memory (`~/.claude/.../memory`) for scope. Memory is for *how you work*, never *what a task delivers*.
+Every decision that defines *what* a dataset task delivers — **spatial extent** (full upstream coverage vs. a regional clip), **H3 resolution**, reducer, source product/version, target bucket and naming — MUST be written into the GitHub issue before you act on it. Sessions are disposable: the laptop dies, agent memory is wiped, a different agent picks up the task. The issue is the single source of truth that survives all of that. Treat yourself like any professional developer — nobody is expected to carry scope "in their head," and you must not rely on agent memory (`~/.claude/.../memory`) for scope. Memory is for *how you work*, never *what a task delivers*.
 
-- **Before building:** if the issue does not state the extent, resolution, and acceptance criteria explicitly, the issue is underspecified. **Stop, propose the scope, get agreement, and edit the issue to record it** (`gh issue edit` / a scoping comment) before running cluster jobs. A vague label like "the wyoming group" is not a scope.
+- **Before building:** if the issue leaves a template field unstated, it is underspecified. **Stop, propose the scope, get agreement, and edit the issue to record it** (`gh issue edit` / a scoping comment) before running cluster jobs. A vague label like "the wyoming group" is not a scope.
 - **When scope changes mid-task** (e.g. "extend to the full upstream extent, not the regional clip"): update the issue body in the same turn you learn it — don't just remember it.
 - **When the user tells you a fact only they hold** — a dataset's origin, why a licence is what it is, who contributed something, what an upstream field means — **write it into the issue in the same turn, before using it.** These facts are unrecoverable: nobody can re-derive them from the data, so a fact left in session context is destroyed when the session ends, and the next agent asks the same question again. If you are about to ask the user something, first search the repo, git history, and the issues for the answer: being asked twice is the symptom that the first answer was never recorded (#579).
 - **Never infer scope** from the bucket name, an existing clipped COG, or a prior build's resolution. Those are artifacts of how an earlier (possibly wrong) pass happened to run, not statements of intent.
 - A reviewer (human or agent) must be able to read the issue alone and know exactly what to build. If you found yourself reconstructing scope from code, S3 layout, or memory, that is the signal the issue needs updating.
+- **Scope is WHAT, never HOW.** The issue states the template's fields and nothing more — *not* which scripts to write, not `cng-datasets` vs a custom job, not what to model the pipeline on, not whether to wait on another repo's issue. Implementation is decided by whoever builds it, against the tooling as it stands that day. An agent-authored directive in an issue body is indistinguishable from a considered decision and outlives the session that guessed it: #669 carried a fabricated *"do not wait on it and do not implement it in the tool repo"* that sent a later session off to hand-roll a Zarr reader. File new dataset issues with `gh issue create --template dataset-import.yml` — the form is this rule in field form. (A `--body`/`--body-file` create bypasses the form entirely, so the rule, not the template, is what binds you.)
+- **Write the scope, not an essay.** The issue must carry the template's fields — that is the part that survives the session, and it stays as long as it needs to be. Everything around it is noise: do not restate the plan or narrate progress. The same goes for PR reviews and bug reports — lead with the evidence (the measurement, the repro, the query someone can re-run) and cut the prose around it. Issue traffic is read by every agent that touches the task afterwards, so verbosity is a cost they all pay.
+- **The reviewer and CI set the bar — never the issue.** Do not write "acceptance criteria" into an issue, and do not review a PR against them or block it for lacking them; they are not a field of the template. An issue author asking for work does not get to define what passes review, any more than students write their own exam. Issue authors (often agents outside this repo) also lack the guidance in this file and its skills, so judge a PR on its merits against that guidance and on CI.
+
+### Default scope = faithful, comprehensive representation of upstream
+
+When scoping a dataset, **default to representing the upstream product comprehensively**: every
+format it ships (vector *and* raster), every year/epoch/layer, and its companion tables (e.g.
+national statistics). Narrow only for a concrete reason — a cost that is truly prohibitive, or a
+layer that is redundant — and put that trade-off to the user.
+
+Format or epoch choices the user did not make are open questions under "Scope is WHAT, never HOW"
+above: assess them against the upstream data and settle them with the user (GMW #443: the issue said
+"prefer the GeoTIFF path" and "latest single year"; upstream ships 41 annual vector and raster layers).
 
 ## ⛔ HARD BOUNDARY 0: Big-data compute runs on the cluster, NOT your laptop
 
@@ -358,6 +372,14 @@ The PMTiles `source-layer` that MapLibre needs = last segment of `--dataset`. It
 
 **⚠️ No dots in dataset names.** k8s pod names must match `[a-z0-9][a-z0-9-]*[a-z0-9]`. `cng-datasets` rejects dotted names at YAML generation. Encode versions without dots (e.g. `overture-2026-02-18`, not `2026-02-18.0`). Pre-existing dotted YAMLs fail pod scheduling — rename before applying.
 
+**Underscores are allowed, and the two names then differ.** Unlike a dot, an underscore in
+`--dataset` is fine: `cng-datasets` hyphenates it for the k8s job names while the S3 path, the
+`--layer` value and the PMTiles `source-layer` keep it verbatim. So `--dataset a/csb_struct`
+produces the job `a-csb-struct-workflow` alongside `s3://…/a/csb_struct.parquet`. Useful when a
+source's own layer names carry underscores and you want the published name to match them — but
+derive the job name with `tr '_' '-'` in any script that waits on it, or `kubectl wait` reports
+`NotFound` on a job that is running perfectly well.
+
 ### Step 3: Apply to the cluster
 
 One-time RBAC (likely already done): `kubectl apply -f catalog/<dataset>/k8s/<name>/workflow-rbac.yaml`
@@ -437,6 +459,22 @@ ends up over- or under-published.
   Protected Planet legal page.
 - Do not invent a terms URL to clear the gate. If no public terms page exists, the finding
   stands; record the facts in the description and say so in the issue.
+- **Restrictive terms are enforced by policy, not by access control. Match the provider's
+  access model; never exceed it.** Licence clauses such as "no redistribution", "not
+  downloadable", "non-commercial only" or "academic use only" are not a reason to keep data out
+  of a public bucket. If the provider serves open downloads and relies on its written terms
+  alone (no login, no credential check — UNEP-WCMC, Protected Planet/WDPA), we host it in an
+  ordinary `public-*` bucket and enforce the same way: the licence travels with the data (the
+  `license` field, the licence link, and the terms written into the description). We never
+  build a stronger gate than the provider uses. When the provider itself requires a login or
+  authorisation before the first download, the data goes behind an equivalent gate here, and
+  that is a scoping question for the issue. Whether such data may go on an open-reuse mirror like source.coop is the mirror
+  agent's decision, not yours (see "You publish to NRP" above).
+- **Obligations a licence places on the licensee are Carl's, as PI.** Examples are "notify the
+  Director", "request permission for commercial use" and "cite as …". State the obligation in
+  the collection description so users see it. Do not raise it as a blocker on the build, treat
+  a published layer as a breach, or ask whether "the ingest" triggers it. Note it in the issue
+  for Carl.
 - **One sanctioned exception, and only this one: data contributed directly to us, where no terms
   were ever published.** Here "no public terms page" is not a gap to be researched — it is the
   complete answer, so a permanently-red finding would be recording a fact as a defect. Publish the
@@ -489,6 +527,13 @@ long pod is preempted rather than finished, and retries hide it — a job report
 while indexes are killed and restarted, and a retry-exhausted index leaves *stale* data, not
 missing data. Before submitting anything whose pods run over an hour: **skill `pod-preemption`**.
 
+⛔ **Default priority has its own cost: NRP's usage policy (#804).** NRP checks every non-opportunistic pod older than 30 minutes against its request. Memory is checked when the request is over 2 GiB and must be 20–150% used. CPU is checked when the request is over 1 core and must be 20–200% used. More than **4 out-of-range pods across the account** makes NRP deny every Deployment change on Carl's account. On 2026-10-26, a 16Gi-request backfill using 1–2.5Gi blocked a production rollout this way. A separate policy caps limit/request at **1.2**. So:
+- Pods under ~1 hour (setup-bucket, daily CronJob runs, short fan-out units) use `priorityClassName: opportunistic`.
+- Split long work into short units where practical.
+- Pods that must run long use default priority, sized to measured use, not to the generator's defaults. Check `kubectl top pod` ~30 minutes after launch.
+
+Full rule: **skill `pod-preemption`**.
+
 ## S3 Bucket Layout
 
 ```
@@ -511,10 +556,98 @@ let the control plane reap it (skill `k8s-never-force-delete`).
 Causes and fixes — OOMKilled, evictions, `ContainerStatusUnknown`, flaky-node hangs,
 ephemeral-storage limits and PVC scratch, pod-quota errors, 404s on convert, blank PMTiles in
 MapLibre, DuckDB `stoi` — plus how to reprocess failed chunks: **skill `job-troubleshooting`**.
+## ⛔ Generate manifests with `cng-datasets`; declare every deviation
+
+`cng-datasets` is tested and has a deploy pipeline. A manifest typed by hand is neither, and it
+drifts from the tool in ways review does not catch — a missing `--nodata`, a stale reducer, a
+namespace that silently resolves to `default`.
+
+**Generate first, always:**
+
+```bash
+cng-datasets raster-workflow ... --output-dir catalog/<dataset>/k8s/<name>   # raster
+cng-datasets workflow        ... --output-dir catalog/<dataset>/k8s/<name>   # vector
+```
+
+The generated output carries a `# Generation command: cng-datasets ...` banner. **Keep it** — it is
+how a reviewer, and `scripts/check-generated-manifests.py`, tells generated from hand-written.
+
+**Deviating is allowed. Deviating silently is not.** Some shapes the generator genuinely cannot emit
+yet. When you must, say so in the manifest that deviates:
+
+```yaml
+# HAND-ROLLED: <why the generator cannot emit this> (<tracking issue>)
+```
+
+and for an edit on top of generated output:
+
+```yaml
+# DEVIATION from generated output (<tracking issue>): <what and why>
+```
+
+If the reason is a gap in the tool, **file it on `boettiger-lab/datasets` with a tested MRE**
+(Hard Boundary 2) and cite the issue, so the deviation is temporary rather than permanent. Known
+open gaps that legitimately force a hand edit today:
+
+| gap | issue |
+|---|---|
+| `--namespace` not stamped on step manifests | datasets#190 |
+| hex `completions` fixed at 122; no populated-h0 subset | datasets#191 |
+| multi-dimension fan-out (h0 × year/layer/reducer) | datasets#172 |
+| orchestrator cannot drive the Armada backend | datasets#39 |
+| Armada converter keeps k8s pod shape, drops retry | datasets#183 |
+
+**The gate.** CI runs `scripts/check-generated-manifests.py --base origin/main` over the recipes your
+PR touches. It ratchets rather than blocking on history: the ~33 pre-existing undeclared recipes are
+grandfathered until someone touches them.
+
+**Why this is a hard rule.** The catalog currently runs ~90 generated raster recipes against ~26
+hand-rolled, and the hand-rolled ones are disproportionately the large, expensive builds — because
+hand-rolling starts exactly where the work gets hard. The pattern is self-propagating: an agent
+copies the neighbouring recipe, and a reviewer unsure whether the deviation was deliberate does not
+challenge it. A stated reason turns "should I push back on this?" into "the file says why", which is
+the whole point.
+
 ## What NOT To Do
 
 - **Do not process data locally.** CLI generates YAML; the cluster does the work.
 - **Do not modify `cng_datasets/` source.** File an issue (see Hard Boundary 2).
+- **Ephemeral is requestable well past the 50Gi default, but the two eviction modes differ —
+  only one is fixed by raising it.** A *limit* eviction (`usage exceeds the total limit of
+  containers <N>`) means the pod passed its own declared limit: unconditional, priority
+  irrelevant, raise the limit. A *node DiskPressure* eviction means the node ran short, and
+  the kubelet picks victims in **priority order** — so a large ephemeral request and
+  `priorityClassName: opportunistic` compound badly. If you raise ephemeral, do not also run
+  at opportunistic (see the pod-preemption skill). Verified 2026-09-13 by server-side
+  admission: 80Gi, 200Gi and 1Ti are all admitted in **both** `geo-workflows` and
+  `biodiversity`; neither namespace's LimitRange carries a `max`, and no ResourceQuota in
+  either mentions ephemeral. The real ceiling is node free space, not policy.
+- **Coming: Armada on 4x GB10 nodes, each with ~4 TB of local/ephemeral storage, largely
+  free.** That changes the calculus recorded here. Today, scratch-heavy raster work is
+  constrained by shared-node disk and must be sized carefully; on that hardware the
+  constraint largely disappears, and Armada becomes the natural home for scratch-heavy and
+  finely-chunked work (datasets#173) rather than a way to escape the k8s completion cap.
+  Until then, size ephemeral from the intermediate and keep priority at default.
+- ⛔ **An ephemeral eviction is indistinguishable from an OOM in `kubectl get pods`.** Both
+  report **exit 137** with `ContainerStatusUnknown` or `Error`. Only `kubectl describe pod`
+  reveals it: `Reason: Evicted` / `Pod ephemeral local storage usage exceeds the total limit
+  of containers`. **If pods die at 137 while sitting far below their memory limit, check
+  ephemeral before touching memory** — on #515 five fvc pods died at 21–23 GiB of a 128 GiB
+  limit and the memory request was raised twice for nothing.
+  **Size ephemeral from the GRID, not from the COG.** The raster hex step writes an
+  **uncompressed fill-collapse intermediate** (`/tmp/cng_collapsed_*.tif`) whose size is
+  `pixels x bytes-per-pixel` of the whole raster — it does **not** scale with how well the
+  source compresses, and it is written in full by *every* pod regardless of which h0 that pod
+  processes. Measured on #515: the LANDFIRE CONUS grid (156,336 x 101,538, Int16) gives
+  31.7 GB by arithmetic and **34 GB observed on every layer alike** — fvc (4.32 GB COG) and
+  fvh (3.74 GB COG) both produced exactly 34 GB. So:
+
+      ephemeral >= (grid pixels x bytes per pixel) + localized COG + margin
+
+  For this grid that is ~34 GB + 2-4.3 GB = **36-38 GB**, which is why the canopy layers
+  survived a 40Gi limit with only ~4 GB to spare and fvc (the largest COG) evicted at 38.1 GB.
+  A **finer chunking strategy does not reduce this** — each pod still writes the whole grid
+  (boettiger-lab/datasets#209).
 - **Keep ephemeral-storage modest; generated YAMLs default to 250Gi, so reduce it.** 50Gi is a good default and what most jobs need. It is **not a hard cap** in `geo-workflows`: the LimitRange there sets `default: 50Gi` with `max` empty, so a larger request is legal and passes validation. (The 50Gi *clamp* was the legacy `biodiversity` namespace, which these jobs no longer run in.) Go above 50Gi only with a reason recorded in the manifest — `wrc-2` warps a striped CONUS source at 60Gi (#592) — and keep it courteous on shared nodes.
 - **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
 - **Do not record operational/how-to-work lessons in agent memory (`~/.claude/.../memory`).** This repo is cloned and run by students — and soon by always-on headless agents (Hermes/openclaw). Anything that should shape how tasks run here belongs in **this AGENTS.md or a local skill (`.claude/skills/`)**, so every clone and headless run behaves the same. A lesson saved only to one VM's memory silently diverges your experience from everyone else's. (Memory remains fine for genuinely personal, non-shareable session context.)
@@ -536,7 +669,7 @@ Each submission: `app`, `timestamp`, plus user fields (dataset name, description
 
 Triage:
 1. Review; decide if in scope.
-2. If yes: file a GitHub issue on `boettiger-lab/data-workflows` with the dataset import template (source URL, deliverables, bucket).
+2. If yes: file a GitHub issue on `boettiger-lab/data-workflows` with `gh issue create --template dataset-import.yml`, filling in every field.
 3. Tag with the `app` if it came from a specific form.
 
 Form deployment: `dataset-requests/` — see `dataset-requests/README.md` for adding routes / redeploying.

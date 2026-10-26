@@ -1,0 +1,64 @@
+# Issue #677: bring the orphaned biomass COG onto the bucket's naming convention.
+#
+# s3://public-rap/perennial-biomass-2024-cog.tif was built 2026-06-10 and never published --
+# no STAC, no hex, no reference in the repo. The data is correct: verified as band 2 (perennial
+# forb & grass, lbs/acre) of RAP Vegetation Biomass v3 2024, by comparing against the upstream
+# raster's two bands at three points (Kansas 1647 vs band-1's 408; Boise 234 vs 4).
+#
+# The bucket's pattern is <dataset>-cog.tif at the root with <dataset>/hex/ beside it, so this
+# becomes rap-pfg-biomass-cog.tif. Server-side copy, then delete the old key.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-pfg-biomass-rename-cog
+  namespace: geo-workflows
+  labels: {k8s-app: rap-pfg-biomass-rename-cog}
+spec:
+  completions: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rap-pfg-biomass-rename-cog}}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: rename
+        image: ghcr.io/boettiger-lab/datasets:latest
+        env:
+        - {name: RCLONE_CONFIG, value: /root/.config/rclone/rclone.conf}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          SRC=nrp:public-rap/perennial-biomass-2024-cog.tif
+          DST=nrp:public-rap/rap-pfg-biomass-cog.tif
+
+          if rclone lsf "$DST" >/dev/null 2>&1 && [ -n "$(rclone lsf "$DST" 2>/dev/null)" ]; then
+            echo "$DST already exists; nothing to do"
+            exit 0
+          fi
+
+          echo "=== source ==="
+          rclone lsl "$SRC"
+          SRC_SIZE=$(rclone size "$SRC" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['bytes'])")
+          echo "source bytes: $SRC_SIZE"
+
+          echo "=== copying (server-side within the bucket) ==="
+          rclone copyto --s3-no-check-bucket "$SRC" "$DST" --stats-one-line --stats 30s
+
+          DST_SIZE=$(rclone size "$DST" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['bytes'])")
+          echo "dest bytes:   $DST_SIZE"
+          test "$SRC_SIZE" = "$DST_SIZE"
+
+          # Only delete the original once the copy is present and byte-identical in size.
+          echo "=== removing the old key ==="
+          rclone deletefile "$SRC"
+          echo "✓ renamed to rap-pfg-biomass-cog.tif"
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

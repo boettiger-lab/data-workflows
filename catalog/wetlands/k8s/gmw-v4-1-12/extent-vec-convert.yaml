@@ -1,0 +1,69 @@
+# GMW v4.1.12 (data-workflows #443): 9 epoch vector layers -> one GeoParquet with a `year` column.
+# Appends the per-year GPKGs into one GPKG (adding `year`), then cng-convert-to-parquet so
+# `_cng_fid` is assigned once, uniformly, across all epochs.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gmw-v4-1-12-extent-vec-convert
+  namespace: geo-workflows
+  labels:
+    k8s-app: gmw-v4-1-12-extent-vec-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 21600
+  template:
+    metadata:
+      labels:
+        k8s-app: gmw-v4-1-12-extent-vec-convert
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: convert
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+          OUT=/tmp/annual.gpkg
+          for y in 1985 1990 1995 2000 2005 2010 2015 2020 2025; do
+            f=gmw_v4112_${y}_mng_ext_cntry_info_vec.gpkg
+            rclone copy nrp:public-wetlands/raw/gmw-v4-1-12/vec/$f /tmp/ --s3-no-check-bucket
+            L=$(ogrinfo -q "$f" | awk -F': ' '/^1:/{print $2}' | awk '{print $1}')
+            echo "== $y layer=$L"
+            ogr2ogr -f GPKG $( [ -f $OUT ] && echo -append ) -nln extent \
+              -dialect SQLite -sql "SELECT geom, cntry_iso3, cntry_name, $y AS year FROM \"$L\"" \
+              -nlt PROMOTE_TO_MULTI -gt 65536 "$OUT" "$f"
+            rm -f "$f"
+            ogrinfo -so "$OUT" extent | grep 'Feature Count'
+          done
+          ogrinfo -q "$OUT" -sql "SELECT year, COUNT(*) FROM extent GROUP BY year"
+          cng-convert-to-parquet "$OUT" \
+            s3://public-wetlands/global-mangrove-watch-v4-1-12/extent.parquet \
+            --row-group-size 100000
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

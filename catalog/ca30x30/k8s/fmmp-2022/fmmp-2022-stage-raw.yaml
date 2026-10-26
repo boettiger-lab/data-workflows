@@ -1,0 +1,134 @@
+# Stage FMMP "Most Recent" raw from DOC's ArcGIS FeatureServer (#615).
+#
+# Source: https://gis.conservation.ca.gov/server/rest/services/DLRP/CaliforniaImportantFarmland_mostrecent/FeatureServer/0
+# DOC's own composite of the most recent edition per county (2022 for 44 counties, 2020 for
+# Merced, San Benito, San Diego, San Luis Obispo and Sierra Valley as of 2026-09-23). It is what
+# the California Important Farmland Finder displays. Do not rebuild it from the year services:
+# CaliforniaImportantFarmland_2020 holds every feature of those 5 areas twice.
+#
+# page_featureserver.py fails the job unless the paged total equals the service's own
+# returnCountOnly; this job then checks the GeoPackage against that count and against the
+# service's distinct county_nam count. The script is mounted from a configMap:
+#
+#   kubectl create configmap fmmp-2022-stage-raw-script -n geo-workflows \
+#     --from-file=page_featureserver.py=catalog/ca30x30/k8s/fmmp-2022/page_featureserver.py \
+#     --dry-run=client -o yaml | kubectl apply -n geo-workflows -f -
+#   kubectl apply -n geo-workflows -f catalog/ca30x30/k8s/fmmp-2022/fmmp-2022-stage-raw.yaml
+#
+# This job is NOT part of the orchestrator DAG in workflow.yaml. It must finish before the
+# convert step runs.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fmmp-2022-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: fmmp-2022-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: fmmp-2022-stage-raw
+    spec:
+      restartPolicy: Never
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: script
+          mountPath: /script
+          readOnly: true
+        command: [bash, -c]
+        args:
+        - |
+          set -euo pipefail
+          RAW=fmmp-mostrecent-featureserver-2026-09-23
+
+          echo "read_start: $(date -u +%FT%TZ)"
+          python3 /script/page_featureserver.py
+          echo "read_end: $(date -u +%FT%TZ)"
+
+          echo "==> Building single-layer GeoPackage from pages"
+          rm -f /tmp/fmmp-2022.gpkg
+          first=1
+          for f in /tmp/pages/page_*.geojson; do
+            if [ "$first" = 1 ]; then
+              ogr2ogr -f GPKG -nln fmmp_2022 -nlt MULTIPOLYGON -a_srs EPSG:4326 /tmp/fmmp-2022.gpkg "$f"
+              first=0
+            else
+              ogr2ogr -f GPKG -nln fmmp_2022 -nlt MULTIPOLYGON -append /tmp/fmmp-2022.gpkg "$f"
+            fi
+          done
+
+          echo "==> Verifying GeoPackage against the service"
+          expected=$(cat /tmp/expected_count.txt)
+          areas=$(cat /tmp/expected_areas.txt)
+          got=$(ogrinfo -al -so /tmp/fmmp-2022.gpkg fmmp_2022 | awk -F': ' '/^Feature Count/ {print $2}')
+          counties=$(ogrinfo -sql "SELECT COUNT(DISTINCT county_nam) AS n FROM fmmp_2022" /tmp/fmmp-2022.gpkg \
+                     | awk -F'= ' '/n \(Integer/ {print $2}')
+          echo "expected=$expected gpkg=$got service_areas=$areas gpkg_areas=$counties"
+          [ "$got" = "$expected" ] || { echo "FATAL: GeoPackage has $got features, expected $expected"; exit 1; }
+          [ "$counties" = "$areas" ] || { echo "FATAL: GeoPackage has $counties areas, service has $areas"; exit 1; }
+          ogrinfo -sql "SELECT upd_year, COUNT(*) AS n FROM fmmp_2022 GROUP BY upd_year" /tmp/fmmp-2022.gpkg | grep -E 'upd_year|n \('
+
+          echo "==> Zipping and staging to s3://public-ca30x30/raw/"
+          # The datasets image has no zip(1); python's zipfile module is always present.
+          cd /tmp && python3 -m zipfile -c $RAW.zip fmmp-2022.gpkg
+          ls -l /tmp/$RAW.zip
+          rclone copyto /tmp/$RAW.zip nrp:public-ca30x30/raw/$RAW.zip -v
+          echo "Done."
+        resources:
+          requests:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: script
+        configMap:
+          name: fmmp-2022-stage-raw-script
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

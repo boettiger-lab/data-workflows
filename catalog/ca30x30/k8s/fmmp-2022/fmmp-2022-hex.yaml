@@ -2,13 +2,15 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: fmmp-2022-hex
+  namespace: geo-workflows
   labels:
     k8s-app: fmmp-2022-hex
 spec:
   completions: 200
   parallelism: 50
   completionMode: Indexed
-  backoffLimit: 0
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -65,7 +67,6 @@ spec:
             cpu: '4'
             memory: 16Gi
             ephemeral-storage: 10Gi
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

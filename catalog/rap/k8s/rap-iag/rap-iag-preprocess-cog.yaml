@@ -1,3 +1,8 @@
+# ============================================================================
+# SUPERSEDED by rap-bands/rap-s2-mosaic-all-zones.yaml -- DO NOT RUN (issue #607).
+# Hardcodes the 117 zone-10 tiles staged by the defective rap-s2-stage.yaml, so it can only
+# ever reproduce the truncated zone-10N mosaic.
+# ============================================================================
 apiVersion: batch/v1
 kind: Job
 metadata:

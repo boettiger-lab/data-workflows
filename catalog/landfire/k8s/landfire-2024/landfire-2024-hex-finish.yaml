@@ -1,3 +1,7 @@
+# HAND-ROLLED: folds three fan-out dimensions (h0 x layer x reducer) into one indexed
+# Job. cng-datasets raster-workflow emits a single h0 dimension at a fixed 122 completions,
+# so this shape cannot be generated today. Tracking: boettiger-lab/datasets#191 (h0 subset)
+# and #172 (multi-dimension / time-series fan-out). Regenerate once either lands.
 apiVersion: batch/v1
 kind: Job
 metadata:

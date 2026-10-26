@@ -2,11 +2,15 @@
 name: pod-preemption
 description: >-
   Diagnose and prevent preemption of long-running Kubernetes jobs: reading the succeeded-vs-failed
-  gap that reveals pod mortality, why priorityClassName opportunistic (-2000000000) is unsafe for
-  multi-hour pods, choosing a priority class and parallelism, and keeping failed pods inspectable
-  when backoffLimitPerIndex deletes them. Use when indexed job pods die and retry for no apparent
-  reason, when an index exhausts its retry budget, or before submitting a job whose pods run over
-  an hour.
+  gap that reveals pod mortality, how to tell it apart from by-design OOM-and-reroute which
+  produces the same shape, why priorityClassName opportunistic (-2000000000) is unsafe for
+  multi-hour pods, choosing a priority class and parallelism against NRP's pod usage policy
+  (default-priority pods must be sized to measured use or the whole account is blocked; short
+  pods belong at opportunistic), keeping failed pods inspectable
+  when backoffLimitPerIndex deletes them, and why failedIndexes is the wrong input to a remap
+  list. Use when indexed job pods die and retry for no apparent reason, when an index exhausts
+  its retry budget, when reconciling which indexes actually need re-running, or before
+  submitting a job whose pods run over an hour.
 ---
 
 # Pod Preemption
@@ -34,6 +38,30 @@ killed underneath it.
 **A job can even report `Complete=True` while this is happening.** Retries hide it. Check the gap
 on every long job, not just failing ones.
 
+## ⛔ The gap is necessary, not sufficient — OOM-and-reroute looks identical
+
+A wide `failed` vs `failedIndexes` gap says *pods died and retried*. It does **not** say why. A
+pipeline with an expected-OOM tier — dense partitions that fail at the normal memory limit and are
+rerouted to a bigger companion job — produces exactly the same shape, which is also why such jobs
+carry a deliberately loose `maxFailedIndexes`.
+
+The GBIF 2026-09 consolidate (data-workflows [#662](https://github.com/boettiger-lab/data-workflows/issues/662#issuecomment-5753332199))
+read `succeeded=114 failed=47 failedIndexes=4,12,15,19-21,34` — near-identical to the #564
+signature below, **same `failed=47`**. It was not preemption. Do not let that number pattern-match
+you into the wrong answer; it cost a session here exactly that.
+
+Two checks settle it before you touch the data:
+
+- **A clean earlier stage in the same window rules preemption out.** Stage 1 of that job ran
+  `succeeded=200 failed=0` at default priority, same namespace, same node pool, same window as
+  Stage 2's 47 deaths. Preemption does not selectively spare one stage.
+- **Size correlation is the positive tell for OOM.** Every failed index was among the largest
+  partitions — the seven held 2.6B of 3.57B rows. Preemption hits indexes without regard to size;
+  OOM hits the big ones and only the big ones.
+
+So: check the priority class *and* a sibling stage *and* whether the failures track partition size.
+Read the pipeline's own README first — an expected-OOM tier is usually documented, and it was here.
+
 ## Why it happens
 
 `priorityClassName: opportunistic` on NRP carries priority **-2000000000** — the lowest value
@@ -47,6 +75,36 @@ kubectl -n geo-workflows get pods -l <selector> \
 Preemption risk scales with **how long a pod runs**. A 5-minute opportunistic pod is nearly always
 fine; a **multi-hour** one is a large target and will be evicted repeatedly. Pod runtime is the
 variable that matters, far more than pod count.
+
+## Choosing a priority class: preemption against NRP's usage policy (#804)
+
+There are two costs to weigh when choosing a priority class, and avoiding one exposes a job to the other:
+
+- **At `opportunistic`**, a long pod is preempted. That is the rest of this skill.
+- **At default priority**, the pod is subject to NRP's usage policy. An oversized request there blocks the whole account.
+
+Weigh both every time.
+
+**NRP usage policy**, as stated by NRP to Carl (#804):
+
+- A running pod is outside the policy when its use falls outside these ranges of its request: memory 20–150%, CPU 20–200%, GPU above 40%.
+- Memory is checked only on pods requesting more than 2 GiB. CPU is checked only on pods requesting more than 1 core.
+- **Exempt:** opportunistic (negative-priority) pods, JupyterHub pods, and pods younger than 30 minutes. The portal checks every 10 minutes.
+- A user may have **at most 4 pods outside the ranges, across all namespaces**. Over that, NRP's admission webhook `deployment.nrp-nautilus.io` denies every Deployment change on the account with `Your pods resources utilization is too low for account …`. Namespaces that keep over-requesting risk a ban.
+- A separate admission policy, `container-must-meet-memory-and-cpu-ratio`, caps limit/request at **1.2** for CPU and for memory. A memory limit of 1.5× the request was rejected, and 1.2× passed.
+
+**What it cost.** On 2026-10-26, `crw-5km-daily-backfill` (#802) ran 10 default-priority pods requesting 16Gi each and using 0.9–2.5Gi, which is 6–16% of the request. That blocked a global-30x30 rollout until the job was suspended. The 16Gi came straight from the generator's default.
+
+**The rule:**
+
+1. **Pods expected to run under about an hour use `priorityClassName: opportunistic`.** This covers setup-bucket jobs, daily CronJob runs, and fan-outs whose units are short. These pods are exempt from the usage check, and their preemption exposure is small.
+2. **Split long work into short units where that is practical**, so it can run at `opportunistic`. This is the same advice as "shorten the pods" below, now with a second reason.
+3. **Pods that must run long use default priority, sized to measured use.**
+   - Keep memory at 20–150% of the request and CPU at 20–200%, with the limit no more than 1.2× the request.
+   - Measure first: run one unit, or watch `kubectl top pod` on the first pods.
+   - Check again about 30 minutes after launch, before the portal's first check.
+   - Keep the number of pods that could fall outside the ranges under 4. Remember that other sessions on the same account count too.
+4. **Do not trust a generated memory request.** `cng-datasets` defaults are sized for the worst case, not measured. If the peak is a short spike far above the average, as in #802 where DuckDB peaked above 4.5 GiB while the pod averaged 2 GiB, shrink the peak rather than the request. In #802 that meant splitting the step into `--h0-subset` batches, which brought it to a 3Gi request with a 3.5Gi limit.
 
 ## Do not misread it as a data problem
 
@@ -64,13 +122,19 @@ The variable was the retry budget against a background death rate — not the ce
 not parallelism. **Before investigating the data, re-run one failing index on its own.** If it
 succeeds unchanged, it was environmental.
 
+**The converse case is real too**, so run the discriminator above before concluding this: in the
+GBIF #662 job the failing indexes *were* special — they were the densest cells on Earth, and the
+single-pod re-run would have OOMed again. "Usually not special" is a prior, not a finding.
+
 ## Fixes, in order of preference
 
 1. **Do not run long pods at `opportunistic`.** Omitting `priorityClassName` gives default
    priority `0` — two billion points higher — and is admitted in `geo-workflows` (verified). Pair
    it with **lower parallelism** so the total claim on shared nodes does not grow; halving
    parallelism while raising priority is a fair trade, and observed runtime per pod *improved*
-   (117 min vs 3h32m for identical work) because there is less contention.
+   (117 min vs 3h32m for identical work) because there is less contention. Default priority
+   brings the pod under NRP's usage policy, so **size the request to measured use** (see the
+   section above). An oversized default-priority request blocks the whole account.
 2. **Shorten the pods.** Preemption exposure is roughly proportional to runtime. Splitting work so
    pods run ~30-60 min instead of 3+ hours cuts losses proportionally — but weigh it against the
    merge step that splitting usually reintroduces.
@@ -137,11 +201,53 @@ curl -s "https://s3-west.nrp-nautilus.io/<bucket>?list-type=2&prefix=<path>/hex/
 
 Do not publish or update STAC until every index is genuinely current.
 
+## ⛔ `failedIndexes` is the wrong input to a remap list
+
+An index that was **in flight when the job was suspended or deleted** appears in *neither*
+`completedIndexes` nor `failedIndexes`. Build a re-run list from `failedIndexes` and you silently
+skip it.
+
+Take the set difference against `completions` instead:
+
+```bash
+kubectl -n geo-workflows get job <name> \
+  -o jsonpath='{.spec.completions}{"\n"}{.status.completedIndexes}{"\n"}{.status.failedIndexes}{"\n"}'
+```
+
+Verified on the GBIF #662 job: `completions=122`, `completedIndexes` covering 114, `failedIndexes`
+7 — and index **95** in neither list, because it was running when someone suspended the job.
+114 + 7 = 121, not 122. The arithmetic is the check.
+
+## ⛔ Do not put a short TTL on a remediation job
+
+`ttlSecondsAfterFinished` garbage-collects the Job object, and with it the only in-cluster record
+that the remediation ever ran. For the job that *rescues* an expected-OOM tier this is actively
+harmful: the rescued parent is typically left `suspended` or `Failed` by design, so once the
+rescuer has aged out, the cluster shows a stalled build and nothing else.
+
+That is exactly what happened on GBIF #662 — the rechunk carried `ttlSecondsAfterFinished: 10800`,
+so three hours after it succeeded the only surviving evidence was **object timestamps on S3**
+(two write waves: 114 partitions ≤1.65 GB from 19:56–20:22, then eight of 8.4–26.8 GB from 21:15
+to 00:56, six of them written *after* the parent's 21:15:52 suspension). A healthy, complete build
+looked broken for eleven days.
+
+Give a remediation job a long TTL, **or** write one line to the issue when you apply it. Either
+makes the audit unnecessary.
+
 ## Checklist before submitting a long job
 
-- [ ] Estimate pod runtime. Over ~1 hour → do not use `opportunistic`.
+- [ ] Estimate pod runtime. Under ~1 hour → `opportunistic`. Over ~1 hour → default priority,
+      or split the work so it fits under an hour.
+- [ ] At default priority: size memory and CPU requests to measured use (memory 20–150%, CPU
+      20–200%, limit ≤ 1.2× request), and check `kubectl top pod` ~30 min after launch. Keep
+      under 4 pods outside those ranges across the account.
 - [ ] Set parallelism to keep the total node claim reasonable as priority rises.
 - [ ] `backoffLimitPerIndex` + `maxFailedIndexes` so a partial run surfaces as `Failed`
       (AGENTS.md #409) — never `backoffLimit: 0` on a fan-out.
 - [ ] After it finishes, check the `succeeded` vs `failed` gap, not just the condition.
+- [ ] Before calling a gap preemption, check a sibling stage and whether failures track partition
+      size — an expected-OOM tier produces the same signature.
+- [ ] Build any re-run list from `completions` minus `completedIndexes` minus `failedIndexes`,
+      never from `failedIndexes` alone.
+- [ ] If the job has a remediation companion, give it a long TTL or record the run on the issue.
 - [ ] If any index failed, verify its output is current by timestamp before publishing.

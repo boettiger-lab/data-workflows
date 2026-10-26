@@ -1,0 +1,67 @@
+# GMW v4.1.12 (data-workflows #443): stage the 9 epoch vector GPKGs + union/intersect to NRP raw/ (gunzipped, md5-verified).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gmw-v4-1-12-stage-raw-vec
+  namespace: geo-workflows
+  labels:
+    k8s-app: gmw-v4-1-12-stage-raw-vec
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: gmw-v4-1-12-stage-raw-vec
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          BASE=https://zenodo.org/api/records/21346457/files
+          DEST=nrp:public-wetlands/raw/gmw-v4-1-12/vec/
+          mkdir -p /tmp/gmw && cd /tmp/gmw
+          curl -fsS https://zenodo.org/api/records/21346457 > record.json
+          FILES="gmw_mng_ext_v4112_union_vec.gpkg.gz gmw_mng_ext_v4112_intersect_vec.gpkg.gz"
+          for y in 1985 1990 1995 2000 2005 2010 2015 2020 2025; do
+            FILES="$FILES gmw_v4112_${y}_mng_ext_cntry_info_vec.gpkg.gz"
+          done
+          for f in $FILES; do
+            echo "== $f"
+            curl -fsSL --retry 5 --retry-delay 10 -o "$f" "$BASE/$f/content"
+            python3 -c '
+          import json,sys,hashlib
+          f=sys.argv[1]; d=json.load(open("record.json"))
+          want=[x["checksum"] for x in d["files"] if x["key"]==f][0]
+          h=hashlib.md5()
+          with open(f,"rb") as fh:
+              for b in iter(lambda: fh.read(1<<24), b""): h.update(b)
+          assert "md5:"+h.hexdigest()==want, (f, want); print("md5 OK")' "$f"
+            gunzip -f "$f"
+            g="${f%.gz}"
+            ogrinfo -so -al "$g" | grep -E 'Layer name|Feature Count|Geometry:'
+            rclone copy "$g" "$DEST" --s3-no-check-bucket --retries 5
+            rm -f "$g"
+          done
+          rclone ls "$DEST"
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 8Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 8Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

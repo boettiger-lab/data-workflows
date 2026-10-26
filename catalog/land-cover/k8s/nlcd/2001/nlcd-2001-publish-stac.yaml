@@ -1,0 +1,90 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nlcd-2001-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: nlcd-2001-publish-stac
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nlcd-2001-publish-stac
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish-stac
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: stac-files
+          mountPath: /stac
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # Publishes only s3://public-land-cover/nlcd/stac-collection.json, from the
+          # ConfigMap built by patch-stac.py:
+          #   python3 patch-stac.py
+          #   kubectl -n geo-workflows create configmap nlcd-2001-stac-files \
+          #     --from-file=stac-collection.json=/tmp/nlcd-stac-collection.json
+          f=/stac/stac-collection.json
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['id']=='nlcd'" "$f"
+          # ConfigMap entries are symlinks; copy to a real file for rclone.
+          cat "$f" > /tmp/payload
+          rclone copyto /tmp/payload nrp:public-land-cover/nlcd/stac-collection.json
+          rclone size nrp:public-land-cover/nlcd/stac-collection.json
+          echo "ALL DONE"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: stac-files
+        configMap:
+          name: nlcd-2001-stac-files
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

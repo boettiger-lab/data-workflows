@@ -1,0 +1,73 @@
+# Merge the _cng_fid tiles (per-state-pmtiles-fid.yaml + mn-split-pmtiles-fid.yaml,
+# 54 files) into a staged national PMTiles. Then, after checking the staged
+# footer lists _cng_fid:
+#   rclone copyto nrp:public-wetlands/nwi-v2.pmtiles nrp:public-wetlands/staging/nwi-v2-nofid-backup.pmtiles
+#   rclone copyto nrp:public-wetlands/staging/nwi-v2-fid.pmtiles nrp:public-wetlands/nwi-v2.pmtiles
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nwi-v2-pmtiles-merge-fid
+  namespace: geo-workflows
+  labels:
+    k8s-app: nwi-v2-pmtiles-merge-fid
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: nwi-v2-pmtiles-merge-fid
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values: ["true"]
+      containers:
+      - name: merge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -e
+          mkdir -p /tmp/state-tiles
+          # Pull the 50 per-state + 4 Minnesota-part PMTiles
+          rclone copy nrp:public-wetlands/nwi-v2-state-tiles-fid/ /tmp/state-tiles/ -v
+          ls -lh /tmp/state-tiles/
+
+          # All inputs share the layer name "nwi-v2". -pk: don't drop combined
+          # tiles over 500K (state borders, the overlapping MN parts); the default
+          # silently skips them.
+          tile-join -pk -o /tmp/nwi-v2.pmtiles -f /tmp/state-tiles/*.pmtiles
+
+          ls -lh /tmp/nwi-v2.pmtiles
+          rclone copyto /tmp/nwi-v2.pmtiles nrp:public-wetlands/staging/nwi-v2-fid.pmtiles -v
+          rm -rf /tmp/state-tiles /tmp/nwi-v2.pmtiles
+          echo "=== Merge complete ==="
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        resources:
+          requests:
+            cpu: "8"
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: "8"
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

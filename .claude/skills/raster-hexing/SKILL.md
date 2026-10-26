@@ -110,6 +110,39 @@ Measured on CHELSA bio1 (stored UInt16, `Scale=0.1 Offset=-273.15`), Amazon h0 a
   path needs the explicit transform. Two scripts in the same build can legitimately differ on
   this; check which reader each uses before "fixing" one to match the other.
 
+## ⚠️ Never warp straight out of an ESRI FileGDB raster — materialize a native COG first
+
+`gdalwarp` walks its **output** grid. When the source is a GDB raster (`OpenFileGDB:"…":<name>`,
+Int32, 128x128 blocks), the reprojected traversal order keeps revisiting source blocks that have
+already fallen out of the block cache, so the same blocks are inflated over and over. Measured on
+the TNC RCN CONUS ingest (193419x133487 @ 30 m, data-workflows #606): **~20 MB/s on 1.7 of 16
+cores, 16 GB of reads against a 1.5 GB file, 83 MB of output in 10 minutes** — a run that projected
+to many hours and showed no progress, because gdalwarp's progress bar is block-buffered and prints
+nothing until it finishes.
+
+Reading the same GDB **sequentially, in full-width row stripes**, has none of that amplification.
+So split the build in two:
+
+1. **Reclassify/translate in the NATIVE grid**, one full-width row stripe per pod
+   (`gdal_translate -srcwin 0 <y0> <nx> <h>`), writing tiled Byte GeoTIFFs. Each source block is
+   touched exactly once. Make the stripe height a whole multiple of the output tile height so the
+   stripes mosaic on tile boundaries.
+2. **Warp the mosaic** (`gdalbuildvrt` over the stripes → `gdalwarp -of COG`). No reprojection
+   happened in step 1, so the stripes share the source geotransform and stack seamlessly; the
+   mosaic is small, 512-tiled and cache-friendly.
+
+Same machine, same output: **12 stripes in ~15 min, then a 6m22s warp**, against a projected
+multi-hour single pass. Assert in step 2 that the VRT reconstructs the source's exact
+`RasterXSize`/`RasterYSize`/pixel size before warping — a missing or misplaced stripe still builds
+a valid VRT and would silently shift or drop rows.
+
+Two related traps from the same build:
+- **`gdalbuildvrt` does not reliably carry a source band's nodata onto the mosaic.** Pass
+  `-srcnodata`/`-vrtnodata` explicitly, or the warp has nothing to fill with.
+- **Don't clip the warp to a footprint bbox derived from an overview mask.** The extra frame is
+  all nodata and DEFLATE flattens it, whereas a clip risks silently cutting a small outlying area.
+  Measure the published data bbox off the finished COG instead, and put *that* in the STAC.
+
 ## ⚠️ Mosaicking a MANY-tile source (thousands of 1° tiles) into one global COG — two traps
 
 For a source shipped as thousands of small tiles (Copernicus GLO-30/90 DEM = 26,475 tiles; many
@@ -135,6 +168,10 @@ Both were hit and fixed on the DEM import (data-workflows #426; manifests at
 Also: `gdalinfo -stats` writes a `.tif.aux.xml` sidecar and **reads cached stats from it on a rerun** —
 if you rebuild the COG in the same scratch dir, a stale `.aux.xml` reports the OLD min/max/mean. `rm`
 the `.aux.xml` too, or verify values with a fresh `gdallocationinfo`/`ComputeStatistics`, not the sidecar.
+
+`ComputeStatistics(True)` (`approx_ok`) answers from the overviews, which are resampled, so its
+max is biased low (28% to 53% measured) and it cannot give a pixel sum. Use
+`ComputeStatistics(False)` or a blockwise pass for any number that gates or gets published.
 
 ## ⚠️ COG overviews: `gdal_translate -of COG` defaults to CUBIC, which rings NEGATIVE
 
@@ -180,6 +217,12 @@ for ringing (data-workflows #641). Zoomed-out renders were garbage; native resol
 To get a **total from a density raster**: use `mean` (area-weighted mean density per cell), then multiply by the H3 cell ground area downstream — `total = mean_density × cell_area` (h3 `cell_area`; cells are ~equal-area per resolution). There is no one-step density→total reducer yet ([`boettiger-lab/datasets#105`](https://github.com/boettiger-lab/datasets/issues/105)). For an existing density-`sum` build, the equivalent correction is `value × pixel_area_ha` per cell (pixel area is latitude-dependent on a WGS84 grid, ≈ `9·cos(lat)` ha for a ~300 m grid).
 
 **Correctness check:** for an amount-per-pixel `sum`, the catalog-wide `SUM(value)` over the hex parquet MUST equal the source COG's pixel sum within sub-pixel rounding (compute the COG sum with a GDAL block-sum job; query the hex sum via the MCP). **For a density layer, the COG pixel-sum is itself *not* a total — validate the area-corrected `SUM` against the published global total instead** (e.g. irrecoverable carbon 2018 ≈ 137 Gt vs Noon et al. 139.1 Gt). `mean`/`mode` have no global invariant — spot-check the hex against the COG over a known region.
+
+**The warp must conserve mass too.** For a `sum` layer, reproject with `gdalwarp -r sum`, not
+`-r near`: nearest-neighbour changes pixel count and ground area per pixel, and lost 1% to 12% of the
+total on an EPSG:5070 → 4326 warp, growing with latitude. Resampler follows the units like the reducer:
+`-r sum` for amounts, `-r near` for densities, indices and classes. The hex `sum` is already
+coverage-weighted, so `-r sum` + `sum` conserves the total end to end.
 
 **Species richness / "peak" quantities** (MOBI, IUCN richness): the correct reducer is `max` — **not** `sum` (double-counts species) and **not** `mean` (averages away hotspots). `max` (and `min`) are supported as of [`boettiger-lab/datasets#95`](https://github.com/boettiger-lab/datasets/issues/95) (closed 2026-06-01); MOBI and IUCN-richness were rebuilt with `max` at res 8/5 (data-workflows #194). Validate: hex `MAX(value)` == COG max, and every cell value within `[COG min, COG max]` (roll up to coarser resolutions with `GROUP BY h<parent> + MAX`, never `AVG`/`SUM`).
 

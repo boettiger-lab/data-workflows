@@ -1,0 +1,65 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sagebrush-conservation-design-2030-2060-rcp85-workflow
+  namespace: geo-workflows
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "set -e\n\nwait_job() {\n  local job=\"$1\" ns=\"$2\" timeout=\"$3\" waited=0\
+          \ state\n  echo \"Waiting for $job (up to ${timeout}s)...\"\n  while :;\
+          \ do\n    state=$(kubectl get job \"$job\" -n \"$ns\" -o jsonpath='{.status.conditions[?(@.status==\"\
+          True\")].type}')\n    case \" $state \" in\n      *\" Complete \"*) echo\
+          \ \"\u2713 $job complete\"; return 0 ;;\n      *\" Failed \"*)\n       \
+          \ echo \"\u2717 $job failed, so the workflow stops here:\"\n        kubectl\
+          \ get job \"$job\" -n \"$ns\" -o jsonpath='{range .status.conditions[*]}\
+          \  {.type}: {.reason} {.message}{\"\\n\"}{end}'\n        echo \"  Inspect\
+          \ it with: kubectl logs job/$job -n $ns\"\n        exit 1 ;;\n    esac\n\
+          \    if [ \"$waited\" -ge \"$timeout\" ]; then\n      echo \"\u2717 $job\
+          \ did not finish within ${timeout}s\"\n      exit 1\n    fi\n    sleep 30\n\
+          \    waited=$((waited + 30))\n  done\n}\n\necho \"Starting sagebrush-conservation-design-2030-2060-rcp85\
+          \ raster workflow...\"\n\n# Step 0: Setup bucket\necho \"Step 0: Setting\
+          \ up bucket...\"\nkubectl apply -f /yamls/sagebrush-conservation-design-2030-2060-rcp85-setup-bucket.yaml\
+          \ -n geo-workflows\nwait_job sagebrush-conservation-design-2030-2060-rcp85-setup-bucket\
+          \ geo-workflows 600\n\n# Step 1: Preprocess \u2014 mosaic tiles into a single\
+          \ COG on S3\necho \"Step 1: Preprocessing COG mosaic...\"\nkubectl apply\
+          \ -f /yamls/sagebrush-conservation-design-2030-2060-rcp85-preprocess-cog.yaml\
+          \ -n geo-workflows\n\necho \"Waiting for preprocess-cog (may take 30-60\
+          \ min for large tile sets)...\"\nwait_job sagebrush-conservation-design-2030-2060-rcp85-preprocess-cog\
+          \ geo-workflows 7200\n\n# Step 2: H3 hexagonal tiling\necho \"Step 2: H3\
+          \ hexagonal tiling...\"\nkubectl apply -f /yamls/sagebrush-conservation-design-2030-2060-rcp85-hex.yaml\
+          \ -n geo-workflows\nwait_job sagebrush-conservation-design-2030-2060-rcp85-hex\
+          \ geo-workflows 7200\n\n# Step 3: Merge sub-h0 chunks into one file per\
+          \ h0 partition\necho \"Step 3: Merging hex chunks...\"\nkubectl apply -f\
+          \ /yamls/sagebrush-conservation-design-2030-2060-rcp85-merge.yaml -n geo-workflows\n\
+          wait_job sagebrush-conservation-design-2030-2060-rcp85-merge geo-workflows\
+          \ 7200\n\necho \"\u2713 Workflow complete!\"\necho \"Clean up with:\"\n\
+          echo \"  kubectl delete jobs sagebrush-conservation-design-2030-2060-rcp85-setup-bucket\
+          \ sagebrush-conservation-design-2030-2060-rcp85-preprocess-cog sagebrush-conservation-design-2030-2060-rcp85-hex\
+          \ sagebrush-conservation-design-2030-2060-rcp85-merge sagebrush-conservation-design-2030-2060-rcp85-workflow\
+          \ -n geo-workflows\"\necho \"  kubectl delete configmap sagebrush-conservation-design-2030-2060-rcp85-yamls\
+          \ -n geo-workflows\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: sagebrush-conservation-design-2030-2060-rcp85-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800

@@ -1,0 +1,68 @@
+# GMW v4.1.12 (data-workflows #443): upstream national extent spreadsheet -> long parquet table.
+# One row per (country, year), all 41 years 1985-2025, accuracy-corrected hectares (x0.9775 upstream)
+# with the 95% CI bounds. Upstream "Total" footer rows are dropped (derivable by SUM).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gmw-v4-1-12-national-stats
+  namespace: geo-workflows
+  labels:
+    k8s-app: gmw-v4-1-12-national-stats
+spec:
+  completions: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels:
+        k8s-app: gmw-v4-1-12-national-stats
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: stats
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+          rclone copy nrp:public-wetlands/raw/gmw-v4-1-12/gmw_v4_timeseries_4112_gmw_country_stats_corr_area_formatted.xlsx . --s3-no-check-bucket
+          pip install -q openpyxl
+          python3 - <<'PY'
+          import openpyxl, duckdb
+          wb = openpyxl.load_workbook("gmw_v4_timeseries_4112_gmw_country_stats_corr_area_formatted.xlsx", read_only=True, data_only=True)
+          sheets = {"Extent": "extent_ha", "lower95th": "extent_ha_lower95", "upper95th": "extent_ha_upper95"}
+          data = {}
+          for sheet, col in sheets.items():
+              rows = list(wb[sheet].iter_rows(values_only=True))
+              years = [int(y) for y in rows[0][2:]]
+              for r in rows[1:]:
+                  if not r[0]:          # blank / "Column1" / Total footer rows have no iso code
+                      continue
+                  for y, v in zip(years, r[2:]):
+                      data.setdefault((r[0], r[1], y), {})[col] = float(v)
+          recs = [(iso, name, y, d["extent_ha"], d["extent_ha_lower95"], d["extent_ha_upper95"])
+                  for (iso, name, y), d in sorted(data.items())]
+          con = duckdb.connect()
+          con.execute("CREATE TABLE t (cntry_iso3 VARCHAR, cntry_name VARCHAR, year INTEGER, extent_ha DOUBLE, extent_ha_lower95 DOUBLE, extent_ha_upper95 DOUBLE)")
+          con.executemany("INSERT INTO t VALUES (?,?,?,?,?,?)", recs)
+          print(con.sql("SELECT COUNT(*) n, COUNT(DISTINCT cntry_iso3) countries, MIN(year), MAX(year) FROM t"))
+          print(con.sql("SELECT year, ROUND(SUM(extent_ha)/100,1) AS km2 FROM t WHERE year IN (1985,2000,2025) GROUP BY 1 ORDER BY 1"))
+          con.execute("COPY t TO 'national-stats.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)")
+          PY
+          rclone copyto national-stats.parquet nrp:public-wetlands/global-mangrove-watch-v4-1-12/national-stats.parquet --s3-no-check-bucket
+        resources:
+          requests: {cpu: '1', memory: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

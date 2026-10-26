@@ -1,0 +1,49 @@
+# HAND-ROLLED: derived display layer dissolved from an existing H3 hex (one feature per ECO_CODE x side x distance class, exact H3 cell-set -> polygon) with shared-border-safe tippecanoe flags; cng-datasets has no hex -> polygon step and its pmtiles step uses --drop-densest/--coalesce-densest without --detect-shared-borders (#774)
+# MEOW coastal band PMTiles + GeoParquet (data-workflows #774) — single job; scripts in ConfigMap.
+#   kubectl -n geo-workflows create configmap meow-coastal-band-dissolve-script \
+#     --from-file=dissolve.py --from-file=tilecheck.py --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n geo-workflows apply -f dissolve.yaml
+# Reads  s3://public-coastal/meow-coastal-band/hex/h0=*/data_0.parquet (internal endpoint; unchanged)
+# Writes s3://public-coastal/meow-coastal-band.parquet, s3://public-coastal/meow-coastal-band.pmtiles
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: meow-coastal-band-dissolve
+  namespace: geo-workflows
+  labels:
+    k8s-app: meow-coastal-band-dissolve
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 21600
+  template:
+    metadata:
+      labels:
+        k8s-app: meow-coastal-band-dissolve
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: dissolve
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: [bash, -c, "set -euo pipefail; uv pip install --python /opt/venv/bin/python h3==4.5.0 pmtiles==3.8.1; mkdir -p /tmp/work/duckdb-tmp; python3 /script/dissolve.py"]
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: DUCKDB_MEM, value: 40GB}
+        - {name: WORK, value: /tmp/work}
+        - {name: LOW_DETAIL, value: "14"}
+        volumeMounts:
+        - {name: script, mountPath: /script, readOnly: true}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '16', memory: 64Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '16', memory: 64Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: script
+        configMap: {name: meow-coastal-band-dissolve-script}
+      - name: rclone-config
+        secret: {secretName: rclone-config}

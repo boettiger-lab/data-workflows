@@ -1,0 +1,189 @@
+# TNC RCN CONUS (issue #606), stage 1 of 2 — reclassify to a native-CRS Byte raster.
+#
+# Source: RCN_National_2024, an Int32 raster inside RCN.gdb in the staged raw zip.
+# 193419x133487 @ 30 m, NAD83 Albers, NO declared nodata; validity is carried by a
+# PER_DATASET mask band. Background comes in two forms, both verified by Gate A over
+# the full grid: blocks wholly outside the footprint read as 0 (15,964,339,269 px),
+# while nodata inside partially-covered blocks holds the ESRI Int32 sentinel
+# -2147483648 (125,060,008 px). Neither is a VAT code (the VAT runs 100000-404311),
+# and the mask-valid set is exactly the VAT-coded set (9,729,522,776 px), so
+# background is unambiguous.
+#
+# Pixel values are composite codes that pack resilience / biodiversity / secured / flow /
+# marsh / region into one integer. The publishable class lives in the VAT field
+# RCN_DESC_NEW. This job reclassifies to a Byte band `rcn_class`:
+#   10..93  the 12 network classes, taken from the VAT column `Vals` as-is
+#   0       Not in Network              (a REAL class, never nodata)
+#   1       Resilient Not in Network    (a REAL class, never nodata)
+#   255     nodata (outside the mapped footprint)
+# Codes and labels come from the VAT ONLY — never from a .lyrx or a tile-service legend,
+# which style 11 classes where the VAT has 14 and are where the retracted "excluded
+# Tribal lands" class came from.
+#
+# WHY TWO STAGES. Warping straight off the GDB through the reclass VRT was measured at
+# ~20 MB/s and 1.7 of 16 cores: gdalwarp walks the source in output (WGS84) order, so
+# every output chunk re-reads 128x128 GDB blocks that no longer fit the block cache, and
+# the run projected to many hours. Reading the GDB SEQUENTIALLY in full-width row stripes
+# has no such amplification — rcn-national-vat-audit reads the whole grid this way in
+# about three minutes per stripe. So stage 1 reclassifies in the NATIVE grid, one stripe
+# per pod, touching each source block exactly once, and stage 2 (rcn-national-cog.yaml)
+# warps the resulting clean Byte mosaic, which is small, 512-tiled and cache-friendly.
+#
+# Stripe heights are multiples of the 512-pixel tile height so the stripes mosaic on tile
+# boundaries. No reprojection happens here, so the stripes share the source geotransform
+# exactly and gdalbuildvrt stacks them seamlessly.
+#
+#   kubectl apply -n geo-workflows -f catalog/connectivity/k8s/rcn-national/rcn-national-reclass.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rcn-national-reclass
+  namespace: geo-workflows
+  labels: {k8s-app: rcn-national-reclass}
+spec:
+  completions: 12
+  parallelism: 12
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0        # a missing stripe is a hole in the raster, never a pass
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: rcn-national-reclass}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: reclass
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /tmp}
+        - {name: GDAL_CACHEMAX, value: '2048'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          ZIP=Resilient_and_Connected_Network_National_2024.zip
+          VAT=a00000020_vat_RCN_National_2024.csv
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          echo "=== GDAL $(gdalinfo --version) stripe ${JOB_COMPLETION_INDEX} ==="
+          rclone copy nrp:public-connectivity/raw/$ZIP     /tmp/ -P $R
+          rclone copy nrp:public-connectivity/raw/vat/$VAT /tmp/ -P $R
+          # Do NOT read the GDB through /vsizip: the .gdb members are deflated, so every
+          # random block seek would re-inflate from the member start. Extract first.
+          python3 -c "import zipfile; zipfile.ZipFile('/tmp/$ZIP').extractall('/tmp/src')"
+          rm -f /tmp/$ZIP
+
+          python3 - <<'PY'
+          import csv, os
+          from xml.sax.saxutils import escape
+          from osgeo import gdal
+          gdal.UseExceptions()
+
+          IDX, N, TILE = int(os.environ["JOB_COMPLETION_INDEX"]), 12, 512
+          GDB = "/tmp/src/Resilient_and_Connected_Network_National_2024/RCN.gdb"
+          src = f'OpenFileGDB:"{GDB}":RCN_National_2024'
+          ds = gdal.Open(src)
+          nx, ny = ds.RasterXSize, ds.RasterYSize
+          gt = ds.GetGeoTransform()
+          assert (nx, ny) == (193419, 133487), (nx, ny)
+          assert gt[1] == 30.0 and gt[5] == -30.0, gt
+
+          # --- class mapping, straight from the VAT -------------------------------
+          NAMED = {"Not in Network": 0, "Resilient Not in Network": 1}
+          rows = list(csv.DictReader(open("/tmp/a00000020_vat_RCN_National_2024.csv")))
+          mapping = {}
+          for r in rows:
+              v = int(r["Value"])
+              cls = int(r["Vals"]) if r["Vals"].strip() else NAMED[r["RCN_DESC_NEW"].strip()]
+              assert 0 <= cls <= 93, (v, cls)
+              assert mapping.setdefault(v, cls) == cls, f"VAT disagrees with itself on {v}"
+          assert len(mapping) == 297, len(mapping)
+          assert min(mapping) == 100000 and max(mapping) == 404311
+          assert set(mapping.values()) == {0, 1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 91, 92, 93}
+          print(f"VAT: {len(mapping)} source codes -> {len(set(mapping.values()))} classes")
+
+          # --- Gate B: LUT is a step function with 255 outside the VAT ------------
+          # A VRT ComplexSource LUT interpolates LINEARLY between entries and clamps
+          # outside them. These guards make the whole Int32 range outside the VAT
+          # resolve to 255: [-2^31, 0] and [0, 99999] are flat 255, and so are
+          # [404312, 2^31-1]. The background sentinel -2147483648 is an exact LUT
+          # endpoint, so it is not interpolated at all. Between consecutive VAT codes
+          # the LUT does interpolate, but Gate A (rcn-national-vat-audit) proves over
+          # the full grid that no value other than 0, the sentinel and the 297 codes
+          # ever occurs, so no interpolated output is ever produced.
+          pairs  = [(-2147483648, 255), (0, 255), (99999, 255)]
+          pairs += sorted(mapping.items())
+          pairs += [(404312, 255), (2147483647, 255)]
+          assert pairs == sorted(pairs), "LUT inputs must be ascending"
+          lut = ",".join(f"{i}:{o}" for i, o in pairs)
+
+          vrt = f"""<VRTDataset rasterXSize="{nx}" rasterYSize="{ny}">
+            <SRS>{escape(ds.GetProjection())}</SRS>
+            <GeoTransform>{", ".join(repr(x) for x in gt)}</GeoTransform>
+            <VRTRasterBand dataType="Byte" band="1">
+              <Description>rcn_class</Description>
+              <NoDataValue>255</NoDataValue>
+              <ComplexSource>
+                <SourceFilename relativeToVRT="0">{escape(src)}</SourceFilename>
+                <SourceBand>1</SourceBand>
+                <SourceProperties RasterXSize="{nx}" RasterYSize="{ny}" DataType="Int32" BlockXSize="128" BlockYSize="128"/>
+                <SrcRect xOff="0" yOff="0" xSize="{nx}" ySize="{ny}"/>
+                <DstRect xOff="0" yOff="0" xSize="{nx}" ySize="{ny}"/>
+                <LUT>{lut}</LUT>
+              </ComplexSource>
+            </VRTRasterBand>
+          </VRTDataset>
+          """
+          open("/tmp/rcn_class.vrt", "w").write(vrt)
+
+          # --- this pod's stripe, on tile boundaries ------------------------------
+          per = -(-ny // N)                        # ceil(ny / N)
+          step = -(-per // TILE) * TILE            # round up to a whole tile row
+          y0 = IDX * step
+          h = min(step, ny - y0)
+          assert h > 0, f"stripe {IDX} is empty: raise N or lower TILE"
+          print(f"stripe {IDX}: rows {y0}..{y0 + h} of {ny}")
+          open("/tmp/win.txt", "w").write(f"{y0} {h}\n")   # trailing newline: bare
+          # `read` returns non-zero at EOF, which `set -e` would take as a failure
+
+          # --- Gate C: spot-check the LUT against the VAT inside this stripe ------
+          v = gdal.Open("/tmp/rcn_class.vrt")
+          sb, vb = ds.GetRasterBand(1), v.GetRasterBand(1)
+          checked = 0
+          for yoff in range(y0, y0 + h, max(1, h // 11)):
+              a = sb.ReadAsArray(0, yoff, nx, 1)[0]
+              b = vb.ReadAsArray(0, yoff, nx, 1)[0]
+              for xoff in range(0, nx, nx // 97):
+                  want = mapping.get(int(a[xoff]), 255)
+                  assert int(b[xoff]) == want, (yoff, xoff, int(a[xoff]), int(b[xoff]), want)
+                  checked += 1
+          print(f"spot-checked {checked} pixels in stripe {IDX}: LUT matches the VAT")
+          PY
+
+          read Y0 H < /tmp/win.txt
+          I=$(printf '%02d' ${JOB_COMPLETION_INDEX})
+          gdal_translate -of GTiff -srcwin 0 $Y0 193419 $H \
+            -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BIGTIFF=YES \
+            -co NUM_THREADS=ALL_CPUS \
+            /tmp/rcn_class.vrt /tmp/native-$I.tif
+          gdalinfo /tmp/native-$I.tif | grep -E 'Size is|Type=|NoData|Origin'
+          ls -la /tmp/native-$I.tif
+
+          rclone copyto /tmp/native-$I.tif \
+            nrp:public-connectivity/raw/native-stripes/native-$I.tif -P $R
+          echo "=== stripe $I published ==="
+        resources:
+          requests: {cpu: '4', memory: 12Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 12Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

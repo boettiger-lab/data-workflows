@@ -1,0 +1,136 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mesic-register-root-catalog
+  namespace: geo-workflows
+  labels:
+    k8s-app: mesic-register-root-catalog
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: mesic-register-root-catalog
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: register
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # AGENTS.md Step 6: the STAC catalog is a TREE, and the root is touched ONLY when
+          # adding a new top-level sub-catalog. `public-mesic` is a new bucket, so its
+          # bucket-level collection needs one `child` link in the root catalog.
+          #
+          # Read-modify-write happens HERE rather than on a workstation so the read is as
+          # close to the write as possible: the root catalog is shared by every dataset in
+          # the catalog, and a stale copy edited hours earlier would silently drop whatever
+          # another build added in between. The job is idempotent -- it exits without
+          # writing if the child link is already present.
+          cd /tmp
+          rclone copyto nrp:public-data/stac/catalog.json /tmp/catalog.json
+          cp /tmp/catalog.json /tmp/catalog.before.json
+          echo "fetched root catalog: $(wc -c < /tmp/catalog.json) bytes"
+
+          python3 - <<'PY'
+          import json, sys
+
+          HREF = "https://s3-west.nrp-nautilus.io/public-mesic/stac-collection.json"
+          CHILD = {"rel": "child", "href": HREF, "type": "application/json",
+                   "title": "Mesic Analysis Platform, sagebrush biome"}
+
+          with open('/tmp/catalog.json') as f:
+              cat = json.load(f)
+          before = len(cat['links'])
+          kids = [l for l in cat['links'] if l.get('rel') == 'child']
+          print('root catalog id   :', cat.get('id'))
+          print('children before   :', len(kids))
+
+          if any(l.get('href') == HREF for l in kids):
+              print('ALREADY REGISTERED -- nothing to do')
+              sys.exit(9)
+
+          cat['links'].append(CHILD)
+
+          # Verify we changed exactly one thing and nothing else moved.
+          with open('/tmp/catalog.before.json') as f:
+              orig = json.load(f)
+          if len(cat['links']) != before + 1:
+              sys.exit('FATAL: link count moved by more than one')
+          if cat['links'][:before] != orig['links']:
+              sys.exit('FATAL: an existing link changed -- refusing to write')
+          if {k: v for k, v in cat.items() if k != 'links'} != \
+             {k: v for k, v in orig.items() if k != 'links'}:
+              sys.exit('FATAL: a non-link field changed -- refusing to write')
+
+          with open('/tmp/catalog.new.json', 'w') as f:
+              json.dump(cat, f, indent=2)
+          print('children after    :', len([l for l in cat['links'] if l.get('rel') == 'child']))
+          print('WROTE /tmp/catalog.new.json')
+          PY
+          rc=$?
+          if [ $rc -eq 9 ]; then echo "ALL DONE (no change needed)"; exit 0; fi
+          [ $rc -eq 0 ] || exit $rc
+
+          python3 -c "import json; json.load(open('/tmp/catalog.new.json'))"
+          rclone copyto /tmp/catalog.new.json nrp:public-data/stac/catalog.json
+          echo "=== verifying the published catalog ==="
+          rclone cat nrp:public-data/stac/catalog.json | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          k=[l for l in d['links'] if l.get('rel')=='child']
+          hit=[l for l in k if 'public-mesic' in l.get('href','')]
+          print('children:',len(k)); print('mesic link:',hit)
+          assert hit, 'mesic child link missing after write'
+          "
+          echo "ALL DONE"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

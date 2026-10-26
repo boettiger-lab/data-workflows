@@ -1,3 +1,9 @@
+# ============================================================================
+# SUPERSEDED by rap-bands/rap-s2-hex-all-zones.yaml -- DO NOT RUN (issue #607).
+# The h0 fan-out here was correct; the COG it read was not. Kept only for provenance.
+# Note the job name says CONUS: rangeland-s2 is a western-US product (UTM 10-13, east edge
+# -100.96) and four h0 cells is its complete set, not a partial CONUS one.
+# ============================================================================
 apiVersion: batch/v1
 kind: Job
 metadata:

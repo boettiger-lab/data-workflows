@@ -1,0 +1,162 @@
+# Merge the 9 per-region IDS FileGDBs into one national GeoParquet for the DAMAGE_AREAS_FLAT layer (#591).
+#
+# WHY A MERGE STEP EXISTS AT ALL: `cng-convert-to-parquet` merges multiple sources with UNION ALL,
+# but `--layer` takes ONE name applied to every source. IDS layer names carry a per-region suffix
+# (`DAMAGE_AREAS_FLAT_AllYears_CONUS_Rgn1` ... `_AK_Rgn10`), so a single --layer cannot address all nine.
+# ogr2ogr therefore normalizes the nine layers into one GPKG under a uniform layer name first, and
+# the tool does the canonical conversion from that. No tool source is modified (HARD BOUNDARY 2).
+#
+# The same step resolves the CRS split: CONUS is ESRI:102039 (NAD83 Albers) and Alaska is separately
+# projected, so both are reprojected to EPSG:4326 on the way in and the merged GPKG is single-CRS.
+#
+# Counts are gated with --expect-features against the census in raw/ids/layer-census.tsv, measured
+# region by region, so a silently truncated region fails the job instead of publishing short.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ids-damage-merge
+  namespace: geo-workflows
+  labels:
+    k8s-app: ids-damage-merge
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ids-damage-merge
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - "true"
+      containers:
+      - name: merge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "64Gi"
+            cpu: "16"
+            ephemeral-storage: "45Gi"
+          limits:
+            memory: "64Gi"
+            cpu: "16"
+            ephemeral-storage: "50Gi"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_PUBLIC_ENDPOINT
+          value: "s3-west.nrp-nautilus.io"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        - name: BUCKET
+          value: "public-usfs"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+
+          FAMILY="DAMAGE_AREAS_FLAT"
+          UNIFORM="ids_damage"
+          DATASET="ids-damage-1997-2025"
+          EXPECT=4533015
+          # A FileGDB is thousands of small files and CephFS charges per-file overhead: unpacking
+          # one region onto the PVC measured ~13 min. Unpack on the node's local disk instead and
+          # keep only the merged GPKG (one large sequential write) on the PVC.
+          LOCAL=/tmp/ids-work
+          MERGED="${LOCAL}/${UNIFORM}.gpkg"
+
+          rm -rf "${LOCAL}"; mkdir -p "${LOCAL}/zips" "${LOCAL}/ex"
+
+          FILES="CONUS_Region1 CONUS_Region2 CONUS_Region3 CONUS_Region4 CONUS_Region5 CONUS_Region6 CONUS_Region8 CONUS_Region9 AK_Region10"
+
+          echo "############ 1. NORMALIZE 9 REGIONS -> ONE GPKG (EPSG:4326) ############"
+          TOTAL=0
+          for R in ${FILES}; do
+            Z="${R}_AllYears.gdb.zip"
+            rclone copyto "nrp:${BUCKET}/raw/ids/${Z}" "${LOCAL}/zips/${Z}" \
+              --retries 10 --low-level-retries 20 --s3-no-check-bucket
+            rm -rf "${LOCAL}/ex"/*
+            unzip -q -o "${LOCAL}/zips/${Z}" -d "${LOCAL}/ex"
+            rm -f "${LOCAL}/zips/${Z}"
+            GDB=$(find "${LOCAL}/ex" -maxdepth 3 -iname '*.gdb' -type d | head -1)
+
+            # Match the family prefix exactly. DAMAGE_POINTS_FLAT spells it `_Allyears` with a
+            # lowercase y, so an `_AllYears` match can never pick the points layer up by accident.
+            L=$(ogrinfo -q "${GDB}" | awk '/^Layer: /{print $2}' | grep "^${FAMILY}_AllYears" | head -1)
+            [ -n "${L}" ] || { echo "FATAL: no ${FAMILY} layer in ${R}"; exit 1; }
+
+            N=$(ogrinfo -so "${GDB}" "${L}" | awk -F': *' '/^Feature Count/{print $2}')
+            TOTAL=$((TOTAL + N))
+            echo "--- ${R}: ${L} (${N} features) ---"
+
+            ogr2ogr -f GPKG "${MERGED}" "${GDB}" "${L}" \
+              -append -update \
+              -nln "${UNIFORM}" \
+              -nlt MULTIPOLYGON \
+              -t_srs EPSG:4326 \
+              -gt 65536 \
+              -lco SPATIAL_INDEX=NO \
+              --config OGR_ORGANIZE_POLYGONS SKIP \
+              --config OGR_SQLITE_SYNCHRONOUS OFF \
+              --config OGR_SQLITE_CACHE 1024
+          done
+          # Drop the unpacked GDBs and zips, but NOT ${MERGED}, which lives under ${LOCAL}.
+          rm -rf "${LOCAL}/ex" "${LOCAL}/zips"
+
+          echo "############ 2. VERIFY MERGE ############"
+          echo "sum of per-region source counts: ${TOTAL}  (census expects ${EXPECT})"
+          [ "${TOTAL}" = "${EXPECT}" ] || { echo "FATAL: source counts sum to ${TOTAL}, expected ${EXPECT}"; exit 1; }
+          MERGED_N=$(ogrinfo -so "${MERGED}" "${UNIFORM}" | awk -F': *' '/^Feature Count/{print $2}')
+          echo "merged GPKG holds: ${MERGED_N}"
+          [ "${MERGED_N}" = "${EXPECT}" ] || { echo "FATAL: merged GPKG holds ${MERGED_N}, expected ${EXPECT}"; exit 1; }
+          ls -lh "${MERGED}"
+
+          echo "############ 3. CONVERT -> NATIONAL GEOPARQUET ############"
+          # row-group-size 2000: geometry-heavy national polygons. The default 100000 can pack a
+          # geometry column chunk past the ~2.8 GB DuckDB httpfs `stoi` cliff (datasets#106).
+          cng-convert-to-parquet "${MERGED}" \
+            "s3://${BUCKET}/${DATASET}.parquet" \
+            --layer "${UNIFORM}" \
+            --target-crs EPSG:4326 \
+            --compression ZSTD \
+            --compression-level 15 \
+            --row-group-size 2000 \
+            --expect-features "${EXPECT}" \
+            --verbose
+
+          echo "############ 4. CONFIRM PUBLISHED ############"
+          rclone ls "nrp:${BUCKET}/" | grep "${DATASET}.parquet"
+          rm -rf "${LOCAL}"
+          echo "=== DONE ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

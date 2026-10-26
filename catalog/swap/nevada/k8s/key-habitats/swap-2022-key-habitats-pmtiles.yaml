@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: swap-2022-key-habitats-pmtiles
+  namespace: geo-workflows
   labels:
     k8s-app: swap-2022-key-habitats-pmtiles
 spec:
@@ -53,10 +54,11 @@ spec:
         - -c
         - |
           set -e
-          # Use optimized GeoParquet (has ID column) from convert job
-          # GDAL can read parquet via vsicurl
+          # Final GeoParquet (has _cng_fid), localized over the internal endpoint (#741)
           ulimit -n 65536 || true
-          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-swap/nevada/swap-2022/key-habitats.parquet -progress
+          rclone copyto nrp:public-swap/nevada/swap-2022/key-habitats.parquet /tmp/$DATASET.parquet
+          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /tmp/$DATASET.parquet -progress
+          rm /tmp/$DATASET.parquet
 
           # Generate PMTiles from GeoJSONSeq
           # TIPPECANOE_MAX_THREADS must be a power of 2; Kubernetes nodes can expose
@@ -68,6 +70,17 @@ spec:
           # falls back to the raw (non-power-of-2) CPU count and crashes (issue #77).
           export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
           tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --coalesce-densest-as-needed --drop-densest-as-needed -z 11 --force /tmp/$DATASET.geojsonl
+
+          # Refuse to publish tiles without _cng_fid
+          python3 - <<'PY'
+          import gzip, json, os, struct
+          f = open(f"/tmp/{os.environ['DATASET']}.pmtiles", "rb"); h = f.read(127)
+          mo, ml = struct.unpack_from("<QQ", h, 24); f.seek(mo); m = f.read(ml)
+          md = json.loads(gzip.decompress(m) if h[97] == 2 else m)
+          fields = {k for l in md["vector_layers"] for k in l.get("fields", {})}
+          print("layers", [l["id"] for l in md["vector_layers"]], "zoom", h[100], h[101], "fields", sorted(fields))
+          assert "_cng_fid" in fields
+          PY
 
           # Upload to S3 using rclone
           rclone copy /tmp/$DATASET.pmtiles nrp:public-swap/nevada/swap-2022/

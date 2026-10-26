@@ -1,0 +1,143 @@
+# Ecological Coastal Units (#674) — stage raw, extract, probe.
+#
+# The USGS data release ships the ECU segments as an ArcGIS map package (.mpk), which is a 7-Zip
+# archive around a file geodatabase. cng-datasets cannot read an .mpk, so this job:
+#   1. downloads the ECU .mpk and the companion Global Islands zip (phase 2) from ScienceBase,
+#      checking sizes against the values recorded on #674, and stages both under raw/ untouched;
+#   2. extracts the .mpk and re-zips the .gdb as raw/ecu.gdb.zip, which the generated convert
+#      step reads via /vsizip/vsicurl;
+#   3. prints layers, feature counts, geometry types, SRS and fields, so the --layer and
+#      --max-completions in the generated workflow can be checked before any build.
+#
+# Run AFTER ecu-setup-bucket (public-coastal is a new bucket). One pod, no fan-out.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ecu-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: ecu-stage-raw
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ecu-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          SB=https://www.sciencebase.gov/catalog/file/get
+          ECU_URL="$SB/63c74df2d34e06fef14ec038?f=__disk__30%2F55%2Fb2%2F3055b207597dec891f627832175da25c1d73acd3"
+          # The islands file's own link goes to ScienceBase's JavaScript file manager; the item-level
+          # "download attached files" link streams a zip of everything (no Content-Length).
+          ISL_URL="$SB/63bdf25dd34e92aad3cda273"
+
+          echo "=== fetching ECU .mpk ==="
+          F=USGSEsriGlobalCoastalSegmentsv1.mpk
+          curl -sSL --retry 5 --retry-delay 5 -o "$F" "$ECU_URL"
+          # Size and MD5 as published in the ScienceBase item JSON (recorded on #674).
+          echo "2075928715 $(stat -c%s "$F")" | awk '$1!=$2{print "  !! SIZE MISMATCH", $0; exit 1}'
+          echo "ad4f54e071c343ccbd574f4cff0adf36  $F" | md5sum -c -
+          rclone copyto "$F" "nrp:public-coastal/raw/$F" --s3-no-check-bucket
+
+          # Islands (phase 2): stage only; any failure here does not stop phase 1.
+          echo "=== fetching Global Islands bundle ==="
+          if curl -sSL --retry 5 --retry-delay 5 -o GlobalIslands.zip "$ISL_URL"; then
+            ls -l GlobalIslands.zip; python3 -c "
+          import zipfile; [print('  ', i.filename, i.file_size) for i in zipfile.ZipFile('GlobalIslands.zip').infolist()]" \
+              && rclone copyto GlobalIslands.zip nrp:public-coastal/raw/GlobalIslands.zip --s3-no-check-bucket \
+              || echo "  islands bundle unreadable; not staged"
+          else
+            echo "  islands download failed; continuing"
+          fi
+          rm -f GlobalIslands.zip
+
+          echo "=== extracting .mpk ==="
+          if ! command -v 7z >/dev/null; then
+            (apt-get update -qq && apt-get install -y -qq p7zip-full >/dev/null) \
+              || pip install -q py7zr
+          fi
+          mkdir -p mpk
+          if command -v 7z >/dev/null; then
+            7z x -y -ompk USGSEsriGlobalCoastalSegmentsv1.mpk >/dev/null
+          else
+            python3 -m py7zr x USGSEsriGlobalCoastalSegmentsv1.mpk mpk
+          fi
+          rm -f USGSEsriGlobalCoastalSegmentsv1.mpk
+          find mpk -maxdepth 4 | head -50
+          du -sh mpk
+
+          GDB=$(find mpk -type d -name '*.gdb' | head -1)
+          [ -n "$GDB" ] || { echo "no .gdb in the package"; exit 1; }
+          echo "=== GDB: $GDB ==="
+          ogrinfo -ro -so -al "$GDB" | grep -E '^(Layer name|Geometry|Feature Count|Extent|Layer SRS WKT)|^[A-Za-z_ ]+: (String|Integer|Real|Integer64|Date)' | head -80
+          ogrinfo -ro "$GDB" | head -20
+
+          echo "=== re-zipping gdb ==="
+          ( cd "$(dirname "$GDB")" && python3 -c "
+          import shutil,sys; shutil.make_archive('/tmp/ecu.gdb', 'zip', '.', sys.argv[1])" "$(basename "$GDB")" )
+          ls -l /tmp/ecu.gdb.zip
+          ogrinfo -ro -so /vsizip//tmp/ecu.gdb.zip | head
+          rclone copyto /tmp/ecu.gdb.zip nrp:public-coastal/raw/ecu.gdb.zip --s3-no-check-bucket
+          rclone ls nrp:public-coastal/raw/
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 40Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 40Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # Broken-egress hosts excluded: this job downloads ~3.6 GB from an external host.
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

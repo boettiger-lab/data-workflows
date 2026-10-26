@@ -1,0 +1,101 @@
+# TNC RCN CONUS (issue #606), stage 2 of 2 — WGS84 COG from the native Byte mosaic.
+#
+# rcn-national-reclass.yaml wrote 12 native-CRS Byte stripes of the reclassified
+# rcn_class band. They share the source geotransform exactly (no reprojection happened
+# in stage 1) and break on 512-pixel tile rows, so gdalbuildvrt stacks them into one
+# seamless 193419x133487 raster with no resampling and no seams to check.
+#
+# Warping from that mosaic instead of from the GDB is the whole point of the split: the
+# mosaic is Byte, 512-tiled and roughly a gigabyte, so gdalwarp's output-order traversal
+# stays inside the block cache. The same warp read straight off the GDB's Int32 128x128
+# blocks ran at ~20 MB/s on 1.7 of 16 cores.
+#
+# No -te. Warping the full Albers frame costs about twice the output pixels, but they are
+# all nodata and DEFLATE flattens them, whereas clipping to a footprint bbox derived from
+# an overview mask risks silently cutting a small outlying area. The published data bbox
+# is measured off the finished COG instead (rcn-national-validate.yaml), not asserted up
+# front.
+#
+# -r near is REQUIRED: rcn_class is categorical, and any averaging resampler would invent
+# classes that do not exist.
+#
+#   kubectl apply -n geo-workflows -f catalog/connectivity/k8s/rcn-national/rcn-national-cog.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rcn-national-cog
+  namespace: geo-workflows
+  labels: {k8s-app: rcn-national-cog}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: rcn-national-cog}}
+    spec:
+      restartPolicy: Never
+      # No priorityClassName on purpose: this pod runs for an hour or more, and
+      # `opportunistic` (-2000000000) makes a long pod a preemption target (skill
+      # pod-preemption). Default priority 0 is admitted in geo-workflows.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /tmp}
+        - {name: GDAL_CACHEMAX, value: '8192'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          echo "=== GDAL $(gdalinfo --version) ==="
+          mkdir -p /tmp/stripes
+          rclone copy nrp:public-connectivity/raw/native-stripes/ /tmp/stripes/ -P $R
+          ls -la /tmp/stripes/
+          test "$(ls /tmp/stripes/native-*.tif | wc -l)" -eq 12
+
+          # -srcnodata/-vrtnodata explicitly: gdalbuildvrt does not reliably carry a
+          # source band's nodata onto the mosaic, and the warp needs it to fill 255.
+          gdalbuildvrt -overwrite -resolution highest -srcnodata 255 -vrtnodata 255 \
+            /tmp/native.vrt /tmp/stripes/native-*.tif
+          python3 - <<'PY'
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open("/tmp/native.vrt")
+          b = ds.GetRasterBand(1)
+          gt = ds.GetGeoTransform()
+          print("mosaic", ds.RasterXSize, ds.RasterYSize,
+                gdal.GetDataTypeName(b.DataType), "nodata", b.GetNoDataValue())
+          # The mosaic must reconstruct the source grid exactly. If a stripe were missing
+          # or misplaced the VRT would still build, and the warp would quietly drop or
+          # shift rows.
+          assert (ds.RasterXSize, ds.RasterYSize) == (193419, 133487), "not the source grid"
+          assert gt[1] == 30.0 and gt[5] == -30.0, gt
+          assert b.GetNoDataValue() == 255, b.GetNoDataValue()
+          PY
+
+          gdalwarp -t_srs EPSG:4326 -r near -of COG \
+            -srcnodata 255 -dstnodata 255 \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 2048 \
+            -co COMPRESS=DEFLATE -co PREDICTOR=2 -co BLOCKSIZE=512 \
+            -co OVERVIEW_RESAMPLING=NEAREST -co NUM_THREADS=ALL_CPUS \
+            /tmp/native.vrt /tmp/rcn-national-cog.tif
+
+          gdalinfo /tmp/rcn-national-cog.tif | grep -E 'Size is|Pixel Size|Type=|NoData|Upper Left|Lower Right'
+          ls -la /tmp/rcn-national-cog.tif
+          rclone copyto /tmp/rcn-national-cog.tif nrp:public-connectivity/rcn-national-cog.tif -P $R
+          echo "=== COG published ==="
+        resources:
+          requests: {cpu: '16', memory: 48Gi, ephemeral-storage: 45Gi}
+          limits:   {cpu: '16', memory: 48Gi, ephemeral-storage: 45Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

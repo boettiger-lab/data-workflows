@@ -1,0 +1,90 @@
+# Move the sub-split hex outputs from rechunk-tmp/ into chunks/ so repartition sees them (#591).
+#
+# The sub-split wrote to rechunk-tmp/ rather than chunks/ because `cng-datasets vector` names its
+# output from the chunk id alone: at --chunk-size 100, sub-chunk 40 writes chunk_000040.parquet,
+# which is exactly the filename of the GOOD chunk 40 from the --chunk-size 1000 run. Writing them
+# in place would have silently destroyed 6 valid chunks.
+#
+# Renaming chunk_0NNNNN -> chunk_1NNNNN keeps every file unique against the originals, which only
+# ever occupy chunk_000000..chunk_000073. `cng-datasets repartition --chunks-dir` reads the whole
+# directory, so the filenames need only be distinct, not sequential.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ids-survey-extent-merge-subchunks
+  namespace: geo-workflows
+  labels:
+    k8s-app: ids-survey-extent-merge-subchunks
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        k8s-app: ids-survey-extent-merge-subchunks
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: merge-subchunks
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {memory: "4Gi", cpu: "2", ephemeral-storage: "10Gi"}
+          limits:   {memory: "4Gi", cpu: "2", ephemeral-storage: "20Gi"}
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: AWS_S3_ENDPOINT
+          value: "rook-ceph-rgw-nautiluss3.rook"
+        - name: AWS_HTTPS
+          value: "false"
+        - name: AWS_VIRTUAL_HOSTING
+          value: "FALSE"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          SRC="nrp:public-usfs/ids-survey-extent-1999-2025/rechunk-tmp"
+          DST="nrp:public-usfs/ids-survey-extent-1999-2025/chunks"
+
+          echo "=== 1. before ==="
+          BEFORE=$(rclone lsf "${DST}/" --s3-no-check-bucket | wc -l)
+          echo "chunks/ holds ${BEFORE} files"
+          rclone lsf "${SRC}/" --s3-no-check-bucket | sort > /tmp/src.txt
+          echo "rechunk-tmp/ holds $(wc -l < /tmp/src.txt) files"
+
+          echo "=== 2. move, renaming chunk_0NNNNN -> chunk_1NNNNN ==="
+          while read -r f; do
+            [ -n "${f}" ] || continue
+            case "${f}" in
+              chunk_0*) new="chunk_1${f#chunk_0}" ;;
+              *) echo "FATAL: unexpected name ${f}"; exit 1 ;;
+            esac
+            if rclone lsf "${DST}/${new}" --s3-no-check-bucket 2>/dev/null | grep -q .; then
+              echo "FATAL: ${new} already exists in chunks/ -- refusing to overwrite"; exit 1
+            fi
+            rclone moveto "${SRC}/${f}" "${DST}/${new}" --s3-no-check-bucket \
+              --retries 10 --low-level-retries 20
+            echo "  ${f} -> ${new}"
+          done < /tmp/src.txt
+
+          echo "=== 3. after ==="
+          AFTER=$(rclone lsf "${DST}/" --s3-no-check-bucket | wc -l)
+          MOVED=$(wc -l < /tmp/src.txt)
+          echo "chunks/ now holds ${AFTER} files (was ${BEFORE}, moved ${MOVED})"
+          [ "${AFTER}" = "$((BEFORE + MOVED))" ] || { echo "FATAL: expected $((BEFORE+MOVED))"; exit 1; }
+          echo "rechunk-tmp/ remaining: $(rclone lsf "${SRC}/" --s3-no-check-bucket | wc -l) (expect 0)"
+          echo "=== DONE ==="
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

@@ -1,0 +1,78 @@
+# #735 group A: flood-hazard PMTiles rebuilt from the final flood-hazard.parquet
+# (which gained _cng_fid in the #372 backfill after the tiles were built).
+# Same flags as catalog/hazard/k8s/flood-hazard/flood-hazard-pmtiles.yaml (-z13,
+# coalesce+drop-densest, no extend-zooms); the tile fields are all parquet
+# attributes, now including _cng_fid. Writes staging/735-fid/flood-hazard.pmtiles;
+# swap.sh replaces the live file.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flood-hazard-pmtiles-fid
+  namespace: geo-workflows
+  labels:
+    k8s-app: flood-hazard-pmtiles-fid
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: flood-hazard-pmtiles-fid
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: [hpc-nrp-g1.nmsu.edu, service-02.nrp.mghpcc.org]
+      containers:
+      - name: tile
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          ulimit -n 1048576 2>/dev/null || ulimit -n 65536 2>/dev/null || true
+          S=/scratch
+          rm -rf $S/tmp $S/*.pmtiles $S/*.geojsonl $S/*.parquet
+          mkdir -p $S/tmp
+          rclone copyto nrp:public-hazard/flood-hazard.parquet $S/flood-hazard.parquet -v
+          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq $S/flood-hazard.geojsonl $S/flood-hazard.parquet
+          rm $S/flood-hazard.parquet
+          TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
+          export TIPPECANOE_MAX_THREADS
+          tippecanoe -o $S/flood-hazard.pmtiles -l flood-hazard -t $S/tmp -z13 \
+            --coalesce-densest-as-needed --drop-densest-as-needed --force $S/flood-hazard.geojsonl
+          python3 - <<'PY'
+          import gzip, json, struct
+          f = open("/scratch/flood-hazard.pmtiles", "rb"); h = f.read(127)
+          mo, ml = struct.unpack_from("<QQ", h, 24); f.seek(mo); m = f.read(ml)
+          md = json.loads(gzip.decompress(m) if h[97] == 2 else m)
+          fields = {k for l in md["vector_layers"] for k in l.get("fields", {})}
+          print("layers", [l["id"] for l in md["vector_layers"]], "fields", sorted(fields))
+          assert "_cng_fid" in fields
+          PY
+          rclone copyto $S/flood-hazard.pmtiles nrp:public-hazard/staging/735-fid/flood-hazard.pmtiles -v
+          rm -rf $S/tmp $S/flood-hazard.geojsonl $S/flood-hazard.pmtiles
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - name: TMPDIR
+          value: /scratch/tmp
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scratch, mountPath: /scratch, subPath: flood-hazard-pmtiles-fid}
+        resources:
+          requests: {cpu: "4", memory: 32Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: "4", memory: 32Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: scratch
+        persistentVolumeClaim: {claimName: rechunk-scratch}

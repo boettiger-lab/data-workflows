@@ -1,0 +1,129 @@
+# Issue #607: mosaic rap-arte and rap-iag from the FULL 764-tile 2025 set (UTM zones 10-13),
+# replacing the 117-tile zone-10-only COGs.
+#
+# Supersedes catalog/rap/k8s/rap-{arte,iag}/rap-{arte,iag}-preprocess-cog.yaml, which hardcoded
+# 117 --input paths. The tile list is derived from the staged set at run time, so it cannot drift
+# from what was staged, and a short stage fails here rather than producing a small COG.
+#
+# ── Why plain GDAL instead of `cng-datasets raster --output-cog` ────────────────────────────
+# create_mosaic_cog writes every intermediate with COMPRESS=NONE. For this mosaic that is a
+# ~12 GB warp per UTM zone plus a ~60 GB merged intermediate -- roughly 140 GB of uncompressed
+# I/O. Measured on the rechunk-scratch CephFS PVC that ran at 39 MB/min with the process at
+# 0.17% of one core, i.e. fully blocked on storage; the same box writes 171 MB/min to node-local
+# ephemeral disk while computing at 43% of a core. Extrapolated, the tool path needed well over
+# 24 hours.
+#
+# Writing DEFLATE intermediates to ephemeral instead cuts the I/O roughly eight-fold and keeps
+# the whole job inside the 50Gi ephemeral cap:
+#   localized tiles ~12 GB  ->  warped (compressed) ~8 GB  ->  [tiles deleted]  ->  COG ~8 GB
+# Peak ~20 GB.
+#
+# This is the same reason rap-extract-bands.yaml uses gdal_translate directly. It is NOT a
+# workaround for boettiger-lab/datasets#214 (that is the --band defect); it is purely about
+# intermediate compression and storage choice.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-s2-mosaic-all-zones
+  namespace: geo-workflows
+  labels: {k8s-app: rap-s2-mosaic-all-zones}
+spec:
+  completions: 2
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
+  maxFailedIndexes: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rap-s2-mosaic-all-zones}}
+    spec:
+      restartPolicy: Never
+      # No priorityClassName -- a multi-hour mosaic must not be preemptible (skill pod-preemption).
+      containers:
+      - name: mosaic
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: GDAL_CACHEMAX, value: '8192'}
+        - {name: GDAL_NUM_THREADS, value: ALL_CPUS}
+        - {name: RCLONE_CONFIG, value: /root/.config/rclone/rclone.conf}
+        - {name: CPL_TMPDIR, value: /tmp/work}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          LAYERS=(arte iag); export L=${LAYERS[$JOB_COMPLETION_INDEX]}
+          W=/tmp/work; T=/tmp/tiles
+          mkdir -p $W $T
+
+          echo "=== localizing $L tiles ==="
+          rclone copy "nrp:public-rap/raw/$L/" "$T/" --include "*.tif" \
+            --transfers 32 --checkers 32 --stats-one-line --stats 30s
+          N=$(ls -1 $T/*.tif | wc -l)
+          echo "localized $N tiles"
+          test "$N" = "764"
+          du -sh $T
+
+          echo "=== per-zone VRTs ==="
+          VRTS=()
+          for Z in 10 11 12 13; do
+            ls -1 $T/${L}-2025-${Z}-*.tif > $W/z$Z.txt
+            echo "  zone $Z: $(wc -l < $W/z$Z.txt) tiles"
+            gdalbuildvrt -q -input_file_list $W/z$Z.txt $W/z$Z.vrt
+            VRTS+=($W/z$Z.vrt)
+          done
+
+          # One warp over all four zone VRTs, so every zone lands on a single common grid.
+          # Warping them separately and merging afterwards risks grid mismatch at zone seams.
+          echo "=== warping 4 UTM zones -> EPSG:4326 (compressed) ==="
+          gdalwarp -t_srs EPSG:4326 -r bilinear \
+            -srcnodata 255 -dstnodata 255 \
+            -multi -wo NUM_THREADS=ALL_CPUS -wm 4096 \
+            -co COMPRESS=DEFLATE -co TILED=YES -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+            "${VRTS[@]}" $W/warped.tif
+          ls -lh $W/warped.tif
+
+          # Free the 12 GB of tiles before building the COG, to stay inside the ephemeral cap.
+          echo "=== freeing localized tiles ==="
+          rm -rf $T
+
+          echo "=== COG ==="
+          gdal_translate -of COG -a_nodata 255 \
+            -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS \
+            $W/warped.tif $W/rap-$L-cog.tif
+          rm -f $W/warped.tif
+
+          echo "=== verifying before upload ==="
+          BANDS=$(gdalinfo $W/rap-$L-cog.tif | grep -c '^Band ' || true)
+          echo "band count: $BANDS"
+          test "$BANDS" = "1"
+          python3 - <<'PYCHK'
+          import json, os, subprocess, sys
+          path = f"/tmp/work/rap-{os.environ['L']}-cog.tif"
+          info = json.loads(subprocess.run(["gdalinfo", "-json", path],
+                                           capture_output=True, text=True).stdout)
+          xs = [p[0] for p in info["wgs84Extent"]["coordinates"][0]]
+          east = max(xs)
+          print(f"eastern edge: {east:.4f}")
+          if east <= -105.0:
+              sys.exit(f"FATAL: eastern edge {east:.4f} -- zones 11-13 did not make it in.")
+          print("OK: full zone 10-13 extent")
+          PYCHK
+
+          echo "=== uploading ==="
+          rclone copyto --s3-no-check-bucket $W/rap-$L-cog.tif nrp:public-rap/rap-$L-cog.tif
+          echo "✓ $L mosaic complete"
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

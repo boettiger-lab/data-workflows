@@ -1,0 +1,69 @@
+# GMW v4.1.12 (data-workflows #443): one WGS84 COG per epoch from the 1,696-tile 41-band stack.
+# 0 = non-mangrove is kept as a VALID value (source tags NoData=0, overridden); 255 = nodata
+# outside the GMW tile footprint. One indexed pod per epoch (a single 9-band mosaic crawled:
+# VRT source lookup over 1,696 tiles x ~1.4M blocks x 9 bands on one pod).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gmw-v4-1-12-epoch-cogs
+  namespace: geo-workflows
+  labels:
+    k8s-app: gmw-v4-1-12-epoch-cogs
+spec:
+  completions: 9
+  parallelism: 9
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: gmw-v4-1-12-epoch-cogs
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      activeDeadlineSeconds: 43200
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        env:
+        - {name: GDAL_CACHEMAX, value: "4096"}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          YEARS=(1985 1990 1995 2000 2005 2010 2015 2020 2025)
+          Y=${YEARS[$JOB_COMPLETION_INDEX]}
+          B=$(( Y - 1984 ))            # band 1 = 1985 ... band 41 = 2025
+          OUT=extent-$Y-cog.tif
+          W=/tmp/gmw && mkdir -p $W && cd $W
+          rclone copy nrp:public-wetlands/raw/gmw-v4-1-12/gmw_mng_ext_v4112_stack.tar.gz . --s3-no-check-bucket
+          tar -xzf gmw_mng_ext_v4112_stack.tar.gz --exclude='._*' 2>/dev/null && rm gmw_mng_ext_v4112_stack.tar.gz
+          find . -name 'GMW_*.tif' | sort > tiles.txt
+          echo "year=$Y band=$B tiles=$(wc -l < tiles.txt)"
+          gdalbuildvrt -q -resolution highest -b $B -srcnodata None -vrtnodata 255 \
+            -input_file_list tiles.txt epoch.vrt
+          python3 -c "
+          from osgeo import gdal; gdal.UseExceptions()
+          ds = gdal.Open('epoch.vrt', gdal.GA_Update); b = ds.GetRasterBand(1)
+          b.SetDescription('mangrove_$Y'); b.SetNoDataValue(255); ds = None"
+          gdal_translate epoch.vrt $OUT -of COG \
+            -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co SPARSE_OK=TRUE \
+            -co NUM_THREADS=ALL_CPUS -co BIGTIFF=YES -co OVERVIEW_RESAMPLING=NEAREST
+          gdalinfo $OUT | grep -E 'Size is|Pixel Size|NoData|Description|Overviews' | head
+          ls -la $OUT
+          rclone copyto $OUT nrp:public-wetlands/global-mangrove-watch-v4-1-12/$OUT --s3-no-check-bucket
+        resources:
+          requests: {cpu: '8', memory: 24Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 24Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

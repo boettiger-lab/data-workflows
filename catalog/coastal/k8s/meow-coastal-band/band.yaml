@@ -1,0 +1,41 @@
+# MEOW coastal band (data-workflows #730) — single large-memory DuckDB job; script in ConfigMap.
+#   kubectl -n geo-workflows create configmap meow-coastal-band-script --from-file=band.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: meow-coastal-band
+  namespace: geo-workflows
+  labels:
+    k8s-app: meow-coastal-band
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 43200
+  template:
+    metadata:
+      labels:
+        k8s-app: meow-coastal-band
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: band
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: [bash, -c, "set -euo pipefail; mkdir -p /tmp/duckdb-tmp; python3 /script/band.py"]
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: DUCKDB_MEM, value: 110GB}
+        volumeMounts:
+        - {name: script, mountPath: /script, readOnly: true}
+        resources:
+          requests: {cpu: '16', memory: 128Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '16', memory: 128Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: script
+        configMap: {name: meow-coastal-band-script}

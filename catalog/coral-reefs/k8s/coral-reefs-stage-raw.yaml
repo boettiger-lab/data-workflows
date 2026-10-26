@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coral-reefs-stage-raw
+  labels:
+    k8s-app: coral-reefs-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: coral-reefs-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage-raw-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: SOURCE_URL
+          value: https://datadownload-production.s3.us-east-1.amazonaws.com/WCMC008_CoralReefs2018_v4_1.zip
+        - name: RAW_FILE
+          value: WCMC008_CoralReefs2018_v4_1.zip
+        - name: BUCKET
+          value: public-coral-reefs
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cd /tmp
+          echo "=== downloading ${SOURCE_URL} ==="
+          curl -L --retry 5 --retry-delay 10 -o "${RAW_FILE}" "${SOURCE_URL}"
+          ls -l "${RAW_FILE}"
+
+          echo "=== sha256 (record this in STAC provenance) ==="
+          sha256sum "${RAW_FILE}"
+
+          echo "=== zip inventory (layer names for the build) ==="
+          unzip -l "${RAW_FILE}"
+
+          echo "=== uploading to nrp:${BUCKET}/raw/ ==="
+          rclone copyto "${RAW_FILE}" "nrp:${BUCKET}/raw/${RAW_FILE}" --progress --s3-no-check-bucket=false
+          rclone ls "nrp:${BUCKET}/raw/"
+          echo "=== done ==="
+        resources:
+          requests:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+            ephemeral-storage: 20Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

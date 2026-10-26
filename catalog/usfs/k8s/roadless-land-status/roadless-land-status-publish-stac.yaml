@@ -1,0 +1,56 @@
+# Step 5/6: publish the roadless-land-status STAC, and the patched public-usfs bucket
+# collection + README (data-workflows #743).
+#
+# The files are generated locally by gen_stac.py (which reads the live bucket collection and
+# README and patches them), gated with verify-stac.py --no-data, then shipped as a ConfigMap:
+#   python3 gen_stac.py
+#   kubectl create configmap roadless-land-status-stac -n geo-workflows \
+#     --from-file=dataset.json=/tmp/roadless-land-status-stac.json \
+#     --from-file=bucket.json=/tmp/usfs-bucket-stac.json \
+#     --from-file=README.md=/tmp/usfs-README.md --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f roadless-land-status-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: roadless-land-status-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: roadless-land-status-publish-stac
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: roadless-land-status-publish-stac
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {memory: "1Gi", cpu: "1", ephemeral-storage: "1Gi"}
+          limits:   {memory: "1Gi", cpu: "1", ephemeral-storage: "1Gi"}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: stac, mountPath: /stac, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          # ConfigMap keys mount as symlinks, which rclone will not read; copy them out first.
+          mkdir -p /tmp/stac && cp -L /stac/dataset.json /stac/bucket.json /stac/README.md /tmp/stac/
+          # Child before parent, so the bucket never links a collection that is not there yet.
+          rclone copyto /tmp/stac/dataset.json nrp:public-usfs/roadless-land-status/stac-collection.json
+          rclone copyto /tmp/stac/bucket.json  nrp:public-usfs/stac-collection.json
+          rclone copyto /tmp/stac/README.md    nrp:public-usfs/README.md
+          rclone lsl nrp:public-usfs/ --max-depth 2 --include 'stac-collection.json' --include 'README.md' \
+            --include 'roadless-land-status/stac-collection.json'
+          echo OK
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: stac, configMap: {name: roadless-land-status-stac}}

@@ -1,0 +1,74 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dem-glo90-wbm-cog-regional
+  labels:
+    k8s-app: dem-glo90-wbm-cog-regional
+  namespace: geo-workflows
+spec:
+  completions: 4
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 4
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: dem-glo90-wbm-cog-regional
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      activeDeadlineSeconds: 5400
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
+      containers:
+      - name: cog-regional
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: TMPDIR
+          value: /tmp
+        - name: GDAL_CACHEMAX
+          value: '4096'
+        - name: GDAL_NUM_THREADS
+          value: ALL_CPUS
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - "# Copernicus GLO-90 Water Body Mask mosaic, regional parts (data-workflows #730).\nset -euo pipefail\nIDX=${JOB_COMPLETION_INDEX}\n# Balanced contiguous longitude bands (integer-degree cuts ->\
+          \ tile-aligned, seamless).\nLOS=(-180 -67 25 96); HIS=(-67 25 96 181)\nLO=${LOS[$IDX]}; HI=${HIS[$IDX]}\necho \"Regional part $IDX: longitude [$LO, $HI)\"\n\nrclone lsf -R --files-only --include\
+          \ '*_WBM.tif' nrp:public-dem/raw/glo90-wbm/ > /tmp/all.txt\necho \"total tiles listed: $(wc -l < /tmp/all.txt)\"\nawk -v lo=$LO -v hi=$HI '\n  { if (match($0, /_(E|W)[0-9][0-9][0-9]_/)) {\n  \
+          \    s=substr($0,RSTART+1,1); d=substr($0,RSTART+2,3)+0;\n      lon=(s==\"E\")?d:-d;\n      if (lon>=lo && lon<hi) print $0; } }' /tmp/all.txt > /tmp/subset.txt\nN=$(wc -l < /tmp/subset.txt);\
+          \ echo \"subset tiles: $N\"\ntest \"$N\" -gt 1000\n\nmkdir -p /tmp/tiles\necho \"Localizing subset to LOCAL ephemeral (fast small-file I/O)...\"\nrclone copy --files-from /tmp/subset.txt nrp:public-dem/raw/glo90-wbm/\
+          \ /tmp/tiles/ \\\n  --transfers 48 --checkers 64 --retries 5 --stats 30s --stats-one-line\n\nfind /tmp/tiles -name '*_WBM.tif' > /tmp/vrtlist.txt\necho \"localized tif count: $(wc -l < /tmp/vrtlist.txt)\"\
+          \n# -resolution highest: GLO-90 tiles have latitude-dependent column counts\n# (coarser X-degrees toward poles). 'average' (the gdalbuildvrt default)\n# would downsample the equator; 'highest'\
+          \ forces the uniform finest grid\n# (0.000833 deg = ~90m at the equator), upsampling polar tiles by replication.\ngdalbuildvrt -resolution highest -input_file_list /tmp/vrtlist.txt \\\n  -vrtnodata\
+          \ 255 /tmp/part.vrt\ngdalinfo /tmp/part.vrt | grep -E \"Size is|Pixel Size\" || true\n\necho \"Translating regional Byte GTiff (WBM codes 0-3, 255 = no tile)...\"\ngdal_translate /tmp/part.vrt\
+          \ /tmp/part-${IDX}.tif \\\n  -of GTiff -ot Byte -a_nodata 255 \\\n  -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 \\\n  -co COMPRESS=ZSTD -co ZSTD_LEVEL=9 \\\n  -co BIGTIFF=YES -co NUM_THREADS=ALL_CPUS\
+          \ \\\n  --config GDAL_CACHEMAX 4096\nls -lh /tmp/part-${IDX}.tif\n\necho \"Uploading regional part $IDX...\"\nrclone copyto /tmp/part-${IDX}.tif \\\n  nrp:public-dem/copernicus-glo90/wbm-regional/part-${IDX}.tif\
+          \ \\\n  --s3-no-check-bucket --progress\necho \"Regional part $IDX done.\"\n"
+        resources:
+          requests:
+            cpu: '8'
+            memory: 12Gi
+            ephemeral-storage: 45Gi
+          limits:
+            cpu: '8'
+            memory: 12Gi
+            ephemeral-storage: 45Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

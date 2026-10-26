@@ -30,12 +30,28 @@ kubectl -n geo-workflows top pod --no-headers | grep '^<prefix>' | awk '{
   printf "n=%d peak=%.2f mean=%.2f cores\n", n, m/1000, s/n/1000}'
 ```
 
-Measured on the CHELSA hex (one raster per job), against what was requested:
+Measured on the CHELSA build, against what was requested — **three dimensions, all inherited
+rather than measured, each throttling throughput a different way**:
 
-| dimension | requested | measured | over-ask |
-|---|---|---|---|
-| memory | 32 Gi | peak **5.2 Gi**, mean 3.5 Gi | ~6x |
-| cpu | 8 cores | peak 8.6, mean **3.3 cores** | ~2.4x |
+| dimension | requested | actually used | over-ask | how it hurt |
+|---|---|---|---|---|
+| memory | 32 Gi | peak **5.2 Gi** | ~6x | scheduler: *"4,231 jobs do not fit on any node"* |
+| cpu | 8 cores | mean **3.3 cores** | ~2.4x | halved the pods that fit in the core budget |
+| **ephemeral** | **40 Gi** | **kilobytes** | enormous | job was **unschedulable outright** |
+
+The ephemeral case is the sharpest lesson. A join pod asked for 40 Gi of ephemeral storage to write
+a **2 KB** partition, having inherited the number from a different job. It did not run slowly — it
+cycled `Leased -> Pending -> LeaseReturned -> Queued` indefinitely, because no node had that much
+free ephemeral, while 121 identical jobs placed fine. Nothing in the logs says "your request is too
+large"; the job simply never starts.
+
+**Ephemeral storage is a scheduling dimension exactly like cpu and memory.** Size it to what the
+job actually writes:
+
+```bash
+# inside a representative pod, right before the step you suspect
+df -h /tmp; du -sh /tmp/<scratch dirs>
+```
 
 Both were inherited rather than measured — memory by halving a 64 Gi figure sized for a
 35-raster chain rather than the one raster a job runs, cpu by copying the same job's `8`. Only 19
@@ -190,7 +206,7 @@ empty joins). So encode the joins into the data, don't hope the model derives th
 |---|---|---|
 | `--h3-resolution` | 10 | Lower (8, 6) for large polygons. Halving res ≈ 6× fewer cells. |
 | `--hex-memory` | 8Gi | Tune from OOM signals. Start low. |
-| `--max-completions` | 200 | Number of hex chunks. With armada: set to feature count for chunk-size 1. **⛔ Not a hard cap — a silent coverage limit (data-workflows #494):** the k8s hex uses a FIXED `--chunk-size 1000`, so total features hexed = `max-completions × 1000`. The default 200 silently caps a build at **200,000 features** — anything beyond that is never hexed and the repartition/STAC look "complete." For any dataset **>200k features**, set `--max-completions ≥ ceil(feature_count / 1000)` (e.g. 711,583 → 720). The generator can't count features in a zip/parquet source, so it can't warn you. **Always** confirm coverage post-build: `COUNT(DISTINCT _cng_fid)` on the hex must equal the flat parquet's feature count (not just that h0 partitions exist). |
+| `--max-completions` | 200 | Number of hex chunks. With armada: set to feature count for chunk-size 1. **⛔ Not a hard cap — a silent coverage limit (data-workflows #494):** the k8s hex uses a FIXED `--chunk-size 1000`, so total features hexed = `max-completions × 1000`. The default 200 silently caps a build at **200,000 features** — anything beyond that is never hexed and the repartition/STAC look "complete." For any dataset **>200k features**, set `--max-completions ≥ ceil(feature_count / 1000)` (e.g. 711,583 → 720). When the generator cannot count features it now prints `Warning: feature count unknown — defaults cover at most N features` — read that line, it states the budget you are actually getting. **Always** confirm coverage post-build: `COUNT(DISTINCT _cng_fid)` on the hex must equal the flat parquet's feature count (not just that h0 partitions exist). |
 | `--max-parallelism` | 50 | k8s only — capped by pod quota. Unused with armada. |
 | `--parent-resolutions` | "9,8,0" | Use `"0"` when `--h3-resolution 8` (9/8 would duplicate target). |
 | `--intermediate-chunk-size` | 10 | Decrease if hex OOMs during unnest — try this before raising memory. |

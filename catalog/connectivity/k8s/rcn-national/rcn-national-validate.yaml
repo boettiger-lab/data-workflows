@@ -1,0 +1,211 @@
+# Gates B and C for issue #606: validate the published WGS84 COG against the VAT.
+#
+# Gate A (rcn-national-vat-audit.yaml) proved the VAT is the complete value set of the
+# native raster. This job proves the reclass-and-warp preserved it:
+#
+#   1. STRUCTURE  — Byte, nodata 255, EPSG:4326, and the only values present are the 14
+#                   classes plus 255. A 15th value would mean the LUT interpolated.
+#   2. AREA       — per-class GROUND AREA in the COG vs the VAT's pixel counts x 900 m2.
+#                   Pixel counts are NOT comparable across the warp (WGS84 pixels shrink
+#                   toward the poles), so the comparison is area, not count. This is also
+#                   what catches a -te clip that cut real data: a clipped class loses
+#                   area and nothing else would notice.
+#   3. LOCATION   — 4000 random points inside the footprint, COG class vs the VAT class
+#                   of the source pixel at the same lon/lat. Catches a georeferencing or
+#                   CRS error, which an area check alone would pass. Nearest-neighbour
+#                   warp moves class boundaries by up to a pixel, so exact agreement is
+#                   required at 90% and 3x3-neighbourhood agreement at 99.5%.
+#
+#   kubectl apply -n geo-workflows -f catalog/connectivity/k8s/rcn-national/rcn-national-validate.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rcn-national-validate
+  namespace: geo-workflows
+  labels: {k8s-app: rcn-national-validate}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: rcn-national-validate}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: validate
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: TMPDIR, value: /tmp}
+        - {name: GDAL_CACHEMAX, value: '2048'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          ZIP=Resilient_and_Connected_Network_National_2024.zip
+          VAT=a00000020_vat_RCN_National_2024.csv
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          rclone copy nrp:public-connectivity/rcn-national-cog.tif /tmp/ -P $R
+          rclone copy nrp:public-connectivity/raw/vat/$VAT        /tmp/ -P $R
+          rclone copy nrp:public-connectivity/raw/$ZIP            /tmp/ -P $R
+          # Provenance fingerprint, recomputed from the staged object (never transcribed).
+          echo "=== staged raw ==="
+          stat -c '%n %s bytes' /tmp/$ZIP
+          sha256sum /tmp/$ZIP
+          python3 -c "import zipfile; zipfile.ZipFile('/tmp/$ZIP').extractall('/tmp/src')"
+          rm -f /tmp/$ZIP
+
+          python3 - <<'PY'
+          import csv, math, sys
+          import numpy as np
+          from osgeo import gdal, osr
+          gdal.UseExceptions()
+
+          NAMED = {"Not in Network": 0, "Resilient Not in Network": 1}
+          vat, labels = {}, {}
+          for r in csv.DictReader(open("/tmp/a00000020_vat_RCN_National_2024.csv")):
+              cls = int(r["Vals"]) if r["Vals"].strip() else NAMED[r["RCN_DESC_NEW"].strip()]
+              vat[int(r["Value"])] = (int(float(r["Count"])), cls)
+              labels[cls] = r["RCN_DESC_NEW"].strip()
+          CLASSES = sorted(labels)
+          want_area = {c: 0.0 for c in CLASSES}
+          for count, cls in vat.values():
+              want_area[cls] += count * 900.0        # 30 m x 30 m, equal-area Albers
+
+          cog = gdal.Open("/tmp/rcn-national-cog.tif")
+          band = cog.GetRasterBand(1)
+          nx, ny = cog.RasterXSize, cog.RasterYSize
+          gt = cog.GetGeoTransform()
+          srs = osr.SpatialReference(wkt=cog.GetProjection())
+          fail = []
+
+          print(f"size            {nx} x {ny}")
+          print(f"pixel           {gt[1]:.12f} deg")
+          print(f"dtype           {gdal.GetDataTypeName(band.DataType)}")
+          print(f"nodata          {band.GetNoDataValue()}")
+          print(f"epsg            {srs.GetAuthorityCode(None)}")
+          if gdal.GetDataTypeName(band.DataType) != "Byte":
+              fail.append("band is not Byte")
+          if band.GetNoDataValue() != 255:
+              fail.append(f"nodata is {band.GetNoDataValue()}, expected 255")
+          if srs.GetAuthorityCode(None) != "4326":
+              fail.append(f"CRS is EPSG:{srs.GetAuthorityCode(None)}, expected 4326")
+
+          # --- 1/2. structure + per-class ground area ----------------------------
+          # WGS84 pixel ground area depends only on latitude:
+          #   A(row) = R^2 * dlon_rad * (sin(lat_top) - sin(lat_bottom))
+          R = 6371007.181                        # authalic radius, m
+          dlon = abs(gt[1]) * math.pi / 180.0
+          area = np.zeros(256, dtype=np.float64)
+          count = np.zeros(256, dtype=np.int64)
+          row_has_data = np.zeros(ny, dtype=bool)
+          col_has_data = np.zeros(nx, dtype=bool)
+          STRIPE = 512
+          for y in range(0, ny, STRIPE):
+              h = min(STRIPE, ny - y)
+              a = band.ReadAsArray(0, y, nx, h)
+              d = a != 255
+              row_has_data[y:y + h] = d.any(axis=1)
+              col_has_data |= d.any(axis=0)
+              lat_t = np.radians(gt[3] + (y + np.arange(h)) * gt[5])
+              lat_b = np.radians(gt[3] + (y + np.arange(h) + 1) * gt[5])
+              row_area = R * R * dlon * (np.sin(lat_t) - np.sin(lat_b))
+              for i in range(h):
+                  bc = np.bincount(a[i], minlength=256)
+                  count += bc
+                  area += bc * row_area[i]
+              if (y // STRIPE) % 20 == 0:
+                  print(f"  scanned rows {y}/{ny}", flush=True)
+
+          present = set(np.nonzero(count)[0].tolist())
+          # exact data bbox, measured off the published COG — this is what the STAC
+          # `extent.spatial` must carry, not the warp frame (which is mostly nodata).
+          rows = np.nonzero(row_has_data)[0]
+          cols = np.nonzero(col_has_data)[0]
+          bbox = (gt[0] + cols[0] * gt[1], gt[3] + (rows[-1] + 1) * gt[5],
+                  gt[0] + (cols[-1] + 1) * gt[1], gt[3] + rows[0] * gt[5])
+          print(f"\ndata bbox       [{bbox[0]:.6f}, {bbox[1]:.6f}, "
+                f"{bbox[2]:.6f}, {bbox[3]:.6f}]")
+          print(f"frame bbox      [{gt[0]:.6f}, {gt[3] + ny * gt[5]:.6f}, "
+                f"{gt[0] + nx * gt[1]:.6f}, {gt[3]:.6f}]")
+          extra = present - set(CLASSES) - {255}
+          if extra:
+              fail.append(f"values present that are neither a class nor nodata: "
+                          f"{sorted(extra)}")
+
+          print(f"\n{'class':>5}  {'COG km2':>14}  {'VAT km2':>14}  {'diff':>8}  label")
+          for c in CLASSES:
+              got, want = area[c] / 1e6, want_area[c] / 1e6
+              d = (got - want) / want if want else 0.0
+              print(f"{c:>5}  {got:>14,.1f}  {want:>14,.1f}  {100 * d:>7.3f}%  {labels[c]}")
+              if abs(d) > 0.01:
+                  fail.append(f"class {c} area off by {100 * d:.3f}% "
+                              f"({got:,.1f} vs {want:,.1f} km2)")
+          tot_got, tot_want = area[CLASSES].sum() / 1e6, sum(want_area.values()) / 1e6
+          print(f"{'total':>5}  {tot_got:>14,.1f}  {tot_want:>14,.1f}  "
+                f"{100 * (tot_got - tot_want) / tot_want:>7.3f}%")
+          if abs(tot_got - tot_want) / tot_want > 0.005:
+              fail.append(f"mapped area off by "
+                          f"{100 * (tot_got - tot_want) / tot_want:.3f}% — a -te clip "
+                          f"may have cut real data")
+
+          # --- 3. location: COG class vs source pixel at the same lon/lat --------
+          GDB = "/tmp/src/Resilient_and_Connected_Network_National_2024/RCN.gdb"
+          src = gdal.Open(f'OpenFileGDB:"{GDB}":RCN_National_2024')
+          sb, sgt = src.GetRasterBand(1), src.GetGeoTransform()
+          wgs = osr.SpatialReference(); wgs.ImportFromEPSG(4326)
+          wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+          alb = osr.SpatialReference(wkt=src.GetProjection())
+          alb.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+          fwd = osr.CoordinateTransformation(wgs, alb)
+
+          rng = np.random.default_rng(606)
+          exact = near = tried = 0
+          while tried < 4000:
+              px = int(rng.integers(1, nx - 1)); py = int(rng.integers(1, ny - 1))
+              got = int(band.ReadAsArray(px, py, 1, 1)[0, 0])
+              if got == 255:
+                  continue
+              lon = gt[0] + (px + 0.5) * gt[1]
+              lat = gt[3] + (py + 0.5) * gt[5]
+              x, y, _ = fwd.TransformPoint(lon, lat)
+              sc = int((x - sgt[0]) / sgt[1]); sr = int((y - sgt[3]) / sgt[5])
+              if not (1 <= sc < src.RasterXSize - 1 and 1 <= sr < src.RasterYSize - 1):
+                  continue
+              nb = sb.ReadAsArray(sc - 1, sr - 1, 3, 3)
+              want = {vat[int(v)][1] for v in nb.ravel() if int(v) in vat}
+              tried += 1
+              if vat.get(int(nb[1, 1]), (0, None))[1] == got:
+                  exact += 1
+              if got in want:
+                  near += 1
+          print(f"\nlocation  {tried} points: exact {100 * exact / tried:.2f}%, "
+                f"within 3x3 {100 * near / tried:.2f}%")
+          if exact / tried < 0.90:
+              fail.append(f"only {100 * exact / tried:.2f}% of sampled points match the "
+                          f"source pixel exactly")
+          if near / tried < 0.995:
+              fail.append(f"only {100 * near / tried:.2f}% of sampled points match "
+                          f"within a 3x3 source neighbourhood — check georeferencing")
+
+          print()
+          if fail:
+              print("VALIDATION FAILED")
+              for f in fail:
+                  print(f"  - {f}")
+              sys.exit(1)
+          print("VALIDATION PASSED")
+          PY
+        resources:
+          requests: {cpu: '8', memory: 16Gi, ephemeral-storage: 24Gi}
+          limits:   {cpu: '8', memory: 16Gi, ephemeral-storage: 24Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

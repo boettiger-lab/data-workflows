@@ -1,0 +1,2003 @@
+# data-workflows#591 — publish the two IDS STAC collections.
+#
+# In-cluster because STAC is canonical on NRP S3 (AGENTS.md Hard Boundary 1) and the workflow
+# namespace holds the only rclone remote that writes there. Publishes:
+#
+#   ids-damage-1997-2025/stac-collection.json
+#   ids-survey-extent-1999-2025/stac-collection.json
+#   stac-collection.json            (both registered as children of the public-usfs sub-catalog)
+#   README.md                       (bucket README gains an IDS section)
+#
+# Both collections pass `scripts/verify-stac.py --no-data` with 0 hard findings before publish.
+# Idempotent: re-running re-uploads the two collections and leaves the parent and README alone.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: ids-publish-stac, namespace: geo-workflows}
+data:
+  ids-damage-1997-2025.json: |
+    {
+      "stac_version": "1.0.0",
+      "type": "Collection",
+      "id": "ids-damage-1997-2025",
+      "title": "USFS Insect and Disease Detection Survey damage polygons, 1997-2025 (national)",
+      "description": "Polygons of insect and disease damage to forests, mapped by the USDA Forest Service Insect and Disease Detection Survey across the whole United States including Alaska, from 1997 to 2025. There are 4,533,015 damage records over 4,338,867 distinct mapped polygons, each carrying the damaging agent, the affected host species, the kind of damage and a severity class.\n\n**An area with no damage polygon was not necessarily undamaged.** Damage is recorded by observers sketch-mapping from aircraft along established flight routes, and those flights concentrate on accessible, road-adjacent forest, so remote and roadless terrain is systematically under-flown. Any rate or share computed from this dataset needs the area actually surveyed as its denominator, which is published beside it in this catalog as ids-survey-extent-1999-2025. Dividing damage by total land area, or by forest area, treats un-flown ground as undamaged and understates damage wherever survey coverage is thin.\n\n**Damage rates are not computable for 1997 and 1998.** Both years hold real damage, 131,013 polygons recorded across all nine Forest Service regions, but no survey-extent footprints were published for them, so there is no denominator. Counts and acreages of damage in those two years are valid; rates are not.\n\n**Damage polygons overlap across years by design.** The same stand is re-recorded in each year it shows damage, so an acreage total must be computed within a survey year. Summing across years counts persistent outbreaks once per year they persisted.\n\n**One row is one damage record, not one polygon.** A polygon carrying several damaging agents, hosts or damage types appears once for each, with the polygon's own ACRES copied onto every one of those rows. Summing ACRES over raw rows overstates the mapped area by a factor of 1.22 nationally.\n\n```sql\n-- correct: damaged acres per survey year, counting each mapped polygon once\nSELECT SURVEY_YEAR, SUM(ACRES) AS acres\nFROM (SELECT DISTINCT DAMAGE_AREA_ID, SURVEY_YEAR, ACRES\n      FROM read_parquet('https://s3-west.nrp-nautilus.io/public-usfs/ids-damage-1997-2025.parquet'))\nGROUP BY SURVEY_YEAR ORDER BY SURVEY_YEAR\n-- wrong: SUM(ACRES) over raw rows counts a polygon once per damaging agent (1.22x too high nationally)\n-- wrong: summing across survey years counts a persistent outbreak once per year it persisted\n```\n\n**Provenance.** Built from the nine per-region File Geodatabases published by Forest Health Protection, which together are the national set (there is no single national download). The archives were staged to `s3://public-usfs/raw/ids/` on 2026-09-16, totalling 1,743,267,480 bytes, each carrying an upstream Last-Modified of 2026-04-22 and a sha256 recomputed from the stored object; the per-file byte counts, checksums and access date are in `s3://public-usfs/raw/ids/source-manifest.tsv`. Forest Health Protection publishes no edition or version label for this product, so none is claimed here: the access date and those checksums identify the edition used.",
+      "license": "public-domain",
+      "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json",
+        "https://stac-extensions.github.io/scientific/v1.0.0/schema.json"
+      ],
+      "sci:citation": "USDA Forest Service, Forest Health Protection. Insect and Disease Detection Survey (IDS), national per-region File Geodatabases. Accessed 2026-09-16 from https://www.fs.usda.gov/foresthealth/docs/IDS_Data_for_Download/. Upstream publishes no edition label; the staged copies and their sha256 checksums in s3://public-usfs/raw/ids/source-manifest.tsv identify the edition used.",
+      "created": "2026-09-16T22:06:39Z",
+      "updated": "2026-09-18T18:45:56Z",
+      "extent": {
+        "spatial": {
+          "bbox": [
+            [
+              -165.84,
+              26.42,
+              -66.95,
+              68.4
+            ]
+          ]
+        },
+        "temporal": {
+          "interval": [
+            [
+              "1997-01-01T00:00:00Z",
+              "2025-12-31T23:59:59Z"
+            ]
+          ]
+        }
+      },
+      "providers": [
+        {
+          "name": "USDA Forest Service, Forest Health Protection",
+          "roles": [
+            "producer",
+            "licensor"
+          ],
+          "url": "https://www.fs.usda.gov/science-technology/data-tools-products/fhp-mapping-reporting/detection-surveys"
+        },
+        {
+          "name": "Boettiger Lab / cirrus",
+          "roles": [
+            "processor",
+            "host"
+          ],
+          "url": "https://s3-west.nrp-nautilus.io/public-usfs/"
+        }
+      ],
+      "links": [
+        {
+          "rel": "self",
+          "href": "https://s3-west.nrp-nautilus.io/public-usfs/ids-damage-1997-2025/stac-collection.json",
+          "type": "application/json"
+        },
+        {
+          "rel": "root",
+          "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+          "type": "application/json"
+        },
+        {
+          "rel": "parent",
+          "href": "https://s3-west.nrp-nautilus.io/public-usfs/stac-collection.json",
+          "type": "application/json"
+        },
+        {
+          "rel": "license",
+          "href": "https://www.usa.gov/government-works",
+          "type": "text/html",
+          "title": "US Government work - public domain"
+        },
+        {
+          "rel": "about",
+          "href": "https://www.fs.usda.gov/science-technology/data-tools-products/fhp-mapping-reporting/detection-surveys",
+          "type": "text/html",
+          "title": "Forest Health Protection detection surveys (landing page)"
+        },
+        {
+          "rel": "via",
+          "href": "https://www.fs.usda.gov/foresthealth/docs/IDS_Data_for_Download/",
+          "type": "text/html",
+          "title": "Per-region IDS File Geodatabase downloads"
+        }
+      ],
+      "assets": {
+        "ids-damage-1997-2025-parquet": {
+          "href": "https://s3-west.nrp-nautilus.io/public-usfs/ids-damage-1997-2025.parquet",
+          "type": "application/x-parquet",
+          "title": "USFS Insect and Disease Detection Survey damage polygons, 1997-2025 (national) - GeoParquet",
+          "description": "One row per damage record: 4,533,015 rows over 4,338,867 distinct mapped polygons, because a polygon carrying several damaging agents, hosts or damage types appears once for each. Use this asset for polygon geometry and for distance or buffer work.",
+          "roles": [
+            "data"
+          ],
+          "created": "2026-09-16T22:06:39Z",
+          "table:columns": [
+            {
+              "name": "_cng_fid",
+              "type": "int64",
+              "description": "Stable per-row identifier assigned during conversion, unique across the whole dataset. Use this as the row key for deduplication and for counting rows."
+            },
+            {
+              "name": "fid",
+              "type": "int64",
+              "description": "Sequential row number carried over from the source geodatabase. It repeats across the nine regional sources, so it is not unique nationally; use _cng_fid instead."
+            },
+            {
+              "name": "DAMAGE_AREA_ID",
+              "type": "string",
+              "description": "Forest Service identifier for the mapped damage polygon. It is NOT unique in this dataset: 4,338,867 distinct values over 4,533,015 rows, because one polygon can carry several damage records that differ in damaging agent, host or damage type. Use it to count distinct mapped polygons and to dedup polygon-level values; use _cng_fid to count records."
+            },
+            {
+              "name": "CREATED_DATE",
+              "type": "timestamp",
+              "description": "Date the record was created in the Forest Service database. This is a database timestamp, not the date of the survey flight; use SURVEY_YEAR for the survey year."
+            },
+            {
+              "name": "MODIFIED_DATE",
+              "type": "timestamp",
+              "description": "Date the record was last edited in the Forest Service database."
+            },
+            {
+              "name": "REGION_ID",
+              "type": "int32",
+              "description": "USDA Forest Service administrative region that recorded the survey. Values: 1=Northern, 2=Rocky Mountain, 3=Southwestern, 4=Intermountain, 5=Pacific Southwest, 6=Pacific Northwest, 8=Southern, 9=Eastern, 10=Alaska. There is no Region 7.",
+              "values": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "8",
+                "9",
+                "10"
+              ]
+            },
+            {
+              "name": "LABEL",
+              "type": "string",
+              "description": "Free-text label for the damage record, usually naming the damaging agent and host. 8,030 distinct values, not a controlled vocabulary."
+            },
+            {
+              "name": "HOST_CODE",
+              "type": "int32",
+              "description": "Numeric species code for the affected host tree. It joins to HOST on the same row, which carries the common name, so no separate lookup is needed. 230 codes are in use. 9999 means the host is known but not on the source code list. -1 is the no-data sentinel and appears on 403,950 rows; filter WHERE HOST_CODE <> -1 rather than testing for a negative value."
+            },
+            {
+              "name": "HOST",
+              "type": "string",
+              "description": "Common name of the affected host tree species. 230 distinct values across the dataset."
+            },
+            {
+              "name": "HOST_GROUP_CODE",
+              "type": "int32",
+              "description": "Numeric code for the broader host group the species belongs to. It joins to HOST_GROUP on the same row, which carries the label, so no separate lookup is needed. 139 groups are in use."
+            },
+            {
+              "name": "HOST_GROUP",
+              "type": "string",
+              "description": "Broader host grouping, such as a genus or a forest type. 139 distinct values."
+            },
+            {
+              "name": "DCA_CODE",
+              "type": "int32",
+              "description": "Numeric code for the damage-causing agent. It joins to DCA_COMMON_NAME on the same row, which carries the common name, so no separate lookup is needed. 514 agents are in use. 99999 means no data and appears on 266 rows."
+            },
+            {
+              "name": "DCA_COMMON_NAME",
+              "type": "string",
+              "description": "Common name of the damage-causing agent, such as mountain pine beetle or spruce budworm. 514 distinct agents across the dataset."
+            },
+            {
+              "name": "DAMAGE_TYPE_CODE",
+              "type": "int32",
+              "description": "Numeric code for the kind of damage observed, paired with DAMAGE_TYPE. Values: 1=Defoliation, 2=Mortality, 3=Crown Discoloration, 4=Crown Dieback, 5=Topkill, 6=Branch Breakage, 7=Main stem Broken or Uprooted, 8=Branch flagging, 9=No damage, 10=Other Damage, 11=Mortality - Previously Undocumented, 12=Defoliation < 50% of leaves defoliated, 13=Defoliation 50-75% of leaves defoliated, 14=Defoliation > 75% of leaves defoliated, 16=Mortality and Crown Dieback, 18=Other Damage (known), 19=Unknown Damage, -1=No Data. Code 0 appears on seven rows with no matching label in the source.",
+              "values": [
+                "-1",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "16",
+                "18",
+                "19"
+              ]
+            },
+            {
+              "name": "DAMAGE_TYPE",
+              "type": "string",
+              "description": "Kind of damage observed. Values: Mortality, Defoliation, Defoliation < 50% of leaves defoliated, Defoliation 50-75% of leaves defoliated, Defoliation > 75% of leaves defoliated, Crown Discoloration, Crown Dieback, Mortality and Crown Dieback, Mortality - Previously Undocumented, Topkill, Branch Breakage, Branch flagging, Main stem Broken or Uprooted, Other Damage, Other Damage (known), Unknown Damage, No damage, No Data. Mortality and the defoliation classes together cover 93 percent of rows.",
+              "values": [
+                "Mortality",
+                "Defoliation",
+                "Defoliation < 50% of leaves defoliated",
+                "Defoliation 50-75% of leaves defoliated",
+                "Defoliation > 75% of leaves defoliated",
+                "Crown Discoloration",
+                "Crown Dieback",
+                "Mortality and Crown Dieback",
+                "Mortality - Previously Undocumented",
+                "Topkill",
+                "Branch Breakage",
+                "Branch flagging",
+                "Main stem Broken or Uprooted",
+                "Other Damage",
+                "Other Damage (known)",
+                "Unknown Damage",
+                "No damage",
+                "No Data"
+              ]
+            },
+            {
+              "name": "PERCENT_AFFECTED_CODE",
+              "type": "int16",
+              "description": "Numeric code for the severity class, paired with PERCENT_AFFECTED. Values: 1=Very Light (1-3%), 2=Light (4-10%), 3=Moderate (11-29%), 4=Severe (30-50%), 5=Very Severe (>50%), -1=No Data. Code 0 appears on three rows with no matching label in the source.",
+              "values": [
+                "-1",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5"
+              ]
+            },
+            {
+              "name": "PERCENT_AFFECTED",
+              "type": "string",
+              "description": "Severity class: the share of the host within the polygon showing the damage. Values: Very Light (1-3%), Light (4-10%), Moderate (11-29%), Severe (30-50%), Very Severe (>50%), No Data. The column is null on 2,320,266 rows, mostly legacy records that predate the class.",
+              "values": [
+                "Very Light (1-3%)",
+                "Light (4-10%)",
+                "Moderate (11-29%)",
+                "Severe (30-50%)",
+                "Very Severe (>50%)",
+                "No Data"
+              ]
+            },
+            {
+              "name": "PERCENT_MIN",
+              "type": "double",
+              "description": "Lower bound of the severity class as a percentage, from 1 to 50. Null wherever PERCENT_AFFECTED is null or No Data (2,982,765 rows)."
+            },
+            {
+              "name": "PERCENT_MAX",
+              "type": "double",
+              "description": "Upper bound of the severity class as a percentage, from 3 to 100. Null on the same 2,982,765 rows as PERCENT_MIN."
+            },
+            {
+              "name": "PERCENT_MID",
+              "type": "double",
+              "description": "Midpoint of the severity class as a percentage, from 2 to 75. Null on the same 2,982,765 rows as PERCENT_MIN."
+            },
+            {
+              "name": "NOTES",
+              "type": "string",
+              "description": "Free-text note recorded with the observation."
+            },
+            {
+              "name": "OBSERVATION_COUNT",
+              "type": "string",
+              "description": "Whether the polygon carries one observation or several. Values: SINGLE=one observation, MULTIPLE=several observations. A third spelling, Single, appears on one row.",
+              "values": [
+                "SINGLE",
+                "MULTIPLE",
+                "Single"
+              ]
+            },
+            {
+              "name": "COLLECTION_MODE",
+              "type": "string",
+              "description": "How the observation was collected. Values: Aerial_Survey=sketch-mapped from an aircraft, Ground_Check=field check of an aerial observation, Ground_Survey=survey conducted on the ground, DesktopGIS=digitised in GIS, Scan_Sketch=scanned paper sketch map, plus two variant spellings, Aerial Survey and verified. Null on 3,704,643 rows, almost all legacy records.",
+              "values": [
+                "Aerial_Survey",
+                "Ground_Check",
+                "Ground_Survey",
+                "DesktopGIS",
+                "Scan_Sketch",
+                "Aerial Survey",
+                "verified"
+              ]
+            },
+            {
+              "name": "SNAPGRID_ROW",
+              "type": "int32",
+              "description": "Row index of the sketch-mapping snap grid the observation was recorded against."
+            },
+            {
+              "name": "SNAPGRID_COLUMN",
+              "type": "int32",
+              "description": "Column index of the sketch-mapping snap grid the observation was recorded against."
+            },
+            {
+              "name": "AREA_TYPE",
+              "type": "string",
+              "description": "Shape of the recorded area. Values: POLYGON=a sketched polygon boundary, GRID_240, GRID_480, GRID_960, GRID_1920=a snap-grid cell of that nominal size in metres. 97 percent of rows are POLYGON.",
+              "values": [
+                "POLYGON",
+                "GRID_240",
+                "GRID_480",
+                "GRID_960",
+                "GRID_1920"
+              ]
+            },
+            {
+              "name": "ACRES",
+              "type": "double",
+              "description": "Area of the mapped damage polygon in acres, from 0 to 10,027,317. This is the polygon's own area, repeated on each damage record for that polygon, so it is a polygon value rather than a per-record one. 85,170 rows carry exactly 0."
+            },
+            {
+              "name": "STATUS",
+              "type": "int16",
+              "description": "Record status flag from the source database. Every row in this dataset carries the single value 1, and the source publishes no definition for it."
+            },
+            {
+              "name": "SURVEY_YEAR",
+              "type": "int16",
+              "description": "Year the damage was surveyed, from 1997 to 2025 with all 29 years present. This is the temporal key for the dataset; the date columns are database timestamps."
+            },
+            {
+              "name": "LEGACY_SEVERITY_CODE",
+              "type": "int16",
+              "description": "Numeric code for the legacy defoliation severity class, paired with LEGACY_SEVERITY. Values: 1=Low (<= 50% defol.), 2=High (> 50% defol.), -1=No Data. Codes 3, 4, 7 and 11 appear on 160 rows in total with no matching label in the source.",
+              "values": [
+                "-1",
+                "1",
+                "2",
+                "3",
+                "4",
+                "7",
+                "11"
+              ]
+            },
+            {
+              "name": "LEGACY_SEVERITY",
+              "type": "string",
+              "description": "Defoliation severity as recorded in the pre-2019 system. Values: Low (<= 50% defol.), High (> 50% defol.), No Data. Null on records that never passed through that system.",
+              "values": [
+                "Low (<= 50% defol.)",
+                "High (> 50% defol.)",
+                "No Data"
+              ]
+            },
+            {
+              "name": "LEGACY_PATTERN_CODE",
+              "type": "int16",
+              "description": "Numeric code for the legacy damage-pattern class, paired with LEGACY_PATTERN. Values: 1=Host type or species >50% contiguous damage, 2=Host type or species >50% patchy damage, 3=Host type or species <50% continuous damage, 4=Host type or species <50% scattered damage, -1=No data. Code 0 appears on 686 rows and code -5 on one row, neither with a matching label in the source.",
+              "values": [
+                "-5",
+                "-1",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ]
+            },
+            {
+              "name": "LEGACY_PATTERN",
+              "type": "string",
+              "description": "Spatial pattern of the damage as recorded in the pre-2019 system. Values: Host type or species >50% - contiguous damage, Host type or species >50% - patchy damage, Host type or species <50% - continuous damage, Host type or species <50% - scattered damage, No data.",
+              "values": [
+                "Host type or species >50% - contiguous damage",
+                "Host type or species >50% - patchy damage",
+                "Host type or species <50% - continuous damage",
+                "Host type or species <50% - scattered damage",
+                "No data"
+              ]
+            },
+            {
+              "name": "LEGACY_TPA",
+              "type": "double",
+              "description": "Damaged trees per acre as recorded in the pre-2019 system, up to 29,176.93. -1 is the no-data sentinel and appears on 1,279,912 rows; filter WHERE LEGACY_TPA <> -1. A further 1,194 rows carry other negative values, which are upstream recording errors rather than a sentinel."
+            },
+            {
+              "name": "LEGACY_NO_TREES",
+              "type": "int32",
+              "description": "Count of damaged trees as recorded in the pre-2019 system, up to 13,635,984. -1 is the no-data sentinel and appears on 1,285,823 rows; filter WHERE LEGACY_NO_TREES <> -1. Twelve further rows carry other negative values, which are upstream recording errors."
+            },
+            {
+              "name": "LEGACY_FOREST_TYPE_CODE",
+              "type": "int16",
+              "description": "Numeric code for the forest type as recorded in the pre-2019 system. It joins to LEGACY_FOREST_TYPE on the same row, which carries the label, so no separate lookup is needed. 168 forest types are in use."
+            },
+            {
+              "name": "LEGACY_FOREST_TYPE",
+              "type": "string",
+              "description": "Forest type as recorded in the pre-2019 system. 168 distinct values."
+            },
+            {
+              "name": "GRP",
+              "type": "int16",
+              "description": "Sequence number of the damage record within its polygon, from 1 to 7. A polygon with several damaging agents carries one row per agent, numbered here."
+            },
+            {
+              "name": "OBSERVATION_ID",
+              "type": "string",
+              "description": "Forest Service identifier for the underlying field or flight observation."
+            },
+            {
+              "name": "IDS_DATA_SOURCE",
+              "type": "string",
+              "description": "Numeric code for the system the record came from, paired with DATA_SOURCE_NAME. Values: 87=IDS legacy features, 88=DMSM damage areas, 90=DMSM flight polygons, 91=remote sensing, 92=non-DMSM ground, 93=non-DMSM other.",
+              "values": [
+                "87",
+                "88",
+                "91",
+                "92",
+                "93"
+              ]
+            },
+            {
+              "name": "DATA_SOURCE_NAME",
+              "type": "string",
+              "description": "Name of the system the record came from. Values: IDS LEGACY FEATURES=records migrated from the pre-2019 IDS database, DMSM_DAMAGE_AREAS=damage polygons from the Digital Mobile Sketch Mapping system, DMSM_FLIGHT_POLYS=flight footprints from the same system, REMOTE_SENSING=derived from imagery rather than a sketch-mapped flight, NON_DMSM_GROUND=ground survey recorded outside that system, NON_DMSM_OTHER=other collection recorded outside that system.",
+              "values": [
+                "IDS LEGACY FEATURES",
+                "DMSM_DAMAGE_AREAS",
+                "REMOTE_SENSING",
+                "NON_DMSM_GROUND",
+                "NON_DMSM_OTHER"
+              ]
+            },
+            {
+              "name": "US_AREA",
+              "type": "string",
+              "description": "Broad geography of the recording region. Values: CONUS=conterminous United States (Regions 1 through 9), Alaska=Region 10.",
+              "values": [
+                "CONUS",
+                "Alaska"
+              ]
+            },
+            {
+              "name": "Shape_Length",
+              "type": "double",
+              "description": "Perimeter of the source polygon in metres, computed in the source projected coordinate system before reprojection to WGS 84."
+            },
+            {
+              "name": "Shape_Area",
+              "type": "double",
+              "description": "Area of the source polygon in square metres, computed in the source projected coordinate system before reprojection to WGS 84. It equals ACRES times 4,046.86 to within rounding."
+            },
+            {
+              "name": "Shape",
+              "type": "geometry",
+              "description": "Damage polygon geometry in WGS 84 (EPSG:4326). 89.5 percent of rows are MULTIPOLYGON."
+            }
+          ]
+        },
+        "ids-damage-1997-2025-pmtiles": {
+          "href": "https://s3-west.nrp-nautilus.io/public-usfs/ids-damage-1997-2025.pmtiles",
+          "type": "application/vnd.pmtiles",
+          "title": "USFS Insect and Disease Detection Survey damage polygons, 1997-2025 (national) - PMTiles",
+          "description": "Vector tiles of the damage polygons for web maps, zoom 0 to 13, layer name ids-damage-1997-2025. Attributes are carried into the tiles so they can be used for styling and filtering; SURVEY_YEAR, DAMAGE_TYPE and DCA_COMMON_NAME are the usual ones. Dense areas are coalesced and dropped at low zoom, so tiles are for display and not for counting.",
+          "roles": [
+            "visual"
+          ],
+          "created": "2026-09-21T22:52:53Z",
+          "vector:layers": [
+            "ids-damage-1997-2025"
+          ],
+          "table:columns": [
+            {
+              "name": "_cng_fid",
+              "type": "int64"
+            },
+            {
+              "name": "fid",
+              "type": "int64"
+            },
+            {
+              "name": "DAMAGE_AREA_ID",
+              "type": "string"
+            },
+            {
+              "name": "CREATED_DATE",
+              "type": "timestamp"
+            },
+            {
+              "name": "MODIFIED_DATE",
+              "type": "timestamp"
+            },
+            {
+              "name": "REGION_ID",
+              "type": "int32",
+              "values": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "8",
+                "9",
+                "10"
+              ]
+            },
+            {
+              "name": "LABEL",
+              "type": "string"
+            },
+            {
+              "name": "HOST_CODE",
+              "type": "int32"
+            },
+            {
+              "name": "HOST",
+              "type": "string"
+            },
+            {
+              "name": "HOST_GROUP_CODE",
+              "type": "int32"
+            },
+            {
+              "name": "HOST_GROUP",
+              "type": "string"
+            },
+            {
+              "name": "DCA_CODE",
+              "type": "int32"
+            },
+            {
+              "name": "DCA_COMMON_NAME",
+              "type": "string"
+            },
+            {
+              "name": "DAMAGE_TYPE_CODE",
+              "type": "int32",
+              "values": [
+                "-1",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "16",
+                "18",
+                "19"
+              ]
+            },
+            {
+              "name": "DAMAGE_TYPE",
+              "type": "string",
+              "values": [
+                "Mortality",
+                "Defoliation",
+                "Defoliation < 50% of leaves defoliated",
+                "Defoliation 50-75% of leaves defoliated",
+                "Defoliation > 75% of leaves defoliated",
+                "Crown Discoloration",
+                "Crown Dieback",
+                "Mortality and Crown Dieback",
+                "Mortality - Previously Undocumented",
+                "Topkill",
+                "Branch Breakage",
+                "Branch flagging",
+                "Main stem Broken or Uprooted",
+                "Other Damage",
+                "Other Damage (known)",
+                "Unknown Damage",
+                "No damage",
+                "No Data"
+              ]
+            },
+            {
+              "name": "PERCENT_AFFECTED_CODE",
+              "type": "int16",
+              "values": [
+                "-1",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5"
+              ]
+            },
+            {
+              "name": "PERCENT_AFFECTED",
+              "type": "string",
+              "values": [
+                "Very Light (1-3%)",
+                "Light (4-10%)",
+                "Moderate (11-29%)",
+                "Severe (30-50%)",
+                "Very Severe (>50%)",
+                "No Data"
+              ]
+            },
+            {
+              "name": "PERCENT_MIN",
+              "type": "double"
+            },
+            {
+              "name": "PERCENT_MAX",
+              "type": "double"
+            },
+            {
+              "name": "PERCENT_MID",
+              "type": "double"
+            },
+            {
+              "name": "NOTES",
+              "type": "string"
+            },
+            {
+              "name": "OBSERVATION_COUNT",
+              "type": "string",
+              "values": [
+                "SINGLE",
+                "MULTIPLE",
+                "Single"
+              ]
+            },
+            {
+              "name": "COLLECTION_MODE",
+              "type": "string",
+              "values": [
+                "Aerial_Survey",
+                "Ground_Check",
+                "Ground_Survey",
+                "DesktopGIS",
+                "Scan_Sketch",
+                "Aerial Survey",
+                "verified"
+              ]
+            },
+            {
+              "name": "SNAPGRID_ROW",
+              "type": "int32"
+            },
+            {
+              "name": "SNAPGRID_COLUMN",
+              "type": "int32"
+            },
+            {
+              "name": "AREA_TYPE",
+              "type": "string",
+              "values": [
+                "POLYGON",
+                "GRID_240",
+                "GRID_480",
+                "GRID_960",
+                "GRID_1920"
+              ]
+            },
+            {
+              "name": "ACRES",
+              "type": "double"
+            },
+            {
+              "name": "STATUS",
+              "type": "int16"
+            },
+            {
+              "name": "SURVEY_YEAR",
+              "type": "int16"
+            },
+            {
+              "name": "LEGACY_SEVERITY_CODE",
+              "type": "int16",
+              "values": [
+                "-1",
+                "1",
+                "2",
+                "3",
+                "4",
+                "7",
+                "11"
+              ]
+            },
+            {
+              "name": "LEGACY_SEVERITY",
+              "type": "string",
+              "values": [
+                "Low (<= 50% defol.)",
+                "High (> 50% defol.)",
+                "No Data"
+              ]
+            },
+            {
+              "name": "LEGACY_PATTERN_CODE",
+              "type": "int16",
+              "values": [
+                "-5",
+                "-1",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ]
+            },
+            {
+              "name": "LEGACY_PATTERN",
+              "type": "string",
+              "values": [
+                "Host type or species >50% - contiguous damage",
+                "Host type or species >50% - patchy damage",
+                "Host type or species <50% - continuous damage",
+                "Host type or species <50% - scattered damage",
+                "No data"
+              ]
+            },
+            {
+              "name": "LEGACY_TPA",
+              "type": "double"
+            },
+            {
+              "name": "LEGACY_NO_TREES",
+              "type": "int32"
+            },
+            {
+              "name": "LEGACY_FOREST_TYPE_CODE",
+              "type": "int16"
+            },
+            {
+              "name": "LEGACY_FOREST_TYPE",
+              "type": "string"
+            },
+            {
+              "name": "GRP",
+              "type": "int16"
+            },
+            {
+              "name": "OBSERVATION_ID",
+              "type": "string"
+            },
+            {
+              "name": "IDS_DATA_SOURCE",
+              "type": "string",
+              "values": [
+                "87",
+                "88",
+                "91",
+                "92",
+                "93"
+              ]
+            },
+            {
+              "name": "DATA_SOURCE_NAME",
+              "type": "string",
+              "values": [
+                "IDS LEGACY FEATURES",
+                "DMSM_DAMAGE_AREAS",
+                "REMOTE_SENSING",
+                "NON_DMSM_GROUND",
+                "NON_DMSM_OTHER"
+              ]
+            },
+            {
+              "name": "US_AREA",
+              "type": "string",
+              "values": [
+                "CONUS",
+                "Alaska"
+              ]
+            },
+            {
+              "name": "Shape_Length",
+              "type": "double"
+            },
+            {
+              "name": "Shape_Area",
+              "type": "double"
+            }
+          ]
+        },
+        "ids-damage-1997-2025-hex": {
+          "href": "https://s3-west.nrp-nautilus.io/public-usfs/ids-damage-1997-2025/hex/h0=*/data_0.parquet",
+          "type": "application/x-parquet",
+          "title": "USFS Insect and Disease Detection Survey damage polygons, 1997-2025 (national) - H3 hex parquet",
+          "description": "H3 resolution 10 cells covering each damage polygon, with resolution 9, 8 and 0 parents, carrying every attribute of the GeoParquet except the geometry. 159,415,254 rows in 8 Hive partitions. Use this asset to join damage to other datasets in this catalog on h8, or to aggregate damage by area without handling polygon geometry.\n\nOne row is one (damage record, resolution 10 cell) pair, so every per-record value is repeated on every cell that record covers: ACRES, Shape_Area, Shape_Length, LEGACY_TPA, LEGACY_NO_TREES, PERCENT_MIN, PERCENT_MAX and PERCENT_MID are all repeated this way. Dedup on _cng_fid before summing any of them, and dedup on DAMAGE_AREA_ID as well when the quantity belongs to the mapped polygon rather than the damage record. Counting distinct cells, not rows, gives damaged area.\n\n```sql\n-- correct: distinct resolution 10 cells with damage in a year\nSELECT COUNT(DISTINCT h10) FROM read_parquet('https://s3-west.nrp-nautilus.io/public-usfs/ids-damage-1997-2025/hex/h0=*/data_0.parquet', hive_partitioning=true) WHERE SURVEY_YEAR = 2025\n-- wrong: COUNT(*) counts a cell once per damage record covering it\n```",
+          "roles": [
+            "data"
+          ],
+          "created": "2026-09-18T18:45:56Z",
+          "h3:native_resolution": 10,
+          "h3:parent_resolutions": [
+            9,
+            8,
+            0
+          ],
+          "table:columns": [
+            {
+              "name": "_cng_fid",
+              "type": "int64",
+              "description": "Stable per-row identifier assigned during conversion, unique across the whole dataset. Use this as the row key for deduplication and for counting rows."
+            },
+            {
+              "name": "fid",
+              "type": "int64",
+              "description": "Sequential row number carried over from the source geodatabase. It repeats across the nine regional sources, so it is not unique nationally; use _cng_fid instead."
+            },
+            {
+              "name": "DAMAGE_AREA_ID",
+              "type": "string",
+              "description": "Forest Service identifier for the mapped damage polygon. It is NOT unique in this dataset: 4,338,867 distinct values over 4,533,015 rows, because one polygon can carry several damage records that differ in damaging agent, host or damage type. Use it to count distinct mapped polygons and to dedup polygon-level values; use _cng_fid to count records."
+            },
+            {
+              "name": "CREATED_DATE",
+              "type": "timestamp",
+              "description": "Date the record was created in the Forest Service database. This is a database timestamp, not the date of the survey flight; use SURVEY_YEAR for the survey year."
+            },
+            {
+              "name": "MODIFIED_DATE",
+              "type": "timestamp",
+              "description": "Date the record was last edited in the Forest Service database."
+            },
+            {
+              "name": "REGION_ID",
+              "type": "int32",
+              "description": "USDA Forest Service administrative region that recorded the survey. Values: 1=Northern, 2=Rocky Mountain, 3=Southwestern, 4=Intermountain, 5=Pacific Southwest, 6=Pacific Northwest, 8=Southern, 9=Eastern, 10=Alaska. There is no Region 7.",
+              "values": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "8",
+                "9",
+                "10"
+              ]
+            },
+            {
+              "name": "LABEL",
+              "type": "string",
+              "description": "Free-text label for the damage record, usually naming the damaging agent and host. 8,030 distinct values, not a controlled vocabulary."
+            },
+            {
+              "name": "HOST_CODE",
+              "type": "int32",
+              "description": "Numeric species code for the affected host tree. It joins to HOST on the same row, which carries the common name, so no separate lookup is needed. 230 codes are in use. 9999 means the host is known but not on the source code list. -1 is the no-data sentinel and appears on 403,950 rows; filter WHERE HOST_CODE <> -1 rather than testing for a negative value."
+            },
+            {
+              "name": "HOST",
+              "type": "string",
+              "description": "Common name of the affected host tree species. 230 distinct values across the dataset."
+            },
+            {
+              "name": "HOST_GROUP_CODE",
+              "type": "int32",
+              "description": "Numeric code for the broader host group the species belongs to. It joins to HOST_GROUP on the same row, which carries the label, so no separate lookup is needed. 139 groups are in use."
+            },
+            {
+              "name": "HOST_GROUP",
+              "type": "string",
+              "description": "Broader host grouping, such as a genus or a forest type. 139 distinct values."
+            },
+            {
+              "name": "DCA_CODE",
+              "type": "int32",
+              "description": "Numeric code for the damage-causing agent. It joins to DCA_COMMON_NAME on the same row, which carries the common name, so no separate lookup is needed. 514 agents are in use. 99999 means no data and appears on 266 rows."
+            },
+            {
+              "name": "DCA_COMMON_NAME",
+              "type": "string",
+              "description": "Common name of the damage-causing agent, such as mountain pine beetle or spruce budworm. 514 distinct agents across the dataset."
+            },
+            {
+              "name": "DAMAGE_TYPE_CODE",
+              "type": "int32",
+              "description": "Numeric code for the kind of damage observed, paired with DAMAGE_TYPE. Values: 1=Defoliation, 2=Mortality, 3=Crown Discoloration, 4=Crown Dieback, 5=Topkill, 6=Branch Breakage, 7=Main stem Broken or Uprooted, 8=Branch flagging, 9=No damage, 10=Other Damage, 11=Mortality - Previously Undocumented, 12=Defoliation < 50% of leaves defoliated, 13=Defoliation 50-75% of leaves defoliated, 14=Defoliation > 75% of leaves defoliated, 16=Mortality and Crown Dieback, 18=Other Damage (known), 19=Unknown Damage, -1=No Data. Code 0 appears on seven rows with no matching label in the source.",
+              "values": [
+                "-1",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "16",
+                "18",
+                "19"
+              ]
+            },
+            {
+              "name": "DAMAGE_TYPE",
+              "type": "string",
+              "description": "Kind of damage observed. Values: Mortality, Defoliation, Defoliation < 50% of leaves defoliated, Defoliation 50-75% of leaves defoliated, Defoliation > 75% of leaves defoliated, Crown Discoloration, Crown Dieback, Mortality and Crown Dieback, Mortality - Previously Undocumented, Topkill, Branch Breakage, Branch flagging, Main stem Broken or Uprooted, Other Damage, Other Damage (known), Unknown Damage, No damage, No Data. Mortality and the defoliation classes together cover 93 percent of rows.",
+              "values": [
+                "Mortality",
+                "Defoliation",
+                "Defoliation < 50% of leaves defoliated",
+                "Defoliation 50-75% of leaves defoliated",
+                "Defoliation > 75% of leaves defoliated",
+                "Crown Discoloration",
+                "Crown Dieback",
+                "Mortality and Crown Dieback",
+                "Mortality - Previously Undocumented",
+                "Topkill",
+                "Branch Breakage",
+                "Branch flagging",
+                "Main stem Broken or Uprooted",
+                "Other Damage",
+                "Other Damage (known)",
+                "Unknown Damage",
+                "No damage",
+                "No Data"
+              ]
+            },
+            {
+              "name": "PERCENT_AFFECTED_CODE",
+              "type": "int16",
+              "description": "Numeric code for the severity class, paired with PERCENT_AFFECTED. Values: 1=Very Light (1-3%), 2=Light (4-10%), 3=Moderate (11-29%), 4=Severe (30-50%), 5=Very Severe (>50%), -1=No Data. Code 0 appears on three rows with no matching label in the source.",
+              "values": [
+                "-1",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5"
+              ]
+            },
+            {
+              "name": "PERCENT_AFFECTED",
+              "type": "string",
+              "description": "Severity class: the share of the host within the polygon showing the damage. Values: Very Light (1-3%), Light (4-10%), Moderate (11-29%), Severe (30-50%), Very Severe (>50%), No Data. The column is null on 2,320,266 rows, mostly legacy records that predate the class.",
+              "values": [
+                "Very Light (1-3%)",
+                "Light (4-10%)",
+                "Moderate (11-29%)",
+                "Severe (30-50%)",
+                "Very Severe (>50%)",
+                "No Data"
+              ]
+            },
+            {
+              "name": "PERCENT_MIN",
+              "type": "double",
+              "description": "Lower bound of the severity class as a percentage, from 1 to 50. Null wherever PERCENT_AFFECTED is null or No Data (2,982,765 rows)."
+            },
+            {
+              "name": "PERCENT_MAX",
+              "type": "double",
+              "description": "Upper bound of the severity class as a percentage, from 3 to 100. Null on the same 2,982,765 rows as PERCENT_MIN."
+            },
+            {
+              "name": "PERCENT_MID",
+              "type": "double",
+              "description": "Midpoint of the severity class as a percentage, from 2 to 75. Null on the same 2,982,765 rows as PERCENT_MIN."
+            },
+            {
+              "name": "NOTES",
+              "type": "string",
+              "description": "Free-text note recorded with the observation."
+            },
+            {
+              "name": "OBSERVATION_COUNT",
+              "type": "string",
+              "description": "Whether the polygon carries one observation or several. Values: SINGLE=one observation, MULTIPLE=several observations. A third spelling, Single, appears on one row.",
+              "values": [
+                "SINGLE",
+                "MULTIPLE",
+                "Single"
+              ]
+            },
+            {
+              "name": "COLLECTION_MODE",
+              "type": "string",
+              "description": "How the observation was collected. Values: Aerial_Survey=sketch-mapped from an aircraft, Ground_Check=field check of an aerial observation, Ground_Survey=survey conducted on the ground, DesktopGIS=digitised in GIS, Scan_Sketch=scanned paper sketch map, plus two variant spellings, Aerial Survey and verified. Null on 3,704,643 rows, almost all legacy records.",
+              "values": [
+                "Aerial_Survey",
+                "Ground_Check",
+                "Ground_Survey",
+                "DesktopGIS",
+                "Scan_Sketch",
+                "Aerial Survey",
+                "verified"
+              ]
+            },
+            {
+              "name": "SNAPGRID_ROW",
+              "type": "int32",
+              "description": "Row index of the sketch-mapping snap grid the observation was recorded against."
+            },
+            {
+              "name": "SNAPGRID_COLUMN",
+              "type": "int32",
+              "description": "Column index of the sketch-mapping snap grid the observation was recorded against."
+            },
+            {
+              "name": "AREA_TYPE",
+              "type": "string",
+              "description": "Shape of the recorded area. Values: POLYGON=a sketched polygon boundary, GRID_240, GRID_480, GRID_960, GRID_1920=a snap-grid cell of that nominal size in metres. 97 percent of rows are POLYGON.",
+              "values": [
+                "POLYGON",
+                "GRID_240",
+                "GRID_480",
+                "GRID_960",
+                "GRID_1920"
+              ]
+            },
+            {
+              "name": "ACRES",
+              "type": "double",
+              "description": "Area of the mapped damage polygon in acres, from 0 to 10,027,317. This is the polygon's own area, repeated on each damage record for that polygon, so it is a polygon value rather than a per-record one. 85,170 rows carry exactly 0."
+            },
+            {
+              "name": "STATUS",
+              "type": "int16",
+              "description": "Record status flag from the source database. Every row in this dataset carries the single value 1, and the source publishes no definition for it."
+            },
+            {
+              "name": "SURVEY_YEAR",
+              "type": "int16",
+              "description": "Year the damage was surveyed, from 1997 to 2025 with all 29 years present. This is the temporal key for the dataset; the date columns are database timestamps."
+            },
+            {
+              "name": "LEGACY_SEVERITY_CODE",
+              "type": "int16",
+              "description": "Numeric code for the legacy defoliation severity class, paired with LEGACY_SEVERITY. Values: 1=Low (<= 50% defol.), 2=High (> 50% defol.), -1=No Data. Codes 3, 4, 7 and 11 appear on 160 rows in total with no matching label in the source.",
+              "values": [
+                "-1",
+                "1",
+                "2",
+                "3",
+                "4",
+                "7",
+                "11"
+              ]
+            },
+            {
+              "name": "LEGACY_SEVERITY",
+              "type": "string",
+              "description": "Defoliation severity as recorded in the pre-2019 system. Values: Low (<= 50% defol.), High (> 50% defol.), No Data. Null on records that never passed through that system.",
+              "values": [
+                "Low (<= 50% defol.)",
+                "High (> 50% defol.)",
+                "No Data"
+              ]
+            },
+            {
+              "name": "LEGACY_PATTERN_CODE",
+              "type": "int16",
+              "description": "Numeric code for the legacy damage-pattern class, paired with LEGACY_PATTERN. Values: 1=Host type or species >50% contiguous damage, 2=Host type or species >50% patchy damage, 3=Host type or species <50% continuous damage, 4=Host type or species <50% scattered damage, -1=No data. Code 0 appears on 686 rows and code -5 on one row, neither with a matching label in the source.",
+              "values": [
+                "-5",
+                "-1",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ]
+            },
+            {
+              "name": "LEGACY_PATTERN",
+              "type": "string",
+              "description": "Spatial pattern of the damage as recorded in the pre-2019 system. Values: Host type or species >50% - contiguous damage, Host type or species >50% - patchy damage, Host type or species <50% - continuous damage, Host type or species <50% - scattered damage, No data.",
+              "values": [
+                "Host type or species >50% - contiguous damage",
+                "Host type or species >50% - patchy damage",
+                "Host type or species <50% - continuous damage",
+                "Host type or species <50% - scattered damage",
+                "No data"
+              ]
+            },
+            {
+              "name": "LEGACY_TPA",
+              "type": "double",
+              "description": "Damaged trees per acre as recorded in the pre-2019 system, up to 29,176.93. -1 is the no-data sentinel and appears on 1,279,912 rows; filter WHERE LEGACY_TPA <> -1. A further 1,194 rows carry other negative values, which are upstream recording errors rather than a sentinel."
+            },
+            {
+              "name": "LEGACY_NO_TREES",
+              "type": "int32",
+              "description": "Count of damaged trees as recorded in the pre-2019 system, up to 13,635,984. -1 is the no-data sentinel and appears on 1,285,823 rows; filter WHERE LEGACY_NO_TREES <> -1. Twelve further rows carry other negative values, which are upstream recording errors."
+            },
+            {
+              "name": "LEGACY_FOREST_TYPE_CODE",
+              "type": "int16",
+              "description": "Numeric code for the forest type as recorded in the pre-2019 system. It joins to LEGACY_FOREST_TYPE on the same row, which carries the label, so no separate lookup is needed. 168 forest types are in use."
+            },
+            {
+              "name": "LEGACY_FOREST_TYPE",
+              "type": "string",
+              "description": "Forest type as recorded in the pre-2019 system. 168 distinct values."
+            },
+            {
+              "name": "GRP",
+              "type": "int16",
+              "description": "Sequence number of the damage record within its polygon, from 1 to 7. A polygon with several damaging agents carries one row per agent, numbered here."
+            },
+            {
+              "name": "OBSERVATION_ID",
+              "type": "string",
+              "description": "Forest Service identifier for the underlying field or flight observation."
+            },
+            {
+              "name": "IDS_DATA_SOURCE",
+              "type": "string",
+              "description": "Numeric code for the system the record came from, paired with DATA_SOURCE_NAME. Values: 87=IDS legacy features, 88=DMSM damage areas, 90=DMSM flight polygons, 91=remote sensing, 92=non-DMSM ground, 93=non-DMSM other.",
+              "values": [
+                "87",
+                "88",
+                "91",
+                "92",
+                "93"
+              ]
+            },
+            {
+              "name": "DATA_SOURCE_NAME",
+              "type": "string",
+              "description": "Name of the system the record came from. Values: IDS LEGACY FEATURES=records migrated from the pre-2019 IDS database, DMSM_DAMAGE_AREAS=damage polygons from the Digital Mobile Sketch Mapping system, DMSM_FLIGHT_POLYS=flight footprints from the same system, REMOTE_SENSING=derived from imagery rather than a sketch-mapped flight, NON_DMSM_GROUND=ground survey recorded outside that system, NON_DMSM_OTHER=other collection recorded outside that system.",
+              "values": [
+                "IDS LEGACY FEATURES",
+                "DMSM_DAMAGE_AREAS",
+                "REMOTE_SENSING",
+                "NON_DMSM_GROUND",
+                "NON_DMSM_OTHER"
+              ]
+            },
+            {
+              "name": "US_AREA",
+              "type": "string",
+              "description": "Broad geography of the recording region. Values: CONUS=conterminous United States (Regions 1 through 9), Alaska=Region 10.",
+              "values": [
+                "CONUS",
+                "Alaska"
+              ]
+            },
+            {
+              "name": "Shape_Length",
+              "type": "double",
+              "description": "Perimeter of the source polygon in metres, computed in the source projected coordinate system before reprojection to WGS 84."
+            },
+            {
+              "name": "Shape_Area",
+              "type": "double",
+              "description": "Area of the source polygon in square metres, computed in the source projected coordinate system before reprojection to WGS 84. It equals ACRES times 4,046.86 to within rounding."
+            },
+            {
+              "name": "h10",
+              "type": "uint64",
+              "description": "H3 cell identifier at resolution 10, the native resolution of this hex build (average cell area about 15,000 square metres)."
+            },
+            {
+              "name": "h9",
+              "type": "uint64",
+              "description": "H3 cell identifier at resolution 9, the resolution 9 parent of the native cell."
+            },
+            {
+              "name": "h8",
+              "type": "uint64",
+              "description": "H3 cell identifier at resolution 8, the resolution 8 parent of the native cell and the catalog's standard join key across datasets."
+            },
+            {
+              "name": "h0",
+              "type": "uint64",
+              "description": "H3 cell identifier at resolution 0, used as the Hive partition key for partitioned reads."
+            }
+          ]
+        }
+      }
+    }
+  ids-survey-extent-1999-2025.json: |
+    {
+      "stac_version": "1.0.0",
+      "type": "Collection",
+      "id": "ids-survey-extent-1999-2025",
+      "title": "USFS Insect and Disease Detection Survey annual survey extent, 1999-2025 (national)",
+      "description": "Annual footprints of the area actually flown by the USDA Forest Service Insect and Disease Detection Survey, covering the whole United States including Alaska. There are 73,730 polygons, one per surveyed area per year, with the flight dates, the surveying agency and the survey mode.\n\n**This is the denominator layer for the damage polygons** published beside it in this catalog as ids-damage-1997-2025. Detection survey coverage is not spatially random: flights follow established routes over accessible, road-adjacent forest, so remote and roadless terrain is systematically under-flown. A damage rate must be computed as damage divided by the area surveyed in the same year, never as damage divided by total land area or by forest area.\n\n**Substantive coverage runs from 1999 to 2025, but the file also holds three rows from earlier.** 1996, 1997 and 1998 carry exactly one row each, all in Region 6, against 1,258 rows across all nine regions in 1999. Those three rows are placeholders rather than surveyed years, which is why the dataset is named for 1999 to 2025 while its temporal extent is stated as 1996 to 2025: the extent describes what the file contains, and the name describes when the survey record becomes usable. Filter to SURVEY_YEAR >= 1999 for any coverage analysis.\n\n**Damage years 1997 and 1998 have no usable survey extent.** Damage was recorded in all nine regions in both years, so those years support damage counts and acreages but not damage rates.\n\n**One surveyed area can be stored as several polygon rows.** SURVEYED_AREA_ID has 57,575 distinct values over 73,730 rows and is blank on 1,157 of them, so it is not a row key; _cng_fid is. Surveyed area is best measured from the H3 footprint of the hex asset rather than by summing a per-row area column.\n\n**Provenance.** Built from the nine per-region File Geodatabases published by Forest Health Protection, which together are the national set (there is no single national download). The archives were staged to `s3://public-usfs/raw/ids/` on 2026-09-16, totalling 1,743,267,480 bytes, each carrying an upstream Last-Modified of 2026-04-22 and a sha256 recomputed from the stored object; the per-file byte counts, checksums and access date are in `s3://public-usfs/raw/ids/source-manifest.tsv`. Forest Health Protection publishes no edition or version label for this product, so none is claimed here: the access date and those checksums identify the edition used.",
+      "license": "public-domain",
+      "stac_extensions": [
+        "https://stac-extensions.github.io/table/v1.2.0/schema.json",
+        "https://stac-extensions.github.io/scientific/v1.0.0/schema.json"
+      ],
+      "sci:citation": "USDA Forest Service, Forest Health Protection. Insect and Disease Detection Survey (IDS), national per-region File Geodatabases. Accessed 2026-09-16 from https://www.fs.usda.gov/foresthealth/docs/IDS_Data_for_Download/. Upstream publishes no edition label; the staged copies and their sha256 checksums in s3://public-usfs/raw/ids/source-manifest.tsv identify the edition used.",
+      "created": "2026-09-16T21:59:05Z",
+      "updated": "2026-09-22T02:34:28Z",
+      "extent": {
+        "spatial": {
+          "bbox": [
+            [
+              -166.27,
+              26.32,
+              -66.88,
+              68.75
+            ]
+          ]
+        },
+        "temporal": {
+          "interval": [
+            [
+              "1996-01-01T00:00:00Z",
+              "2025-12-31T23:59:59Z"
+            ]
+          ]
+        }
+      },
+      "providers": [
+        {
+          "name": "USDA Forest Service, Forest Health Protection",
+          "roles": [
+            "producer",
+            "licensor"
+          ],
+          "url": "https://www.fs.usda.gov/science-technology/data-tools-products/fhp-mapping-reporting/detection-surveys"
+        },
+        {
+          "name": "Boettiger Lab / cirrus",
+          "roles": [
+            "processor",
+            "host"
+          ],
+          "url": "https://s3-west.nrp-nautilus.io/public-usfs/"
+        }
+      ],
+      "links": [
+        {
+          "rel": "self",
+          "href": "https://s3-west.nrp-nautilus.io/public-usfs/ids-survey-extent-1999-2025/stac-collection.json",
+          "type": "application/json"
+        },
+        {
+          "rel": "root",
+          "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json",
+          "type": "application/json"
+        },
+        {
+          "rel": "parent",
+          "href": "https://s3-west.nrp-nautilus.io/public-usfs/stac-collection.json",
+          "type": "application/json"
+        },
+        {
+          "rel": "license",
+          "href": "https://www.usa.gov/government-works",
+          "type": "text/html",
+          "title": "US Government work - public domain"
+        },
+        {
+          "rel": "about",
+          "href": "https://www.fs.usda.gov/science-technology/data-tools-products/fhp-mapping-reporting/detection-surveys",
+          "type": "text/html",
+          "title": "Forest Health Protection detection surveys (landing page)"
+        },
+        {
+          "rel": "via",
+          "href": "https://www.fs.usda.gov/foresthealth/docs/IDS_Data_for_Download/",
+          "type": "text/html",
+          "title": "Per-region IDS File Geodatabase downloads"
+        }
+      ],
+      "assets": {
+        "ids-survey-extent-1999-2025-parquet": {
+          "href": "https://s3-west.nrp-nautilus.io/public-usfs/ids-survey-extent-1999-2025.parquet",
+          "type": "application/x-parquet",
+          "title": "USFS Insect and Disease Detection Survey annual survey extent, 1999-2025 (national) - GeoParquet",
+          "description": "One row per surveyed-area polygon per year: 73,730 rows. Use this asset for footprint geometry and for distance or buffer work.",
+          "roles": [
+            "data"
+          ],
+          "created": "2026-09-16T21:59:05Z",
+          "table:columns": [
+            {
+              "name": "_cng_fid",
+              "type": "int64",
+              "description": "Stable per-row identifier assigned during conversion, unique across the whole dataset. Use this as the row key for deduplication and for counting rows."
+            },
+            {
+              "name": "fid",
+              "type": "int64",
+              "description": "Sequential row number carried over from the source geodatabase. It repeats across the nine regional sources, so it is not unique nationally; use _cng_fid instead."
+            },
+            {
+              "name": "SURVEYED_AREA_ID",
+              "type": "string",
+              "description": "Forest Service identifier for the surveyed area. It is NOT unique in this dataset: 57,575 distinct values over 73,730 rows, because one surveyed area can be stored as several polygon rows, and 1,157 rows carry no value at all. Use _cng_fid as the row key."
+            },
+            {
+              "name": "REGION_ID",
+              "type": "int32",
+              "description": "USDA Forest Service administrative region that recorded the survey. Values: 1=Northern, 2=Rocky Mountain, 3=Southwestern, 4=Intermountain, 5=Pacific Southwest, 6=Pacific Northwest, 8=Southern, 9=Eastern, 10=Alaska. There is no Region 7.",
+              "values": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "8",
+                "9",
+                "10"
+              ]
+            },
+            {
+              "name": "SURVEY_YEAR",
+              "type": "int16",
+              "description": "Year the area was flown, from 1996 to 2025. Substantive coverage runs 1999 to 2025; 1996, 1997 and 1998 carry one row each, all in Region 6, and are placeholders rather than surveyed years. This is the temporal key for the dataset."
+            },
+            {
+              "name": "START_DATE",
+              "type": "timestamp",
+              "description": "Date the survey flight or flight series began. 3,187 rows have no value, 38 fall before 1990 and 149 rows carry an END_DATE earlier than their START_DATE, all upstream recording errors; use SURVEY_YEAR for temporal filtering."
+            },
+            {
+              "name": "END_DATE",
+              "type": "timestamp",
+              "description": "Date the survey flight or flight series ended. 3,413 rows have no value and 17 fall after 2026, which are upstream recording errors; use SURVEY_YEAR for temporal filtering."
+            },
+            {
+              "name": "DATE_CALC_DAY",
+              "type": "timestamp",
+              "description": "Date derived by the Forest Service from the start and end dates for reporting."
+            },
+            {
+              "name": "BUFF_DIST",
+              "type": "double",
+              "description": "Buffer distance in metres applied to a flight line to form the surveyed footprint, from 0 to 3,218.7. Null on 61,495 rows, where the footprint was mapped directly rather than buffered."
+            },
+            {
+              "name": "LEGACY_SURVEY_ID",
+              "type": "string",
+              "description": "Survey identifier carried over from the pre-2019 system. 537 distinct values."
+            },
+            {
+              "name": "LEGACY_AGENCY_CODE",
+              "type": "string",
+              "description": "Identifier for the agency that flew the survey. It joins to LEGACY_AGENCY on the same row, which carries the agency name, so no separate lookup is needed. 95 identifiers are in use against 61 distinct agency names."
+            },
+            {
+              "name": "LEGACY_AGENCY",
+              "type": "string",
+              "description": "Agency that flew the survey, as recorded in the pre-2019 system. 61 distinct agencies, led by the USDA Forest Service and followed by state forestry agencies."
+            },
+            {
+              "name": "LEGACY_FLT_DAYS",
+              "type": "int16",
+              "description": "Number of flight days covered by the record, up to 155. -1 is the no-data sentinel and appears on 4,602 rows; filter WHERE LEGACY_FLT_DAYS <> -1."
+            },
+            {
+              "name": "LEGACY_PURPOSE",
+              "type": "string",
+              "description": "Free-text purpose of the flight, such as an overview or a detection survey. 304 distinct values with inconsistent capitalisation, so it is not a controlled vocabulary."
+            },
+            {
+              "name": "LEGACY_FLT_NOTES",
+              "type": "string",
+              "description": "Free-text note recorded with the flight."
+            },
+            {
+              "name": "LEGACY_FLT_GROUP",
+              "type": "int16",
+              "description": "Grouping number used to tie several flight records together in the pre-2019 system, from 1 to 5. Null on 13,730 rows."
+            },
+            {
+              "name": "LEGACY_NO_ATTRIB",
+              "type": "int16",
+              "description": "Number from the pre-2019 system marking a footprint recorded without damage attributes, from 1 to 6. Null on 13,730 rows."
+            },
+            {
+              "name": "REV_DATE",
+              "type": "timestamp",
+              "description": "Date the record was last revised in the Forest Service database."
+            },
+            {
+              "name": "IDS_DATA_SOURCE",
+              "type": "string",
+              "description": "Numeric code for the system the record came from, paired with DATA_SOURCE_NAME. Values: 87=IDS legacy features, 88=DMSM damage areas, 90=DMSM flight polygons, 91=remote sensing, 92=non-DMSM ground, 93=non-DMSM other.",
+              "values": [
+                "87",
+                "90",
+                "91",
+                "92",
+                "93"
+              ]
+            },
+            {
+              "name": "DATA_SOURCE_NAME",
+              "type": "string",
+              "description": "Name of the system the record came from. Values: IDS LEGACY FEATURES=records migrated from the pre-2019 IDS database, DMSM_DAMAGE_AREAS=damage polygons from the Digital Mobile Sketch Mapping system, DMSM_FLIGHT_POLYS=flight footprints from the same system, REMOTE_SENSING=derived from imagery rather than a sketch-mapped flight, NON_DMSM_GROUND=ground survey recorded outside that system, NON_DMSM_OTHER=other collection recorded outside that system.",
+              "values": [
+                "IDS LEGACY FEATURES",
+                "DMSM_FLIGHT_POLYS",
+                "REMOTE_SENSING",
+                "NON_DMSM_GROUND",
+                "NON_DMSM_OTHER"
+              ]
+            },
+            {
+              "name": "US_AREA",
+              "type": "string",
+              "description": "Broad geography of the recording region. Values: CONUS=conterminous United States (Regions 1 through 9), Alaska=Region 10.",
+              "values": [
+                "CONUS",
+                "Alaska"
+              ]
+            },
+            {
+              "name": "DMSM_STATUS",
+              "type": "int16",
+              "description": "Numeric code for the survey mode, paired with STATUS_SURVEY_MODE. Values: 0=Aerial_Survey, 1=Ground_Check, 2=Ground_Survey. Null on 64,557 rows, which are legacy records.",
+              "values": [
+                "0",
+                "1",
+                "2"
+              ]
+            },
+            {
+              "name": "STATUS_SURVEY_MODE",
+              "type": "string",
+              "description": "How the area was surveyed. Values: Aerial_Survey=flown and sketch-mapped from an aircraft, Ground_Check=field check, Ground_Survey=survey conducted on the ground. Null on 64,557 rows, which are legacy records.",
+              "values": [
+                "Aerial_Survey",
+                "Ground_Check",
+                "Ground_Survey"
+              ]
+            },
+            {
+              "name": "Shape_Length",
+              "type": "double",
+              "description": "Perimeter of the source polygon in metres, computed in the source projected coordinate system before reprojection to WGS 84."
+            },
+            {
+              "name": "Shape_Area",
+              "type": "double",
+              "description": "Area of the source polygon in square metres, computed in the source projected coordinate system before reprojection to WGS 84."
+            },
+            {
+              "name": "Shape",
+              "type": "geometry",
+              "description": "Surveyed-area polygon geometry in WGS 84 (EPSG:4326). 99.05 percent of rows are MULTIPOLYGON."
+            }
+          ]
+        },
+        "ids-survey-extent-1999-2025-pmtiles": {
+          "href": "https://s3-west.nrp-nautilus.io/public-usfs/ids-survey-extent-1999-2025.pmtiles",
+          "type": "application/vnd.pmtiles",
+          "title": "USFS Insect and Disease Detection Survey annual survey extent, 1999-2025 (national) - PMTiles",
+          "description": "Vector tiles of the annual survey footprints for web maps, zoom 0 to 13, layer name ids-survey-extent-1999-2025. Attributes are carried into the tiles so they can be used for styling and filtering; SURVEY_YEAR is the usual one. Dense areas are coalesced and dropped at low zoom, so tiles are for display and not for counting.",
+          "roles": [
+            "visual"
+          ],
+          "created": "2026-09-16T22:50:28Z",
+          "vector:layers": [
+            "ids-survey-extent-1999-2025"
+          ],
+          "table:columns": [
+            {
+              "name": "_cng_fid",
+              "type": "int64"
+            },
+            {
+              "name": "fid",
+              "type": "int64"
+            },
+            {
+              "name": "SURVEYED_AREA_ID",
+              "type": "string"
+            },
+            {
+              "name": "REGION_ID",
+              "type": "int32",
+              "values": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "8",
+                "9",
+                "10"
+              ]
+            },
+            {
+              "name": "SURVEY_YEAR",
+              "type": "int16"
+            },
+            {
+              "name": "START_DATE",
+              "type": "timestamp"
+            },
+            {
+              "name": "END_DATE",
+              "type": "timestamp"
+            },
+            {
+              "name": "DATE_CALC_DAY",
+              "type": "timestamp"
+            },
+            {
+              "name": "BUFF_DIST",
+              "type": "double"
+            },
+            {
+              "name": "LEGACY_SURVEY_ID",
+              "type": "string"
+            },
+            {
+              "name": "LEGACY_AGENCY_CODE",
+              "type": "string"
+            },
+            {
+              "name": "LEGACY_AGENCY",
+              "type": "string"
+            },
+            {
+              "name": "LEGACY_FLT_DAYS",
+              "type": "int16"
+            },
+            {
+              "name": "LEGACY_PURPOSE",
+              "type": "string"
+            },
+            {
+              "name": "LEGACY_FLT_NOTES",
+              "type": "string"
+            },
+            {
+              "name": "LEGACY_FLT_GROUP",
+              "type": "int16"
+            },
+            {
+              "name": "LEGACY_NO_ATTRIB",
+              "type": "int16"
+            },
+            {
+              "name": "REV_DATE",
+              "type": "timestamp"
+            },
+            {
+              "name": "IDS_DATA_SOURCE",
+              "type": "string",
+              "values": [
+                "87",
+                "90",
+                "91",
+                "92",
+                "93"
+              ]
+            },
+            {
+              "name": "DATA_SOURCE_NAME",
+              "type": "string",
+              "values": [
+                "IDS LEGACY FEATURES",
+                "DMSM_FLIGHT_POLYS",
+                "REMOTE_SENSING",
+                "NON_DMSM_GROUND",
+                "NON_DMSM_OTHER"
+              ]
+            },
+            {
+              "name": "US_AREA",
+              "type": "string",
+              "values": [
+                "CONUS",
+                "Alaska"
+              ]
+            },
+            {
+              "name": "DMSM_STATUS",
+              "type": "int16",
+              "values": [
+                "0",
+                "1",
+                "2"
+              ]
+            },
+            {
+              "name": "STATUS_SURVEY_MODE",
+              "type": "string",
+              "values": [
+                "Aerial_Survey",
+                "Ground_Check",
+                "Ground_Survey"
+              ]
+            },
+            {
+              "name": "Shape_Length",
+              "type": "double"
+            },
+            {
+              "name": "Shape_Area",
+              "type": "double"
+            }
+          ]
+        },
+        "ids-survey-extent-1999-2025-hex": {
+          "href": "https://s3-west.nrp-nautilus.io/public-usfs/ids-survey-extent-1999-2025/hex/h0=*/data_0.parquet",
+          "type": "application/x-parquet",
+          "title": "USFS Insect and Disease Detection Survey annual survey extent, 1999-2025 (national) - H3 hex parquet",
+          "description": "H3 resolution 10 cells covering each surveyed-area polygon, with resolution 9, 8 and 0 parents, carrying every attribute of the GeoParquet except the geometry. This asset is large, 6,230,445,420 rows in 8 Hive partitions, because a single flight footprint can cover a whole region at resolution 10; filter on SURVEY_YEAR, and on h0 where the question is regional, before aggregating. This is the asset to use as the denominator for a damage rate: join it to the damage hex on h8 or h10 within the same SURVEY_YEAR.\n\nOne row is one (surveyed-area polygon, resolution 10 cell) pair, so BUFF_DIST, Shape_Area, Shape_Length and LEGACY_FLT_DAYS are repeated on every cell the polygon covers. Dedup on _cng_fid before summing any of them. Surveyed area for a year is the count of distinct cells, not the count of rows, because overlapping flight footprints in the same year cover many cells more than once.\n\n```sql\n-- correct: distinct resolution 10 cells flown in a year\nSELECT COUNT(DISTINCT h10) FROM read_parquet('https://s3-west.nrp-nautilus.io/public-usfs/ids-survey-extent-1999-2025/hex/h0=*/data_0.parquet', hive_partitioning=true) WHERE SURVEY_YEAR = 2025\n-- wrong: COUNT(*) counts a cell once per overlapping flight footprint\n```",
+          "roles": [
+            "data"
+          ],
+          "created": "2026-09-22T02:34:28Z",
+          "h3:native_resolution": 10,
+          "h3:parent_resolutions": [
+            9,
+            8,
+            0
+          ],
+          "table:columns": [
+            {
+              "name": "_cng_fid",
+              "type": "int64",
+              "description": "Stable per-row identifier assigned during conversion, unique across the whole dataset. Use this as the row key for deduplication and for counting rows."
+            },
+            {
+              "name": "fid",
+              "type": "int64",
+              "description": "Sequential row number carried over from the source geodatabase. It repeats across the nine regional sources, so it is not unique nationally; use _cng_fid instead."
+            },
+            {
+              "name": "SURVEYED_AREA_ID",
+              "type": "string",
+              "description": "Forest Service identifier for the surveyed area. It is NOT unique in this dataset: 57,575 distinct values over 73,730 rows, because one surveyed area can be stored as several polygon rows, and 1,157 rows carry no value at all. Use _cng_fid as the row key."
+            },
+            {
+              "name": "REGION_ID",
+              "type": "int32",
+              "description": "USDA Forest Service administrative region that recorded the survey. Values: 1=Northern, 2=Rocky Mountain, 3=Southwestern, 4=Intermountain, 5=Pacific Southwest, 6=Pacific Northwest, 8=Southern, 9=Eastern, 10=Alaska. There is no Region 7.",
+              "values": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "8",
+                "9",
+                "10"
+              ]
+            },
+            {
+              "name": "SURVEY_YEAR",
+              "type": "int16",
+              "description": "Year the area was flown, from 1996 to 2025. Substantive coverage runs 1999 to 2025; 1996, 1997 and 1998 carry one row each, all in Region 6, and are placeholders rather than surveyed years. This is the temporal key for the dataset."
+            },
+            {
+              "name": "START_DATE",
+              "type": "timestamp",
+              "description": "Date the survey flight or flight series began. 3,187 rows have no value, 38 fall before 1990 and 149 rows carry an END_DATE earlier than their START_DATE, all upstream recording errors; use SURVEY_YEAR for temporal filtering."
+            },
+            {
+              "name": "END_DATE",
+              "type": "timestamp",
+              "description": "Date the survey flight or flight series ended. 3,413 rows have no value and 17 fall after 2026, which are upstream recording errors; use SURVEY_YEAR for temporal filtering."
+            },
+            {
+              "name": "DATE_CALC_DAY",
+              "type": "timestamp",
+              "description": "Date derived by the Forest Service from the start and end dates for reporting."
+            },
+            {
+              "name": "BUFF_DIST",
+              "type": "double",
+              "description": "Buffer distance in metres applied to a flight line to form the surveyed footprint, from 0 to 3,218.7. Null on 61,495 rows, where the footprint was mapped directly rather than buffered."
+            },
+            {
+              "name": "LEGACY_SURVEY_ID",
+              "type": "string",
+              "description": "Survey identifier carried over from the pre-2019 system. 537 distinct values."
+            },
+            {
+              "name": "LEGACY_AGENCY_CODE",
+              "type": "string",
+              "description": "Identifier for the agency that flew the survey. It joins to LEGACY_AGENCY on the same row, which carries the agency name, so no separate lookup is needed. 95 identifiers are in use against 61 distinct agency names."
+            },
+            {
+              "name": "LEGACY_AGENCY",
+              "type": "string",
+              "description": "Agency that flew the survey, as recorded in the pre-2019 system. 61 distinct agencies, led by the USDA Forest Service and followed by state forestry agencies."
+            },
+            {
+              "name": "LEGACY_FLT_DAYS",
+              "type": "int16",
+              "description": "Number of flight days covered by the record, up to 155. -1 is the no-data sentinel and appears on 4,602 rows; filter WHERE LEGACY_FLT_DAYS <> -1."
+            },
+            {
+              "name": "LEGACY_PURPOSE",
+              "type": "string",
+              "description": "Free-text purpose of the flight, such as an overview or a detection survey. 304 distinct values with inconsistent capitalisation, so it is not a controlled vocabulary."
+            },
+            {
+              "name": "LEGACY_FLT_NOTES",
+              "type": "string",
+              "description": "Free-text note recorded with the flight."
+            },
+            {
+              "name": "LEGACY_FLT_GROUP",
+              "type": "int16",
+              "description": "Grouping number used to tie several flight records together in the pre-2019 system, from 1 to 5. Null on 13,730 rows."
+            },
+            {
+              "name": "LEGACY_NO_ATTRIB",
+              "type": "int16",
+              "description": "Number from the pre-2019 system marking a footprint recorded without damage attributes, from 1 to 6. Null on 13,730 rows."
+            },
+            {
+              "name": "REV_DATE",
+              "type": "timestamp",
+              "description": "Date the record was last revised in the Forest Service database."
+            },
+            {
+              "name": "IDS_DATA_SOURCE",
+              "type": "string",
+              "description": "Numeric code for the system the record came from, paired with DATA_SOURCE_NAME. Values: 87=IDS legacy features, 88=DMSM damage areas, 90=DMSM flight polygons, 91=remote sensing, 92=non-DMSM ground, 93=non-DMSM other.",
+              "values": [
+                "87",
+                "90",
+                "91",
+                "92",
+                "93"
+              ]
+            },
+            {
+              "name": "DATA_SOURCE_NAME",
+              "type": "string",
+              "description": "Name of the system the record came from. Values: IDS LEGACY FEATURES=records migrated from the pre-2019 IDS database, DMSM_DAMAGE_AREAS=damage polygons from the Digital Mobile Sketch Mapping system, DMSM_FLIGHT_POLYS=flight footprints from the same system, REMOTE_SENSING=derived from imagery rather than a sketch-mapped flight, NON_DMSM_GROUND=ground survey recorded outside that system, NON_DMSM_OTHER=other collection recorded outside that system.",
+              "values": [
+                "IDS LEGACY FEATURES",
+                "DMSM_FLIGHT_POLYS",
+                "REMOTE_SENSING",
+                "NON_DMSM_GROUND",
+                "NON_DMSM_OTHER"
+              ]
+            },
+            {
+              "name": "US_AREA",
+              "type": "string",
+              "description": "Broad geography of the recording region. Values: CONUS=conterminous United States (Regions 1 through 9), Alaska=Region 10.",
+              "values": [
+                "CONUS",
+                "Alaska"
+              ]
+            },
+            {
+              "name": "DMSM_STATUS",
+              "type": "int16",
+              "description": "Numeric code for the survey mode, paired with STATUS_SURVEY_MODE. Values: 0=Aerial_Survey, 1=Ground_Check, 2=Ground_Survey. Null on 64,557 rows, which are legacy records.",
+              "values": [
+                "0",
+                "1",
+                "2"
+              ]
+            },
+            {
+              "name": "STATUS_SURVEY_MODE",
+              "type": "string",
+              "description": "How the area was surveyed. Values: Aerial_Survey=flown and sketch-mapped from an aircraft, Ground_Check=field check, Ground_Survey=survey conducted on the ground. Null on 64,557 rows, which are legacy records.",
+              "values": [
+                "Aerial_Survey",
+                "Ground_Check",
+                "Ground_Survey"
+              ]
+            },
+            {
+              "name": "Shape_Length",
+              "type": "double",
+              "description": "Perimeter of the source polygon in metres, computed in the source projected coordinate system before reprojection to WGS 84."
+            },
+            {
+              "name": "Shape_Area",
+              "type": "double",
+              "description": "Area of the source polygon in square metres, computed in the source projected coordinate system before reprojection to WGS 84."
+            },
+            {
+              "name": "h10",
+              "type": "uint64",
+              "description": "H3 cell identifier at resolution 10, the native resolution of this hex build (average cell area about 15,000 square metres)."
+            },
+            {
+              "name": "h9",
+              "type": "uint64",
+              "description": "H3 cell identifier at resolution 9, the resolution 9 parent of the native cell."
+            },
+            {
+              "name": "h8",
+              "type": "uint64",
+              "description": "H3 cell identifier at resolution 8, the resolution 8 parent of the native cell and the catalog's standard join key across datasets."
+            },
+            {
+              "name": "h0",
+              "type": "uint64",
+              "description": "H3 cell identifier at resolution 0, used as the Hive partition key for partitioned reads."
+            }
+          ]
+        }
+      }
+    }
+  README-section.md: |
+    ## Insect and disease damage: always divide by the area surveyed
+
+    `ids-damage-1997-2025` holds 4,533,015 damage records mapped by the Forest Service Insect and
+    Disease Detection Survey, nationally including Alaska. Observers sketch-map from aircraft along
+    established routes, so **ground with no damage polygon may simply never have been flown.** Coverage
+    concentrates on accessible, road-adjacent forest and systematically under-flies remote and roadless
+    terrain, which is why the flight footprints ship as their own dataset,
+    `ids-survey-extent-1999-2025`. A damage rate is damage divided by the area surveyed in the same
+    year, never by total land area or by forest area.
+
+    Two further traps, both measured on the published data:
+
+    - **One row is one damage record, not one polygon.** A polygon carrying several damaging agents,
+      hosts or damage types appears once for each, with the polygon's own `ACRES` copied onto every one
+      of those rows. Summing `ACRES` over raw rows overstates the mapped area by 1.22x nationally
+      (592,366,197 raw against 485,691,775 deduped).
+    - **Damage polygons overlap across years by design**, because the same stand is re-recorded in each
+      year it shows damage. Totals belong inside a survey year.
+
+    1997 and 1998 damage has no published survey extent, so those two years support damage counts and
+    acreages but not damage rates.
+
+    ```sql
+    -- damaged acres per survey year, counting each mapped polygon once
+    SELECT SURVEY_YEAR, SUM(ACRES) AS acres
+    FROM (SELECT DISTINCT DAMAGE_AREA_ID, SURVEY_YEAR, ACRES
+          FROM read_parquet('https://s3-west.nrp-nautilus.io/public-usfs/ids-damage-1997-2025.parquet'))
+    GROUP BY SURVEY_YEAR ORDER BY SURVEY_YEAR;
+
+    -- share of the flown area showing damage in 2025, on the shared resolution 8 join key
+    WITH flown AS (
+      SELECT DISTINCT h8 FROM read_parquet(
+        'https://s3-west.nrp-nautilus.io/public-usfs/ids-survey-extent-1999-2025/hex/h0=*/data_0.parquet',
+        hive_partitioning=true) WHERE SURVEY_YEAR = 2025),
+    damaged AS (
+      SELECT DISTINCT h8 FROM read_parquet(
+        'https://s3-west.nrp-nautilus.io/public-usfs/ids-damage-1997-2025/hex/h0=*/data_0.parquet',
+        hive_partitioning=true) WHERE SURVEY_YEAR = 2025)
+    SELECT (SELECT COUNT(*) FROM damaged SEMI JOIN flown USING (h8))::DOUBLE
+         / (SELECT COUNT(*) FROM flown) AS damaged_share_of_flown;
+    ```
+
+    In MapLibre the `source-layer` for these two is the dataset name as well:
+    `ids-damage-1997-2025` and `ids-survey-extent-1999-2025`.
+
+  publish.py: |
+    """Publish the two IDS STAC collections, register them in the public-usfs sub-catalog,
+    and add them to the bucket README. Idempotent: re-running changes nothing."""
+    import json, os, shutil, subprocess, sys
+
+    BUCKET = "nrp:public-usfs"
+    BASE = "https://s3-west.nrp-nautilus.io/public-usfs"
+    COLLECTIONS = ["ids-damage-1997-2025", "ids-survey-extent-1999-2025"]
+    TITLES = {
+        "ids-damage-1997-2025":
+            "USFS Insect and Disease Detection Survey damage polygons, 1997-2025 (national)",
+        "ids-survey-extent-1999-2025":
+            "USFS Insect and Disease Detection Survey annual survey extent, 1999-2025 (national)",
+    }
+
+
+    def pull(remote, local):
+        subprocess.run(["rclone", "copyto", f"{BUCKET}/{remote}", local], check=True)
+
+
+    def push(local, remote):
+        # A ConfigMap mount is a symlink into ..data/, which rclone will not read
+        # ("readdirent ...: not a directory"), so stage a real file first.
+        if local.startswith("/config/"):
+            staged = os.path.join("/tmp", os.path.basename(local))
+            shutil.copyfile(local, staged)
+            local = staged
+        subprocess.run(["rclone", "copyto", local, f"{BUCKET}/{remote}"], check=True)
+        print(f"  published {remote}", flush=True)
+
+
+    # 1. the two collections
+    for cid in COLLECTIONS:
+        push(f"/config/{cid}.json", f"{cid}/stac-collection.json")
+
+    # 2. register both as children of the bucket sub-catalog
+    pull("stac-collection.json", "/tmp/parent.json")
+    parent = json.load(open("/tmp/parent.json"))
+    have = {l.get("href") for l in parent["links"]}
+    added = 0
+    for cid in COLLECTIONS:
+        href = f"{BASE}/{cid}/stac-collection.json"
+        if href in have:
+            continue
+        parent["links"].append({"rel": "child", "id": cid, "href": href,
+                                "type": "application/json", "title": TITLES[cid]})
+        added += 1
+    if added:
+        json.dump(parent, open("/tmp/parent.json", "w"), indent=2, ensure_ascii=False)
+        push("/tmp/parent.json", "stac-collection.json")
+        print(f"  registered {added} child link(s)", flush=True)
+    else:
+        print("  child links already registered, nothing to do", flush=True)
+
+    # 3. bucket README
+    pull("README.md", "/tmp/README.md")
+    b = open("/tmp/README.md").read()
+    if "ids-damage-1997-2025" in b:
+        print("  README already covers IDS, nothing to do", flush=True)
+    else:
+        # rstrip/re-add so a YAML block scalar chomping the trailing blank line cannot
+        # run the section straight into the following heading.
+        new_readme = open("/config/README-section.md").read().rstrip("\n") + "\n\n"
+        old_row = "| `ranger-district` | Ranger district boundaries | 237,098,674 |\n"
+        rows = old_row + (
+            "| `ids-damage-1997-2025` | Insect and disease damage polygons mapped from the air "
+            "| per year, see below |\n"
+            "| `ids-survey-extent-1999-2025` | Area actually flown each year, the denominator for "
+            "damage | per year, see below |\n")
+        if old_row not in b:
+            sys.exit("README layout changed: the ranger-district row is gone, refusing to guess")
+        b = b.replace(old_row, rows, 1)
+        anchor = "## Query with DuckDB"
+        if anchor not in b:
+            sys.exit("README layout changed: no '## Query with DuckDB' heading, refusing to guess")
+        b = b.replace(anchor, new_readme + anchor, 1)
+        open("/tmp/README.md", "w").write(b)
+        push("/tmp/README.md", "README.md")
+
+    print("=== publish complete ===", flush=True)
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ids-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: ids-publish-stac}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels: {k8s-app: ids-publish-stac}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+        command: [python3, /config/publish.py]
+        volumeMounts:
+        - {name: config, mountPath: /config, readOnly: true}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+      volumes:
+      - name: config
+        configMap: {name: ids-publish-stac}
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

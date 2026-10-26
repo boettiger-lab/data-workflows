@@ -1,0 +1,86 @@
+# DEVIATION from generated output (#770): applied by ../generate.sh -- preprocess-cog
+# resampling bilinear -> nearest (boettiger-lab/datasets#272); hex/merge paths moved under
+# sagebrush-conservation-design/hex{,-chunks}/period=<period>/ (boettiger-lab/datasets#172).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sagebrush-conservation-design-1998-2001-merge
+  namespace: geo-workflows
+  labels:
+    k8s-app: sagebrush-conservation-design-1998-2001-merge
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: sagebrush-conservation-design-1998-2001-merge
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: merge-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: BUCKET
+          value: public-usgs-sagebrush
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 13GiB
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+
+          cng-datasets merge-chunks \
+            --chunks-dir s3://public-usgs-sagebrush/sagebrush-conservation-design/hex-chunks/period=1998-2001/ \
+            --output-dir s3://public-usgs-sagebrush/sagebrush-conservation-design/hex/period=1998-2001 \
+            --expect-chunks 196
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 50Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
