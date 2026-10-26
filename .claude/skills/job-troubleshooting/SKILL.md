@@ -112,9 +112,9 @@ kubectl -n geo-workflows describe pod <pod-name> | grep -A5 "Reason:\|Message:\|
 | `OOMKilled` | Insufficient RAM | Raise memory |
 | `ContainerStatusUnknown` on shared nodes | Preemption | Pin to Berkeley node |
 
-**DuckDB sort jobs need both big RAM and big ephemeral-storage.** `ORDER BY` over large data spills to disk; low RAM spills more. For 1–15 GB compressed partitions: 120Gi RAM, 50Gi ephemeral-storage. Namespace max for ephemeral-storage is **50Gi** — always request the max for sort-heavy jobs.
+**DuckDB sort jobs need both big RAM and big ephemeral-storage.** `ORDER BY` over large data spills to disk; low RAM spills more. For 1–15 GB compressed partitions: 120Gi RAM, 50Gi ephemeral-storage. 50Gi is the namespace *default* ephemeral limit, not a cap — request more when the spill needs it (see below).
 
-**When scratch exceeds 50Gi, mount a PVC — do NOT fight the ephemeral cap.** Ephemeral-storage is hard-capped at 50Gi namespace-wide, so any job whose local scratch exceeds that — a raw download bigger than ~45 GB (e.g. the 35 GB RAP CONUS COG), a multi-tile `preprocess-cog` mosaic, a `raster --local-cache-dir` localization of a large COG — must use a **PersistentVolumeClaim**, not a bigger ephemeral request (which the quota will reject). A shared scratch PVC already exists: **`rechunk-scratch`** (2Ti, `RWX` rook-cephfs) — list with `kubectl -n geo-workflows get pvc`.
+**When scratch outgrows a shared node, mount a PVC.** Ephemeral-storage in `geo-workflows` has a LimitRange *default* of 50Gi and no `max`, and no ResourceQuota covers it (checked 2026-10-26: `kubectl -n geo-workflows get limitrange,resourcequota`), so a larger request is admitted — the real ceiling is node free disk (AGENTS.md, *What NOT To Do*). Raise ephemeral for scratch of tens of GB above 50Gi; for scratch a shared node cannot reasonably spare — a multi-tile `preprocess-cog` mosaic of a global grid (datasets#277), a `raster --local-cache-dir` localization of a very large COG — use a **PersistentVolumeClaim**. A shared scratch PVC already exists: **`rechunk-scratch`** (2Ti, `RWX` rook-cephfs) — list with `kubectl -n geo-workflows get pvc`.
 - Mount it and redirect the tool's scratch onto it; keep ephemeral small (~10Gi):
   ```yaml
   volumeMounts:

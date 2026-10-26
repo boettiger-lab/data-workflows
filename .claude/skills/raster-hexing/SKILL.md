@@ -42,8 +42,8 @@ Extra options: `--target-extent "xmin,ymin,xmax,ymax"` (EPSG:4326 clip), `--targ
 interpolates class codes in a categorical (`mode`/`fractions`) source (datasets#272); and
 `create_mosaic_cog` warps each CRS group to a `COMPRESS=NONE` GTiff and then writes a second
 uncompressed `intermediate.tif`, even when tiles are already EPSG:4326 on a shared grid — ~2×
-grid pixels × bytes of local disk, prohibitive for global 10–30 m tiled sources (datasets#TBD
-(mosaic intermediates); `cng_datasets/raster/cog.py` `create_mosaic_cog`). Size `--cog-storage`
+grid pixels × bytes of local disk, prohibitive for global 10–30 m tiled sources (datasets#277;
+`cng_datasets/raster/cog.py` `create_mosaic_cog`). Size `--cog-storage`
 from the grid, or use the many-tile pattern below.
 
 ## ⭐ For RASTERS, native resolution is set by the SOURCE PIXEL — match it, never oversample

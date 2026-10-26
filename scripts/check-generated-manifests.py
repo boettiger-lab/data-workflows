@@ -26,7 +26,7 @@ A recipe directory that runs `cng-datasets` must either
         # HAND-ROLLED: <reason> (<tracking issue>)
 
 Deviating is legitimate -- some shapes the generator genuinely cannot emit yet
-(boettiger-lab/datasets#190, #191, #172, #39). The requirement is a stated reason
+(e.g. boettiger-lab/datasets#172 epoch fan-out, #277 mosaic intermediates). The requirement is a stated reason
 and, where the gap is in the tool, an issue to close so the deviation is
 temporary rather than permanent.
 
