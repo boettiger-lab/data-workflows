@@ -248,6 +248,12 @@ because the converter reproduces whatever shape it is given, and that is not alw
 Armada preemption acts only within Armada — its pods neither preempt nor are preempted by normal
 cluster pods.
 
+All three Armada classes have **positive** priority, so NRP's usage policy checks every Armada pod
+once it has run 30 minutes, `armada-preemptible` included. Only negative-priority (k8s
+`opportunistic`) pods are exempt. Size Armada requests to measured use exactly as for
+default-priority k8s pods: memory 20–150%, CPU 20–200%, limit ≤ 1.2× request. Across the whole
+account, no more than 4 pods may be outside those ranges (#804, `pod-preemption` skill).
+
 ## ⛔ Job specs are world-readable
 
 The NRP docs warn that *"job specs (the YAML you submit) are visible to every user of the
@@ -408,9 +414,10 @@ query parameters so there is nothing to escape at all.
 ## Choosing a pathway
 
 - **k8s** — the standard route here. Right when the work is naturally a few hundred units and each
-  is short. Pair with default priority (not `opportunistic`) for anything over ~1 hour; see the
-  `pod-preemption` skill. `cng-datasets` now omits `priorityClassName` by default and gives hex
-  fan-outs `backoffLimitPerIndex`, so a generated k8s job already has both.
+  is short.
+  - **Units under ~1 hour:** run at `opportunistic`. They are exempt from NRP's usage policy and barely exposed to preemption.
+  - **Units over ~1 hour:** run at default priority, with requests sized to measured use (memory 20–150% of request, CPU 20–200%, limit ≤ 1.2× request). Otherwise more than 4 out-of-range pods block every Deployment change on the account (#804).
+  - `cng-datasets` omits `priorityClassName` by default, so a generated job runs at default priority. It also gives hex fan-outs `backoffLimitPerIndex`. Its memory defaults are not measured, so check them. See the `pod-preemption` skill.
 - **Armada** — right when the work microslices into thousands of small units, or when the ~200
   completion cap forces artificial batching that inflates per-pod RAM and runtime. Budget for a
   gap-fill pass: nothing retries, so a fan-out of a few thousand will lose one or two units.
