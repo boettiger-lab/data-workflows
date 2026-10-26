@@ -16,7 +16,7 @@ directly if it has no skill support.
 | `job-troubleshooting` | a job fails, hangs, or a published parquet will not read |
 | `dataset-recipes` | starting an ingest that resembles a worked example |
 | `armada-pipeline` | `armadactl` will not authenticate, a k8s job hits the 200-completion cap, or you are choosing between the k8s and Armada pathways |
-| `pod-preemption` | indexed-job pods die and retry for no apparent reason, you are working out which indexes actually need re-running, or before submitting any job whose pods run over an hour |
+| `pod-preemption` | indexed-job pods die and retry for no apparent reason, you are working out which indexes actually need re-running, you are choosing a priority class or sizing requests (NRP usage policy), or before submitting any job whose pods run over an hour |
 
 Everything below is always in force, skill or no skill.
 
@@ -526,6 +526,13 @@ With armada, submit freely — chunk-size 1 (one pod per feature) eliminates "on
 long pod is preempted rather than finished, and retries hide it — a job reports `Complete=True`
 while indexes are killed and restarted, and a retry-exhausted index leaves *stale* data, not
 missing data. Before submitting anything whose pods run over an hour: **skill `pod-preemption`**.
+
+⛔ **Default priority has its own cost: NRP's usage policy (#804).** NRP checks every non-opportunistic pod older than 30 minutes against its request. Memory is checked when the request is over 2 GiB and must be 20–150% used. CPU is checked when the request is over 1 core and must be 20–200% used. More than **4 out-of-range pods across the account** makes NRP deny every Deployment change on Carl's account. On 2026-10-26, a 16Gi-request backfill using 1–2.5Gi blocked a production rollout this way. A separate policy caps limit/request at **1.2**. So:
+- Pods under ~1 hour (setup-bucket, daily CronJob runs, short fan-out units) use `priorityClassName: opportunistic`.
+- Split long work into short units where practical.
+- Pods that must run long use default priority, sized to measured use, not to the generator's defaults. Check `kubectl top pod` ~30 minutes after launch.
+
+Full rule: **skill `pod-preemption`**.
 
 ## S3 Bucket Layout
 
