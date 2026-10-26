@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the generated hex workflows one at a time (AGENTS.md: one k8s hex workflow at a time),
+# Run the generated hex Jobs one at a time (AGENTS.md: one k8s hex workflow at a time),
 # each only once its COG is on S3. Order matches cogs.yaml indexes.
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -8,12 +8,20 @@ START=${START:-}   # hex dir to resume from; earlier ones are skipped (their job
 run() {  # run <hex dir> <cog key>
   if [ -n "$START" ]; then [ "$1" = "$START" ] && START= || { echo "skip $1"; return; }; fi
   until [ "$(curl -s -o /dev/null -w '%{http_code}' -I "$PUB/$2")" = 200 ]; do sleep 60; done
-  name=$(awk '/^metadata:/{f=1} f&&/name:/{print $2; exit}' "hex/$1/workflow.yaml")
-  kubectl apply -n geo-workflows -f "hex/$1/configmap.yaml" -f "hex/$1/workflow.yaml" >/dev/null
+  # Apply the generated hex Job directly. The generated orchestrator only adds setup-bucket (the
+  # bucket exists) and needs bitnami/kubectl:latest, whose pull hung for 4 h on 2026-10-26.
+  f=$(ls hex/$1/*-hex.yaml); name=$(awk '/^metadata:/{f=1} f&&/name:/{print $2; exit}' "$f")
+  kubectl apply -n geo-workflows -f "$f" >/dev/null
   echo "$(date -u +%H:%M) started $name"
-  kubectl wait -n geo-workflows "job/$name" --for=condition=complete --timeout=14400s >/dev/null \
-    && echo "$(date -u +%H:%M) complete $name" \
-    || { echo "$(date -u +%H:%M) FAILED/TIMEOUT $name"; exit 1; }
+  while :; do
+    c=$(kubectl -n geo-workflows get job "$name" -o jsonpath='{range .status.conditions[?(@.status=="True")]}{.type} {end}' 2>&1) || true
+    case "$c" in
+      *Complete*) echo "$(date -u +%H:%M) complete $name $(kubectl -n geo-workflows get job "$name" -o jsonpath='succeeded={.status.succeeded} failed={.status.failed}')"; break;;
+      *Failed*)   echo "$(date -u +%H:%M) FAILED $name $(kubectl -n geo-workflows get job "$name" -o jsonpath='failedIndexes={.status.failedIndexes}')"; exit 1;;
+      *NotFound*) echo "$(date -u +%H:%M) FAILED $name: job disappeared"; exit 1;;
+    esac
+    sleep 60
+  done
 }
 for e in 1999-2001 2002-2004 2005-2007 2008-2010 2011-2013 2014-2016 2017-2019; do
   run tidal-flats-v1-2-$e tidal-flats-v1-2/tidal-flats-$e-cog.tif; done
