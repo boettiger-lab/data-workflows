@@ -1,0 +1,68 @@
+# HAND-ROLLED: one-off fill of the 13-month daily window with the CronJob's script, one week
+# per index (data-workflows#802). WINDOW_START + 7*index .. +6 days, capped at WINDOW_END;
+# 2025-09-25 .. 2026-10-25 is 396 days = 57 indexes. Pod shape follows `cng-datasets mdim-workflow`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crw-5km-daily-backfill
+  namespace: geo-workflows
+  labels: {k8s-app: crw-5km-daily-backfill}
+spec:
+  completions: 57
+  parallelism: 10
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 10
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: crw-5km-daily-backfill}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+      - name: update
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          s=$(date -u -d "$WINDOW_START +$((JOB_COMPLETION_INDEX * 7)) days" +%F)
+          e=$(date -u -d "$s +6 days" +%F)
+          if [[ "$e" > "$WINDOW_END" ]]; then e=$WINDOW_END; fi
+          exec bash /scripts/update-daily.sh "$s" "$e"
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: BUCKET, value: public-coral-reef-watch}
+        - {name: DUCKDB_MEMORY_LIMIT, value: 13GiB}
+        - {name: GDAL_CACHEMAX, value: '1024'}
+        - {name: WINDOW_START, value: '2025-09-25'}
+        - {name: WINDOW_END, value: '2026-10-25'}
+        resources:
+          requests: {cpu: '2', memory: 16Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 16Gi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /scripts, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: crw-5km-daily-script, defaultMode: 0755}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

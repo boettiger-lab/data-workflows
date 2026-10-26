@@ -1,0 +1,59 @@
+# HAND-ROLLED: the generator emits no CronJob and cannot add one day to a rolling series;
+# pod shape, env and resources follow `cng-datasets mdim-workflow` output (data-workflows#802).
+# Daily at 18:00 UTC (NOAA posts day D on D+1 at ~13:40-14:50 UTC). Each run re-checks the last
+# 10 days, skips what is published, and prunes daily outputs older than 13 months.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: crw-5km-daily
+  namespace: geo-workflows
+  labels: {k8s-app: crw-5km-daily}
+spec:
+  schedule: "0 18 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 14400
+      template:
+        metadata:
+          labels: {k8s-app: crw-5km-daily}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+          - name: update
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            command: [bash, /scripts/update-daily.sh]
+            env:
+            - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+            - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+            - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+            - {name: AWS_HTTPS, value: 'false'}
+            - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+            - {name: GDAL_DATA, value: /usr/share/gdal}
+            - {name: BUCKET, value: public-coral-reef-watch}
+            - {name: DUCKDB_MEMORY_LIMIT, value: 13GiB}
+            - {name: GDAL_CACHEMAX, value: '1024'}
+            - {name: PRUNE, value: '1'}
+            resources:
+              requests: {cpu: '2', memory: 16Gi, ephemeral-storage: 10Gi}
+              limits: {cpu: '2', memory: 16Gi, ephemeral-storage: 10Gi}
+            volumeMounts:
+            - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+            - {name: script, mountPath: /scripts, readOnly: true}
+          volumes:
+          - {name: rclone-config, secret: {secretName: rclone-config}}
+          - {name: script, configMap: {name: crw-5km-daily-script, defaultMode: 0755}}
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

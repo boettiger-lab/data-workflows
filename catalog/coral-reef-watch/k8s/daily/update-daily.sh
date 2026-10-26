@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# HAND-ROLLED: cng-datasets has no mode that adds one time slice to a rolling
+# series or emits a CronJob, so this script drives `cng-datasets mdim` itself
+# (boettiger-lab/data-workflows#802; tool request: boettiger-lab/datasets#TBD).
+#
+# NOAA Coral Reef Watch 5 km daily tier: stage raw, COG, H3 res-6 hex, and the
+# NE Pacific blob summary, for every day in [START, END] not already published.
+#
+#   update-daily.sh [START END]     dates as YYYY-MM-DD, inclusive
+#
+# With no dates it covers the last LOOKBACK_DAYS ending yesterday (UTC), which
+# also catches days NOAA posted late or reprocessed. A day/product is done when
+# its COG exists; the COG is uploaded last, so a failed run is redone next time.
+# PRUNE=1 also removes daily outputs older than WINDOW_MONTHS.
+set -euo pipefail
+
+BUCKET=${BUCKET:-public-coral-reef-watch}
+WINDOW_MONTHS=${WINDOW_MONTHS:-13}
+LOOKBACK_DAYS=${LOOKBACK_DAYS:-10}
+PRUNE=${PRUNE:-0}
+SRC=https://www.star.nesdis.noaa.gov/pub/sod/mecb/crw/data/5km/v3.1_op/nc/v1.0/daily
+PREFIX=crw-5km-daily
+
+END=${2:-$(date -u -d yesterday +%F)}
+START=${1:-$(date -u -d "$END -$((LOOKBACK_DAYS - 1)) days" +%F)}
+
+# product -> netCDF variable, reducer (#802: mean for continuous, max for ordinal alert levels)
+declare -A VAR=([sst]=analysed_sst [ssta]=sea_surface_temperature_anomaly [hs]=hotspot
+                [dhw]=degree_heating_week [baa]=bleaching_alert_area [baa-max-7d]=bleaching_alert_area)
+declare -A REDUCER=([sst]=mean [ssta]=mean [hs]=mean [dhw]=mean [baa]=max [baa-max-7d]=max)
+PRODUCTS=(sst ssta hs dhw baa baa-max-7d)
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+src_name() {  # product, YYYYMMDD
+  if [ "$1" = sst ]; then echo "coraltemp_v3.1_$2.nc"; else echo "ct5km_$1_v3.1_$2.nc"; fi
+}
+
+blob_summary() {  # YYYYMMDD, YYYY-MM-DD; box and threshold fixed in #802
+  python3 - "$1" "$2" <<'EOF'
+import os, sys, duckdb
+ymd, iso = sys.argv[1], sys.argv[2]
+bucket, prefix = os.environ.get("BUCKET", "public-coral-reef-watch"), "crw-5km-daily"
+con = duckdb.connect()
+con.execute("INSTALL h3 FROM community; LOAD h3; INSTALL httpfs; LOAD httpfs")
+con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+  SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
+  USE_SSL false, URL_STYLE 'path')""")
+src = f"s3://{bucket}/{prefix}/ssta/hex/h0=*/part-t{ymd}-*.parquet"
+out = f"s3://{bucket}/{prefix}/ne-pacific-blob/date={iso}/data_0.parquet"
+con.execute(f"""COPY (
+  WITH cells AS (
+    SELECT h3_cell_to_lat(h6) AS lat, h3_cell_to_lng(h6) AS lng,
+           h3_cell_area(h6, 'km^2') AS km2, sea_surface_temperature_anomaly AS ssta
+    FROM read_parquet('{src}')
+    WHERE sea_surface_temperature_anomaly IS NOT NULL)
+  SELECT DATE '{iso}' AS date,
+         sum(km2) FILTER (WHERE ssta >= 2) AS area_km2_ssta_ge_2,
+         sum(km2) AS area_km2_with_data,
+         sum(lat * km2) FILTER (WHERE ssta >= 2) / sum(km2) FILTER (WHERE ssta >= 2) AS centroid_lat,
+         sum(lng * km2) FILTER (WHERE ssta >= 2) / sum(km2) FILTER (WHERE ssta >= 2) AS centroid_lng,
+         max(ssta) AS max_ssta,
+         arg_max(lat, ssta) AS max_ssta_lat, arg_max(lng, ssta) AS max_ssta_lng
+  FROM cells WHERE lat BETWEEN 20 AND 60 AND lng BETWEEN -180 AND -110
+) TO '{out}' (FORMAT PARQUET)""")
+print(con.sql(f"SELECT * FROM read_parquet('{out}')"))
+EOF
+}
+
+d=$START
+while [[ ! "$d" > "$END" ]]; do
+  ymd=${d//-/}
+  for p in "${PRODUCTS[@]}"; do
+    cog="$PREFIX/$p/cog/$p-$ymd.tif"
+    if rclone lsf "nrp:$BUCKET/$cog" 2>/dev/null | grep -q .; then
+      continue
+    fi
+    name=$(src_name "$p" "$ymd")
+    url="$SRC/$p/${ymd:0:4}/$name"
+    f="$WORK/$name"
+    code=$(curl -sS --retry 5 --retry-all-errors -w '%{http_code}' -o "$f" "$url" || true)
+    if [ "$code" != 200 ]; then
+      echo "$d $p: not available upstream (HTTP $code), skipping"
+      rm -f "$f"; continue
+    fi
+    echo "$d $p: $(stat -c %s "$f") bytes"
+
+    # Provenance sidecar: source URL, access time, upstream Last-Modified, size, checksum.
+    lastmod=$(curl -sSI "$url" | tr -d '\r' | sed -n 's/^[Ll]ast-[Mm]odified: //p')
+    printf '{"source_url":"%s","accessed":"%s","upstream_last_modified":"%s","bytes":%s,"sha256":"%s"}\n' \
+      "$url" "$(date -u +%FT%TZ)" "$lastmod" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -d' ' -f1)" \
+      > "$f.json"
+    rclone copyto "$f" "nrp:$BUCKET/raw/daily/$p/$name"
+    rclone copyto "$f.json" "nrp:$BUCKET/raw/daily/$p/$name.json"
+
+    # CF valid_min/valid_max: values outside are missing. GDAL's classic netCDF driver (the COG
+    # below) honours this but the multidim reader `mdim` uses does not, and upstream ships such
+    # pixels (2026-10-24: 2,413 DHW > 100 °C-weeks, 793 HotSpot < -15 °C, at ice edges). Mask
+    # them on the working copy; the staged raw above stays byte-identical to upstream.
+    python3 - "$f" "${VAR[$p]}" <<'EOF'
+import sys
+from osgeo import gdal
+gdal.UseExceptions()
+path, var = sys.argv[1], sys.argv[2]
+arr = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER | gdal.OF_UPDATE).GetRootGroup().OpenMDArray(var)
+attrs = {a.GetName(): a.Read() for a in arr.GetAttributes()}
+lo, hi, nd = attrs.get("valid_min"), attrs.get("valid_max"), arr.GetNoDataValueAsDouble()
+a = arr.ReadAsArray()
+bad = (a != nd) & (((a < lo) if lo is not None else False) | ((a > hi) if hi is not None else False))
+print(f"{var}: masked {int(bad.sum())} pixel(s) outside valid range [{lo}, {hi}]")
+if bad.any():
+    a[bad] = nd
+    arr.Write(a)
+EOF
+
+    cng-datasets mdim --input "$f" --variable "${VAR[$p]}" \
+      --output-parquet "s3://$BUCKET/$PREFIX/$p/hex/" \
+      --resolution 6 --parent-resolutions 0 --hex-resampling "${REDUCER[$p]}" \
+      --fan-out time --unit-index "$ymd"
+
+    if [ "$p" = ssta ]; then
+      blob_summary "$ymd" "$d"
+    fi
+
+    gdal_translate -q -of COG -a_srs EPSG:4326 -co COMPRESS=DEFLATE -co PREDICTOR=2 \
+      "NETCDF:\"$f\":${VAR[$p]}" "$WORK/$p-$ymd.tif"
+    rclone copyto "$WORK/$p-$ymd.tif" "nrp:$BUCKET/$cog"
+    rm -f "$f" "$f.json" "$WORK/$p-$ymd.tif"
+  done
+  d=$(date -u -d "$d +1 day" +%F)
+done
+
+if [ "$PRUNE" = 1 ]; then
+  cutoff=$(date -u -d "$END -$WINDOW_MONTHS months" +%Y%m%d)
+  # Guard: never prune anything less than ~12 months old, whatever the env says.
+  if (( cutoff > $(date -u -d "-360 days" +%Y%m%d) )); then
+    echo "refusing to prune: cutoff $cutoff is under 12 months old" >&2; exit 1
+  fi
+  echo "Pruning daily outputs dated before $cutoff"
+  for p in "${PRODUCTS[@]}"; do
+    # Only names carrying an 8-digit date strictly before the cutoff are listed.
+    rclone lsf -R --files-only "nrp:$BUCKET/$PREFIX/$p/" | python3 -c '
+import re, sys
+cut = sys.argv[1]
+for line in sys.stdin:
+    m = re.search(r"(?:-|part-t|chunk-)(\d{8})(?:-\d+)?\.(?:tif|parquet)$", line.strip())
+    if m and m.group(1) < cut:
+        print(line.strip())' "$cutoff" > "$WORK/old-$p.txt"
+    rclone lsf --files-only "nrp:$BUCKET/raw/daily/$p/" | python3 -c '
+import re, sys
+cut = sys.argv[1]
+for line in sys.stdin:
+    m = re.search(r"_(\d{8})\.nc(?:\.json)?$", line.strip())
+    if m and m.group(1) < cut:
+        print(line.strip())' "$cutoff" > "$WORK/old-raw-$p.txt"
+    echo "$p: $(wc -l < "$WORK/old-$p.txt") outputs, $(wc -l < "$WORK/old-raw-$p.txt") raw files"
+    [ -s "$WORK/old-$p.txt" ] && rclone delete --files-from-raw "$WORK/old-$p.txt" "nrp:$BUCKET/$PREFIX/$p/"
+    [ -s "$WORK/old-raw-$p.txt" ] && rclone delete --files-from-raw "$WORK/old-raw-$p.txt" "nrp:$BUCKET/raw/daily/$p/"
+  done
+fi
+echo "done: $START .. $END"
