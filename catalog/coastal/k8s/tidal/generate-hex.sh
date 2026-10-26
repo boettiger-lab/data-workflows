@@ -14,12 +14,13 @@ gen() {  # gen <collection> <epoch> <cog key> <value column> <hex memory>
     --hex-resampling sum --nodata "0,255" --hex-memory "$5" --hex-cpu 4 --max-parallelism 40 \
     --output-dir "hex/$1-$2"
 }
+# Hex memory: densest h0 cells peaked at ~4 GiB at 16Gi (NRP flags pods far below their request).
 for e in 1999-2001 2002-2004 2005-2007 2008-2010 2011-2013 2014-2016 2017-2019; do
-  gen tidal-flats-v1-2 "$e" "tidal-flats-$e-cog.tif" flat_px 16Gi
+  gen tidal-flats-v1-2 "$e" "tidal-flats-$e-cog.tif" flat_px 8Gi
 done
 for e in 1984-1986 1987-1989 1990-1992 1993-1995 1996-1998; do
-  gen tidal-flats-v1-1 "$e" "tidal-flats-$e-cog.tif" flat_px 16Gi
+  gen tidal-flats-v1-1 "$e" "tidal-flats-$e-cog.tif" flat_px 8Gi
 done
-gen tidal-flats-v1-1 datamask datamask-cog.tif mapped_px 16Gi
+gen tidal-flats-v1-1 datamask datamask-cog.tif mapped_px 8Gi
 # 10 m source: ~9x the pixels per cell of the 30 m layers.
-gen tidal-marsh-2020 2020 tidal-marsh-2020-cog.tif marsh_px 32Gi
+gen tidal-marsh-2020 2020 tidal-marsh-2020-cog.tif marsh_px 16Gi

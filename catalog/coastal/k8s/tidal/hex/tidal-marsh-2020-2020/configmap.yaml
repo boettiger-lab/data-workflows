@@ -62,7 +62,7 @@ data:
             - name: CNG_HEX_CHUNK_SIZE
               value: '100000'
             - name: DUCKDB_MEMORY_LIMIT
-              value: 27GiB
+              value: 13GiB
             - name: GDAL_CACHEMAX
               value: '512'
             command:
@@ -75,11 +75,11 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 32Gi
+                memory: 16Gi
                 ephemeral-storage: 20Gi
               limits:
                 cpu: '4'
-                memory: 32Gi
+                memory: 16Gi
                 ephemeral-storage: 20Gi
             volumeMounts:
             - name: rclone-config
