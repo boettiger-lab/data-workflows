@@ -1,5 +1,6 @@
-# HAND-ROLLED: the generator's preprocess-cog takes repeated --source-url, not a zip of 108-154
-# tiles, and cannot fan out one COG per epoch (datasets#172). Pattern follows
+# HAND-ROLLED: the generator's preprocess-cog writes two uncompressed full-grid intermediates
+# (~2 x 595 GB per 30 m epoch, ~2 x 5.4 TB for the 10 m marsh; datasets#277) and cannot fan out
+# one COG per epoch (datasets#172). Pattern follows
 # catalog/wetlands/k8s/gmw-v4-1-12/epoch-cogs.yaml (#792).
 #
 # One WGS84 COG per index from the tiles staged by stage-raw.yaml:
