@@ -10,7 +10,8 @@
 # The scripts ship as a ConfigMap built from the committed files:
 #   kubectl -n geo-workflows create configmap loca2-exceedance-scripts \
 #     --from-file=catalog/caladapt/scripts/loca2_exceedance.py \
-#     --from-file=catalog/caladapt/scripts/loca2_zarr.py --dry-run=client -o yaml | kubectl apply -f -
+#     --from-file=catalog/caladapt/scripts/loca2_zarr.py \
+#     --from-file=catalog/caladapt/scripts/loca2_assemble.py --dry-run=client -o yaml | kubectl apply -f -
 #   kubectl -n geo-workflows apply -f catalog/caladapt/k8s/tasmax-exceedance/reduce.yaml
 apiVersion: batch/v1
 kind: Job
