@@ -1,0 +1,205 @@
+# HAND-ROLLED: script ConfigMap for the CRW monthly tier; regenerate after editing update-monthly.sh (data-workflows#802):
+#   kubectl create configmap crw-5km-monthly-script -n geo-workflows --from-file=update-monthly.sh --dry-run=client -o yaml
+apiVersion: v1
+data:
+  update-monthly.sh: |
+    #!/usr/bin/env bash
+    # HAND-ROLLED: cng-datasets has no mode that adds one time slice to a growing
+    # series or emits a CronJob, so this script drives `cng-datasets mdim` itself
+    # (boettiger-lab/data-workflows#802).
+    #
+    # NOAA Coral Reef Watch 5 km monthly tier: stage raw, COG, and H3 res-6 hex of
+    # upstream's monthly composites, for every month in [START, END] not already published.
+    #
+    #   update-monthly.sh [START END]     months as YYYY-MM, inclusive
+    #
+    # With no months it covers the last LOOKBACK_MONTHS ending last month (UTC), which
+    # also catches a month NOAA posted late. A month/product is done when its COG exists;
+    # the COG is uploaded last, so a failed run is redone next time. The tier is permanent:
+    # nothing is pruned.
+    #
+    # Hex layout: one file per h0 cell, hex/h0=<cell>/data_0.parquet, sorted by time. A new month
+    # lands as hex/h0=<cell>/part-tYYYYMM-0.parquet beside it; once its year has closed,
+    # COMPACT=1 (the default) folds those files into data_0.parquet. COMPACT=0 is for
+    # parallel backfill pods, which must not rewrite the same files concurrently.
+    set -euo pipefail
+
+    BUCKET=${BUCKET:-public-coral-reef-watch}
+    LOOKBACK_MONTHS=${LOOKBACK_MONTHS:-3}
+    COMPACT=${COMPACT:-1}
+    SRC=https://www.star.nesdis.noaa.gov/pub/sod/mecb/crw/data/5km/v3.1_op/nc/v1.0/monthly
+    PREFIX=${PREFIX:-crw-5km-monthly}
+
+    END=${2:-$(date -u -d "$(date -u +%Y-%m-01) -1 month" +%Y-%m)}
+    START=${1:-$(date -u -d "$END-01 -$((LOOKBACK_MONTHS - 1)) months" +%Y-%m)}
+
+    # product -> netCDF variable. The cell reducer follows the composite (#802): a min product keeps
+    # its cell's lowest pixel, a max product its highest, a mean product the mean.
+    declare -A VAR=([sst-min]=sea_surface_temperature [sst-mean]=sea_surface_temperature
+                    [sst-max]=sea_surface_temperature [ssta-min]=sea_surface_temperature_anomaly
+                    [ssta-mean]=sea_surface_temperature_anomaly [ssta-max]=sea_surface_temperature_anomaly
+                    [hs-max]=hotspot [dhw-max]=degree_heating_week
+                    [baa-max]=bleaching_alert_area [baa5-max]=bleaching_alert_area)
+    PRODUCTS=(${ONLY_PRODUCTS:-sst-min sst-mean sst-max ssta-min ssta-mean ssta-max hs-max dhw-max baa-max baa5-max})
+
+    WORK=$(mktemp -d)
+    trap 'rm -rf "$WORK"' EXIT
+
+    # Rewrites mdim's local output for upload: the min/max composites' `date` layer (the day the
+    # extreme was first reached, as yyyymmdd) becomes a DATE column, extreme_date. mdim's manifest is dropped.
+    finish_hex() {  # product, YYYYMM, local mdim dir, local upload dir
+      python3 - "$@" <<'EOF'
+    import glob, os, sys
+    import duckdb
+    p, ym, src, dst = sys.argv[1:5]
+    con = duckdb.connect()
+    con.execute(f"SET memory_limit = '{os.environ.get('DUCKDB_MEMORY_LIMIT', '1800MiB')}'; SET threads = 2")
+    n = 0
+    for f in sorted(glob.glob(f"{src}/h0=*/part-t{ym}-*.parquet")):
+        out = os.path.join(dst, os.path.relpath(f, src))
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        cols = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{f}', hive_partitioning=false)").fetchall()]
+        sel = ("* EXCLUDE (date), try_strptime(CAST(CAST(date AS BIGINT) AS VARCHAR), '%Y%m%d')::DATE AS extreme_date"
+               if "date" in cols else "*")
+        con.execute(f"""COPY (SELECT {sel} FROM read_parquet('{f}', hive_partitioning=false))
+          TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD)""")
+        n += 1
+    print(f"  {p} {ym}: {n} h0 files ready")
+    EOF
+    }
+
+    compact() {  # product; folds monthly files from closed years into each h0's data_0.parquet
+      local p=$1
+      rclone lsf -R --files-only --include "h0=*/*.parquet" "nrp:$BUCKET/$PREFIX/$p/hex/" > "$WORK/hex-$p.txt"
+      python3 - "$p" "$WORK/hex-$p.txt" "$(date -u +%Y)01" "$WORK" "$PREFIX" <<'EOF'
+    import os, re, subprocess, sys
+    from collections import defaultdict
+    from concurrent.futures import ThreadPoolExecutor
+    import duckdb
+    p, listing, year_start, work, prefix = sys.argv[1:6]
+    bucket = os.environ.get("BUCKET", "public-coral-reef-watch")
+    hexdir = f"{bucket}/{prefix}/{p}/hex"
+    # CELL_SHARD=i/n compacts the cells whose base cell number is i mod n, so a first pass can fan out over pods.
+    shard = os.environ.get("CELL_SHARD")
+    compacted, parts = set(), defaultdict(list)
+    for line in open(listing):
+        m = re.fullmatch(r"(h0=\d+)/(?:data_0|part-t(\d{6})-\d+)\.parquet", line.strip())
+        if not m:
+            continue
+        if m.group(2) is None:
+            compacted.add(m.group(1))
+        elif m.group(2) < year_start:
+            parts[m.group(1)].append(line.strip())
+    rewrite = os.environ.get("REWRITE_ALL") == "1"
+    if not parts and not rewrite:
+        sys.exit(print(f"{p}: no monthly files from closed years to compact"))
+    months = sorted({re.search(r"part-t(\d{6})", f).group(1) for fs in parts.values() for f in fs})
+    cells = sorted(set(parts) | (compacted if rewrite else set()))
+    if shard:
+        i, n = map(int, shard.split("/"))
+        cells = [c for c in cells if (int(c[3:]) >> 45 & 127) % n == i]  # by H3 base cell, stable across retries
+    print(f"{p}: compacting {len(months)} months ({months[0]}..{months[-1]}) into {len(cells)} h0 files" if months
+          else f"{p}: rewriting {len(cells)} h0 files")
+    con = duckdb.connect()
+    # Without an explicit limit DuckDB sizes itself to the node, not the pod, and is OOM-killed.
+    con.execute(f"""SET memory_limit = '{os.environ.get("DUCKDB_MEMORY_LIMIT", "1800MiB")}'; SET threads = 2;
+      SET preserve_insertion_order = false; SET temp_directory = '{work}/duckdb-tmp'""")
+    con.execute("INSTALL httpfs; LOAD httpfs")
+    con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+      SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
+      USE_SSL false, URL_STYLE 'path')""")
+
+    def one(cell):
+        # hive_partitioning=false keeps h0 as the UBIGINT stored in the files.
+        new = [f"s3://{hexdir}/{f}" for f in parts.get(cell, [])]
+        sel = []
+        if new:
+            sel.append(f"SELECT * FROM read_parquet({new!r}, hive_partitioning=false)")
+        if cell in compacted:
+            # A month present in both (reprocessed upstream) takes the monthly file's values.
+            redo = f"WHERE time NOT IN (SELECT DISTINCT time FROM read_parquet({new!r}, hive_partitioning=false))" if new else ""
+            sel.append(f"SELECT * FROM read_parquet('s3://{hexdir}/{cell}/data_0.parquet', hive_partitioning=false) {redo}")
+        out = os.path.join(work, f"{cell}.parquet")
+        # DISTINCT ON keeps one row per cell per month, whatever split an earlier run left behind.
+        con.cursor().execute(f"""COPY (SELECT DISTINCT ON (time, h6) * FROM ({" UNION ALL BY NAME ".join(sel)})
+          ORDER BY time, h6)
+          TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)""")
+        subprocess.run(["rclone", "copyto", out, f"nrp:{hexdir}/{cell}/data_0.parquet"], check=True)
+        os.remove(out)
+        if new:  # only the monthly files read above, so a file added meanwhile is kept for next time
+            lst = os.path.join(work, f"{cell}.txt")
+            open(lst, "w").write("\n".join(parts[cell]) + "\n")
+            subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{hexdir}/"], check=True)
+
+    with ThreadPoolExecutor(2) as pool:
+        list(pool.map(one, cells))
+    EOF
+    }
+
+    m=$START
+    while [[ ! "$m" > "$END" ]]; do
+      ym=${m//-/}
+      for p in "${PRODUCTS[@]}"; do
+        cog="$PREFIX/$p/cog/$p-$ym.tif"
+        if rclone lsf "nrp:$BUCKET/$cog" 2>/dev/null | grep -q .; then
+          continue
+        fi
+        name="ct5km_${p}_v3.1_$ym.nc"
+        url="$SRC/${ym:0:4}/$name"
+        f="$WORK/$name"
+        # DHW and both BAA products start in 1985-04, after twelve weeks of HotSpot accumulate.
+        code=$(curl -sS --retry 5 --retry-all-errors -w '%{http_code}' -o "$f" "$url" || true)
+        if [ "$code" != 200 ]; then
+          echo "$m $p: not available upstream (HTTP $code), skipping"
+          rm -f "$f"; continue
+        fi
+        echo "$m $p: $(stat -c %s "$f") bytes"
+
+        # Provenance sidecar: source URL, access time, upstream Last-Modified, size, checksum.
+        lastmod=$(curl -sSI "$url" | tr -d '\r' | sed -n 's/^[Ll]ast-[Mm]odified: //p')
+        printf '{"source_url":"%s","accessed":"%s","upstream_last_modified":"%s","bytes":%s,"sha256":"%s"}\n' \
+          "$url" "$(date -u +%FT%TZ)" "$lastmod" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -d' ' -f1)" \
+          > "$f.json"
+        rclone copyto "$f" "nrp:$BUCKET/raw/monthly/$p/$name"
+        rclone copyto "$f.json" "nrp:$BUCKET/raw/monthly/$p/$name.json"
+
+        # The min and max composites also carry `date`, the day the extreme was first reached.
+        vars=(--variable "${VAR[$p]}")
+        if gdalinfo "$f" 2>/dev/null | grep -q "SUBDATASET_.*:date$"; then vars+=(--variable date); fi
+        reducer=${p##*-}
+
+        # Eight batches of h0 grid positions (0-121), as in the daily tier: the whole grid in one
+        # call peaks above 4.5 GiB in DuckDB. Batches write disjoint h0 partitions.
+        rm -rf "$WORK/hex" "$WORK/up"
+        for s0 in $(seq 0 16 121); do
+          batch=$(seq -s, "$s0" $((s0 + 15 > 121 ? 121 : s0 + 15)))
+          cng-datasets mdim --input "$f" "${vars[@]}" --output-parquet "$WORK/hex/" \
+            --resolution 6 --parent-resolutions 0 --hex-resampling "$reducer" \
+            --fan-out time --unit-index "$ym" --h0-subset "$batch"
+        done
+        finish_hex "$p" "$ym" "$WORK/hex" "$WORK/up"
+        # A rerun of a month must replace its files, not add to them: mdim may split a cell differently.
+        rclone delete --include "h0=*/part-t$ym-*.parquet" "nrp:$BUCKET/$PREFIX/$p/hex/"
+        rclone copy "$WORK/up" "nrp:$BUCKET/$PREFIX/$p/hex/"
+
+        if [[ " ${vars[*]} " == *" date "* ]]; then
+          gdal_translate -q -of COG -a_srs EPSG:4326 -co COMPRESS=DEFLATE -co PREDICTOR=2 \
+            "NETCDF:\"$f\":date" "$WORK/$p-$ym-date.tif"
+          rclone copyto "$WORK/$p-$ym-date.tif" "nrp:$BUCKET/$PREFIX/$p/cog/$p-$ym-date.tif"
+        fi
+        gdal_translate -q -of COG -a_srs EPSG:4326 -co COMPRESS=DEFLATE -co PREDICTOR=2 \
+          "NETCDF:\"$f\":${VAR[$p]}" "$WORK/$p-$ym.tif"
+        rclone copyto "$WORK/$p-$ym.tif" "nrp:$BUCKET/$cog"
+        rm -rf "$f" "$f.json" "$WORK"/*.tif "$WORK/hex" "$WORK/up"
+      done
+      m=$(date -u -d "$m-01 +1 month" +%Y-%m)
+    done
+
+    if [ "$COMPACT" = 1 ]; then
+      for p in "${PRODUCTS[@]}"; do compact "$p"; done
+    fi
+    echo "done: $START .. $END"
+kind: ConfigMap
+metadata:
+  name: crw-5km-monthly-script
+  namespace: geo-workflows
