@@ -27,6 +27,8 @@ spec:
       labels:
         k8s-app: tidal-hex-consolidate
     spec:
+      # Short pods (minutes to under an hour): opportunistic per #804.
+      priorityClassName: opportunistic
       restartPolicy: Never
       activeDeadlineSeconds: 14400
       containers:
