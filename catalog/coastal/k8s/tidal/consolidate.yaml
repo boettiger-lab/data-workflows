@@ -72,6 +72,8 @@ spec:
           for ext in ("h3 FROM community", "spatial", "httpfs"):
               con.execute(f"INSTALL {ext}; LOAD {ext.split()[0]}")
           con.execute("SET http_retries=10; SET http_retry_wait_ms=3000; SET preserve_insertion_order=false")
+          # DuckDB >= 2.0: declare lon/lat axis order (checked: a 1x1 deg box at the equator = 12,308.8 km2).
+          con.execute("SET geometry_always_xy = true")
           con.execute(f"""CREATE SECRET s3 (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
               SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
               URL_STYLE 'path', USE_SSL false)""")
@@ -97,11 +99,11 @@ spec:
                     WHERE {pxcol} > 0
                   ), a AS (
                     SELECT *,
-                      ST_Area_Spheroid(ST_FlipCoordinates(ST_MakeEnvelope(
+                      ST_Area_Spheroid(ST_MakeEnvelope(
                           h3_cell_to_lng(h8) - {PX}/2, h3_cell_to_lat(h8) - {PX}/2,
-                          h3_cell_to_lng(h8) + {PX}/2, h3_cell_to_lat(h8) + {PX}/2))) / 1e6 AS px_km2,
-                      ST_Area_Spheroid(ST_FlipCoordinates(
-                          ST_GeomFromText(h3_cell_to_boundary_wkt(h8)))) / 1e6 AS cell_km2
+                          h3_cell_to_lng(h8) + {PX}/2, h3_cell_to_lat(h8) + {PX}/2)) / 1e6 AS px_km2,
+                      ST_Area_Spheroid(
+                          ST_GeomFromText(h3_cell_to_boundary_wkt(h8))) / 1e6 AS cell_km2
                     FROM px
                   )
                   SELECT {ep_out}
