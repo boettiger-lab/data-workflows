@@ -36,3 +36,11 @@ cng-datasets raster-workflow --dataset tidal-marsh-2020/staging-2020-h0-17 \
   --hex-resampling sum --nodata "0,255" --hex-memory 8Gi --hex-cpu 4 --max-parallelism 25 \
   --priority-class opportunistic --h0-subset 17 --chunk-resolution 2 \
   --output-dir hex/tidal-marsh-2020-2020-h0-17
+# h0 position 73 (base cell 77) also straddles the antimeridian and was preempted repeatedly at
+# the h0 level; same treatment (datasets#295).
+cng-datasets raster-workflow --dataset tidal-marsh-2020/staging-2020-h0-73 \
+  --source-url s3://public-coastal/tidal-marsh-2020/tidal-marsh-2020-cog.tif --bucket public-coastal \
+  --namespace geo-workflows --h3-resolution 8 --parent-resolutions 0 --value-column marsh_px \
+  --hex-resampling sum --nodata "0,255" --hex-memory 8Gi --hex-cpu 4 --max-parallelism 25 \
+  --priority-class opportunistic --h0-subset 73 --chunk-resolution 2 \
+  --output-dir hex/tidal-marsh-2020-2020-h0-73
