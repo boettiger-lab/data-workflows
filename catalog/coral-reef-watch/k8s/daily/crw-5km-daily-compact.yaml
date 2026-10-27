@@ -47,6 +47,7 @@ spec:
         - {name: BUCKET, value: public-coral-reef-watch}
         - {name: DUCKDB_MEMORY_LIMIT, value: 1800MiB}
         - {name: PRUNE, value: '0'}
+        - {name: REWRITE_ALL, value: '1'}  # also rewrite cells with nothing new: removes rows repeated by stale daily files (2026-10-27)
         resources:
           requests: {cpu: '2', memory: 3Gi, ephemeral-storage: 10Gi}
           limits: {cpu: '2', memory: 3584Mi, ephemeral-storage: 10Gi}

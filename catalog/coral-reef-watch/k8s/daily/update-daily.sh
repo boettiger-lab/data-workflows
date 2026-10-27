@@ -112,15 +112,18 @@ if manifests and not shard:  # mdim's per-day manifests; nothing reads them once
     lst = os.path.join(work, "manifest.txt")
     open(lst, "w").write("\n".join(manifests) + "\n")
     subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{hexdir}/"], check=True)
-if not parts:
+# REWRITE_ALL=1 rewrites every cell even with nothing new, e.g. to apply a fix to data_0 files.
+rewrite = os.environ.get("REWRITE_ALL") == "1"
+if not parts and not rewrite:
     sys.exit(print(f"{p}: no daily files from closed months to compact"))
 days = sorted({re.search(r"part-t(\d{8})", f).group(1) for fs in parts.values() for f in fs})
 # Without a cutoff, only cells with new days change; with one, every cell drops expired months.
-cells = sorted(set(parts) | (compacted if cutoff else set()))
+cells = sorted(set(parts) | (compacted if cutoff or rewrite else set()))
 if shard:
     i, n = map(int, shard.split("/"))
     cells = [c for c in cells if (int(c[3:]) >> 45 & 127) % n == i]  # by H3 base cell, stable across retries
-print(f"{p}: compacting {len(days)} days ({days[0]}..{days[-1]}) into {len(cells)} h0 files")
+print(f"{p}: compacting {len(days)} days ({days[0]}..{days[-1]}) into {len(cells)} h0 files" if days
+      else f"{p}: rewriting {len(cells)} h0 files")
 con = duckdb.connect()
 # Without an explicit limit DuckDB sizes itself to the node, not the pod, and is OOM-killed.
 con.execute(f"""SET memory_limit = '{os.environ.get("DUCKDB_MEMORY_LIMIT", "1800MiB")}'; SET threads = 2;
@@ -142,7 +145,10 @@ def one(cell):
         redo = f"WHERE time NOT IN (SELECT DISTINCT time FROM read_parquet({new!r}, hive_partitioning=false))" if new else ""
         sel.append(f"SELECT * FROM read_parquet('s3://{hexdir}/{cell}/data_0.parquet', hive_partitioning=false) {redo}")
     out = os.path.join(work, f"{cell}.parquet")
-    con.cursor().execute(f"""COPY (SELECT * FROM ({" UNION ALL BY NAME ".join(sel)}) {keep} ORDER BY time, h6)
+    # DISTINCT ON keeps one row per cell per day: mdim splits a day's cell into part-t...-0, -1, ...
+    # files as it sees fit, so files from an earlier run of the same day can repeat its rows.
+    con.cursor().execute(f"""COPY (SELECT DISTINCT ON (time, h6) * FROM ({" UNION ALL BY NAME ".join(sel)}) {keep}
+      ORDER BY time, h6)
       TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)""")
     subprocess.run(["rclone", "copyto", out, f"nrp:{hexdir}/{cell}/data_0.parquet"], check=True)
     os.remove(out)
@@ -212,6 +218,10 @@ while [[ ! "$d" > "$END" ]]; do
       > "$f.json"
     rclone copyto "$f" "nrp:$BUCKET/raw/daily/$p/$name"
     rclone copyto "$f.json" "nrp:$BUCKET/raw/daily/$p/$name.json"
+
+    # A rerun of a day must replace its daily files, not add to them: mdim splits a cell's day into
+    # part-t<day>-0, -1, ... as it sees fit, and a file left from an earlier split repeats rows.
+    rclone delete --include "h0=*/part-t$ymd-*.parquet" "nrp:$BUCKET/$PREFIX/$p/hex/"
 
     # Eight batches of h0 grid positions (0-121): the whole grid in one call peaks above 4.5 GiB
     # in DuckDB, and the densest quarter-grid batches exceeded a 1800MiB cap. Batches write
