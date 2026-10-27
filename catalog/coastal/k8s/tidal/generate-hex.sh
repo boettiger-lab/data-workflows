@@ -27,3 +27,13 @@ done
 gen tidal-flats-v1-1 datamask datamask-cog.tif mapped_px 8Gi
 # 10 m source: ~9x the pixels per cell of the 30 m layers.
 gen tidal-marsh-2020 2020 tidal-marsh-2020-cog.tif marsh_px 16Gi
+# h0 position 17 (base cell 93) straddles the antimeridian, so the tool reads the 10 m source
+# unwindowed: 7 of 34 chunks in 7.5 h. Re-run that h0 alone split into res-2 units, which mostly
+# do not straddle and get windowed reads. Separate prefix (job names would collide with the main
+# run); its h0 partition is copied into staging-2020/hex/ once the main job is deleted.
+cng-datasets raster-workflow --dataset tidal-marsh-2020/staging-2020-h0-17 \
+  --source-url s3://public-coastal/tidal-marsh-2020/tidal-marsh-2020-cog.tif --bucket public-coastal \
+  --namespace geo-workflows --h3-resolution 8 --parent-resolutions 0 --value-column marsh_px \
+  --hex-resampling sum --nodata "0,255" --hex-memory 8Gi --hex-cpu 4 --max-parallelism 25 \
+  --priority-class opportunistic --h0-subset 17 --chunk-resolution 2 \
+  --output-dir hex/tidal-marsh-2020-2020-h0-17
