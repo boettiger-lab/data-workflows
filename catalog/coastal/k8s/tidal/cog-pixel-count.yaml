@@ -1,0 +1,60 @@
+# HAND-ROLLED validation (#792): exact count of value-1 pixels in each tidal-flat COG, to check the
+# hex invariant SUM(flat_px) == COG pixel count and whether epoch-to-epoch jumps are in the source.
+# Writes nothing to S3. Short pods: opportunistic per #804.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tidal-cog-pixel-count
+  namespace: geo-workflows
+spec:
+  completions: 12
+  parallelism: 6
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 12
+  ttlSecondsAfterFinished: 259200
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      activeDeadlineSeconds: 7200
+      containers:
+      - name: count
+        image: ghcr.io/boettiger-lab/datasets:latest
+        env:
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          K=(tidal-flats-v1-2/tidal-flats-{1999-2001,2002-2004,2005-2007,2008-2010,2011-2013,2014-2016,2017-2019}-cog.tif
+             tidal-flats-v1-1/tidal-flats-{1984-1986,1987-1989,1990-1992,1993-1995,1996-1998}-cog.tif)
+          KEY=${K[$JOB_COMPLETION_INDEX]}
+          rclone copyto "nrp:public-coastal/$KEY" /tmp/c.tif
+          python3 - "$KEY" <<'EOF'
+          import sys, numpy as np
+          from multiprocessing import Pool
+          from osgeo import gdal
+          def stripe(args):
+              y0, y1 = args
+              ds = gdal.Open('/tmp/c.tif'); b = ds.GetRasterBand(1); n = 0
+              for y in range(y0, y1, 512):
+                  h = min(512, y1 - y)
+                  n += int(np.count_nonzero(b.ReadAsArray(0, y, ds.RasterXSize, h) == 1))
+              return n
+          ds = gdal.Open('/tmp/c.tif'); H = ds.RasterYSize
+          cuts = list(range(0, H, 512 * 55)) + [H]
+          with Pool(8) as p:
+              total = sum(p.map(stripe, list(zip(cuts[:-1], cuts[1:]))))
+          print(f"RESULT {sys.argv[1]} ones={total}")
+          EOF
+        resources:
+          requests: {cpu: '8', memory: 12Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '8', memory: 12Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
