@@ -34,7 +34,7 @@ public-coral-reef-watch/
   crw-5km-daily/<product>/hex/h0=<cell>/data_0.parquet              # closed months; columns: h6, h0, time, <variable>
   crw-5km-daily/<product>/hex/h0=<cell>/part-tYYYYMMDD-0.parquet    # current month, one file a day until compacted
   crw-5km-daily/<product>/hex/_manifest/chunk-YYYYMMDD.parquet      # mdim's, deleted at compaction
-  crw-5km-daily/ne-pacific-blob/date=YYYY-MM-DD/data_0.parquet
+  crw-5km-daily/ne-pacific-blob/data_0.parquet                     # one row a day; each run's part-YYYYMMDD.parquet is folded in at the end
 ```
 
 The hex is one file per h0 cell, about 46 MB for 13 months of a dense cell, with row groups of 100,000 rows in time order. Read it with `hex/h0=*/*.parquet`, which picks up the current month's daily files too, and filter on `time`: the row-group statistics let a one-day query skip the rest of each file.
