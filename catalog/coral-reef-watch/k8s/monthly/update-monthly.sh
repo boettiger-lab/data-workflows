@@ -151,7 +151,7 @@ while [[ ! "$m" > "$END" ]]; do
     echo "$m $p: $(stat -c %s "$f") bytes"
 
     # Provenance sidecar: source URL, access time, upstream Last-Modified, size, checksum.
-    lastmod=$(curl -sSI "$url" | tr -d '\r' | sed -n 's/^[Ll]ast-[Mm]odified: //p')
+    lastmod=$(curl -sSI --retry 5 --retry-all-errors "$url" | tr -d '\r' | sed -n 's/^[Ll]ast-[Mm]odified: //p')
     printf '{"source_url":"%s","accessed":"%s","upstream_last_modified":"%s","bytes":%s,"sha256":"%s"}\n' \
       "$url" "$(date -u +%FT%TZ)" "$lastmod" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -d' ' -f1)" \
       > "$f.json"
