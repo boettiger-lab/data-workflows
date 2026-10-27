@@ -83,7 +83,8 @@ EOF
 compact() {  # product; folds daily files from closed months into each h0's data_0.parquet
   local p=$1 cutoff=""
   [ "$PRUNE" = 1 ] && cutoff=$CUTOFF
-  rclone lsf -R --files-only --include "h0=*/*.parquet" "nrp:$BUCKET/$PREFIX/$p/hex/" > "$WORK/hex-$p.txt"
+  rclone lsf -R --files-only --include "h0=*/*.parquet" --include "_manifest/*.parquet" \
+    "nrp:$BUCKET/$PREFIX/$p/hex/" > "$WORK/hex-$p.txt"
   python3 - "$p" "$WORK/hex-$p.txt" "$(date -u +%Y%m01)" "$cutoff" "$WORK" "$PREFIX" <<'EOF'
 import os, re, subprocess, sys
 from collections import defaultdict
@@ -92,22 +93,38 @@ import duckdb
 p, listing, month_start, cutoff, work, prefix = sys.argv[1:7]
 bucket = os.environ.get("BUCKET", "public-coral-reef-watch")
 hexdir = f"{bucket}/{prefix}/{p}/hex"
-compacted, parts = set(), defaultdict(list)
+# CELL_SHARD=i/n compacts the cells whose base cell number is i mod n, so a first pass can fan out over pods.
+shard = os.environ.get("CELL_SHARD")
+compacted, parts, manifests = set(), defaultdict(list), []
 for line in open(listing):
-    m = re.fullmatch(r"(h0=\d+)/(?:data_0|part-t(\d{8})-\d+)\.parquet", line.strip())
+    line = line.strip()
+    m = re.fullmatch(r"_manifest/chunk-(\d{8})\.parquet", line)
+    if m and m.group(1) < month_start:
+        manifests.append(line)
+    m = re.fullmatch(r"(h0=\d+)/(?:data_0|part-t(\d{8})-\d+)\.parquet", line)
     if not m:
         continue
     if m.group(2) is None:
         compacted.add(m.group(1))
     elif m.group(2) < month_start:
-        parts[m.group(1)].append(line.strip())
+        parts[m.group(1)].append(line)
+if manifests and not shard:  # mdim's per-day manifests; nothing reads them once the day is compacted
+    lst = os.path.join(work, "manifest.txt")
+    open(lst, "w").write("\n".join(manifests) + "\n")
+    subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{hexdir}/"], check=True)
 if not parts:
     sys.exit(print(f"{p}: no daily files from closed months to compact"))
 days = sorted({re.search(r"part-t(\d{8})", f).group(1) for fs in parts.values() for f in fs})
 # Without a cutoff, only cells with new days change; with one, every cell drops expired months.
 cells = sorted(set(parts) | (compacted if cutoff else set()))
+if shard:
+    i, n = map(int, shard.split("/"))
+    cells = [c for c in cells if (int(c[3:]) >> 45 & 127) % n == i]  # by H3 base cell, stable across retries
 print(f"{p}: compacting {len(days)} days ({days[0]}..{days[-1]}) into {len(cells)} h0 files")
 con = duckdb.connect()
+# Without an explicit limit DuckDB sizes itself to the node, not the pod, and is OOM-killed.
+con.execute(f"""SET memory_limit = '{os.environ.get("DUCKDB_MEMORY_LIMIT", "1800MiB")}'; SET threads = 2;
+  SET preserve_insertion_order = false; SET temp_directory = '{work}/duckdb-tmp'""")
 con.execute("INSTALL httpfs; LOAD httpfs")
 con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
   SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
@@ -134,11 +151,8 @@ def one(cell):
         open(lst, "w").write("\n".join(parts[cell]) + "\n")
         subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{hexdir}/"], check=True)
 
-with ThreadPoolExecutor(4) as pool:
+with ThreadPoolExecutor(2) as pool:
     list(pool.map(one, cells))
-lst = os.path.join(work, "manifest.txt")
-open(lst, "w").write("".join(f"_manifest/chunk-{d}.parquet\n" for d in days))
-subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{hexdir}/"], check=True)
 EOF
 }
 
@@ -224,7 +238,7 @@ done
 
 if [ "$COMPACT" = 1 ]; then
   for p in "${PRODUCTS[@]}"; do compact "$p"; done
-  compact_blob
+  if [[ "${CELL_SHARD:-0/1}" == 0/* ]]; then compact_blob; fi  # one shard only
 fi
 
 if [ "$PRUNE" = 1 ]; then

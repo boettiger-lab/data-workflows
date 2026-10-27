@@ -11,7 +11,7 @@ Scope (products, tiers, window, resolution, reducers, naming) is in #802. This f
 | `k8s/daily/crw-5km-daily-script.yaml` | the script as a ConfigMap (regenerate after editing it) |
 | `k8s/daily/crw-5km-daily-cronjob.yaml` | 18:00 UTC daily: last 10 days, monthly compaction, prune beyond 13 months |
 | `k8s/daily/crw-5km-daily-backfill.yaml` | one-off fill of the window, one week per index (`COMPACT=0`) |
-| `k8s/daily/crw-5km-daily-compact.yaml` | one-off first compaction after the backfill, one index per product |
+| `k8s/daily/crw-5km-daily-compact.yaml` | one-off first compaction after the backfill, 8 cell shards per product |
 
 For each day and product, `update-daily.sh` does the following:
 
@@ -41,7 +41,7 @@ The hex is one file per h0 cell, about 46 MB for 13 months of a dense cell, with
 
 One file per cell per day, the layout as mdim writes it, came to about 46,000 files of 70-220 KB per product over the window; a one-day global query had to open every footer and took over 2 minutes. Partitioning by `date=` above `h0` was considered and rejected: it keeps files that small and still opens thousands of footers for any query across time. Rewriting every cell daily would cost about 36 GB of writes a day, so compaction is monthly, and the current month stays as daily files.
 
-The first compaction reads about 340 small files per cell (1.5-3 minutes a cell, measured on three ssta cells), so it runs as a one-off job; a monthly pass with one month of daily files took 33 s for one cell.
+The first compaction reads about 370 small files per cell, several minutes a cell, so it runs as a one-off job sharded eight ways per product by H3 base cell (`CELL_SHARD`); one pod per product got through only 14-34 of about 117 cells in 4 hours. A monthly pass with one month of daily files took 33 s for one cell. DuckDB's memory limit must be set explicitly in the pod: left unset, it sizes itself to the node and the 3.5 GiB pod is OOM-killed.
 
 ### Why `mdim` and not `raster-workflow`
 

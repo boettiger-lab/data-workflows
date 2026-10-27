@@ -58,14 +58,14 @@ data:
       python3 - "$1" "$2" <<'EOF'
     import os, sys, duckdb
     ymd, iso = sys.argv[1], sys.argv[2]
-    bucket, prefix = os.environ.get("BUCKET", "public-coral-reef-watch"), "crw-5km-daily"
+    bucket, prefix = os.environ.get("BUCKET", "public-coral-reef-watch"), os.environ.get("PREFIX", "crw-5km-daily")
     con = duckdb.connect()
     con.execute("INSTALL h3 FROM community; LOAD h3; INSTALL httpfs; LOAD httpfs")
     con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
       SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
       USE_SSL false, URL_STYLE 'path')""")
     src = f"s3://{bucket}/{prefix}/ssta/hex/h0=*/part-t{ymd}-*.parquet"
-    out = f"s3://{bucket}/{prefix}/ne-pacific-blob/date={iso}/data_0.parquet"
+    out = f"s3://{bucket}/{prefix}/ne-pacific-blob/part-{ymd}.parquet"  # folded into data_0.parquet by compact_blob
     con.execute(f"""COPY (
       WITH cells AS (
         SELECT h3_cell_to_lat(h6) AS lat, h3_cell_to_lng(h6) AS lng,
@@ -88,7 +88,8 @@ data:
     compact() {  # product; folds daily files from closed months into each h0's data_0.parquet
       local p=$1 cutoff=""
       [ "$PRUNE" = 1 ] && cutoff=$CUTOFF
-      rclone lsf -R --files-only --include "h0=*/*.parquet" "nrp:$BUCKET/$PREFIX/$p/hex/" > "$WORK/hex-$p.txt"
+      rclone lsf -R --files-only --include "h0=*/*.parquet" --include "_manifest/*.parquet" \
+        "nrp:$BUCKET/$PREFIX/$p/hex/" > "$WORK/hex-$p.txt"
       python3 - "$p" "$WORK/hex-$p.txt" "$(date -u +%Y%m01)" "$cutoff" "$WORK" "$PREFIX" <<'EOF'
     import os, re, subprocess, sys
     from collections import defaultdict
@@ -97,22 +98,38 @@ data:
     p, listing, month_start, cutoff, work, prefix = sys.argv[1:7]
     bucket = os.environ.get("BUCKET", "public-coral-reef-watch")
     hexdir = f"{bucket}/{prefix}/{p}/hex"
-    compacted, parts = set(), defaultdict(list)
+    # CELL_SHARD=i/n compacts the cells whose base cell number is i mod n, so a first pass can fan out over pods.
+    shard = os.environ.get("CELL_SHARD")
+    compacted, parts, manifests = set(), defaultdict(list), []
     for line in open(listing):
-        m = re.fullmatch(r"(h0=\d+)/(?:data_0|part-t(\d{8})-\d+)\.parquet", line.strip())
+        line = line.strip()
+        m = re.fullmatch(r"_manifest/chunk-(\d{8})\.parquet", line)
+        if m and m.group(1) < month_start:
+            manifests.append(line)
+        m = re.fullmatch(r"(h0=\d+)/(?:data_0|part-t(\d{8})-\d+)\.parquet", line)
         if not m:
             continue
         if m.group(2) is None:
             compacted.add(m.group(1))
         elif m.group(2) < month_start:
-            parts[m.group(1)].append(line.strip())
+            parts[m.group(1)].append(line)
+    if manifests and not shard:  # mdim's per-day manifests; nothing reads them once the day is compacted
+        lst = os.path.join(work, "manifest.txt")
+        open(lst, "w").write("\n".join(manifests) + "\n")
+        subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{hexdir}/"], check=True)
     if not parts:
         sys.exit(print(f"{p}: no daily files from closed months to compact"))
     days = sorted({re.search(r"part-t(\d{8})", f).group(1) for fs in parts.values() for f in fs})
     # Without a cutoff, only cells with new days change; with one, every cell drops expired months.
     cells = sorted(set(parts) | (compacted if cutoff else set()))
+    if shard:
+        i, n = map(int, shard.split("/"))
+        cells = [c for c in cells if (int(c[3:]) >> 45 & 127) % n == i]  # by H3 base cell, stable across retries
     print(f"{p}: compacting {len(days)} days ({days[0]}..{days[-1]}) into {len(cells)} h0 files")
     con = duckdb.connect()
+    # Without an explicit limit DuckDB sizes itself to the node, not the pod, and is OOM-killed.
+    con.execute(f"""SET memory_limit = '{os.environ.get("DUCKDB_MEMORY_LIMIT", "1800MiB")}'; SET threads = 2;
+      SET preserve_insertion_order = false; SET temp_directory = '{work}/duckdb-tmp'""")
     con.execute("INSTALL httpfs; LOAD httpfs")
     con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
       SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
@@ -139,11 +156,39 @@ data:
             open(lst, "w").write("\n".join(parts[cell]) + "\n")
             subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{hexdir}/"], check=True)
 
-    with ThreadPoolExecutor(4) as pool:
+    with ThreadPoolExecutor(2) as pool:
         list(pool.map(one, cells))
-    lst = os.path.join(work, "manifest.txt")
-    open(lst, "w").write("".join(f"_manifest/chunk-{d}.parquet\n" for d in days))
-    subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{hexdir}/"], check=True)
+    EOF
+    }
+
+    compact_blob() {  # folds the blob summary's one-row daily files into ne-pacific-blob/data_0.parquet
+      rclone lsf -R --files-only "nrp:$BUCKET/$PREFIX/ne-pacific-blob/" > "$WORK/blob.txt"
+      python3 - "$WORK/blob.txt" "$WORK" "$PREFIX" <<'EOF'
+    import os, re, subprocess, sys
+    import duckdb
+    listing, work, prefix = sys.argv[1:4]
+    blobdir = f"{os.environ.get('BUCKET', 'public-coral-reef-watch')}/{prefix}/ne-pacific-blob"
+    files = [l.strip() for l in open(listing)]
+    # part-YYYYMMDD.parquet, or date=YYYY-MM-DD/data_0.parquet as the first backfill wrote them
+    new = [f"s3://{blobdir}/{f}" for f in files if re.fullmatch(r"part-\d{8}\.parquet|date=[\d-]{10}/data_0\.parquet", f)]
+    if not new:
+        sys.exit()
+    con = duckdb.connect()
+    con.execute("INSTALL httpfs; LOAD httpfs")
+    con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+      SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
+      USE_SSL false, URL_STYLE 'path')""")
+    sel = [f"SELECT * FROM read_parquet({new!r}, hive_partitioning=false)"]
+    if "data_0.parquet" in files:
+        sel.append(f"""SELECT * FROM read_parquet('s3://{blobdir}/data_0.parquet')
+          WHERE date NOT IN (SELECT date FROM read_parquet({new!r}, hive_partitioning=false))""")
+    out = os.path.join(work, "blob.parquet")
+    con.execute(f"COPY (SELECT * FROM ({' UNION ALL BY NAME '.join(sel)}) ORDER BY date) TO '{out}' (FORMAT PARQUET)")
+    subprocess.run(["rclone", "copyto", out, f"nrp:{blobdir}/data_0.parquet"], check=True)
+    lst = os.path.join(work, "blob-new.txt")
+    open(lst, "w").write("".join(f[len(f"s3://{blobdir}/"):] + "\n" for f in new))
+    subprocess.run(["rclone", "delete", "--files-from-raw", lst, f"nrp:{blobdir}/"], check=True)
+    print(f"ne-pacific-blob: folded {len(new)} days into data_0.parquet")
     EOF
     }
 
@@ -198,6 +243,7 @@ data:
 
     if [ "$COMPACT" = 1 ]; then
       for p in "${PRODUCTS[@]}"; do compact "$p"; done
+      if [[ "${CELL_SHARD:-0/1}" == 0/* ]]; then compact_blob; fi  # one shard only
     fi
 
     if [ "$PRUNE" = 1 ]; then
