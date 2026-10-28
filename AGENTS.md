@@ -313,6 +313,7 @@ With `--backend armada` the CLI emits armada YAMLs for all steps alongside k8s m
 ```bash
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-setup-bucket.yaml
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-convert.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-plan.yaml      # if emitted (cells-per-chunk plan, #124)
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-pmtiles.yaml
 armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml
 # wait for hex, then:
@@ -344,15 +345,18 @@ cng-datasets raster-workflow \
 ```
 
 Rasters produce **COG + hex only** (no GeoParquet/PMTiles); a WGS84 COG is always created on NRP
-S3 first and the hex reads from that COG. Completions are always **122** (one per h0 cell) — not
-configurable.
+S3 first and the hex reads from that COG. Completions default to **122** (one per h0 cell); a
+regional source should pass `--h0-cells` (H3 base-cell numbers) or `--h0-subset` (h0 grid
+*positions*) — the two both run 0–121, so a base-cell list given to `--h0-subset` silently builds
+the wrong cells (datasets#191, #213).
 
 ⛔ **Two choices here silently corrupt the data if you get them wrong, and both are measurements,
 not preferences:**
 
 - **`--h3-resolution` — match the source pixel.** Finer than the source adds no information at
-  ~7× cost per step. Never rely on auto-detection.
-- **`--hex-resampling` — the reducer** (`sum` / `mean` / `mode` / `max` / `min`, default `mean`).
+  ~7× cost per step. `raster-workflow` defaults to 8, not to the pixel; pass it explicitly.
+- **`--hex-resampling` — the reducer** (`sum` / `mean` / `mode` / `fractions` / `max` / `min`,
+  default `mean`).
   Summing a *density* is the recurring error: the reducer follows the source **units**, not the
   conceptual quantity.
 
@@ -591,11 +595,14 @@ open gaps that legitimately force a hand edit today:
 
 | gap | issue |
 |---|---|
-| `--namespace` not stamped on step manifests | datasets#190 |
-| hex `completions` fixed at 122; no populated-h0 subset | datasets#191 |
-| multi-dimension fan-out (h0 × year/layer/reducer) | datasets#172 |
-| orchestrator cannot drive the Armada backend | datasets#39 |
+| multi-dimension fan-out (h0 × year/layer/reducer) for per-year COGs (zarr/netCDF cubes: `mdim-workflow`, #181) | datasets#172 |
 | Armada converter keeps k8s pod shape, drops retry | datasets#183 |
+| no `--convert-memory`; convert fixed at 8Gi | datasets#275 |
+| PMTiles `TIPPECANOE_MAX_THREADS` aborts on ≥256-CPU nodes | datasets#273 |
+
+No longer gaps — use the flag, not a hand edit: `--namespace` (#190), `--h0-cells`/`--h0-subset`
+(#191, #213), `--hex-retries`/`--max-failed-indexes` and default priority (#201). Armada steps are
+still submitted in order by hand; that is the design (#39 closed), not a deviation.
 
 **The gate.** CI runs `scripts/check-generated-manifests.py --base origin/main` over the recipes your
 PR touches. It ratchets rather than blocking on history: the ~33 pre-existing undeclared recipes are
@@ -634,21 +641,14 @@ the whole point.
   of containers`. **If pods die at 137 while sitting far below their memory limit, check
   ephemeral before touching memory** — on #515 five fvc pods died at 21–23 GiB of a 128 GiB
   limit and the memory request was raised twice for nothing.
-  **Size ephemeral from the GRID, not from the COG.** The raster hex step writes an
-  **uncompressed fill-collapse intermediate** (`/tmp/cng_collapsed_*.tif`) whose size is
-  `pixels x bytes-per-pixel` of the whole raster — it does **not** scale with how well the
-  source compresses, and it is written in full by *every* pod regardless of which h0 that pod
-  processes. Measured on #515: the LANDFIRE CONUS grid (156,336 x 101,538, Int16) gives
-  31.7 GB by arithmetic and **34 GB observed on every layer alike** — fvc (4.32 GB COG) and
-  fvh (3.74 GB COG) both produced exactly 34 GB. So:
-
-      ephemeral >= (grid pixels x bytes per pixel) + localized COG + margin
-
-  For this grid that is ~34 GB + 2-4.3 GB = **36-38 GB**, which is why the canopy layers
-  survived a 40Gi limit with only ~4 GB to spare and fvc (the largest COG) evicted at 38.1 GB.
-  A **finer chunking strategy does not reduce this** — each pod still writes the whole grid
-  (boettiger-lab/datasets#209).
-- **Keep ephemeral-storage modest; generated YAMLs default to 250Gi, so reduce it.** 50Gi is a good default and what most jobs need. It is **not a hard cap** in `geo-workflows`: the LimitRange there sets `default: 50Gi` with `max` empty, so a larger request is legal and passes validation. (The 50Gi *clamp* was the legacy `biodiversity` namespace, which these jobs no longer run in.) Go above 50Gi only with a reason recorded in the manifest — `wrc-2` warps a striped CONUS source at 60Gi (#592) — and keep it courteous on shared nodes.
+  **Size hex ephemeral from the localized COG plus margin.** The full-grid fill-collapse
+  intermediate that evicted #515 (34 GB per pod on a 4.3 GB LANDFIRE COG) is gone since
+  datasets#209: with several `--nodata` codes an **integer** source is collapsed as a VRT
+  lookup table (no raster written), and only a **float** source materialises a
+  ZSTD-compressed copy; a single nodata code needs no collapse
+  (`_collapsed_aggregation_input`, `cng_datasets/raster/cog.py`). The multi-tile mosaic
+  (preprocess-cog) has written compressed, sparse intermediates since 0.11.3 (datasets#277).
+- **Keep ephemeral-storage modest.** Generator defaults: hex 10Gi (vector) / 20Gi (raster, `--hex-storage`), preprocess-cog 50Gi (`--cog-storage`), repartition 50Gi, raster merge 100Gi (`--merge-storage`). 50Gi is a good default and what most jobs need. It is **not a hard cap** in `geo-workflows`: the LimitRange there sets `default: 50Gi` with `max` empty, so a larger request is legal and passes validation. (The 50Gi *clamp* was the legacy `biodiversity` namespace, which these jobs no longer run in.) Go above 50Gi only with a reason recorded in the manifest — `wrc-2` warps a striped CONUS source at 60Gi (#592) — and keep it courteous on shared nodes.
 - **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
 - **Do not record operational/how-to-work lessons in agent memory (`~/.claude/.../memory`).** This repo is cloned and run by students — and soon by always-on headless agents (Hermes/openclaw). Anything that should shape how tasks run here belongs in **this AGENTS.md or a local skill (`.claude/skills/`)**, so every clone and headless run behaves the same. A lesson saved only to one VM's memory silently diverges your experience from everyone else's. (Memory remains fine for genuinely personal, non-shareable session context.)
 

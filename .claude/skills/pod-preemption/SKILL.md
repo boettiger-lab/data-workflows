@@ -159,9 +159,10 @@ Two things the docs make explicit, both easy to get backwards:
   neither preempted by normal pods nor preempt them. So an `armada-default` job is well
   insulated — but that is a property of the class, not of Armada itself.
 
-The catch: `cng_datasets/k8s/armada.py` **defaults to `armada-preemptible`** and maps k8s
-`opportunistic` onto it, so a converted job stays preemptible unless you pass `armada-default`
-deliberately.
+`cng_datasets/k8s/armada.py` now defaults to `armada-default` (non-preemptible) and no longer maps
+k8s `opportunistic` to `armada-preemptible`; opt in with `--armada-priority-class preemptible`.
+Generated k8s manifests likewise omit `priorityClassName` (default 0) unless `--priority-class` is
+passed (datasets#201).
 
 ## ⛔ Keep failed pods inspectable
 
