@@ -210,9 +210,12 @@ data:
         url="$SRC/$p/${ymd:0:4}/$name"
         f="$WORK/$name"
         code=$(curl -sS --retry 5 --retry-all-errors -w '%{http_code}' -o "$f" "$url" || true)
-        if [ "$code" != 200 ]; then
-          echo "$d $p: not available upstream (HTTP $code), skipping"
+        if [ "$code" = 404 ]; then
+          echo "$d $p: not available upstream (HTTP 404), skipping"
           rm -f "$f"; continue
+        elif [ "$code" != 200 ]; then
+          # Anything but a 404 is a failed download, not a missing file: fail so the run is retried.
+          echo "$d $p: download failed (HTTP $code)" >&2; exit 1
         fi
         echo "$d $p: $(stat -c %s "$f") bytes"
 
