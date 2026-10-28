@@ -38,4 +38,11 @@ Three collections in `public-coastal`: `tidal-marsh-2020` (Worthington et al. 20
 - `gs://uq-intertidal/v1_2/` has no mapped-area layer (only `global_intertidal/`,
   `qa_pixel_count/`); `v1_2_v5_masked/` is undocumented and excluded.
 
+## Since this build
+- datasets#277 (mosaic intermediates) and #272 (bilinear warp) are fixed in cng-datasets 0.11.3:
+  use the generator's preprocess-cog for a new tiled ingest; re-tile row-striped tiles first.
+- datasets#295 (antimeridian h0) is fixed by datasets PR #298, merged after 0.11.4: no
+  `--chunk-resolution` re-run should be needed once a release carries it.
+- datasets#299 (merge-chunks on an all-empty h0) is still open.
+
 STAC and README live on S3 only (`public-coastal/<collection>/stac-collection.json`).

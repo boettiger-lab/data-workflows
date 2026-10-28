@@ -1,6 +1,8 @@
 # HAND-ROLLED: the generator's preprocess-cog writes two uncompressed full-grid intermediates
 # (~2 x 595 GB per 30 m epoch, ~2 x 5.4 TB for the 10 m marsh; datasets#277) and cannot fan out
-# one COG per epoch (datasets#172). Pattern follows
+# one COG per epoch (datasets#172).
+# datasets#277 was fixed in cng-datasets 0.11.3 (compressed scratch, no warp on the target grid):
+# a new ingest should use the generator's preprocess-cog, re-tiling row-striped tiles first. Pattern follows
 # catalog/wetlands/k8s/gmw-v4-1-12/epoch-cogs.yaml (#792).
 #
 # One WGS84 COG per index from the tiles staged by stage-raw.yaml:
