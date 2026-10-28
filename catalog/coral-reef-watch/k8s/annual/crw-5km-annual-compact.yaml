@@ -1,0 +1,68 @@
+# HAND-ROLLED: one-off first compaction of the annual backfill into one file per h0 cell
+# (data-workflows#802): 10 indexes, one per product. update-annual.sh with an empty year range
+# only compacts: every yearly file is folded into hex/h0=<cell>/data_0.parquet.
+# Idempotent: a rerun continues from the cells already compacted. Run after the backfill finishes.
+# DEVIATION (#802): opportunistic priority (41 small files a cell, against the monthly tier's 492,
+# so a product should take well under an hour, and a preempted index redoes only the cells it had
+# not reached); 1 CPU and 2Gi, as measured for the monthly compaction (#804).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crw-5km-annual-compact
+  namespace: geo-workflows
+  labels: {k8s-app: crw-5km-annual-compact}
+spec:
+  completions: 10
+  parallelism: 10
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  activeDeadlineSeconds: 14400
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: crw-5km-annual-compact}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: compact
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3  # DEVIATION (#802): pinned, as in the CronJob
+        imagePullPolicy: IfNotPresent
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          products=(sst-min sst-mean sst-max ssta-min ssta-mean ssta-max hs-max dhw-max baa-max baa5-max)
+          export ONLY_PRODUCTS=${products[$JOB_COMPLETION_INDEX]}
+          exec bash /scripts/update-annual.sh 2001 2000
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: BUCKET, value: public-coral-reef-watch}
+        - {name: DUCKDB_MEMORY_LIMIT, value: 1500MiB}
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: 1200m, memory: 2457Mi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /scripts, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: crw-5km-annual-script, defaultMode: 0755}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

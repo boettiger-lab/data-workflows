@@ -1,0 +1,75 @@
+# HAND-ROLLED: one-off fill of the annual tier, 1985 to BACKFILL_END, with the CronJob's script,
+# five years of one product per index (data-workflows#802): product index % 10, years from
+# 1985 + 5 * (index / 10), so 90 indexes reach 2029 and the last ones stop at BACKFILL_END.
+# A product-year takes about 3 min, so an index about 15 min.
+# Pod shape follows `cng-datasets mdim-workflow`, as in the daily tier.
+# DEVIATION (#802): opportunistic priority (indexes run well under an hour, and finished years are
+# skipped, so a preempted index is redone cheaply on retry); memory 3Gi/3.5Gi (hex in 8 h0 batches)
+# per NRP limit/request <= 1.2.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crw-5km-annual-backfill
+  namespace: geo-workflows
+  labels: {k8s-app: crw-5km-annual-backfill}
+spec:
+  completions: 90
+  parallelism: 40
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 20
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: crw-5km-annual-backfill}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic  # idempotent, a preempted index is redone on retry
+      automountServiceAccountToken: false
+      containers:
+      - name: update
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3  # DEVIATION (#802): pinned to a tested digest so an unattended run cannot pick up a broken :latest (as 04c8b5e6 did, 2026-10-26); cng-datasets 0.11.3 (datasets#278 fix); bump deliberately
+        imagePullPolicy: IfNotPresent
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          products=(sst-min sst-mean sst-max ssta-min ssta-mean ssta-max hs-max dhw-max baa-max baa5-max)
+          export ONLY_PRODUCTS=${products[$((JOB_COMPLETION_INDEX % 10))]}
+          y=$((1985 + 5 * (JOB_COMPLETION_INDEX / 10)))
+          e=$((y + 4 > BACKFILL_END ? BACKFILL_END : y + 4))
+          exec bash /scripts/update-annual.sh "$y" "$e"
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: BUCKET, value: public-coral-reef-watch}
+        - {name: DUCKDB_MEMORY_LIMIT, value: 1800MiB}
+        - {name: GDAL_CACHEMAX, value: '1024'}
+        - {name: BACKFILL_END, value: '2025'}
+        - {name: COMPACT, value: '0'}  # parallel pods must not rewrite the same h0 files; crw-5km-annual-compact.yaml folds them afterwards
+        resources:
+          requests: {cpu: '2', memory: 3Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 3584Mi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /scripts, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: crw-5km-annual-script, defaultMode: 0755}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
