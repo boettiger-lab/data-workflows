@@ -104,6 +104,8 @@ The steps match the daily tier, with these differences:
 - mdim writes to local disk; the script converts `date` and uploads only the per-h0 files.
 - DHW and both BAA products start in 1985-04, after twelve weeks of HotSpot accumulate; the other six start in 1985-01.
 - Nothing is pruned. Compaction is yearly: the current year's monthly files stay beside `data_0.parquet` until January.
+- The January fold rewrites all 117 cells of all ten products from one opportunistic pod, likely more than one run's 4-hour deadline. A cut-short fold loses nothing: each cell's `data_0.parquet` is replaced before its monthly files are deleted, so the next run (the 5th, then each later run) picks up the cells still holding last year's files.
+- The first compaction ran as `crw-5km-monthly-compact.yaml`, 80 pods at default priority taking 1.5 hours. They used 35–730m CPU and 0.3–1.9 GiB, so they request 1 CPU and 2Gi, below the sizes NRP's usage check looks at (#804).
 
 ```
 public-coral-reef-watch/
