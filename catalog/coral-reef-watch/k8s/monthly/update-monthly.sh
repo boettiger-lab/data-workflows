@@ -144,9 +144,12 @@ while [[ ! "$m" > "$END" ]]; do
     f="$WORK/$name"
     # DHW and both BAA products start in 1985-04, after twelve weeks of HotSpot accumulate.
     code=$(curl -sS --retry 5 --retry-all-errors -w '%{http_code}' -o "$f" "$url" || true)
-    if [ "$code" != 200 ]; then
-      echo "$m $p: not available upstream (HTTP $code), skipping"
+    if [ "$code" = 404 ]; then
+      echo "$m $p: not available upstream (HTTP 404), skipping"
       rm -f "$f"; continue
+    elif [ "$code" != 200 ]; then
+      # Anything but a 404 is a failed download, not a missing file: fail so the run is retried.
+      echo "$m $p: download failed (HTTP $code)" >&2; exit 1
     fi
     echo "$m $p: $(stat -c %s "$f") bytes"
 
