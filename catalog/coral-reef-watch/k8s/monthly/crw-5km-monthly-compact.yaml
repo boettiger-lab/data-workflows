@@ -3,7 +3,9 @@
 # update-monthly.sh with an empty month range only compacts: monthly files from closed years are
 # folded into hex/h0=<cell>/data_0.parquet; the current year's stay beside it until it closes.
 # Idempotent: a rerun continues from the cells already compacted. Run after the backfill finishes.
-# DEVIATION (#802): default priority, not opportunistic, since pods can run over an hour.
+# DEVIATION (#802): default priority, not opportunistic, since pods can run over an hour. Sized under
+# NRP's usage-check thresholds (CPU > 1 core, memory > 2 GiB): measured 35-500m CPU and 0.26-1.8 GiB,
+# which a 2-CPU, 3Gi request left out of range (#804).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -43,10 +45,10 @@ spec:
         - {name: AWS_HTTPS, value: 'false'}
         - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
         - {name: BUCKET, value: public-coral-reef-watch}
-        - {name: DUCKDB_MEMORY_LIMIT, value: 1800MiB}
+        - {name: DUCKDB_MEMORY_LIMIT, value: 1500MiB}
         resources:
-          requests: {cpu: '2', memory: 3Gi, ephemeral-storage: 10Gi}
-          limits: {cpu: '2', memory: 3584Mi, ephemeral-storage: 10Gi}
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: 1200m, memory: 2457Mi, ephemeral-storage: 10Gi}
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         - {name: script, mountPath: /scripts, readOnly: true}
