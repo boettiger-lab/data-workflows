@@ -64,7 +64,7 @@ spec:
               ("tidal-flats-v1-1", ["datamask"], "tidal-flats-v1-1/datamask", "mapped", 0.00026949458523585647),
               ("tidal-marsh-2020", ["2020"], "tidal-marsh-2020", "tidal_marsh", 8.983152841195213e-05),
           ]
-          coll, epochs, out, stem, PX = ASSETS[int(os.environ["JOB_COMPLETION_INDEX"])]
+          coll, epochs, out, stem, PX = ASSETS[int(os.environ.get("ASSET_INDEX", os.environ["JOB_COMPLETION_INDEX"]))]
           multi = len(epochs) > 1
           pxcol = {"tidal_flat": "flat_px", "mapped": "mapped_px", "tidal_marsh": "marsh_px"}[stem]
           B = "s3://public-coastal"
