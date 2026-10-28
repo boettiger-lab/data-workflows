@@ -1,0 +1,45 @@
+# HAND-ROLLED diagnostic (#792): times per-tile conversion of the row-striped v1.2 tiles
+# (block 74213x1) to tiled ZSTD GTiffs with internal overviews, to size a parallel COG build.
+# Writes nothing to S3.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tidal-cog-timing-test
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: t
+        image: ghcr.io/boettiger-lab/datasets:latest
+        env:
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          mkdir -p /tmp/t && cd /tmp/t
+          rclone copyto nrp:public-coastal/raw/tidal-flats/v1_2/global_intertidal/2017-2019.zip src.zip
+          python3 -c "import zipfile; zipfile.ZipFile('src.zip').extractall('tiles')"; rm src.zip
+          conv() { gdal_translate -q "$1" "out/$(basename "$1")" -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 \
+                     -co COMPRESS=ZSTD -co SPARSE_OK=TRUE -co BIGTIFF=YES \
+                   && gdaladdo -q -r nearest "out/$(basename "$1")" 2 4 8 16 32 64 128; }
+          export -f conv; mkdir -p out
+          T=tiles/2017-2019_100_0.tif   # a tile with tidal flat (SE Asia)
+          echo "== one tile, one process"; time conv $T
+          ls -la out; rm -f out/*
+          echo "== 8 tiles, 8 processes"; time (ls tiles/*.tif | head -8 | xargs -P8 -I{} bash -c 'conv {}')
+          du -sh out
+        resources:
+          requests: {cpu: '8', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '8', memory: 16Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
