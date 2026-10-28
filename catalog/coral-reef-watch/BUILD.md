@@ -139,6 +139,7 @@ The script is the monthly one with these differences:
 - Upstream's annual files sit in one directory, `annual/ct5km_<product>_v3.1_YYYY.nc`, and `time` is the last day of the year.
 - DHW and both BAA products have no full-year 1985 file. Upstream's 1985-03-25 to 1985-12-31 composite (`partial_year_1985/`) stands in for that year; its `time` is also 1985-12-31.
 - Every annual composite is of a closed year, so each run folds its new yearly files into `data_0.parquet` straight away; the hex has one file per cell and no current-period files.
+- Measured on 2026-10-28: the 90-index backfill took 32 minutes and the 10-pod first compaction 29 minutes.
 
 ```
 public-coral-reef-watch/
