@@ -38,13 +38,16 @@ cng-datasets raster-workflow --dataset wyoming/rap-arte \
 ```
 Extra options: `--target-extent "xmin,ymin,xmax,ymax"` (EPSG:4326 clip), `--target-resolution <degrees>`, `--band <n>` (1-indexed), `--output-cog-name <key>`.
 
-⚠️ Two open preprocess-cog defects: it hardcodes `--resampling bilinear` for the warp, which
-interpolates class codes in a categorical (`mode`/`fractions`) source (datasets#272); and
-`create_mosaic_cog` warps each CRS group to a `COMPRESS=NONE` GTiff and then writes a second
-uncompressed `intermediate.tif`, even when tiles are already EPSG:4326 on a shared grid — ~2×
-grid pixels × bytes of local disk, prohibitive for global 10–30 m tiled sources (datasets#277;
-`cng_datasets/raster/cog.py` `create_mosaic_cog`). Size `--cog-storage`
-from the grid, or use the many-tile pattern below.
+Since 0.11.3, preprocess-cog mosaics tiles that are already in the target CRS on one grid
+through a VRT with no warp, so their values pass through unchanged, and it writes its
+intermediates ZSTD-compressed and sparse (datasets#277, #272). Before that it wrote two
+uncompressed full-grid GeoTIFFs (~1.2 TB for one global 30 m layer), and #792 hand-rolled
+its COGs for that reason; use the generator now.
+
+⚠️ **Row-striped source tiles (block = full width × 1) are slow through a VRT.** In #792 a
+single COG pass over 108 such tiles read ~7% of the input in an hour. Re-tiling each tile to
+512×512 first (`gdal_translate -co TILED=YES` in parallel, ~10 s per 74k² tile) then building
+the COG took 25 min. Check `gdalinfo` → `Block=` before mosaicking.
 
 ## ⭐ For RASTERS, native resolution is set by the SOURCE PIXEL — match it, never oversample
 

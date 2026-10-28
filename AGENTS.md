@@ -597,8 +597,6 @@ open gaps that legitimately force a hand edit today:
 |---|---|
 | multi-dimension fan-out (h0 × year/layer/reducer) for per-year COGs (zarr/netCDF cubes: `mdim-workflow`, #181) | datasets#172 |
 | Armada converter keeps k8s pod shape, drops retry | datasets#183 |
-| preprocess-cog hardcodes `--resampling bilinear` (corrupts categorical sources) | datasets#272 |
-| mosaic writes two uncompressed full-grid intermediates, even for same-grid 4326 tiles | datasets#277 |
 | no `--convert-memory`; convert fixed at 8Gi | datasets#275 |
 | PMTiles `TIPPECANOE_MAX_THREADS` aborts on ≥256-CPU nodes | datasets#273 |
 
@@ -648,8 +646,8 @@ the whole point.
   datasets#209: with several `--nodata` codes an **integer** source is collapsed as a VRT
   lookup table (no raster written), and only a **float** source materialises a
   ZSTD-compressed copy; a single nodata code needs no collapse
-  (`_collapsed_aggregation_input`, `cng_datasets/raster/cog.py`). The **multi-tile mosaic**
-  (preprocess-cog) still writes ~2× grid pixels × bytes uncompressed (datasets#277) — size `--cog-storage` from the grid there.
+  (`_collapsed_aggregation_input`, `cng_datasets/raster/cog.py`). The multi-tile mosaic
+  (preprocess-cog) has written compressed, sparse intermediates since 0.11.3 (datasets#277).
 - **Keep ephemeral-storage modest.** Generator defaults: hex 10Gi (vector) / 20Gi (raster, `--hex-storage`), preprocess-cog 50Gi (`--cog-storage`), repartition 50Gi, raster merge 100Gi (`--merge-storage`). 50Gi is a good default and what most jobs need. It is **not a hard cap** in `geo-workflows`: the LimitRange there sets `default: 50Gi` with `max` empty, so a larger request is legal and passes validation. (The 50Gi *clamp* was the legacy `biodiversity` namespace, which these jobs no longer run in.) Go above 50Gi only with a reason recorded in the manifest — `wrc-2` warps a striped CONUS source at 60Gi (#592) — and keep it courteous on shared nodes.
 - **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
 - **Do not record operational/how-to-work lessons in agent memory (`~/.claude/.../memory`).** This repo is cloned and run by students — and soon by always-on headless agents (Hermes/openclaw). Anything that should shape how tasks run here belongs in **this AGENTS.md or a local skill (`.claude/skills/`)**, so every clone and headless run behaves the same. A lesson saved only to one VM's memory silently diverges your experience from everyone else's. (Memory remains fine for genuinely personal, non-shareable session context.)
