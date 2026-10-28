@@ -21,7 +21,7 @@ For each day and product, `update-daily.sh` does the following:
 4. For `ssta` only, write the NE Pacific blob summary.
 5. Upload the COG.
 
-The COG goes up last and doubles as the completion marker. A failed day is redone on the next run, and a finished day is skipped.
+The COG goes up last and doubles as the completion marker. A failed day is redone on the next run, and a finished day is skipped. A day upstream has not posted (HTTP 404) is skipped; any other download error fails the run, so a dropped connection is retried rather than passed over, as 16 product-months of the monthly backfill were before 2026-10-28.
 
 After the days, `update-daily.sh` compacts (unless `COMPACT=0`). Any daily hex file from a month that has closed is folded into its cell's `data_0.parquet`, sorted by `time` then `h6`, and deleted. A day present in both (posted late or reprocessed) takes the daily file's values. Compaction also keeps one row per cell per day: mdim splits a cell's day into `part-t<day>-0`, `-1`, ... files as it sees fit, so before 2026-10-27, when a rerun of a day did not first delete that day's files, a split left from an earlier run repeated rows (601,131 on ssta 2026-01-09 alone). `update-daily.sh` now deletes a day's daily files before hexing it, and `REWRITE_ALL=1` rewrites every compacted cell. With `PRUNE=1`, the same rewrite drops months older than the window, so the hex, COGs and raw are all pruned to the first of a month.
 
