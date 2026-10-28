@@ -45,3 +45,13 @@ cng-datasets raster-workflow --dataset tidal-marsh-2020/staging-2020-h0-73 \
   --hex-resampling sum --nodata "0,255" --hex-memory 8Gi --hex-cpu 4 --max-parallelism 25 \
   --priority-class opportunistic --h0-subset 73 --chunk-resolution 2 \
   --output-dir hex/tidal-marsh-2020-2020-h0-73
+# #811: the marsh COG is georeferenced -170..190, and before datasets#298 the hex step pruned every
+# cell west of -170. Rebuild the h0 cells overlapping -180..-170 (60S-60N) with :latest (3d8baf1);
+# the antimeridian fix also makes --chunk-resolution unnecessary. consolidate-marsh.yaml then
+# rewrites just those partitions of tidal-marsh-2020/hex/.
+cng-datasets raster-workflow --dataset tidal-marsh-2020/staging-2020 \
+  --source-url s3://public-coastal/tidal-marsh-2020/tidal-marsh-2020-cog.tif --bucket public-coastal \
+  --namespace geo-workflows --h3-resolution 8 --parent-resolutions 0 --value-column marsh_px \
+  --hex-resampling sum --nodata "0,255" --hex-memory 16Gi --hex-cpu 4 --max-parallelism 14 \
+  --priority-class opportunistic --h0-cells "6,11,17,25,35,45,56,63,77,90,93,106,109,117" \
+  --output-dir hex/tidal-marsh-2020-2020-am
