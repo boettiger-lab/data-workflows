@@ -1,0 +1,66 @@
+# HAND-ROLLED: a non-spatial lookup table; cng-datasets converts spatial data only (#427).
+#
+# Writes, from the staged raw CSVs:
+#   s3://public-iucn/lumbierres-habitat-2021/crosswalk.parquet
+#     iucn_habitat_code, iucn_habitat_name, habitat_class, habitat_class_name
+#     (many-to-many: each IUCN code is listed under every map class it can occur in)
+#   s3://public-iucn/lumbierres-habitat-2021/legend.parquet
+#     habitat_class, habitat_class_name (the map's 11 classes, from Zenodo legend.csv)
+# Fails if any crosswalk code has no IUCN name or any crosswalk value is missing from the legend.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lumbierres-crosswalk
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 259200
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: crosswalk
+        image: ghcr.io/boettiger-lab/datasets:latest
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          python3 - <<'EOF'
+          import duckdb, os
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute(f"""CREATE SECRET s3 (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
+              URL_STYLE 'path', USE_SSL false)""")
+          R = "s3://public-iucn/raw/lumbierres-habitat-2021"
+          O = "s3://public-iucn/lumbierres-habitat-2021"
+          con.execute(f"""CREATE TABLE legend AS
+              SELECT column1::SMALLINT AS habitat_class, trim(regexp_replace(column0, ',\\s*', ', ', 'g')) AS habitat_class_name
+              FROM read_csv('{R}/legend.csv', header=true, columns={{'column0':'VARCHAR','column1':'VARCHAR'}})""")
+          con.execute(f"""CREATE TABLE xw AS
+              SELECT c.code AS iucn_habitat_code, h.name AS iucn_habitat_name,
+                     c.value::SMALLINT AS habitat_class, l.habitat_class_name
+              FROM read_csv('{R}/crosswalk-lumb-cgls-data.csv', header=true, all_varchar=true) c
+              LEFT JOIN read_csv('{R}/iucn-habitat-data.csv', header=true, all_varchar=true) h USING (code)
+              LEFT JOIN legend l ON l.habitat_class = c.value::SMALLINT
+              ORDER BY string_split(c.code, '.')[1]::INT, coalesce(try_cast(string_split(c.code, '.')[2] AS INT), 0), habitat_class""")
+          print(con.sql("SELECT * FROM legend ORDER BY habitat_class"))
+          print(con.sql("SELECT COUNT(*) rows, COUNT(DISTINCT iucn_habitat_code) codes, COUNT(DISTINCT habitat_class) classes, COUNT(*) FILTER (WHERE iucn_habitat_name IS NULL) no_name, COUNT(*) FILTER (WHERE habitat_class_name IS NULL) no_class FROM xw"))
+          bad = con.execute("SELECT COUNT(*) FROM xw WHERE iucn_habitat_name IS NULL OR habitat_class_name IS NULL").fetchall()[0][0]
+          assert bad == 0, f"{bad} crosswalk rows lack a name or a legend class"
+          print(con.sql("SELECT * FROM xw LIMIT 8"))
+          con.execute(f"COPY xw TO '{O}/crosswalk.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)")
+          con.execute(f"COPY (SELECT * FROM legend ORDER BY habitat_class) TO '{O}/legend.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)")
+          print("wrote", f"{O}/crosswalk.parquet", f"{O}/legend.parquet")
+          EOF
+        resources:
+          requests: {cpu: '1', memory: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi}
