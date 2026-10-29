@@ -125,6 +125,35 @@ kubectl apply -f k8s/monthly/crw-5km-monthly-compact.yaml       # once, after th
 kubectl apply -f k8s/monthly/crw-5km-monthly-cronjob.yaml
 ```
 
-## Annual tier
+## Annual tier (`crw-5km-annual/<product>`)
 
-Not built yet (#802).
+| file | what it is |
+|---|---|
+| `k8s/annual/update-annual.sh` | the whole annual pipeline for a year range |
+| `k8s/annual/crw-5km-annual-script.yaml` | the script as a ConfigMap (regenerate after editing it) |
+| `k8s/annual/crw-5km-annual-cronjob.yaml` | 20:00 UTC on 2 and 5 January: last 2 years, then compaction |
+| `k8s/annual/crw-5km-annual-backfill.yaml` | one-off fill from 1985, five years of one product per index, 90 indexes (`COMPACT=0`) |
+| `k8s/annual/crw-5km-annual-compact.yaml` | one-off first compaction after the backfill, one pod per product |
+
+The script is the monthly one with these differences:
+- Upstream's annual files sit in one directory, `annual/ct5km_<product>_v3.1_YYYY.nc`, and `time` is the last day of the year.
+- DHW and both BAA products have no full-year 1985 file. Upstream's 1985-03-25 to 1985-12-31 composite (`partial_year_1985/`) stands in for that year; its `time` is also 1985-12-31.
+- Every annual composite is of a closed year, so each run folds its new yearly files into `data_0.parquet` straight away; the hex has one file per cell and no current-period files.
+- Measured on 2026-10-28: the 90-index backfill took 32 minutes and the 10-pod first compaction 29 minutes.
+
+```
+public-coral-reef-watch/
+  raw/annual/<product>/<upstream name>.nc{,.json}
+  crw-5km-annual/<product>/cog/<product>-YYYY.tif
+  crw-5km-annual/<product>/cog/<product>-YYYY-date.tif              # min and max products only
+  crw-5km-annual/<product>/hex/h0=<cell>/data_0.parquet             # columns: h6, h0, time, <variable>[, extreme_date]
+```
+
+### Deploy
+
+```bash
+kubectl apply -f k8s/annual/crw-5km-annual-script.yaml
+kubectl apply -f k8s/annual/crw-5km-annual-backfill.yaml        # once
+kubectl apply -f k8s/annual/crw-5km-annual-compact.yaml         # once, after the backfill
+kubectl apply -f k8s/annual/crw-5km-annual-cronjob.yaml
+```
