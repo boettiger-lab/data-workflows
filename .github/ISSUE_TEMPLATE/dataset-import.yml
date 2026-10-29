@@ -1,41 +1,35 @@
-name: Dataset ingest
-description: Ingest one dataset into the CNG catalog
-title: "<bucket>/<dataset>: <short description>"
+name: Dataset request
+description: Ask us to add a dataset to the catalog
 labels: ["type: data"]
 body:
 
+  - type: markdown
+    attributes:
+      value: >
+        Thanks for the request. All we need is a link to the data; we will work out the rest from
+        there. Give the issue any title you like.
+
   - type: input
-    id: dataset
+    id: link
     attributes:
-      label: Dataset
-      description: Name or description of the dataset.
+      label: Link
+      description: A web page for the dataset, or a download link.
+      placeholder: https://...
     validations:
       required: true
 
   - type: textarea
-    id: source
+    id: description
     attributes:
-      label: Source
-      description: >
-        The about page, the description page carrying the metadata that will inform the STAC
-        (abstract, methods, units, edition), not a direct-download link. Then where the bytes
-        come from, and the date you pulled them.
-      placeholder: |
-        About: https://...
-        Download: https://...
-        Accessed: 2026-09-22
+      label: Description
+      description: Optional. What the data is, and which parts, places or years you need.
     validations:
-      required: true
+      required: false
 
-  - type: textarea
+  - type: input
     id: license
     attributes:
       label: License
-      description: >
-        Describe the data's license: what upstream actually grants, and where it says so.
-        If no terms can be found, say that plainly rather than naming a license upstream never gave.
-      placeholder: |
-        eg. CC-BY-4.0, stated at https://.../terms
+      description: Optional. The data's license or terms of use, if you know them.
     validations:
-      required: true
-
+      required: false
