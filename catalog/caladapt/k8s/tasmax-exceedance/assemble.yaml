@@ -1,0 +1,64 @@
+# HAND-ROLLED: ensemble + H3 assembly of the custom exceedance histograms; no cng-datasets
+# subcommand reduces across models (data-workflows #669).
+#
+# Step 2 of #669, after reduce.yaml. Reads the 9 per-model .npz intermediates and writes
+#   s3://public-caladapt/loca2-hybrid/tasmax-exceedance/hex/h0=*/data_0.parquet
+#   s3://public-caladapt/loca2-hybrid/tasmax-annual-max/hex/h0=*/data_0.parquet
+# Both prefixes are cleared first so a rerun never leaves stale partitions behind.
+#
+#   kubectl -n geo-workflows create configmap loca2-exceedance-scripts \
+#     --from-file=catalog/caladapt/scripts/loca2_exceedance.py \
+#     --from-file=catalog/caladapt/scripts/loca2_zarr.py \
+#     --from-file=catalog/caladapt/scripts/loca2_assemble.py --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n geo-workflows apply -f catalog/caladapt/k8s/tasmax-exceedance/assemble.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: loca2-tasmax-assemble
+  namespace: geo-workflows
+  labels: {k8s-app: loca2-tasmax-assemble}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: loca2-tasmax-assemble}}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: assemble
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: SRC, value: 'nrp:public-caladapt/loca2-hybrid/work/tasmax-histograms'}
+        - {name: DST, value: 'nrp:public-caladapt/loca2-hybrid'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /scripts, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          rclone copy "$SRC" /tmp/in -v
+          python3 /scripts/loca2_assemble.py --in-dir /tmp/in --out-dir /tmp/out
+          for t in tasmax-exceedance tasmax-annual-max; do
+            rclone purge "$DST/$t/hex" 2>/dev/null || true
+            rclone copy "/tmp/out/$t/hex" "$DST/$t/hex" --s3-no-check-bucket -v
+          done
+          echo DONE
+        resources:
+          requests: {cpu: '4', memory: 20Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '4', memory: 24Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: loca2-exceedance-scripts}}

@@ -1,0 +1,138 @@
+# HAND-ROLLED: staging and probing raw sources is not a step cng-datasets generates (#792).
+#
+# Stages the #792 sources untouched to s3://public-coastal/raw/, md5-checked against upstream:
+#   - tidal marsh 2020 v2.6 (Zenodo 8420753): tile zip + TidalMarsh_Exports shapefile
+#   - tidal flats v1.2, all 7 epochs (gs://uq-intertidal/v1_2/global_intertidal/)
+#   - tidal flats v1.1, the 5 epochs 1984-1998 + datamask (gs://uq-intertidal/v1_1/)
+# Writes raw/<prefix>/MANIFEST.tsv (path, bytes, md5, sha256, source URL, access time), then
+# probes raster headers and value counts from overviews / decimated reads so the COG and hex
+# steps can be checked before any build. One pod, ~1.6 GB.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tidal-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: tidal-stage-raw
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 7200
+  template:
+    metadata:
+      labels:
+        k8s-app: tidal-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        - name: GDAL_DISABLE_READDIR_ON_OPEN
+          value: EMPTY_DIR
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          mkdir -p /tmp/raw && cd /tmp/raw
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          printf 'path\tbytes\tmd5\tsha256\tsource\taccessed\n' > MANIFEST.tsv
+
+          # fetch <local path> <url> <expected md5 hex>
+          fetch() {
+            mkdir -p "$(dirname "$1")"
+            echo "--> $1"
+            curl -fsSL --retry 8 --retry-delay 20 --retry-all-errors -o "$1" "$2"
+            md5=$(md5sum "$1" | cut -d' ' -f1)
+            [ "$md5" = "$3" ] || { echo "  !! MD5 MISMATCH $1: got $md5 want $3"; exit 1; }
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$(stat -c%s "$1")" "$md5" \
+              "$(sha256sum "$1" | cut -d' ' -f1)" "$2" "$NOW" >> MANIFEST.tsv
+          }
+
+          echo "=== tidal marsh (Zenodo 8420753) ==="
+          curl -fsS https://zenodo.org/api/records/8420753 > zenodo.json
+          python3 -c '
+          import json
+          for f in json.load(open("zenodo.json"))["files"]:
+              print(f["key"], f["checksum"].split(":")[1])' | while read -r key md5; do
+            fetch "tidal-marsh-2020/$key" \
+              "https://zenodo.org/api/records/8420753/files/$key/content" "$md5"
+            sleep 5   # Zenodo rate-limits bursts (429)
+          done
+
+          echo "=== tidal flats (gs://uq-intertidal) ==="
+          GCS=https://storage.googleapis.com
+          for obj in v1_2/global_intertidal/{1999-2001,2002-2004,2005-2007,2008-2010,2011-2013,2014-2016,2017-2019}.zip \
+                     v1_1/global_intertidal/{1984-1986,1987-1989,1990-1992,1993-1995,1996-1998}.zip \
+                     v1_1/datamask/datamask.zip; do
+            enc=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$obj")
+            md5=$(curl -fsS "$GCS/storage/v1/b/uq-intertidal/o/$enc?fields=md5Hash" \
+                  | python3 -c 'import json,sys,base64;print(base64.b64decode(json.load(sys.stdin)["md5Hash"]).hex())')
+            fetch "tidal-flats/$obj" "$GCS/uq-intertidal/$obj" "$md5"
+          done
+          echo "v1_2 objects other than global_intertidal and qa_pixel_count (datamask?):"
+          curl -fsS "$GCS/storage/v1/b/uq-intertidal/o?prefix=v1_2/&delimiter=/&fields=prefixes,items(name)"
+
+          rm -f zenodo.json
+          cat MANIFEST.tsv
+          rclone copy /tmp/raw nrp:public-coastal/raw/ --s3-no-check-bucket --retries 5
+          rclone ls nrp:public-coastal/raw/tidal-marsh-2020/ | head
+          rclone ls nrp:public-coastal/raw/tidal-flats/
+
+          echo "=== probe ==="
+          python3 - <<'EOF'
+          import glob, zipfile, numpy as np
+          from osgeo import gdal, ogr
+          gdal.UseExceptions()
+          def probe(path):
+              ds = gdal.Open(path); b = ds.GetRasterBand(1)
+              print(path.split("/")[-1], ds.RasterXSize, ds.RasterYSize, ds.GetGeoTransform(),
+                    gdal.GetDataTypeName(b.DataType), "nodata", b.GetNoDataValue(),
+                    ds.GetSpatialRef().GetAuthorityCode(None) if ds.GetSpatialRef() else None,
+                    "ovr", b.GetOverviewCount(), "block", b.GetBlockSize(), b.GetDescription())
+              # Value census from a ~2000 px decimated read; never the full grid.
+              s = max(1, max(ds.RasterXSize, ds.RasterYSize) // 2000)
+              a = b.ReadAsArray(buf_xsize=ds.RasterXSize // s, buf_ysize=ds.RasterYSize // s,
+                                resample_alg=gdal.GRIORA_NearestNeighbour)
+              u, c = np.unique(a, return_counts=True)
+              print("   values", dict(zip(u.tolist()[:20], c.tolist()[:20])))
+          for z in sorted(glob.glob("/tmp/raw/**/*.zip", recursive=True)):
+              names = zipfile.ZipFile(z).namelist()
+              tifs = [n for n in names if n.endswith(".tif")]
+              print(f"\n## {z}: {len(names)} entries, {len(tifs)} tif; e.g. {names[:3]}")
+              for t in tifs[:1] + tifs[len(tifs)//2:len(tifs)//2+1]:
+                  probe(f"/vsizip/{z}/{t}")
+          for shp in glob.glob("/tmp/raw/**/*.shp", recursive=True):
+              ds = ogr.Open(shp); l = ds.GetLayer()
+              print(f"\n## {shp}: {l.GetFeatureCount()} features, {ogr.GeometryTypeToName(l.GetGeomType())}")
+              d = l.GetLayerDefn(); print("   fields", [d.GetFieldDefn(i).GetName() for i in range(d.GetFieldCount())])
+              for f in list(l)[:3]: print("  ", f.items())
+          EOF
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 8Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 8Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # Broken-egress hosts excluded: this job downloads from external hosts.
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org

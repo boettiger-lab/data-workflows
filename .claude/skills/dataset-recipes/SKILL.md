@@ -149,4 +149,4 @@ kubectl apply -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/workflow-rbac.y
 kubectl apply -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/configmap.yaml \
               -f catalog/carbon/k8s/v2/irrecoverable-carbon-2022/workflow.yaml
 ```
-Hex job runs `cng-datasets raster` once per h0 cell (122 indexed pods), writing `hex/h0={cell}/data_0.parquet`. Empty cells skipped silently. No repartition step — output goes directly to its final partition.
+Hex job runs `cng-datasets raster` once per h0 cell (122 indexed pods, or one per `--h0-cells`/`--h0-subset` entry), writing `hex/h0={cell}/data_0.parquet`. Empty cells skipped silently. No repartition step — output goes directly to its final partition.
