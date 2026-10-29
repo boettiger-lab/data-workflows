@@ -1,3 +1,4 @@
+# HAND-ROLLED: localizes the 64.7 GB COG once to the shared rechunk-scratch PVC for the hand-rolled hex jobs; the generator has no shared-cache step (#514).
 # Pre-localize the 64.7 GB COG ONCE to a shared PVC dir and verify it reads
 # end-to-end (gdalinfo -checksum touches every tile → errors on a truncated
 # tile). The hex pods then point --local-cache-dir at this verified copy, so a
@@ -48,7 +49,7 @@ spec:
           rm -rf /scratch/cache-* /scratch/shared
           mkdir -p /scratch/shared
           echo "== fresh localize to /scratch/shared =="
-          rclone copyto nrp:public-commodities/raw/fdap-2025b-cocoa-peru-2024.tif \
+          rclone copyto nrp:public-commodities/fdap-2025b/cocoa-peru-2024-cog.tif \
             /scratch/shared/fdap-2025b-cocoa-peru-2024.tif \
             --s3-no-check-bucket \
             --multi-thread-streams 16 --multi-thread-cutoff 256M \

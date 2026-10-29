@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: fdap-2025b-cocoa-peru-2024-setup-bucket
+  namespace: geo-workflows
   labels:
     k8s-app: fdap-2025b-cocoa-peru-2024-setup-bucket
 spec:
@@ -67,7 +68,6 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

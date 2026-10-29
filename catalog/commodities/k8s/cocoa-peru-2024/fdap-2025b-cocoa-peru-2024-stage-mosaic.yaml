@@ -1,7 +1,8 @@
+# HAND-ROLLED: mosaics 35 Earth Engine export tiles from GCS into one COG; the source is an EE export, not a URL the generator's preprocess-cog can read (#514).
 # Pull the 35 native-10m tiles from the (temporarily public) GCS bucket
 # kpdavis-fdap-cocoa, mosaic them into one WGS84 COG with the EE internal mask
 # baked into an explicit nodata (-9999, outside the 0..1 probability range), and
-# stage it at s3://public-commodities/raw/fdap-2025b-cocoa-peru-2024.tif for the
+# stage it at s3://public-commodities/fdap-2025b/cocoa-peru-2024-cog.tif for the
 # hex job. Uses the shared rechunk-scratch PVC (86 GB > the 50Gi ephemeral cap).
 # Downloads are resumable + size-verified so a retry resumes instead of restarting.
 apiVersion: batch/v1
@@ -63,7 +64,7 @@ spec:
           done < /scratch/list.txt
           echo "== all tiles present: $(ls /scratch/tiles/*.tif | wc -l); disk: =="; df -h /scratch
           # ⚠️ REPRODUCIBILITY TRAP -- read before re-running this job.
-          # The COG currently published at s3://public-commodities/raw/ was built
+          # The COG published at s3://public-commodities/fdap-2025b/cocoa-peru-2024-cog.tif was built
           # BEFORE `-dstnodata -9999` was added here, and `gdalinfo` on the
           # published artifact shows NO "NoData Value=" line: outside-Peru pixels
           # are Float32 NaN carried by a mask band, not a tagged nodata value.
@@ -81,9 +82,9 @@ spec:
             /scratch/tiles/*.tif /scratch/cocoa-peru-2024.tif
           echo "== output summary =="
           gdalinfo -stats /scratch/cocoa-peru-2024.tif | grep -E 'Size is|Pixel Size|NoData|STATISTICS_MIN|STATISTICS_MAX' | head
-          echo "== uploading to s3://public-commodities/raw/ =="
+          echo "== uploading to s3://public-commodities/fdap-2025b/cocoa-peru-2024-cog.tif =="
           rclone copyto /scratch/cocoa-peru-2024.tif \
-            nrp:public-commodities/raw/fdap-2025b-cocoa-peru-2024.tif \
+            nrp:public-commodities/fdap-2025b/cocoa-peru-2024-cog.tif \
             --s3-no-check-bucket --stats-one-line --stats 30s
           echo "== STAGING COMPLETE =="
         resources:

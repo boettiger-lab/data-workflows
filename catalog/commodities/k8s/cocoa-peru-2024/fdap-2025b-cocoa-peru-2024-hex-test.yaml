@@ -1,3 +1,4 @@
+# HAND-ROLLED: the 64.7 GB COG is localized once to the shared rechunk-scratch PVC and checksum-verified (prep-cache / verify-cache); the generated hex job (configmap.yaml) localizes per pod into 20Gi ephemeral, which cannot hold it. This is the job that built the published hex (#514).
 # One-cell hex TEST (h0 index 96, a Peru data cell) to validate the res-10
 # exact_extract path on the 64 GB COG before running all Peru cells.
 # The 64 GB COG exceeds the 50Gi ephemeral cap, so it localizes to the shared
@@ -48,7 +49,7 @@ spec:
           H0=${CHUNK_MAP[$JOB_COMPLETION_INDEX]}
           echo "== hex TEST: h0-index $H0, res 10 =="
           cng-datasets raster \
-            --input s3://public-commodities/raw/fdap-2025b-cocoa-peru-2024.tif \
+            --input s3://public-commodities/fdap-2025b/cocoa-peru-2024-cog.tif \
             --output-parquet s3://public-commodities/fdap-2025b/cocoa-peru-2024/hex/ \
             --h0-index $H0 \
             --resolution 9 --parent-resolutions 8,0 \

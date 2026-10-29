@@ -1,3 +1,4 @@
+# HAND-ROLLED: read-only checksum of the shared PVC copy made by prep-cache; the generator has no shared-cache step (#514).
 # Verify the ALREADY-LOCALIZED shared COG copy without re-downloading it.
 #
 # Split out from -prep-cache deliberately: prep-cache begins with
