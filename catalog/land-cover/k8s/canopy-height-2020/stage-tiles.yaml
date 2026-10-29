@@ -1,0 +1,93 @@
+# HAND-ROLLED: staging an upstream tile set is not a step cng-datasets generates (#440).
+#
+# Copies ETH's 3-degree canopy height COG tiles (height `_Map.tif` and `_Map_SD.tif`) unchanged to
+# their published paths:
+#   s3://public-land-cover/canopy-height-2020/height/tiles/<file>
+#   s3://public-land-cover/canopy-height-2020/sd/tiles/<file>
+# The tiles are already COGs, so they are published as they are (Carl, #440) rather than re-mosaicked.
+# 16 pods, one download stream each (Carl: 16 streams against ETH's server). Pod i takes every 16th
+# line of the list named by LIST (tiles-peru.txt first, then tiles-rest.txt, from the
+# canopy-height-tiles ConfigMap). A tile already on S3 is skipped, so a preempted pod resumes.
+# Each pod records path, bytes, sha256, URL and time in
+#   s3://public-land-cover/raw/canopy-height-2020/manifest/<list>-<index>.tsv
+# ETH publishes no checksums; a tile counts as good only if GDAL opens it as a GeoTIFF.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: canopy-height-stage-LISTNAME
+  namespace: geo-workflows
+  labels:
+    k8s-app: canopy-height-stage
+spec:
+  completions: 16
+  parallelism: 16
+  completionMode: Indexed
+  backoffLimitPerIndex: 6
+  maxFailedIndexes: 16
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        k8s-app: canopy-height-stage
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: LIST, value: LISTNAME}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: tiles, mountPath: /lists, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -uo pipefail
+          I=$JOB_COMPLETION_INDEX; N=16
+          B='https://libdrive.ethz.ch/index.php/s/cO8or7iOe5dT2Rt/download?path=%2F3deg_cogs&files='
+          DST=nrp:public-land-cover/canopy-height-2020
+          MAN=/tmp/manifest.tsv
+          rclone copyto "nrp:public-land-cover/raw/canopy-height-2020/manifest/$LIST-$I.tsv" $MAN 2>/dev/null \
+            || printf 'path\tbytes\tsha256\tsource\taccessed\n' > $MAN
+          mkdir -p /tmp/t && cd /tmp/t
+          awk -v n=$N -v i=$I 'NR % n == i' /lists/$LIST.txt | while read -r f; do
+            case "$f" in *_SD.tif) sub=sd ;; *) sub=height ;; esac
+            if rclone lsf "$DST/$sub/tiles/$f" 2>/dev/null | grep -q .; then echo "skip $f"; continue; fi
+            ok=0
+            for try in 1 2 3 4 5; do
+              rm -f "$f"
+              curl -fsSL --retry 5 --retry-delay 30 --retry-all-errors --max-time 3600 -o "$f" "$B$f" \
+                && gdalinfo "$f" >/dev/null 2>&1 && { ok=1; break; }
+              echo "retry $try $f"; sleep 60
+            done
+            [ $ok = 1 ] || { echo "FAILED $f"; exit 1; }
+            printf '%s\t%s\t%s\t%s\t%s\n' "canopy-height-2020/$sub/tiles/$f" "$(stat -c%s "$f")" \
+              "$(sha256sum "$f" | cut -d' ' -f1)" "$B$f" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $MAN
+            rclone copyto "$f" "$DST/$sub/tiles/$f" --s3-no-check-bucket --retries 5 || exit 1
+            rclone copyto $MAN "nrp:public-land-cover/raw/canopy-height-2020/manifest/$LIST-$I.tsv" --s3-no-check-bucket
+            rm -f "$f"; echo "ok $f"
+          done
+          echo "shard $I of $LIST done"
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: tiles
+        configMap: {name: canopy-height-tiles}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # Broken-egress hosts excluded: this job downloads from an external host.
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
