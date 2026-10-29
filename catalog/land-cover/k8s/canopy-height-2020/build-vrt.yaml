@@ -51,6 +51,9 @@ spec:
             rclone copyto $layer$SUFFIX.vrt "nrp:$P/$layer$SUFFIX.vrt" --s3-no-check-bucket
             gdalinfo -nomd "/vsis3/$P/$layer$SUFFIX.vrt" | grep -E 'Size is|Origin|Pixel Size|NoData|Type='
           done
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
       volumes:
       - name: rclone-config
         secret: {secretName: rclone-config}
