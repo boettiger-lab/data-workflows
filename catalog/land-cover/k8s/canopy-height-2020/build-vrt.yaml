@@ -1,0 +1,56 @@
+# HAND-ROLLED: cng-datasets has no step that indexes an already-COG tile set as a VRT (#440).
+#
+# Builds one VRT per layer over the staged tiles, with tile paths RELATIVE to the VRT, so the same
+# file works inside the cluster (/vsis3/...) and for anyone over https:
+#   s3://public-land-cover/canopy-height-2020/height<SUFFIX>.vrt   (tiles in height/tiles/)
+#   s3://public-land-cover/canopy-height-2020/sd<SUFFIX>.vrt       (tiles in sd/tiles/)
+# SUFFIX is "-peru" for the Peru-first test build over the tiles staged so far, "" for the final.
+# Checks each VRT opens and reports its grid; the tiles share ETH's 1/12000-degree grid.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: canopy-height-vrt-SUFFIXNAME
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: vrt
+        image: ghcr.io/boettiger-lab/datasets:latest
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: SUFFIX, value: SUFFIXVALUE}
+        - {name: GDAL_DISABLE_READDIR_ON_OPEN, value: EMPTY_DIR}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          P=public-land-cover/canopy-height-2020
+          for layer in height sd; do
+            rclone lsf "nrp:$P/$layer/tiles/" | grep '\.tif$' | sed "s|^|/vsis3/$P/$layer/tiles/|" > $layer.txt
+            echo "$layer: $(wc -l < $layer.txt) tiles"
+            gdalbuildvrt -q -input_file_list $layer.txt $layer$SUFFIX.vrt
+            # make tile paths relative to the VRT so it opens over https as well as /vsis3
+            sed -i "s|relativeToVRT=\"0\">/vsis3/$P/|relativeToVRT=\"1\">|" $layer$SUFFIX.vrt
+            grep -c 'relativeToVRT="1"' $layer$SUFFIX.vrt
+            rclone copyto $layer$SUFFIX.vrt "nrp:$P/$layer$SUFFIX.vrt" --s3-no-check-bucket
+            gdalinfo -nomd "/vsis3/$P/$layer$SUFFIX.vrt" | grep -E 'Size is|Origin|Pixel Size|NoData|Type='
+          done
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
