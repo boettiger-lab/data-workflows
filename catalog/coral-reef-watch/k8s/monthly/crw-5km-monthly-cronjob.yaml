@@ -1,0 +1,61 @@
+# HAND-ROLLED: the generator emits no CronJob and cannot add one month to a growing series;
+# pod shape, env and resources follow `cng-datasets mdim-workflow` output (data-workflows#802).
+# 19:00 UTC on the 2nd and 5th (NOAA posted 2026-09 on 2026-10-01 at 16:14 UTC; the 5th catches a
+# late post). Each run re-checks the last 3 months and skips what is published. The January runs
+# also fold the closed year's monthly files into each hex/h0=<cell>/data_0.parquet.
+# DEVIATION (#802): memory 3Gi/3.5Gi (hex in 8 h0 batches) per NRP limit/request <= 1.2.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: crw-5km-monthly
+  namespace: geo-workflows
+  labels: {k8s-app: crw-5km-monthly}
+spec:
+  schedule: "0 19 2,5 * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 14400
+      template:
+        metadata:
+          labels: {k8s-app: crw-5km-monthly}
+        spec:
+          restartPolicy: Never
+          priorityClassName: opportunistic  # short run; idempotent, a preempted month is redone next run
+          automountServiceAccountToken: false
+          containers:
+          - name: update
+            image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3  # DEVIATION (#802): pinned to a tested digest so an unattended run cannot pick up a broken :latest (as 04c8b5e6 did, 2026-10-26); cng-datasets 0.11.3 (datasets#278 fix); bump deliberately
+            imagePullPolicy: IfNotPresent
+            command: [bash, /scripts/update-monthly.sh]
+            env:
+            - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+            - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+            - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+            - {name: AWS_HTTPS, value: 'false'}
+            - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+            - {name: GDAL_DATA, value: /usr/share/gdal}
+            - {name: BUCKET, value: public-coral-reef-watch}
+            - {name: DUCKDB_MEMORY_LIMIT, value: 1800MiB}
+            - {name: GDAL_CACHEMAX, value: '1024'}
+            resources:
+              requests: {cpu: '2', memory: 3Gi, ephemeral-storage: 10Gi}
+              limits: {cpu: '2', memory: 3584Mi, ephemeral-storage: 10Gi}
+            volumeMounts:
+            - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+            - {name: script, mountPath: /scripts, readOnly: true}
+          volumes:
+          - {name: rclone-config, secret: {secretName: rclone-config}}
+          - {name: script, configMap: {name: crw-5km-monthly-script, defaultMode: 0755}}
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

@@ -87,6 +87,44 @@ NRP policy sets two further constraints:
 - **Limit/request ratio:** must be ≤ 1.2 for both CPU and memory (`container-must-meet-memory-and-cpu-ratio`).
 - **Low-utilization block:** pods that request far more than they use block every deployment change on the account. The first 16Gi backfill did this on 2026-10-26.
 
-## Monthly and annual tiers
+## Monthly tier (`crw-5km-monthly/<product>`)
+
+| file | what it is |
+|---|---|
+| `k8s/monthly/update-monthly.sh` | the whole monthly pipeline for a month range |
+| `k8s/monthly/crw-5km-monthly-script.yaml` | the script as a ConfigMap (regenerate after editing it) |
+| `k8s/monthly/crw-5km-monthly-cronjob.yaml` | 19:00 UTC on the 2nd and 5th: last 3 months, yearly compaction |
+| `k8s/monthly/crw-5km-monthly-backfill.yaml` | one-off fill from 1985-01, one product-year per index, 420 indexes (`COMPACT=0`) |
+| `k8s/monthly/crw-5km-monthly-compact.yaml` | one-off first compaction after the backfill, 8 cell shards per product |
+
+The steps match the daily tier, with these differences:
+- The ten products are upstream's own monthly composites. A res-6 cell takes its pixels' min, mean or max to match the composite.
+- The min and max composites also carry `date`, the day the extreme was first reached. The hex keeps it as `extreme_date` (DATE); the COG goes to `cog/<product>-YYYYMM-date.tif` beside the value COG, since one GeoTIFF cannot mix the value's Int16 and the date's UInt32. In a cell holding two pixels, the date is the extreme of the pixels' dates (latest for max, earliest for min), so it can come from a different pixel than the value.
+- `time` is upstream's reference time, the last day of the month.
+- mdim writes to local disk; the script converts `date` and uploads only the per-h0 files.
+- DHW and both BAA products start in 1985-04, after twelve weeks of HotSpot accumulate; the other six start in 1985-01.
+- Nothing is pruned. Compaction is yearly: the current year's monthly files stay beside `data_0.parquet` until January.
+- The January fold rewrites all 117 cells of all ten products from one opportunistic pod, likely more than one run's 4-hour deadline. A cut-short fold loses nothing: each cell's `data_0.parquet` is replaced before its monthly files are deleted, so the next run (the 5th, then each later run) picks up the cells still holding last year's files.
+- The first compaction ran as `crw-5km-monthly-compact.yaml`, 80 pods at default priority taking 1.5 hours. They used 35–730m CPU and 0.3–1.9 GiB, so they request 1 CPU and 2Gi, below the sizes NRP's usage check looks at (#804).
+
+```
+public-coral-reef-watch/
+  raw/monthly/<product>/ct5km_<product>_v3.1_YYYYMM.nc{,.json}
+  crw-5km-monthly/<product>/cog/<product>-YYYYMM.tif
+  crw-5km-monthly/<product>/cog/<product>-YYYYMM-date.tif            # min and max products only
+  crw-5km-monthly/<product>/hex/h0=<cell>/data_0.parquet             # closed years; columns: h6, h0, time, <variable>[, extreme_date]
+  crw-5km-monthly/<product>/hex/h0=<cell>/part-tYYYYMM-0.parquet     # current year, one file a month until compacted
+```
+
+### Deploy
+
+```bash
+kubectl apply -f k8s/monthly/crw-5km-monthly-script.yaml
+kubectl apply -f k8s/monthly/crw-5km-monthly-backfill.yaml      # once
+kubectl apply -f k8s/monthly/crw-5km-monthly-compact.yaml       # once, after the backfill
+kubectl apply -f k8s/monthly/crw-5km-monthly-cronjob.yaml
+```
+
+## Annual tier
 
 Not built yet (#802).
