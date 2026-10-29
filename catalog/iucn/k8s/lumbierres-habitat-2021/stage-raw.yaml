@@ -1,0 +1,94 @@
+# HAND-ROLLED: staging and probing raw sources is not a step cng-datasets generates (#427).
+#
+# Stages to s3://public-iucn/raw/lumbierres-habitat-2021/, untouched:
+#   - Zenodo 5146073 (Lumbierres et al. 2021 IUCN level-1 habitat map): habitat_CGLS.tiff, legend.csv,
+#     md5-checked against the Zenodo record
+#   - the aoh R package's crosswalk and IUCN habitat names, pinned to commit c5d21c1
+# Writes MANIFEST.tsv (path, bytes, md5, sha256, source URL, access time) and prints the raster
+# header (CRS, grid, dtype, nodata, blocks, overviews) plus a value census from the coarsest overview.
+# Short pod: opportunistic (#804).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lumbierres-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: lumbierres-stage-raw
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 259200
+  activeDeadlineSeconds: 7200
+  template:
+    metadata:
+      labels:
+        k8s-app: lumbierres-stage-raw
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          mkdir -p /tmp/raw && cd /tmp/raw
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          printf 'path\tbytes\tmd5\tsha256\tsource\taccessed\n' > MANIFEST.tsv
+          fetch() {  # fetch <file> <url> [expected md5]
+            echo "--> $1"
+            curl -fsSL --retry 8 --retry-delay 20 --retry-all-errors -o "$1" "$2"
+            md5=$(md5sum "$1" | cut -d' ' -f1)
+            if [ -n "${3:-}" ] && [ "$md5" != "$3" ]; then echo "  !! MD5 MISMATCH $1: $md5 != $3"; exit 1; fi
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$(stat -c%s "$1")" "$md5" \
+              "$(sha256sum "$1" | cut -d' ' -f1)" "$2" "$NOW" >> MANIFEST.tsv
+          }
+          Z=https://zenodo.org/api/records/5146073/files
+          fetch legend.csv "$Z/legend.csv/content" 82e900022059559dd2c3814087f7c2a9
+          fetch habitat_CGLS.tiff "$Z/habitat_CGLS.tiff/content" c1eea4e82c30c06cfe4afe4f6db14b8f
+          A=https://raw.githubusercontent.com/prioritizr/aoh/c5d21c1777af51211d095385fd3440d44d4962a4/data-raw
+          fetch crosswalk-lumb-cgls-data.csv "$A/crosswalk-lumb-cgls-data.csv"
+          fetch iucn-habitat-data.csv "$A/iucn-habitat-data.csv"
+          cat MANIFEST.tsv
+          rclone copy /tmp/raw nrp:public-iucn/raw/lumbierres-habitat-2021/ --s3-no-check-bucket --retries 5
+          rclone ls nrp:public-iucn/raw/lumbierres-habitat-2021/
+
+          echo "=== header ==="
+          gdalinfo -nomd habitat_CGLS.tiff | grep -vE '^\s+(AUTHORITY|PARAMETER|AXIS|UNIT|PRIMEM|DATUM|SPHEROID|ID\[|ANGLEUNIT|LENGTHUNIT|ELLIPSOID|CS\[|BBOX|USAGE|SCOPE|AREA|ORDER)'
+          python3 - <<'EOF'
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          ds = gdal.Open('habitat_CGLS.tiff'); b = ds.GetRasterBand(1)
+          print("COG layout:", ds.GetMetadata('IMAGE_STRUCTURE'), "block", b.GetBlockSize(), "overviews", b.GetOverviewCount())
+          o = b.GetOverview(b.GetOverviewCount() - 1) if b.GetOverviewCount() else None
+          if o is not None:
+              u, c = np.unique(o.ReadAsArray(), return_counts=True)
+              print("values on coarsest overview", o.XSize, "x", o.YSize, dict(zip(u.tolist(), c.tolist())))
+          else:
+              print("no overviews; skipping value census here")
+          EOF
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # Broken-egress hosts excluded: this job downloads from external hosts.
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
