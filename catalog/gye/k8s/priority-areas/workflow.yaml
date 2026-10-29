@@ -1,0 +1,67 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: priority-areas-workflow
+  namespace: geo-workflows
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "\nset -e\n\nwait_job() {\n  local job=\"$1\" ns=\"$2\" timeout=\"$3\" waited=0\
+          \ state\n  echo \"Waiting for $job (up to ${timeout}s)...\"\n  while :;\
+          \ do\n    state=$(kubectl get job \"$job\" -n \"$ns\" -o jsonpath='{.status.conditions[?(@.status==\"\
+          True\")].type}')\n    case \" $state \" in\n      *\" Complete \"*) echo\
+          \ \"\u2713 $job complete\"; return 0 ;;\n      *\" Failed \"*)\n       \
+          \ echo \"\u2717 $job failed, so the workflow stops here:\"\n        kubectl\
+          \ get job \"$job\" -n \"$ns\" -o jsonpath='{range .status.conditions[*]}\
+          \  {.type}: {.reason} {.message}{\"\\n\"}{end}'\n        echo \"  Inspect\
+          \ it with: kubectl logs job/$job -n $ns\"\n        exit 1 ;;\n    esac\n\
+          \    if [ \"$waited\" -ge \"$timeout\" ]; then\n      echo \"\u2717 $job\
+          \ did not finish within ${timeout}s\"\n      exit 1\n    fi\n    sleep 30\n\
+          \    waited=$((waited + 30))\n  done\n}\n\necho \"Starting priority-areas\
+          \ workflow...\"\n\n# Step 0: Setup bucket with public access and CORS\n\
+          echo \"Step 0: Setting up bucket...\"\nkubectl apply -f /yamls/priority-areas-setup-bucket.yaml\
+          \ -n geo-workflows\n\necho \"Waiting for bucket setup to complete...\"\n\
+          wait_job priority-areas-setup-bucket geo-workflows 600\n\n# Step 1: Convert\
+          \ to optimized GeoParquet (needed by both pmtiles and hex jobs)\necho \"\
+          Step 1: Converting to optimized GeoParquet...\"\nkubectl apply -f /yamls/priority-areas-convert.yaml\
+          \ -n geo-workflows\n\necho \"Waiting for GeoParquet conversion to complete...\"\
+          \nwait_job priority-areas-convert geo-workflows 3600\n\n# Step 2: Run pmtiles\
+          \ and hex tiling in parallel (both use the converted geoparquet)\necho \"\
+          Step 2: H3 hexagonal tiling and PMTiles generation (parallel)...\"\nkubectl\
+          \ apply -f /yamls/priority-areas-pmtiles.yaml -n geo-workflows\nkubectl\
+          \ apply -f /yamls/priority-areas-hex.yaml -n geo-workflows\n\necho \"Waiting\
+          \ for hex tiling to complete (PMTiles continues in background)...\"\necho\
+          \ \"Timeout set to 48 hours (172800s)...\"\nwait_job priority-areas-hex\
+          \ geo-workflows 172800\n\necho \"Step 3: Repartitioning by h0...\"\nkubectl\
+          \ apply -f /yamls/priority-areas-repartition.yaml -n geo-workflows\n\necho\
+          \ \"Waiting for repartition to complete...\"\nwait_job priority-areas-repartition\
+          \ geo-workflows 3600\n\necho \"\u2713 Workflow complete!\"\necho \"Note:\
+          \ PMTiles job may still be running in the background\"\necho \"\"\necho\
+          \ \"Clean up with:\"\necho \"  kubectl delete jobs priority-areas-setup-bucket\
+          \ priority-areas-convert priority-areas-pmtiles priority-areas-hex priority-areas-repartition\
+          \ priority-areas-workflow -n geo-workflows --ignore-not-found\"\necho \"\
+          \  kubectl delete configmap priority-areas-yamls -n geo-workflows\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: priority-areas-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
