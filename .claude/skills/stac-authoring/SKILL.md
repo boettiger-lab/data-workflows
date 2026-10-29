@@ -216,6 +216,16 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
 
   Multi-layer collections: prefix with collection context (`cpad-holdings-parquet`, `cpad-units-hex`).
 
+- **A collection that is refreshed in place keeps its asset keys across releases.** When a refresh
+  repoints an existing collection at a new dated prefix (`public-gbif/2026-06/` → `2026-09/`), the
+  data moves and the keys do not: `gbif-hex`, never `gbif-hex-2026-09`. The collection id plus the
+  asset key is what consumers resolve at runtime, so a release in the key forces every app to edit
+  code at each refresh — the cost the stable collection exists to avoid (#780). Carry the release
+  in the `href`, the asset `title`, and the collection `version`. Keep dated *prefixes*: they keep
+  editions immutable, make the cutover atomic, and keep a schema change (2026-09's `specieskey`
+  backbone switch) visible rather than silent. This does not apply to editions published side by
+  side as separate datasets (`padus-4-1`, `census-2024`); those are different collections.
+
 - **Hex asset `href` MUST use the Hive-partitioned glob — never a bare directory:**
   - ❌ `.../census-2025/sldl/hex/`
   - ✅ `.../census-2025/sldl/hex/h0=*/data_0.parquet`
