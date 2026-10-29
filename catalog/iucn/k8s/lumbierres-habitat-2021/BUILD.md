@@ -28,7 +28,7 @@ root catalog, as the bucket's other collections are.
 ## Measured (2026-10-29)
 - `mode` hex: 1,256,334,765 rows, 80 h0 partitions, no nulls. `habitat_class` is DOUBLE.
 - `fractions` hex: 2,171,566,350 rows, 80 h0 partitions, `frac` in (0, 1]. On h0
-  `802fffffffffffff` (15,839,619 cells) every cell's fractions sum to exactly 1 including the
+  577199624117288959 (15,839,619 cells) every cell's fractions sum to exactly 1 including the
   -32768 row, and the mode class equals the largest fraction in all but 3 cells (ties).
 - One hex pod sat in ContainerCreating on `nautilus-it-cpu06.fullerton.edu`; the runner deleted it
   after 5 minutes and the index completed elsewhere.
