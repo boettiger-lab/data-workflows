@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tidal-marsh-2020-staging-2020-h0-73-workflow
+  namespace: geo-workflows
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "set -e\n\nwait_job() {\n  local job=\"$1\" ns=\"$2\" timeout=\"$3\" waited=0\
+          \ state\n  echo \"Waiting for $job (up to ${timeout}s)...\"\n  while :;\
+          \ do\n    state=$(kubectl get job \"$job\" -n \"$ns\" -o jsonpath='{.status.conditions[?(@.status==\"\
+          True\")].type}')\n    case \" $state \" in\n      *\" Complete \"*) echo\
+          \ \"\u2713 $job complete\"; return 0 ;;\n      *\" Failed \"*)\n       \
+          \ echo \"\u2717 $job failed, so the workflow stops here:\"\n        kubectl\
+          \ get job \"$job\" -n \"$ns\" -o jsonpath='{range .status.conditions[*]}\
+          \  {.type}: {.reason} {.message}{\"\\n\"}{end}'\n        echo \"  Inspect\
+          \ it with: kubectl logs job/$job -n $ns\"\n        exit 1 ;;\n    esac\n\
+          \    if [ \"$waited\" -ge \"$timeout\" ]; then\n      echo \"\u2717 $job\
+          \ did not finish within ${timeout}s\"\n      exit 1\n    fi\n    sleep 30\n\
+          \    waited=$((waited + 30))\n  done\n}\n\necho \"Starting tidal-marsh-2020-staging-2020-h0-73\
+          \ raster workflow...\"\n\n# Step 0: Setup bucket\necho \"Step 0: Setting\
+          \ up bucket...\"\nkubectl apply -f /yamls/tidal-marsh-2020-staging-2020-h0-73-setup-bucket.yaml\
+          \ -n geo-workflows\nwait_job tidal-marsh-2020-staging-2020-h0-73-setup-bucket\
+          \ geo-workflows 600\n\n# Step 1: H3 hexagonal tiling\necho \"Step 1: H3\
+          \ hexagonal tiling...\"\nkubectl apply -f /yamls/tidal-marsh-2020-staging-2020-h0-73-hex.yaml\
+          \ -n geo-workflows\nwait_job tidal-marsh-2020-staging-2020-h0-73-hex geo-workflows\
+          \ 7200\n\n# Step 2: Merge sub-h0 chunks into one file per h0 partition\n\
+          echo \"Step 2: Merging hex chunks...\"\nkubectl apply -f /yamls/tidal-marsh-2020-staging-2020-h0-73-merge.yaml\
+          \ -n geo-workflows\nwait_job tidal-marsh-2020-staging-2020-h0-73-merge geo-workflows\
+          \ 7200\n\necho \"\u2713 Workflow complete!\"\necho \"Clean up with:\"\n\
+          echo \"  kubectl delete jobs tidal-marsh-2020-staging-2020-h0-73-setup-bucket\
+          \ tidal-marsh-2020-staging-2020-h0-73-hex tidal-marsh-2020-staging-2020-h0-73-merge\
+          \ tidal-marsh-2020-staging-2020-h0-73-workflow -n geo-workflows\"\necho\
+          \ \"  kubectl delete configmap tidal-marsh-2020-staging-2020-h0-73-yamls\
+          \ -n geo-workflows\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: tidal-marsh-2020-staging-2020-h0-73-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
