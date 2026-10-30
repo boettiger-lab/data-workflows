@@ -1,0 +1,188 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: calflora-ranges-cog
+  namespace: geo-workflows
+  labels: {k8s-app: calflora-ranges-cog}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 172800
+  activeDeadlineSeconds: 7200
+  template:
+    metadata: {labels: {k8s-app: calflora-ranges-cog}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          # Calflora species range rasters -> cleaned COGs.  Issue #668.
+          #
+          # Input is the CORRECTED 2026-09-15 edition (109 species).  The superseded 2025-07
+          # snapshot lives at raw/2025-07-01/ and must not be built from: it carried three pairs
+          # of byte-identical files, two "(1)" duplicate downloads, and was missing four species.
+          #
+          # Cleaning is limited to things that do not alter modelled values:
+          #   1. drop the equator artifact -- exactly one valid pixel at lat 0.0042 N in 20 files,
+          #      a record whose latitude decoded to ~0 (in HOLDIS/QUEGAR/SEQSEM the longitude is
+          #      zeroed too, which is why those arrive 14,929 px wide out to Null Island).
+          #      The cut is at 1 N.  It is NOT at 25 N: the earlier 25 N rule deleted 71 genuine
+          #      out-of-state observation pixels, JUSCAL's record near La Paz among them.
+          #   2. clip to the remaining valid-data window.
+          #   3. set nodata=nan explicitly (the source carries no nodata tag).
+          #   4. normalise two seven-letter filenames to the canonical six-letter code.
+          # Overviews use NEAREST: the COG driver defaults to AVERAGE, which invents fractional
+          # values on a sparse integer count field and washes isolated positives away.
+          cd /tmp
+          echo "=== fetch corrected raw ==="
+          rclone copy nrp:public-ca-ccca5/raw/2026-09-15/SppDist_data/ /tmp/src/ --transfers 16 --retries 5
+          ls /tmp/src/*.tif | wc -l
+
+          mkdir -p /tmp/cog
+          python3 - <<'PY'
+          import glob, os, json
+          import numpy as np
+          from osgeo import gdal, osr
+          gdal.UseExceptions()
+
+          # Canonical six-letter codes; the team's protocol and their own ATRITOR->ATRTOR
+          # rename make 3+3 authoritative, and it is the join key to the tolerance table.
+          RENAME = {'ABIBRAC': 'ABIBRA', 'CLEOARB': 'CLEARB'}
+          LAT_FLOOR = 1.0     # equator artifact only -- see header
+
+          rows, total_valid, total_pos, dropped = [], 0, 0, 0
+          for path in sorted(glob.glob('/tmp/src/*.tif')):
+              code = os.path.basename(path)[:-4]
+              out_code = RENAME.get(code, code)
+              ds = gdal.Open(path)
+              gt = ds.GetGeoTransform()
+              a = ds.GetRasterBand(1).ReadAsArray().astype('float32')
+              ny, nx = a.shape
+
+              lat = gt[3] + (np.arange(ny) + 0.5) * gt[5]
+              kill = lat < LAT_FLOOR
+              n_art = int(np.isfinite(a[kill]).sum())
+              a[kill, :] = np.nan
+              dropped += n_art
+
+              fin = np.isfinite(a)
+              if not fin.any():
+                  raise SystemExit(f'{code}: no valid pixels after cleaning')
+              ys, xs = np.nonzero(fin)
+              y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+              sub = a[y0:y1, x0:x1]
+              ngt = (gt[0] + x0 * gt[1], gt[1], 0.0, gt[3] + y0 * gt[5], 0.0, gt[5])
+
+              drv = gdal.GetDriverByName('COG')
+              tmp = gdal.GetDriverByName('MEM').Create('', sub.shape[1], sub.shape[0], 1, gdal.GDT_Float32)
+              tmp.SetGeoTransform(ngt)
+              srs = osr.SpatialReference(); srs.ImportFromEPSG(4326)
+              tmp.SetProjection(srs.ExportToWkt())
+              b = tmp.GetRasterBand(1)
+              b.WriteArray(sub)
+              b.SetNoDataValue(float('nan'))
+              drv.CreateCopy(f'/tmp/cog/{out_code}.tif', tmp,
+                             options=['COMPRESS=DEFLATE', 'OVERVIEWS=IGNORE_EXISTING',
+                                      'OVERVIEW_RESAMPLING=NEAREST', 'BIGTIFF=IF_SAFER'])
+              tmp = None; ds = None
+
+              v = int(np.isfinite(sub).sum()); p = int((np.nan_to_num(sub, nan=-1) > 0).sum())
+              total_valid += v; total_pos += p
+              lat_lo = ngt[3] + (sub.shape[0] - 0.5) * ngt[5]
+              lat_hi = ngt[3] + 0.5 * ngt[5]
+              lon_lo = ngt[0] + 0.5 * ngt[1]
+              lon_hi = ngt[0] + (sub.shape[1] - 0.5) * ngt[1]
+              rows.append(dict(code=out_code, src_code=code, w=int(sub.shape[1]), h=int(sub.shape[0]),
+                               valid=v, positive=p, artifact_px=n_art,
+                               lat_min=round(float(lat_lo), 4), lat_max=round(float(lat_hi), 4),
+                               lon_min=round(float(lon_lo), 4), lon_max=round(float(lon_hi), 4)))
+              if n_art:
+                  print(f'  {code}: dropped {n_art} artifact px, {nx}x{ny} -> {sub.shape[1]}x{sub.shape[0]}')
+
+          json.dump(rows, open('/tmp/cog-stats.json', 'w'), indent=1)
+          print(f'\n{len(rows)} COGs written')
+          print(f'artifact pixels dropped : {dropped}  (expected 20, one per affected file)')
+          print(f'valid cells             : {total_valid:,}')
+          print(f'positive cells          : {total_pos:,} ({100.0*total_pos/total_valid:.2f}%)')
+          PY
+
+          echo "=== verification ==="
+          python3 - <<'PY'
+          import glob, numpy as np, json
+          from osgeo import gdal
+          gdal.UseExceptions()
+          stats = json.load(open('/tmp/cog-stats.json'))
+          assert len(stats) == 109, f'expected 109 COGs, got {len(stats)}'
+          assert sum(r['artifact_px'] for r in stats) == 20, 'artifact count != 20'
+          # No sub-1N pixel may survive.
+          bad = [r['code'] for r in stats if r['lat_min'] < 1.0]
+          assert not bad, f'sub-1N pixels survive in {bad}'
+          # The genuine out-of-state records MUST survive: 71 pixels, 0.1N-32N, all value >= 1.
+          south = 0
+          for f in sorted(glob.glob('/tmp/cog/*.tif')):
+              ds = gdal.Open(f); gt = ds.GetGeoTransform()
+              a = ds.GetRasterBand(1).ReadAsArray()
+              ys, xs = np.nonzero(np.isfinite(a))
+              lat = gt[3] + (ys + 0.5) * gt[5]
+              south += int(((lat > 0.1) & (lat < 32.0)).sum())
+          print(f'out-of-state pixels retained (0.1N-32N): {south}  (expected 71)')
+          assert south == 71, 'genuine out-of-state observations were clipped'
+          # Codes are canonical six-letter.
+          bad = [r['code'] for r in stats if len(r['code']) != 6]
+          assert not bad, f'non-canonical codes: {bad}'
+          # nodata declared.  Hold the dataset reference: gdal.Open(f).GetRasterBand(1)
+          # frees the dataset before the band is read and raises a TypeError.
+          for f in sorted(glob.glob('/tmp/cog/*.tif')):
+              ds = gdal.Open(f)
+              nd = ds.GetRasterBand(1).GetNoDataValue()
+              assert nd is not None and nd != nd, f'{f}: nodata is {nd}, expected nan'
+              ds = None
+          print('ALL CHECKS PASSED')
+          PY
+
+          echo "=== publish ==="
+          # Overwrite in place, then remove only the names the corrected build no longer
+          # produces (the two renamed seven-letter codes from the superseded build).
+          # Computed as a set difference and deleted file-by-file -- never a prefix purge,
+          # so a mistake here can only ever touch a named object.
+          rclone lsf nrp:public-ca-ccca5/calflora-ranges/cog/ | sort > /tmp/before.txt
+          rclone copy /tmp/cog/ nrp:public-ca-ccca5/calflora-ranges/cog/ --transfers 16 --retries 5
+          ls /tmp/cog/ | sort > /tmp/after.txt
+          comm -23 /tmp/before.txt /tmp/after.txt > /tmp/stale.txt
+          echo "stale objects from the superseded build:"; cat /tmp/stale.txt
+          test "$(wc -l < /tmp/stale.txt)" -le 5 || { echo "refusing: more stale objects than expected"; exit 1; }
+          while read -r f; do
+            [ -n "$f" ] || continue
+            echo "  deleting $f"
+            rclone deletefile "nrp:public-ca-ccca5/calflora-ranges/cog/$f"
+          done < /tmp/stale.txt
+          rclone copyto /tmp/cog-stats.json nrp:public-ca-ccca5/calflora-ranges/cog-stats.json --retries 5
+          echo "published: $(rclone lsf nrp:public-ca-ccca5/calflora-ranges/cog/ | wc -l) COGs"
+          echo "COG STEP COMPLETE"
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
