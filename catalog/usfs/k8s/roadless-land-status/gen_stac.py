@@ -76,9 +76,9 @@ COLUMNS = [
      "not a number.", None),
     ("FOR_NAME", "string",
      "Name of the administrative national forest or grassland. 111 forest names plus "
-     "'Unassigned NFS', which the producer gives to 113 pieces (57,988 acres in all) that fall "
-     "outside every administrative forest boundary. One of them is a 55,515-acre N piece in Utah; "
-     "the rest are under 65 acres each and are boundary slivers.", None),
+     "'Unassigned NFS', which the producer gives to 113 pieces (58,069 acres in all) that fall "
+     "outside every administrative forest boundary. All but six are boundary slivers under 65 "
+     "acres; the largest are N pieces of 55,515 acres in Utah and 1,686 acres in Arkansas.", None),
     ("REGION", "string",
      "Forest Service region as a two-digit string. Values: 01=Northern, 02=Rocky Mountain, "
      "03=Southwestern, 04=Intermountain, 05=Pacific Southwest, 06=Pacific Northwest, 08=Southern, "
@@ -195,9 +195,10 @@ DESCRIPTION = (
     "because Colorado and Idaho are represented here by their state-rule roadless boundaries (R1s "
     "and the Colorado and Idaho part of R1) rather than the superseded 2001 boundaries.\n\n"
     "Sum ACRES after filtering or grouping; row counts are not a measure of area. The IRA_CAT "
-    "column is empty on every row. 113 rows (57,988 acres) have FOR_NAME 'Unassigned NFS' and "
-    "REGION 'NA': land outside every administrative forest boundary. All but one (55,515 acres of "
-    "N in Utah) are slivers under 65 acres, and a few of these carry very many tiny parts "
+    "column is empty on every row. 113 rows (58,069 acres) have FOR_NAME 'Unassigned NFS' and "
+    "REGION 'NA': land outside every administrative forest boundary. All but six are slivers "
+    "under 65 acres (the largest are N pieces of 55,515 acres in Utah and 1,686 acres in "
+    "Arkansas), and a few of the slivers carry very many tiny parts "
     "(the Alaska N row is 33 acres in about 1.56 million parts), so filter them out when drawing "
     "or overlaying geometry if speed matters.\n\n"
     "The classification is the producer's analytical construction, not a legal determination of "
@@ -367,7 +368,7 @@ GROUP BY STRATUM ORDER BY STRATUM;
 - Built from the Zenodo version of 2026-10-09, which replaces version 1.0. `N` no longer
   includes non-Forest Service inholdings (173.8M acres in version 1.0, 135.5M now).
 - Sum `ACRES`, not row counts. `IRA_CAT` is empty on every row. `FOR_NAME = 'Unassigned NFS'`
-  marks 113 small pieces outside any administrative forest.
+  marks 113 pieces, mostly slivers, outside any administrative forest.
 - MapLibre `source-layer`: `{DATASET}`. Colour on `STRATUM`:
 
 ```js

@@ -58,8 +58,9 @@ Roadless (R1+R1s+R2+R3) = 57,723,157 ac; unexposed (R1+R1s+R2) = 33,874,737 ac; 
 (`OWNERCLASS = 'USDA FOREST SERVICE'`), area-weighted. In v1.0, N was 77.7% FS-owned (~38.8M ac
 of inholdings); this version drops them, which the FGDC text does not mention.
 
-`Unassigned NFS` (`REGION = 'NA'`): 113 rows, 57,988 ac. One 55,515 ac N piece in Utah; the
-rest are slivers under 65 ac, some with very many parts (fid 77 above; fid 71 AK R2 8 ac in
+`Unassigned NFS` (`REGION = 'NA'`): 113 rows, 58,069 ac (N alone: 46 rows, 57,988 ac). Six N
+pieces exceed 65 ac: UT 55,515, AR 1,686, OH 181, MT 180, WV 98, PA 95. The rest are slivers
+under 65 ac, some with very many parts (fid 77 above; fid 71 AK R2 8 ac in
 322,521 parts; fid 72 AK R3 64 ac in 125,190 parts).
 
 ## Build results
