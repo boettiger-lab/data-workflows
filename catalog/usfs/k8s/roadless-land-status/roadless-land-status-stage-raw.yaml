@@ -1,10 +1,12 @@
-# Step 1b: stage the NFS roadless land-status stratification (Manley 2026, v1.0,
-# doi:10.5281/zenodo.23105982) at s3://public-usfs/raw/ so the convert step restarts
-# from S3 rather than re-hitting Zenodo, which rate-limits (HTTP 429).
+# Step 1b: stage the NFS roadless land-status stratification (Manley 2026, Zenodo record
+# 23265719, published 2026-10-09, no version label; supersedes v1.0 record 23105982) at
+# s3://public-usfs/raw/ so the convert step restarts from S3 rather than re-hitting Zenodo,
+# which rate-limits (HTTP 429).
 #
-# Source (Zenodo API, 2026-10-02): roadless_land_status_shapefile.zip, 196,065,585 bytes,
-# md5 6a3ef3ac5e8a4bdf9e16dde5bc6d956a. The zip carries the FGDC metadata
-# roadless_land_status_metadata.xml, extracted alongside so STAC provenance can cite it
+# Source (Zenodo API, 2026-10-14): roadless_land_status_shapefile.zip, 390,739,112 bytes,
+# md5 a289574b63722aef99ea0c2bf6e57fa7. Staged under a record-suffixed name so the v1.0
+# copy (raw/roadless_land_status_shapefile.zip) stays as provenance for the first build.
+# The zip carries the FGDC metadata, extracted alongside so STAC provenance can cite it
 # without unpacking the archive. public-usfs already exists (#584), so no setup-bucket
 # ordering constraint applies.
 apiVersion: batch/v1
@@ -63,26 +65,30 @@ spec:
           set -e
           cd /tmp
           F=roadless_land_status_shapefile.zip
+          OUT=roadless_land_status_shapefile_23265719.zip
+          XML=roadless_land_status_metadata_23265719.xml
           echo "Downloading ${F} ..."
           curl -sSL --fail --retry 8 --retry-delay 30 --retry-all-errors -o "$F" \
-            "https://zenodo.org/records/23105982/files/${F}?download=1"
+            "https://zenodo.org/records/23265719/files/${F}?download=1"
 
           # Fail loudly on an HTML error page served with HTTP 200, or a truncated body.
           SIZE=$(stat -c %s "$F")
           echo "Downloaded ${SIZE} bytes"
-          if [ "$SIZE" -ne 196065585 ]; then
-            echo "ERROR: expected 196065585 bytes, got ${SIZE}" >&2
+          if [ "$SIZE" -ne 390739112 ]; then
+            echo "ERROR: expected 390739112 bytes, got ${SIZE}" >&2
             exit 1
           fi
-          echo "6a3ef3ac5e8a4bdf9e16dde5bc6d956a  $F" | md5sum -c -
+          echo "a289574b63722aef99ea0c2bf6e57fa7  $F" | md5sum -c -
           sha256sum "$F"
 
           echo "Extracting FGDC metadata sidecar ..."
           unzip -o -j "$F" 'roadless_land_status_metadata.xml'
+          mv "$F" "$OUT"
+          mv roadless_land_status_metadata.xml "$XML"
 
           echo "Staging to s3://public-usfs/raw/ ..."
-          rclone copy "$F" nrp:public-usfs/raw/ -P
-          rclone copy roadless_land_status_metadata.xml nrp:public-usfs/raw/ -P
+          rclone copy "$OUT" nrp:public-usfs/raw/ -P
+          rclone copy "$XML" nrp:public-usfs/raw/ -P
           rclone lsl nrp:public-usfs/raw/ | grep roadless_land_status
           echo "✓ Complete"
       volumes:
