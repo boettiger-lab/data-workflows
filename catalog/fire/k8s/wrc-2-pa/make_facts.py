@@ -73,12 +73,13 @@ STATIC = {
     "wrc-2-pa-huimpact-conus": {
         "raw_name": "HUImpact_CONUS.tif",
         "src_nodata_text": "-2147483648",
-        "created": "2026-10-13T20:49:58Z",
+        # Rebuilt with `-r sum` after the #786 review.
+        "created": "2026-10-30T23:00:09Z",
     },
     "wrc-2-pa-huimpact-ak": {
         "raw_name": "HUImpact_AK.tif",
         "src_nodata_text": "-2147483648",
-        "created": "2026-10-13T20:47:27Z",
+        "created": "2026-10-30T22:07:35Z",
     },
 }
 
@@ -91,6 +92,9 @@ SRC_SUM = {
     # #692. BuildingCount is an integer count, so these sums are exact.
     "wrc-2-pa-buildingcount-conus": 145824593.0,
     "wrc-2-pa-buildingcount-ak": 311888.0,
+    # HUImpact is an Int32 band, so these sums are exact. The Alaska clip drops almost none of it.
+    "wrc-2-pa-huimpact-conus": 1214581892445266.0,
+    "wrc-2-pa-huimpact-ak": 5012917436169.0,
 }
 
 # The Alaska COG is clipped at 180W (make-cogs.yaml), which drops the far-western Aleutians. That

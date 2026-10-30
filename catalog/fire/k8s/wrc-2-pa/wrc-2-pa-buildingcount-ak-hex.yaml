@@ -30,8 +30,9 @@
 # collide with a real value.
 #
 # The Alaska COG is clipped to -180..-129 lon (see make-cogs.yaml): the source EPSG:3338 grid spans
-# the antimeridian and a naive warp yields a ~360-deg-wide, almost entirely nodata raster. The
-# dropped far-western Aleutians hold no National Forest System land. h0 576707042908045311 (index
+# the antimeridian and a naive warp yields a ~360-deg-wide, almost entirely nodata raster. The clip
+# drops the Aleutians west of 180 (Attu, Shemya); that narrowing is recorded in #692's scope.
+# h0 576707042908045311 (index
 # 105) is the dateline cell and must come out populated -- that is the standard check that the
 # antimeridian was handled rather than seam-inflated.
 #
@@ -48,8 +49,8 @@
 # ⚠️ `priorityClassName` is deliberately OMITTED. Default priority 0 is admitted in geo-workflows
 # and is two billion points above `opportunistic` (-2000000000); a res-10 h0 runs for hours and an
 # opportunistic pod that long is near-certain to be preempted (skill `pod-preemption`).
-# ⛔ Do NOT node-pin: a 192Gi/8cpu pod fills a node, so pinning serializes the job (#307 turned a
-# CONUS res-10 hex from hours into 30-50 h).
+# ⛔ Do NOT node-pin: pinning serializes the job (#307 turned a CONUS res-10 hex from hours into
+# 30-50 h).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -114,13 +115,11 @@ spec:
             --resolution 10 --parent-resolutions 9,8,0 \
             --value-column buildingcount --hex-resampling sum --nodata -9999
         resources:
-          # ⛔ 192Gi is NOT oversized. Memory at res 10 is set by the ENUMERATION, not the output:
-          # every surviving h0 enumerates the same 282,475,249 res-10 children. Measured on the
-          # sibling wrc-2 CONUS run, four pods spanning 47.8 M to 226.7 M output cells all sat at
-          # 132-134 GiB -- a 4.7x range in cells giving 1.8% in memory. So 128Gi (131,072 Mi) sits
-          # BELOW the steady state and would OOM every slice, not merely the dense one.
-          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
-          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
+          # DEVIATION (#692): 16Gi request, 19Gi limit. Measured on the 2026-10-13/14 run
+          # (datasets#248 windowed reads): pods over 30 min peaked at 10.1-16.3 GiB and
+          # averaged 5.3-12.5 GiB; CPU averaged 6.7-7.9 of 8.
+          requests: {cpu: '8', memory: 16Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 19Gi, ephemeral-storage: 50Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
       affinity:

@@ -34,8 +34,10 @@
 # coverage-weighted and mass-conserving (boettiger-lab/datasets#84), pairing it with `-r sum` makes
 # the whole chain mass-conserving and makes #611's `SUM` invariant testable end to end.
 #
-# So: RESAMPLE[] is `sum` for the four amount themes and `near` for the six density/index themes,
-# mirroring the reducer table exactly. A `sum` warp produces fractional contributions, so those
+# So: RESAMPLE[] is `sum` for the amount themes and `near` for the density/index themes, mirroring
+# the reducer table exactly. HUImpact is an amount despite the file index calling it an index: the
+# producer's lineage (metadata Process step 12) builds it from housing units per pixel, so it is
+# warped `-r sum` (#692 review). A `sum` warp produces fractional contributions, so those
 # COGs are written Float32 even where the source is an integer type (`BuildingCount_CONUS` is
 # UInt16 and could hold neither a fractional sum nor the -9999 sentinel).
 #
@@ -66,7 +68,7 @@
 #
 # Alaska is clipped to -180..-129 lon. Its EPSG:3338 grid spans the antimeridian, and a naive warp
 # to EPSG:4326 yields a ~360-deg-wide, almost entirely nodata raster on the dateline seam. The clip
-# drops the far-western Aleutians (~157E..180), which hold no National Forest System land. For the
+# drops the Aleutians west of 180 (Attu, Shemya); that narrowing is recorded in #692's scope. For the
 # `sum` layers the clip necessarily drops that area's mass too, so each pod prints the source and
 # COG pixel sums and the difference between them -- that number is evidence, not an error.
 #
@@ -93,7 +95,12 @@
 #
 # Indexes 0-3 are #611's two themes. Indexes 4-7 are #692's, BuildingCount and HUImpact; #692
 # narrowed the follow-up to those two, so the other six staged themes have no entry here. As
-# committed, `completions: 4` with `INDEX_OFFSET: '4'` builds exactly #692's four.
+# committed, `completions: 2` with `INDEX_OFFSET: '6'` rebuilds HUImpact (indexes 6-7) with
+# `-r sum`; `completions: 4` with `INDEX_OFFSET: '4'` builds all of #692's four.
+#
+# Memory, measured on the 2026-10-13 run (Thanos): the `-r sum` BuildingCount warps peaked at
+# 13.1-14.5 GiB (CONUS 75 min, Alaska 32 min), 41-45% of the 32Gi request; the `-r near` HUImpact
+# warps peaked at 2-3 GiB and finished in about 10 min.
 #
 # To rebuild ONE index without redoing the others, set INDEX_OFFSET and completions together --
 # e.g. index 2 alone is `completions: 1` with `INDEX_OFFSET: '2'`. Each COG is written to a fixed
@@ -246,8 +253,8 @@ metadata:
   labels:
     k8s-app: wrc-2-pa-make-cogs
 spec:
-  completions: 4
-  parallelism: 4
+  completions: 2
+  parallelism: 2
   completionMode: Indexed
   backoffLimitPerIndex: 2
   maxFailedIndexes: 0
@@ -298,7 +305,7 @@ spec:
           value: '1024'
         # 0 unless rebuilding a single index; see the header.
         - name: INDEX_OFFSET
-          value: '4'
+          value: '6'
         - name: GDAL_NUM_THREADS
           value: ALL_CPUS
         - name: TMPDIR
@@ -325,10 +332,10 @@ spec:
                wrc-2-pa-buildingcount-conus wrc-2-pa-buildingcount-ak wrc-2-pa-huimpact-conus wrc-2-pa-huimpact-ak)
           # `sum` for an amount, `near` for an index. See the header -- this is the choice that
           # decides whether a total survives the reprojection.
-          RESAMPLE=(near near sum sum sum sum near near)
+          RESAMPLE=(near near sum sum sum sum sum sum)
           # Output dtype. Empty keeps the source's. A `sum` warp yields fractional contributions,
           # so those must be floating point.
-          OTYPE=('' '' Float32 Float32 Float32 Float32 '' '')
+          OTYPE=('' '' Float32 Float32 Float32 Float32 Float32 Float32)
           # Measured in the staging job; asserted, never assumed.
           EXPECT_ND=(-2147483648 -2147483648 -3.4028230607370965e+38 -3.4028230607370965e+38
                      255 255 -2147483648 -2147483648)
@@ -338,7 +345,7 @@ spec:
           # DEFLATE predictor follows the OUTPUT dtype: 2 is horizontal differencing
           # for integers, 3 is the floating-point predictor. Using 2 on a float band
           # costs most of the compression; using 3 on an integer band is invalid.
-          PRED=(2 2 3 3 3 3 2 2)
+          PRED=(2 2 3 3 3 3 3 3)
           DST_ND=-9999
 
           i=$(( ${INDEX_OFFSET:-0} + JOB_COMPLETION_INDEX ))

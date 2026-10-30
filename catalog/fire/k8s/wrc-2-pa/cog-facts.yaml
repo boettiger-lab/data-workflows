@@ -67,8 +67,10 @@ spec:
         - -c
         - |
           set -euo pipefail
-          # #611's four are already measured in facts.json; this run measures #692's.
-          OUT=(wrc-2-pa-buildingcount-conus wrc-2-pa-buildingcount-ak wrc-2-pa-huimpact-conus wrc-2-pa-huimpact-ak)
+          # #611's four and #692's BuildingCount are already measured in facts.json; this run
+          # re-measures HUImpact after its `-r sum` rebuild. All of #692's four:
+          #   wrc-2-pa-buildingcount-conus wrc-2-pa-buildingcount-ak wrc-2-pa-huimpact-conus wrc-2-pa-huimpact-ak
+          OUT=(wrc-2-pa-huimpact-conus wrc-2-pa-huimpact-ak)
 
           for o in "${OUT[@]}"; do
             echo "=== $o ==="
@@ -104,7 +106,7 @@ spec:
           PY
             rm -f "/tmp/${o}-cog.tif"
           done
-          echo "ALL FOUR MEASURED"
+          echo "ALL MEASURED"
         resources:
           requests: {cpu: '4', memory: 8Gi, ephemeral-storage: 20Gi}
           limits:   {cpu: '4', memory: 8Gi, ephemeral-storage: 20Gi}

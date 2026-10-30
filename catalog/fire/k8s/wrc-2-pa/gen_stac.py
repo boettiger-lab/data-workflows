@@ -134,27 +134,34 @@ THEMES = {
         column="huimpact",
         label="Housing Unit Impact",
         webapp=None,
-        units="unitless index",
-        reducer="mean",
-        dtype="int32",
+        units="relative impact in housing units, scaled by 1,000,000",
+        clip_units="units of Housing Unit Impact",
+        reducer="sum",
+        dtype="float32",
         source_range="0 to 1,952,625,152 across the United States",
         what=(
             "Housing Unit Impact is the relative potential impact of fire to housing units at a "
-            "location if a fire were to occur. The producers compute it from the housing units "
-            "in each pixel, the conditional probability of each fire intensity and its "
-            "consequence to a structure, and the reduction of potential loss with distance from "
-            "burnable land, then scale it by one million and round to an integer. It is defined "
-            "only where housing-unit density is greater than zero."
+            "location if a fire were to occur. The producers compute it as the number of housing "
+            "units in each pixel, multiplied by the conditional probability of each fire "
+            "intensity and its relative consequence to a structure, and by a factor for the "
+            "reduction of potential loss with distance from burnable land, then scale it by one "
+            "million and round to an integer. It is defined only where housing-unit density is "
+            "greater than zero."
         ),
         interpretation=(
-            "The value is a relative index meant for ranking and comparison, and the producers "
-            "describe it as a landscape metric rather than one specific to any single home. It "
-            "does not include how likely a fire is; Housing Unit Risk adds that. Combine cells "
-            "by averaging. An absence of data means no housing units, not an absence of "
-            "potential impact."
+            "The producers call it a relative index and describe it as a landscape metric rather "
+            "than one specific to any single home, so it is for comparison rather than a count "
+            "of homes lost. It does not include how likely a fire is; Housing Unit Risk adds "
+            "that. Because it is built from the number of housing units in each pixel, it is an "
+            "amount rather than an intensity: cells add, and summing over an area gives that "
+            "area's total potential impact in the same relative units. An absence of data means "
+            "no housing units, not an absence of potential impact."
         ),
         fire_inputs=True,
         keywords=["wildfire risk", "housing units"],
+        zero_meaning="housing units present with no potential impact from fire",
+        absent_meaning="no housing units",
+        sql_comment="total housing unit impact inside inventoried roadless areas",
     ),
 }
 
@@ -177,8 +184,8 @@ DOMAINS = {
         clip_note=(
             " The Alaska raster is clipped to longitudes between 180 degrees west and 129 "
             "degrees west. The source grid crosses the antimeridian, and reprojecting it whole "
-            "produces a raster about 360 degrees wide that is almost entirely empty. The "
-            "excluded far-western Aleutian Islands contain no National Forest System land."
+            "produces a raster about 360 degrees wide that is almost entirely empty. The clip "
+            "excludes the Aleutian Islands west of 180 degrees, including Attu and Shemya."
         ),
     ),
 }
@@ -265,7 +272,8 @@ def build_collection(dataset: str, facts: dict) -> dict:
         lost = f["src_sum"] - f["cog_sum"]
         if lost / f["src_sum"] > 1e-5:
             clip_loss = (
-                f" The clip removes about {round(lost):,} {theme['units']} held in those islands, "
+                f" The clip removes about {round(lost):,} {theme.get('clip_units', theme['units'])} "
+                f"held in those islands, "
                 f"{100 * lost / f['src_sum']:.2f} percent of the source total."
             )
 
@@ -368,8 +376,10 @@ def build_collection(dataset: str, facts: dict) -> dict:
             f"intensity, so cells add: sum the column to total an area, and roll up to a coarser "
             f"resolution with a sum rather than an average. A cell is present only where the "
             f"source raster holds data, so a cell whose value is zero is a measured zero, "
-            f"meaning {theme['zero_meaning']}, while ground the mapping does "
-            f"not cover has no row at all.\n\n"
+            f"meaning {theme['zero_meaning']}, while "
+            + (f"a cell with no row means {theme['absent_meaning']}" if "absent_meaning" in theme
+               else "ground the mapping does not cover has no row at all")
+            + ".\n\n"
             f"```sql\n"
             f"-- {theme['sql_comment']}\n"
             f"SELECT SUM(w.{theme['column']}) AS {theme['column']}_total\n"
