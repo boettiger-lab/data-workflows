@@ -198,10 +198,11 @@ MEM = {
         "          # DEVIATION (#692): 16Gi request, 19Gi limit. Measured on the 2026-10-13/14 run\n"
         "          # (datasets#248 windowed reads): pods over 30 min peaked at 10.1-16.3 GiB and\n"
         "          # averaged 5.3-12.5 GiB; CPU averaged 6.7-7.9 of 8.\n"),
-    "wrc-2-pa-huimpact": ("14Gi", "16Gi",
-        "          # DEVIATION (#692): 14Gi request, 16Gi limit. Measured on the 2026-10-13/14 `mean`\n"
-        "          # run (datasets#248 windowed reads): pods over 30 min peaked at 4.1-10.7 GiB and\n"
-        "          # averaged 3.8-10.1 GiB; CPU averaged 6.6-7.9 of 8.\n"),
+    "wrc-2-pa-huimpact": ("28Gi", "32Gi",
+        "          # DEVIATION (#692): 28Gi request, 32Gi limit. The 2026-10-13/14 `mean` run peaked at\n"
+        "          # 4.1-10.7 GiB, but `sum` needs about twice that: at 14Gi/16Gi on 2026-10-30, CONUS\n"
+        "          # indexes 2 and 3 were OOMKilled (index 2 was 7.7 GiB under `mean`) and indexes 0\n"
+        "          # and 1 sat at 11.5-11.8 GiB after 30 min (6.5-7.1 under `mean`). CPU ~7-8 of 8.\n"),
 }
 
 for ds, title, col, reducer, note in [

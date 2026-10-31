@@ -838,13 +838,14 @@ drops its own empty cells, these become dead weight and should go.
 |---|---:|---:|---:|---|
 | `buildingcount-conus` | 145,824,593 | 145,824,616.13 (rel 1.6e-7) | 48.71 | `sum`, 75 min |
 | `buildingcount-ak` | 311,888 | 311,790.26 (rel 3.1e-4) | 5.01 | `sum`, 2 min |
-| `huimpact-conus` | | | 1,931,999,488 (source 1,952,625,152) | `near`, 4 min |
-| `huimpact-ak` | | | 155,192,256 (= source) | `near`, 4 min |
+| `huimpact-conus` | 1,214,581,892,445,266 | 1,214,581,942,888,361 (rel 4.2e-8) | 1,625,251,968 | `sum`, 47 min |
+| `huimpact-ak` | 5,012,917,436,169 | 5,012,916,448,855 (rel 2.0e-7) | 99,213,840 | `sum`, 6 min |
 
-`buildingcount-ak` loses ~98 buildings to the 180W clip, which drops Shemya and Attu. HUExposure
-has no mass there, which is why #611's 1e-5 check passed; `make_facts.py` now bounds this one loss
-at 1e-3 and fails on any gain. The `huimpact-conus` max is lower because `near` skips some source
-pixels.
+HUImpact is an amount (producer step 12: housing units per pixel x cRPS x exposure type x 1e6), so
+it is warped with `-r sum` to Float32 and hexed with `sum`. Warps peaked at 13.1-14.5 GiB.
+
+The Alaska clip at 180W is recorded scope on #692. `buildingcount-ak` loses ~98 buildings to it
+(Shemya and Attu); `make_facts.py` bounds that loss at 1e-3 and fails on any gain.
 
 `BuildingCount` has a valid value on 8.98e9 of CONUS's source pixels (zeros on all mapped land),
 against 1.5e9 for HUExposure, which is why its `-r sum` warp took 75 min at 14.8 GiB.
@@ -855,16 +856,13 @@ against 1.5e9 for HUExposure, which is why its `-r sum` warp took 75 min at 14.8
 |---|---:|---|---:|---:|---|
 | `buildingcount-conus` | 520,990,243 | yes | 6 of 12 | 145,824,616.13 (= COG) | 4h13m, 12 pods at 7-13 GiB |
 | `buildingcount-ak` | 120,376,065 | yes | 5 of 7 | 311,790.26 (= COG) | 2h30m |
-| `huimpact-conus` | 126,907,283 | yes | 6 of 12 | (mean) | 4h37m at 64Gi |
-| `huimpact-ak` | 365,692 | yes | 4 of 7 | (mean) | 3h13m at 64Gi |
+| `huimpact-conus` | 134,660,430 | yes | 6 of 12 | 1,214,581,942,884,736 (rel -3e-12) | 5h36m, peaks 11.5-17.4 GiB |
+| `huimpact-ak` | 389,755 | yes | 4 of 7 | 5,012,916,448,738 (rel -2e-11) | 2h11m, peaks 10.1-16.4 GiB |
 
 Zero NULL `h9`/`h8`, zero `-9999` or NaN, `MIN` 0, no all-zero partition. The six populated h0 cells
-are exactly HURisk-CONUS's six. Peak memory was 7-13 GiB against #611's ~132 GiB: the windowed h0
-reads in datasets#248 are the likely reason, so 192Gi is now far oversized for this publication.
-
-`huimpact-conus` covers the same six h0 cells and the same data bbox as `hurisk-conus`, and has 19
-more rows (126,907,283 vs 126,907,264). Both are defined only where housing-unit density is above
-zero, so they should match closely.
+are exactly HURisk-CONUS's six. Peak memory was well under #611's ~132 GiB (windowed h0 reads,
+datasets#248). HUImpact `sum` needs about twice the memory of `mean`: at 14Gi/16Gi, CONUS indexes 2
+and 3 were OOMKilled, so it runs at 28Gi/32Gi. BuildingCount runs at 16Gi/19Gi.
 
 **One all-zero partition, and it is real.** `buildingcount-ak` h0 `576882964768489471` holds 1,979
 rows, all 0: 30 km2 at 51.9N, 177.7-178.1W, around Tanaga and Kanaga in the Aleutians, which are
@@ -872,16 +870,11 @@ uninhabited. With datasets#248 a row is written only where the cell has valid pi
 measured zeros, not fill. #611's "no partition entirely zero" gate targets zero-fill; this is the
 case it does not distinguish.
 
-The hex chain ran unattended overnight and was killed with the session after submitting
-`huimpact-conus`; `huimpact-ak` was submitted by hand at 17:50Z on 2026-10-14.
-
-`huimpact-ak` covers the same four h0 cells as `hurisk-ak` (12 fewer rows, 365,692 vs 365,704),
-including the dateline cell. The dateline h0 set the pace in both Alaska jobs: it alone reaches
+`huimpact-ak` covers the same four h0 cells as `hurisk-ak`, including the dateline cell. The dateline h0 set the pace in both Alaska jobs: it alone reaches
 248,126,145 res-10 cells and is read without a window because it straddles the antimeridian.
 
 ### STAC
 
-All four collections published 2026-10-14 via `publish-stac.yaml`, and the `public-fire` bucket
-collection gained their four child links (30 -> 34; non-link fields and existing links unchanged,
-backup at `stac-collection.backup.json`). `verify-stac.py --bucket public-fire` passes with no hard
-findings on all eight `wrc-2-pa-*` collections.
+All four collections published via `publish-stac.yaml`, and the `public-fire` bucket collection
+gained their four child links (30 -> 34). HUImpact and the Alaska clip text were republished
+2026-10-31. `verify-stac.py --bucket public-fire` passes with no hard findings.

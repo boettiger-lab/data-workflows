@@ -108,11 +108,12 @@ spec:
             --resolution 10 --parent-resolutions 9,8,0 \
             --value-column huimpact --hex-resampling sum --nodata -9999
         resources:
-          # DEVIATION (#692): 14Gi request, 16Gi limit. Measured on the 2026-10-13/14 `mean`
-          # run (datasets#248 windowed reads): pods over 30 min peaked at 4.1-10.7 GiB and
-          # averaged 3.8-10.1 GiB; CPU averaged 6.6-7.9 of 8.
-          requests: {cpu: '8', memory: 14Gi, ephemeral-storage: 50Gi}
-          limits:   {cpu: '8', memory: 16Gi, ephemeral-storage: 50Gi}
+          # DEVIATION (#692): 28Gi request, 32Gi limit. The 2026-10-13/14 `mean` run peaked at
+          # 4.1-10.7 GiB, but `sum` needs about twice that: at 14Gi/16Gi on 2026-10-30, CONUS
+          # indexes 2 and 3 were OOMKilled (index 2 was 7.7 GiB under `mean`) and indexes 0
+          # and 1 sat at 11.5-11.8 GiB after 30 min (6.5-7.1 under `mean`). CPU ~7-8 of 8.
+          requests: {cpu: '8', memory: 28Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
       affinity:
