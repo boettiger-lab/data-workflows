@@ -1,0 +1,112 @@
+# HAND-ROLLED: cng-datasets raster-workflow builds a COG only for multi-tile GeoTIFF sources
+# (preprocess-cog); this source is 8 staged ERDDAP netCDF latitude bands, so this job mosaics
+# them into the WGS84 COG that the generated hex job reads. Run after hmrg-bathy-50m-stage-raw.
+#
+# Input:  s3://public-hawaii/raw/hmrg-bathy-50m/hmrg_bathy_50m_mhi_rows*.nc
+# Output: s3://public-hawaii/hmrg-bathy-50m-cog.tif
+#   Float32 depth in metres (negative down), nodata 0 (the source _FillValue: land and
+#   unsurveyed cells), ZSTD, 512 tiles, AVERAGE overviews.
+# The job asserts the mosaic reconstructs the exact source grid, the depth range is physically
+# plausible and every overview stays inside the native range, then prints spot depths and the
+# COG sha256.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/842
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hmrg-bathy-50m-cog
+  namespace: geo-workflows
+  labels:
+    k8s-app: hmrg-bathy-50m-cog
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 10800
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        k8s-app: hmrg-bathy-50m-cog
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/w/raw && cd /tmp/w
+          rclone copy nrp:public-hawaii/raw/hmrg-bathy-50m/ raw/ --include '*.nc'
+          ls -l raw
+          [ "$(ls raw/*.nc | wc -l)" -eq 8 ] || { echo "expected 8 staged bands" >&2; exit 1; }
+          gdalbuildvrt -vrtnodata 0 -srcnodata 0 mosaic.vrt raw/*.nc
+          python3 - <<'PY'
+          from osgeo import gdal
+          d = gdal.Open("/tmp/w/mosaic.vrt"); gt = d.GetGeoTransform()
+          print("size", d.RasterXSize, d.RasterYSize, "gt", gt)
+          assert (d.RasterXSize, d.RasterYSize) == (18001, 16001), "mosaic does not reconstruct the source grid"
+          assert abs(gt[1] - 0.0005) < 1e-9 and abs(gt[5] + 0.0005) < 1e-9, "pixel size / orientation"
+          assert abs(gt[0] + 162.00025) < 1e-6 and abs(gt[3] - 25.00025) < 1e-6, f"origin {gt}"
+          PY
+          gdal_translate -of COG -a_srs EPSG:4326 -a_nodata 0 \
+            -co COMPRESS=ZSTD -co PREDICTOR=FLOATING_POINT -co BLOCKSIZE=512 \
+            -co RESAMPLING=AVERAGE -co OVERVIEWS=IGNORE_EXISTING -co NUM_THREADS=ALL_CPUS \
+            mosaic.vrt hmrg-bathy-50m-cog.tif
+          python3 - <<'PY'
+          from osgeo import gdal
+          import numpy as np
+          d = gdal.Open("/tmp/w/hmrg-bathy-50m-cog.tif"); b = d.GetRasterBand(1)
+          a = b.ReadAsArray()
+          assert not np.isnan(a).any(), "unexpected NaN"
+          v = a[a != 0]
+          print("valid", v.size, "of", a.size, "min", float(v.min()), "max", float(v.max()), "mean", float(v.mean()))
+          assert v.size > 0 and v.max() < 0 and v.min() > -7000, "implausible depth range"
+          gt = d.GetGeoTransform()
+          for name, lat, lon in [("Kaneohe Bay south lagoon", 21.44, -157.80), ("Kaneohe Bay patch reef 13", 21.457, -157.808),
+                                 ("Kaneohe Bay central lagoon", 21.47, -157.82), ("Kaneohe barrier reef", 21.48, -157.79),
+                                 ("Puako reef", 19.97, -155.85), ("Penguin Bank", 21.0, -157.4), ("Kaiwi Channel", 21.2, -157.5)]:
+              c = int((lon - gt[0]) / gt[1]); r = int((lat - gt[3]) / gt[5])
+              w = a[r-1:r+2, c-1:c+2].astype(float); w[w == 0] = np.nan
+              print(f"{name} ({lat},{lon}): {a[r,c]:.2f} m; 3x3 {np.nanmin(w):.2f}..{np.nanmax(w):.2f}")
+          for i in range(b.GetOverviewCount()):
+              o = b.GetOverview(i).ReadAsArray(); ov = o[o != 0]
+              print("overview", i, o.shape, "min", float(ov.min()), "max", float(ov.max()))
+              assert ov.min() >= v.min() - 1e-3 and ov.max() <= v.max() + 1e-3, "overview outside native range"
+          PY
+          ls -l hmrg-bathy-50m-cog.tif
+          sha256sum hmrg-bathy-50m-cog.tif
+          rclone copyto hmrg-bathy-50m-cog.tif nrp:public-hawaii/hmrg-bathy-50m-cog.tif --s3-no-check-bucket
+          rclone lsl nrp:public-hawaii/ --include hmrg-bathy-50m-cog.tif
+        resources:
+          requests:
+            cpu: '4'
+            memory: 12Gi
+            ephemeral-storage: 8Gi
+          limits:
+            cpu: '4'
+            memory: 12Gi
+            ephemeral-storage: 8Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

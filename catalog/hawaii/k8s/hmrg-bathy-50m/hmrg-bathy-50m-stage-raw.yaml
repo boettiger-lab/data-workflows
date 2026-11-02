@@ -1,0 +1,108 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step for an ERDDAP griddap source.
+#
+# Stage the HMRG Main Hawaiian Islands 50 m multibeam bathymetry synthesis (version 21) from
+# PacIOOS ERDDAP `hmrg_bathy_50m_mhi` (16001 lat x 18001 lon, 0.0005 deg, z in metres; land and
+# unsurveyed cells are 0, the netCDF _FillValue; the source has no NaN and no positive values).
+#
+# ERDDAP caps a single response and serves ~150 MB in ~10 minutes, so the grid is pulled as 8
+# latitude bands by index (no overlapping rows). Each band is uploaded as soon as it lands and
+# skipped if already staged, so a retry resumes rather than restarts. The bands are kept
+# untouched as the staged raw; SHA256SUMS is recomputed from the staged objects.
+# Small requests (1 CPU, 1Gi) keep this long, I/O-bound pod inside NRP's usage policy at
+# default priority (#804); the COG is built by the separate short hmrg-bathy-50m-cog job.
+#
+# Staged to s3://public-hawaii/raw/hmrg-bathy-50m/:
+#   hmrg_bathy_50m_mhi_rows<i0>-<i1>.nc   ERDDAP griddap netCDF, untouched
+#   hmrg_bathy_50m_mhi.das / _info.csv    ERDDAP metadata at access time
+#   ACCESS_DATE, SHA256SUMS
+#
+#   Source: https://pae-paha.pacioos.hawaii.edu/erddap/griddap/hmrg_bathy_50m_mhi.html
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/842
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hmrg-bathy-50m-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: hmrg-bathy-50m-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 10800
+  activeDeadlineSeconds: 14400
+  template:
+    metadata:
+      labels:
+        k8s-app: hmrg-bathy-50m-stage-raw
+    spec:
+      restartPolicy: Never
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          E=https://pae-paha.pacioos.hawaii.edu/erddap
+          D=hmrg_bathy_50m_mhi
+          R=nrp:public-hawaii/raw/hmrg-bathy-50m
+          mkdir -p /tmp/w && cd /tmp/w
+          have=$(rclone lsf $R/ 2>/dev/null || true)
+          if ! grep -qx ACCESS_DATE <<<"$have"; then
+            date -u +%Y-%m-%dT%H:%M:%SZ > ACCESS_DATE
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o $D.das "$E/griddap/$D.das"
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o ${D}_info.csv "$E/info/$D/index.csv"
+            rclone copy . $R/ --s3-no-check-bucket
+          fi
+          for i0 in 0 2000 4000 6000 8000 10000 12000 14000; do
+            i1=$((i0+1999)); [ $i0 -eq 14000 ] && i1=16000
+            f=${D}_rows${i0}-${i1}.nc
+            if grep -qx "$f" <<<"$have"; then echo "skip $f (staged)"; continue; fi
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 30 --max-time 3600 -o $f \
+              "$E/griddap/$D.nc?z%5B${i0}:1:${i1}%5D%5B0:1:18000%5D"
+            python3 -c "
+          from osgeo import gdal; d = gdal.Open('$f')
+          assert (d.RasterXSize, d.RasterYSize) == (18001, $((i1-i0+1))), (d.RasterXSize, d.RasterYSize)"
+            rclone copyto $f $R/$f --s3-no-check-bucket
+            echo "staged $f $(stat -c %s $f)"; rm $f
+          done
+          # checksums from the staged objects themselves
+          rm -rf /tmp/v && mkdir /tmp/v && rclone copy $R/ /tmp/v/ --exclude SHA256SUMS
+          (cd /tmp/v && sha256sum *.nc $D.das ${D}_info.csv > SHA256SUMS && cat ACCESS_DATE SHA256SUMS && ls -l)
+          rclone copyto /tmp/v/SHA256SUMS $R/SHA256SUMS --s3-no-check-bucket
+          rclone ls $R/
+        resources:
+          requests:
+            cpu: '1'
+            memory: 1Gi
+            ephemeral-storage: 4Gi
+          limits:
+            cpu: '1'
+            memory: 1Gi
+            ephemeral-storage: 4Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
