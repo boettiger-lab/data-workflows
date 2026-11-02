@@ -67,6 +67,9 @@ spec:
           echo "$(wc -l < ids.txt) sites"
 
           fetch() {
+            # xargs runs this in a fresh bash, which does not inherit pipefail: without it a curl
+            # that gives up mid-transfer leaves a truncated file that still passes the row check.
+            set -euo pipefail
             id="$1"; f="sites/$id.csv.gz"
             $C "$E/tabledap/$DS.csv?&OCC_SITEID=%22$id%22" | gzip -1 > "$f"
             # header + units row + at least one data row
