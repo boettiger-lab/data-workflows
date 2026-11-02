@@ -72,7 +72,7 @@ data:
                 s3://public-hawaii/raw/crcp-subsurface-temp/sites.parquet \
                 s3://public-hawaii/crcp-subsurface-temp.parquet \
                 --row-group-size 100000 \
-                --expect-features 255
+                --expect-features 145
             resources:
               requests:
                 cpu: '4'

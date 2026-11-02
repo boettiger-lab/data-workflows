@@ -5,7 +5,7 @@
 # Reads  s3://public-hawaii/raw/crcp-subsurface-temp/sites/*.csv.gz   (stage-raw job)
 # Writes s3://public-hawaii/crcp-subsurface-temp/observations.parquet  one row per reading
 #        s3://public-hawaii/crcp-subsurface-temp/deployments.parquet   one row per deployment
-#        s3://public-hawaii/raw/crcp-subsurface-temp/sites.parquet     one point per (site, depth);
+#        s3://public-hawaii/raw/crcp-subsurface-temp/sites.parquet     one point per OCC_SITEID;
 #                                                                       input to the generated workflow
 #
 # - Duplicate readings are dropped (about a third of upstream rows); the count is printed.
@@ -133,10 +133,14 @@ spec:
           c.execute("CREATE TABLE obs2 AS SELECT o.*, d.INSTRUMENT_TYPE FROM obs o JOIN dmeta d USING (INSTFIELDSUMMARYID)")
           c.execute("DROP TABLE obs"); c.execute("ALTER TABLE obs2 RENAME TO obs")
 
-          c.execute(f"""COPY (SELECT OCC_SITEID, DEPTH_M,
+          # Sites: one row per OCC_SITEID. DEPTH_M is re-measured at each deployment (spread within
+          # a site is at most 3.5 m; no site has loggers at genuinely different depths), so the
+          # depth range is carried here and each deployment's own depth stays on deployments.
+          c.execute(f"""COPY (SELECT OCC_SITEID,
                                      CASE WHEN any_value(REGION) IN ('MHI', 'Main Hawaiian Islands')
                                           THEN 'Main Hawaiian Islands' ELSE 'Northwestern Hawaiian Islands' END AS REGION,
                                      any_value(LOCATION) AS LOCATION,
+                                     min(DEPTH_M) AS depth_min_m, max(DEPTH_M) AS depth_max_m,
                                      median(latitude) AS latitude, median(longitude) AS longitude,
                                      count(DISTINCT INSTFIELDSUMMARYID) AS n_deployments,
                                      string_agg(DISTINCT INSTRUMENT_TYPE, ', ') AS instrument_types,
@@ -144,8 +148,10 @@ spec:
                                      min(TEMP_C) AS temp_min_c, avg(TEMP_C) AS temp_mean_c,
                                      max(TEMP_C) AS temp_max_c,
                                      ST_Point(median(longitude), median(latitude)) AS geometry
-                              FROM obs GROUP BY OCC_SITEID, DEPTH_M ORDER BY OCC_SITEID, DEPTH_M)
+                              FROM obs GROUP BY OCC_SITEID ORDER BY OCC_SITEID)
                         TO '{RAW}/sites.parquet' (FORMAT parquet, COMPRESSION zstd)""")
+          nr = c.execute(f"SELECT count(DISTINCT LOCATION) FROM obs GROUP BY OCC_SITEID HAVING count(DISTINCT LOCATION) > 1").fetchall()
+          assert not nr, "a site spans more than one LOCATION"
           print(c.execute(f"""SELECT count(*) AS sites, count(DISTINCT OCC_SITEID) AS site_ids,
                                      min(first_time)::VARCHAR, max(last_time)::VARCHAR, count(*) FILTER (WHERE REGION IS NULL)
                               FROM '{RAW}/sites.parquet'""").fetchall())
