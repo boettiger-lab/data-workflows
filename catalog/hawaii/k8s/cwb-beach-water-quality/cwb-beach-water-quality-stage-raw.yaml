@@ -1,0 +1,75 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step for an ERDDAP tabledap source; this pulls the full record
+# and stages it before the build job converts it.
+#
+# Stage Hawaiʻi DOH Clean Water Branch beach water quality (PacIOOS ERDDAP `cwb_water_quality`),
+# full record, every column. ~123k rows, ~12 MB as CSV.
+#
+# Staged to s3://public-hawaii/raw/cwb-beach-water-quality/:
+#   cwb_water_quality.csv.gz   ERDDAP .csv response (header + units row), gzipped
+#   erddap-info.csv            dataset metadata (ERDDAP info page)
+#   MANIFEST.sha256            sha256 + byte size of every staged file
+#
+#   Source: https://pae-paha.pacioos.hawaii.edu/erddap/tabledap/cwb_water_quality.html
+# Upstream has no edition label, so the staged files plus their sha256 (MANIFEST.sha256, recorded
+# in the STAC) are the provenance; the job prints the access time.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/829
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cwb-beach-water-quality-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: cwb-beach-water-quality-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: cwb-beach-water-quality-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 3600
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          DEST="nrp:public-hawaii/raw/cwb-beach-water-quality"
+          mkdir -p /work && cd /work
+          C="curl -fsS --retry 8 --retry-all-errors --retry-delay 30 --max-time 1800"
+          E="https://pae-paha.pacioos.hawaii.edu/erddap"
+          $C -o erddap-info.csv "$E/info/cwb_water_quality/index.csv"
+          $C "$E/tabledap/cwb_water_quality.csv" | gzip -1 > cwb_water_quality.csv.gz
+          n=$(zcat cwb_water_quality.csv.gz | wc -l); echo "$((n-2)) data rows"
+          [ "$n" -gt 100000 ] || { echo "too few rows"; exit 1; }
+          echo "accessed $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          find . -type f ! -name MANIFEST.sha256 | sort | while read -r f; do
+            echo "$(sha256sum "$f" | cut -d' ' -f1)  $(stat -c %s "$f")  ${f#./}"
+          done > MANIFEST.sha256
+          cat MANIFEST.sha256
+          rclone copy . "$DEST" --s3-no-check-bucket
+          echo "staged -> s3://public-hawaii/raw/cwb-beach-water-quality/"
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+          limits: {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

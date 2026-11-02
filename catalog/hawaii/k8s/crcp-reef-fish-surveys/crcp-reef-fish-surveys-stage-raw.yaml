@@ -1,0 +1,75 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step for an ERDDAP tabledap source; this pulls the full record
+# and stages it before the build job converts it.
+#
+# Stage NOAA PIFSC / NCRMP reef fish surveys, Hawaiian Islands (NCEI ERDDAP
+# `CRCP_Reef_Fish_Surveys_Hawaii`), full record (MHI + NWHI), every column. ~172k rows, ~85 MB.
+#
+# Staged to s3://public-hawaii/raw/crcp-reef-fish-surveys/:
+#   CRCP_Reef_Fish_Surveys_Hawaii.csv.gz   ERDDAP .csv response (header + units row), gzipped
+#   erddap-info.csv                        dataset metadata (ERDDAP info page)
+#   MANIFEST.sha256                        sha256 + byte size of every staged file
+#
+#   Source: https://www.ncei.noaa.gov/erddap/tabledap/CRCP_Reef_Fish_Surveys_Hawaii.html
+# Upstream has no edition label, so the staged files plus their sha256 (MANIFEST.sha256, recorded
+# in the STAC) are the provenance; the job prints the access time.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/844
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crcp-reef-fish-surveys-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: crcp-reef-fish-surveys-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: crcp-reef-fish-surveys-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 3600
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          DEST="nrp:public-hawaii/raw/crcp-reef-fish-surveys"
+          mkdir -p /work && cd /work
+          C="curl -fsS --retry 8 --retry-all-errors --retry-delay 30 --max-time 1800"
+          E="https://www.ncei.noaa.gov/erddap"
+          $C -o erddap-info.csv "$E/info/CRCP_Reef_Fish_Surveys_Hawaii/index.csv"
+          $C "$E/tabledap/CRCP_Reef_Fish_Surveys_Hawaii.csv" | gzip -1 > CRCP_Reef_Fish_Surveys_Hawaii.csv.gz
+          n=$(zcat CRCP_Reef_Fish_Surveys_Hawaii.csv.gz | wc -l); echo "$((n-2)) data rows"
+          [ "$n" -gt 150000 ] || { echo "too few rows"; exit 1; }
+          echo "accessed $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          find . -type f ! -name MANIFEST.sha256 | sort | while read -r f; do
+            echo "$(sha256sum "$f" | cut -d' ' -f1)  $(stat -c %s "$f")  ${f#./}"
+          done > MANIFEST.sha256
+          cat MANIFEST.sha256
+          rclone copy . "$DEST" --s3-no-check-bucket
+          echo "staged -> s3://public-hawaii/raw/crcp-reef-fish-surveys/"
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+          limits: {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

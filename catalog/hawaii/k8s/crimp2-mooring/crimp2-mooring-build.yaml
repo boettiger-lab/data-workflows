@@ -1,0 +1,142 @@
+# HAND-ROLLED: cng-datasets converts a geospatial source to GeoParquet, but this source is 20
+# per-deployment CSV files from one fixed mooring, in three column layouts. This job aligns them
+# into one observation table and a deployment point layer; the generated workflow
+# (configmap.yaml / workflow.yaml) then builds PMTiles + hex from the deployments.
+#
+# Reads  s3://public-hawaii/raw/crimp2-mooring/CRIMP2_158W_21N_<deployment>.csv   (stage-raw job)
+# Writes s3://public-hawaii/crimp2-mooring/observations.parquet   one row per record, all files
+#        s3://public-hawaii/raw/crimp2-mooring/sites.parquet        one point per deployment;
+#                                                                   input to the generated workflow
+#
+# Layouts (column order is the same in all; later files append columns):
+#   24 columns  CO2 system + SST + salinity                            (14 files)
+#   26 columns  + pH (total scale), pH QF                              (3 files)
+#   32 columns  + pH, CHL, CHL QF, NTU, NTU QF, DOXY, DOXY QF          (3 files)
+# The header sits on line 1 (older files) or line 5, after an expocode / vessel / PI preamble.
+# - -999 is upstream's missing-value code; it becomes NULL. QF flags are kept as integers.
+# - `deployment` comes from the file name (e.g. Aug2015_Sep2016); `expocode` from the preamble.
+# - Timestamps duplicated across overlapping deployment files are counted and printed, not dropped.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/830
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crimp2-mooring-build
+  namespace: geo-workflows
+  labels:
+    k8s-app: crimp2-mooring-build
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: crimp2-mooring-build
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 3600
+      containers:
+      - name: build
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        command:
+        - python3
+        - -c
+        - |
+          import duckdb, os, csv, io, re, datetime
+          c = duckdb.connect('/work/build.duckdb')
+          for s in ["INSTALL spatial", "LOAD spatial", "INSTALL httpfs", "LOAD httpfs",
+                    "SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'", "SET s3_use_ssl=false",
+                    "SET s3_url_style='path'", "SET TimeZone='UTC'"]:
+              c.execute(s)
+          c.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}'")
+          c.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}'")
+          RAW = "s3://public-hawaii/raw/crimp2-mooring"
+          OUT = "s3://public-hawaii/crimp2-mooring"
+          NAMES = ["mooring_name", "latitude", "longitude", "date", "time_of_day",
+                   "xco2_sw_wet", "co2_sw_qf", "h2o_sw", "xco2_air_wet", "co2_air_qf", "h2o_air",
+                   "licor_atm_pressure", "licor_temp", "o2_percent", "sst", "salinity",
+                   "xco2_sw_dry", "xco2_air_dry", "fco2_sw_sat", "fco2_air_sat", "dfco2",
+                   "pco2_sw_sat", "pco2_air_sat", "dpco2",
+                   "ph_total", "ph_qf", "chl", "chl_qf", "ntu", "ntu_qf", "doxy", "doxy_qf"]
+          QF = {"co2_sw_qf", "co2_air_qf", "ph_qf", "chl_qf", "ntu_qf", "doxy_qf"}
+          files = c.execute(f"SELECT filename, content FROM read_text('{RAW}/CRIMP2_158W_21N_*.csv')").fetchall()
+          files = [(f, t) for f, t in files if "qflog" not in f.lower()]
+          assert len(files) == 20, f"expected 20 deployment files, got {len(files)}"
+          rows, layouts = [], {}
+          for fname, text in sorted(files):
+              dep = re.search(r"CRIMP2_158W_21N_(.+)\.csv$", fname).group(1)
+              lines = text.splitlines()
+              h = next(i for i, l in enumerate(lines) if l.startswith("Mooring Name"))
+              m = re.match(r"expocode:\s*(\S+)", lines[0]) if h > 0 else None
+              expocode = m.group(1) if m else None
+              ncol = len(next(csv.reader([lines[h]])))
+              assert ncol in (24, 26, 32), f"{dep}: {ncol} columns"
+              layouts[ncol] = layouts.get(ncol, 0) + 1
+              for r in csv.reader(lines[h + 1:]):
+                  if not r or not r[0].strip():
+                      continue
+                  assert len(r) == ncol, f"{dep}: row has {len(r)} fields, header {ncol}"
+                  rec = dict(zip(NAMES, r))
+                  out = {"deployment": dep, "expocode": expocode,
+                         "time": datetime.datetime.strptime(f"{rec['date']} {rec['time_of_day']}", "%m/%d/%Y %H:%M"),
+                         "mooring_name": rec["mooring_name"]}
+                  for k in NAMES[1:3] + NAMES[5:]:
+                      v = rec.get(k)
+                      if v is None or v.strip() == "":
+                          out[k] = None
+                          continue
+                      x = float(v)
+                      out[k] = None if x == -999 else (int(x) if k in QF else x)
+                  rows.append(out)
+          print("layouts (columns: files):", layouts, "; rows:", len(rows))
+          cols = ["deployment", "expocode", "mooring_name", "time"] + NAMES[1:3] + NAMES[5:]
+          with open("/work/obs.csv", "w", newline="") as fh:
+              w = csv.DictWriter(fh, fieldnames=cols)
+              w.writeheader()
+              for r in rows:
+                  w.writerow({k: ("" if r.get(k) is None else r.get(k)) for k in cols})
+          types = {k: ("INTEGER" if k in QF else "DOUBLE") for k in NAMES[1:3] + NAMES[5:]}
+          types.update({"deployment": "VARCHAR", "expocode": "VARCHAR", "mooring_name": "VARCHAR", "time": "TIMESTAMP"})
+          spec = "{" + ", ".join(f"'{k}': '{types[k]}'" for k in cols) + "}"
+          c.execute(f"""CREATE TABLE obs AS SELECT * REPLACE (time::TIMESTAMPTZ AS time)
+                        FROM read_csv('/work/obs.csv', header=true, columns={spec}, nullstr='')""")
+          n = c.execute("SELECT count(*) FROM obs").fetchone()[0]
+          nd = c.execute("SELECT count(*) FROM (SELECT DISTINCT * EXCLUDE (deployment, expocode) FROM obs)").fetchone()[0]
+          dup_t, dup_files = c.execute("""SELECT count(*), coalesce(string_agg(DISTINCT deps, '; '), '')
+                        FROM (SELECT time, string_agg(DISTINCT deployment, ' + ' ORDER BY deployment) deps,
+                                     count(*) k FROM obs GROUP BY time HAVING k > 1)""").fetchone()
+          print(f"observations {n:,}; identical records across files {n - nd:,}; "
+                f"timestamps in more than one row {dup_t:,} ({dup_files})")
+          print("QF=5 with a non-missing value:", c.execute("""SELECT
+                  count(*) FILTER (WHERE ph_qf = 5 AND ph_total IS NOT NULL),
+                  count(*) FILTER (WHERE chl_qf = 5 AND chl IS NOT NULL),
+                  count(*) FILTER (WHERE co2_sw_qf = 5 AND xco2_sw_wet IS NOT NULL) FROM obs""").fetchall())
+          c.execute(f"""COPY (SELECT * FROM obs ORDER BY time, deployment)
+                        TO '{OUT}/observations.parquet' (FORMAT parquet, COMPRESSION zstd)""")
+          c.execute(f"""COPY (SELECT deployment, any_value(expocode) AS expocode, any_value(mooring_name) AS mooring_name,
+                                     any_value(latitude) AS latitude, any_value(longitude) AS longitude,
+                                     min(time) AS first_time, max(time) AS last_time, count(*) AS n_records,
+                                     count(sst) AS n_sst, count(salinity) AS n_salinity,
+                                     count(xco2_sw_dry) AS n_xco2_sw, count(pco2_sw_sat) AS n_pco2_sw,
+                                     count(ph_total) AS n_ph, count(chl) AS n_chl, count(ntu) AS n_ntu,
+                                     count(doxy) AS n_doxy,
+                                     ST_Point(any_value(longitude), any_value(latitude)) AS geometry
+                              FROM obs GROUP BY deployment ORDER BY first_time)
+                        TO '{RAW}/sites.parquet' (FORMAT parquet, COMPRESSION zstd)""")
+          print(c.execute(f"""SELECT count(*), min(first_time)::VARCHAR, max(last_time)::VARCHAR, sum(n_records),
+                              count(DISTINCT (latitude, longitude)) FROM '{RAW}/sites.parquet'""").fetchall())
+        volumeMounts:
+        - {name: work, mountPath: /work}
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - name: work
+        emptyDir: {}

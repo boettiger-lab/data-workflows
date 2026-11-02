@@ -1,0 +1,106 @@
+# HAND-ROLLED: cng-datasets converts a geospatial source to GeoParquet, but this source is an
+# ERDDAP observation table. This job splits it into an observation table and a site-visit layer;
+# the generated workflow (configmap.yaml / workflow.yaml) then builds PMTiles + hex from the visits.
+#
+# Reads  s3://public-hawaii/raw/crcp-reef-fish-surveys/CRCP_Reef_Fish_Surveys_Hawaii.csv.gz
+# Writes s3://public-hawaii/crcp-reef-fish-surveys/observations.parquet  one row per upstream row,
+#                                                       every column not on the visit table
+#        s3://public-hawaii/raw/crcp-reef-fish-surveys/sites.parquet  one point per SITEVISITID;
+#                                                       input to the generated workflow
+#
+# VISIT columns are the ones measured constant within every SITEVISITID (2026-11-02, all 2,043
+# visits); the job re-asserts that. Joining the two tables on SITEVISITID restores every
+# upstream column. Exact duplicate rows are dropped; the count is printed.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/844
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crcp-reef-fish-surveys-build
+  namespace: geo-workflows
+  labels:
+    k8s-app: crcp-reef-fish-surveys-build
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: crcp-reef-fish-surveys-build
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 3600
+      containers:
+      - name: build
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        command:
+        - python3
+        - -c
+        - |
+          import duckdb, os, csv, gzip, io, subprocess
+          c = duckdb.connect('/work/build.duckdb')
+          for s in ["INSTALL spatial", "LOAD spatial", "INSTALL httpfs", "LOAD httpfs",
+                    "SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'", "SET s3_use_ssl=false",
+                    "SET s3_url_style='path'", "SET TimeZone='UTC'", "SET temp_directory='/work/tmp'"]:
+              c.execute(s)
+          c.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}'")
+          c.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}'")
+
+          def erddap_columns(raw, csvname):
+              """Column names from the staged CSV header, types from the staged ERDDAP info page."""
+              info = c.execute(f"SELECT content FROM read_text('{raw}/erddap-info.csv')").fetchone()[0]
+              rows = list(csv.reader(io.StringIO(info)))
+              vtype = {r[1]: r[3] for r in rows if r and r[0] == "variable"}
+              is_time = {r[1] for r in rows if r and r[0] == "attribute" and r[2] == "units" and "since" in r[4]}
+              m = {"String": "VARCHAR", "char": "VARCHAR", "double": "DOUBLE", "float": "DOUBLE",
+                   "long": "BIGINT", "int": "INTEGER", "short": "INTEGER", "byte": "INTEGER"}
+              names = c.execute(f"""SELECT * FROM read_csv('{raw}/{csvname}', header=false, all_varchar=true)
+                                    LIMIT 1""").fetchone()
+              return {n: ("TIMESTAMPTZ" if n in is_time else m[vtype[n]]) for n in names}
+
+          def source(raw, csvname):
+              cols = erddap_columns(raw, csvname)
+              spec = "{" + ", ".join(f"'{k}': '{v}'" for k, v in cols.items()) + "}"
+              return cols, f"read_csv('{raw}/{csvname}', header=false, skip=2, columns={spec}, nullstr=['', 'NaN'])"
+
+          RAW = "s3://public-hawaii/raw/crcp-reef-fish-surveys"
+          OUT = "s3://public-hawaii/crcp-reef-fish-surveys"
+          cols, src = source(RAW, "CRCP_Reef_Fish_Surveys_Hawaii.csv.gz")
+          VISIT = ["time", "latitude", "longitude", "ROUNDID", "MISSIONID", "REGION_NAME", "ISLAND", "SITE",
+                   "REEF_ZONE", "DEPTH_BIN", "DATE_", "OBS_YEAR", "METHOD", "SURVEY_RADIUS_M",
+                   "HABITAT_CODE", "HABITAT_TYPE", "accession_url"]
+          n_raw = c.execute(f"SELECT count(*) FROM {src}").fetchone()[0]
+          c.execute(f"CREATE TABLE r AS SELECT DISTINCT * FROM {src}")
+          n = c.execute("SELECT count(*) FROM r").fetchone()[0]
+          print(f"raw rows {n_raw:,}; exact duplicates dropped {n_raw - n:,}; observations {n:,}")
+          for v in VISIT:
+              k = c.execute(f'SELECT count(*) FROM (SELECT SITEVISITID FROM r GROUP BY 1 HAVING count(DISTINCT "{v}") > 1)').fetchone()[0]
+              assert k == 0, f"{v} varies within {k} visits"
+          assert c.execute("SELECT count(*) FROM r WHERE SITEVISITID IS NULL").fetchone()[0] == 0
+          obs = ["SITEVISITID"] + [k for k in cols if k not in VISIT and k != "SITEVISITID"]
+          q = ", ".join(f'"{k}"' for k in obs)
+          c.execute(f"""COPY (SELECT {q} FROM r ORDER BY SITEVISITID, REPLICATEID, OBJECTID)
+                        TO '{OUT}/observations.parquet' (FORMAT parquet, COMPRESSION zstd)""")
+          vq = ", ".join(f'any_value("{k}") AS "{k}"' for k in VISIT)
+          c.execute(f"""COPY (SELECT SITEVISITID, {vq}, count(*) AS n_observations,
+                               count(DISTINCT REPLICATEID) AS n_replicates,
+                               ST_Point(any_value(longitude), any_value(latitude)) AS geometry
+                        FROM r GROUP BY SITEVISITID ORDER BY SITEVISITID)
+                        TO '{RAW}/sites.parquet' (FORMAT parquet, COMPRESSION zstd)""")
+          print(c.execute(f"""SELECT count(*), count(DISTINCT SITEVISITID), count(DISTINCT SITE),
+                              min(time)::VARCHAR, max(time)::VARCHAR, sum(n_observations) FROM '{RAW}/sites.parquet'""").fetchall())
+        volumeMounts:
+        - {name: work, mountPath: /work}
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: work
+        emptyDir: {}
