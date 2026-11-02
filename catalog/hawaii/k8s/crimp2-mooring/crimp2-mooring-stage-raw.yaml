@@ -1,0 +1,80 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step for a directory of NCEI OCADS CSV files; this pulls the full record
+# and stages it before the build job converts it.
+#
+# Stage the CRIMP-2 MAPCO2 mooring record, Kāneʻohe Bay (NCEI OCADS accession 0157415): every
+# deployment CSV (20 expected) and every _QFLog file, from the accession's data directory.
+#
+# Staged to s3://public-hawaii/raw/crimp2-mooring/:
+#   CRIMP2_158W_21N_<deployment>.csv          one per deployment, untouched
+#   CRIMP2_158W_21N_<deployment>_QFLog.csv    quality-flag logs, untouched
+#   index.html                                directory listing at access time
+#   MANIFEST.sha256                           sha256 + byte size of every staged file
+#
+#   Source: https://www.ncei.noaa.gov/data/oceans/ncei/ocads/data/0157415/
+# Upstream has no edition label, so the staged files plus their sha256 (MANIFEST.sha256, recorded
+# in the STAC) are the provenance; the job prints the access time.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/830
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crimp2-mooring-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: crimp2-mooring-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: crimp2-mooring-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 14400
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          DEST="nrp:public-hawaii/raw/crimp2-mooring"
+          mkdir -p /work && cd /work
+          C="curl -fsS --retry 8 --retry-all-errors --retry-delay 30 --max-time 1800"
+          D="https://www.ncei.noaa.gov/data/oceans/ncei/ocads/data/0157415/"
+          # NCEI's data server had a multi-hour outage on 2026-11-02; wait for it (up to 3 h).
+          for i in $(seq 1 36); do curl -fsS --max-time 60 -o /dev/null "$D" && break; echo "NCEI unavailable ($i)"; sleep 300; done
+          $C -o index.html "$D"
+          grep -oE 'CRIMP2_158W_21N_[A-Za-z0-9_]+\.csv' index.html | sort -u > files.txt
+          nd=$(grep -vic qflog files.txt || true); echo "$nd deployment files, $(wc -l < files.txt) total"
+          [ "$nd" -eq 20 ] || { echo "expected 20 deployment files"; exit 1; }
+          while read -r f; do $C -o "$f" "$D$f"; done < files.txt
+          rm files.txt
+          echo "accessed $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          find . -type f ! -name MANIFEST.sha256 | sort | while read -r f; do
+            echo "$(sha256sum "$f" | cut -d' ' -f1)  $(stat -c %s "$f")  ${f#./}"
+          done > MANIFEST.sha256
+          cat MANIFEST.sha256
+          rclone copy . "$DEST" --s3-no-check-bucket
+          echo "staged -> s3://public-hawaii/raw/crimp2-mooring/"
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+          limits: {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

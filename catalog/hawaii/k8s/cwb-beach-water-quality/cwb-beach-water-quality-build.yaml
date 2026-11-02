@@ -1,0 +1,104 @@
+# HAND-ROLLED: cng-datasets converts a geospatial source to GeoParquet, but this source is an
+# ERDDAP sample table. This job splits it into a sample table and a site layer; the generated
+# workflow (configmap.yaml / workflow.yaml) then builds PMTiles + hex from the sites.
+#
+# Reads  s3://public-hawaii/raw/cwb-beach-water-quality/cwb_water_quality.csv.gz (stage-raw job)
+# Writes s3://public-hawaii/cwb-beach-water-quality/samples.parquet   one row per sample, all columns
+#        s3://public-hawaii/raw/cwb-beach-water-quality/sites.parquet  one point per location_id;
+#                                                                      input to the generated workflow
+#
+# - Exact duplicate rows are dropped (none at staging, 2026-11-02); the count is printed.
+# - A location_id appears under more than one name or position over the record; the site row
+#   takes the name and position of its most recent sample and counts the alternatives.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/829
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cwb-beach-water-quality-build
+  namespace: geo-workflows
+  labels:
+    k8s-app: cwb-beach-water-quality-build
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: cwb-beach-water-quality-build
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 3600
+      containers:
+      - name: build
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        command:
+        - python3
+        - -c
+        - |
+          import duckdb, os, csv, gzip, io, subprocess
+          c = duckdb.connect('/work/build.duckdb')
+          for s in ["INSTALL spatial", "LOAD spatial", "INSTALL httpfs", "LOAD httpfs",
+                    "SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'", "SET s3_use_ssl=false",
+                    "SET s3_url_style='path'", "SET TimeZone='UTC'", "SET temp_directory='/work/tmp'"]:
+              c.execute(s)
+          c.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}'")
+          c.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}'")
+
+          def erddap_columns(raw, csvname):
+              """Column names from the staged CSV header, types from the staged ERDDAP info page."""
+              info = c.execute(f"SELECT content FROM read_text('{raw}/erddap-info.csv')").fetchone()[0]
+              rows = list(csv.reader(io.StringIO(info)))
+              vtype = {r[1]: r[3] for r in rows if r and r[0] == "variable"}
+              is_time = {r[1] for r in rows if r and r[0] == "attribute" and r[2] == "units" and "since" in r[4]}
+              m = {"String": "VARCHAR", "char": "VARCHAR", "double": "DOUBLE", "float": "DOUBLE",
+                   "long": "BIGINT", "int": "INTEGER", "short": "INTEGER", "byte": "INTEGER"}
+              names = c.execute(f"""SELECT * FROM read_csv('{raw}/{csvname}', header=false, all_varchar=true)
+                                    LIMIT 1""").fetchone()
+              return {n: ("TIMESTAMPTZ" if n in is_time else m[vtype[n]]) for n in names}
+
+          def source(raw, csvname):
+              cols = erddap_columns(raw, csvname)
+              spec = "{" + ", ".join(f"'{k}': '{v}'" for k, v in cols.items()) + "}"
+              return cols, f"read_csv('{raw}/{csvname}', header=false, skip=2, columns={spec}, nullstr=['', 'NaN'])"
+
+          RAW = "s3://public-hawaii/raw/cwb-beach-water-quality"
+          OUT = "s3://public-hawaii/cwb-beach-water-quality"
+          cols, src = source(RAW, "cwb_water_quality.csv.gz")
+          n_raw = c.execute(f"SELECT count(*) FROM {src}").fetchone()[0]
+          c.execute(f"CREATE TABLE s AS SELECT DISTINCT * FROM {src}")
+          n = c.execute("SELECT count(*) FROM s").fetchone()[0]
+          print(f"raw rows {n_raw:,}; exact duplicates dropped {n_raw - n:,}; samples {n:,}")
+          c.execute(f"""COPY (SELECT * FROM s ORDER BY location_id, time)
+                        TO '{OUT}/samples.parquet' (FORMAT parquet, COMPRESSION zstd)""")
+          c.execute(f"""COPY (SELECT location_id,
+                               arg_max(location_name, time) AS location_name,
+                               arg_max(latitude, time) AS latitude, arg_max(longitude, time) AS longitude,
+                               count(DISTINCT location_name) AS n_names,
+                               count(DISTINCT (latitude, longitude)) AS n_positions,
+                               count(*) AS n_samples, min(time) AS first_sample, max(time) AS last_sample,
+                               count(enterococcus) AS n_enterococcus, count(clostridium) AS n_clostridium,
+                               count(water_temperature) AS n_water_temperature, count(salinity) AS n_salinity,
+                               count(turbidity) AS n_turbidity, count(ph) AS n_ph, count(oxygen) AS n_oxygen,
+                               count(oxygen_saturation) AS n_oxygen_saturation,
+                               ST_Point(arg_max(longitude, time), arg_max(latitude, time)) AS geometry
+                        FROM s GROUP BY location_id ORDER BY location_id)
+                        TO '{RAW}/sites.parquet' (FORMAT parquet, COMPRESSION zstd)""")
+          print(c.execute(f"""SELECT count(*), count(DISTINCT location_id), sum(n_samples),
+                              count(*) FILTER (WHERE n_names > 1), count(*) FILTER (WHERE n_positions > 1)
+                              FROM '{RAW}/sites.parquet'""").fetchall())
+        volumeMounts:
+        - {name: work, mountPath: /work}
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: work
+        emptyDir: {}
