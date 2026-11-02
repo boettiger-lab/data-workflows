@@ -114,7 +114,7 @@ spec:
                               FROM obs GROUP BY OCC_SITEID, DEPTH_M ORDER BY OCC_SITEID, DEPTH_M)
                         TO '{RAW}/sites.parquet' (FORMAT parquet, COMPRESSION zstd)""")
           print(c.execute(f"""SELECT count(*) AS sites, count(DISTINCT OCC_SITEID) AS site_ids,
-                                     min(first_time), max(last_time), count(*) FILTER (WHERE REGION IS NULL)
+                                     min(first_time)::VARCHAR, max(last_time)::VARCHAR, count(*) FILTER (WHERE REGION IS NULL)
                               FROM '{RAW}/sites.parquet'""").fetchall())
           print(c.execute("SELECT REGION, count(*) FROM obs GROUP BY 1 ORDER BY 1").fetchall())
         volumeMounts:
