@@ -1,0 +1,102 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step for an ArcGIS REST source; this pulls and
+# stages the raw before the generated workflow converts it.
+#
+# Stage raw "Benthic Habitat" (NOAA NCCOS 2007, Main Hawaiian Islands) polygons (#843).
+#
+# Upstream is a live ArcGIS MapServer layer (Hawaii Statewide GIS, CoastalMarine layer 1) with no
+# edition label, so the staged response plus its sha256 (printed below and recorded in the STAC)
+# IS the provenance. All 8,762 polygons are pulled by objectid (stage_arcgis.py asserts the count).
+#
+# Staged to s3://public-hawaii/raw/benthic-habitat-2007/:
+#   benthic-habitat-2007-service-response.geojson  query response, untouched (outSR=4326)
+#   benthic-habitat-2007.geojson                   what convert reads: drops st_area(shape) and
+#                                                  st_perimeter(shape) (StatePlane units, derived)
+#   benthic-habitat-2007-layer.json                layer definition
+#   benthic_habitat.pdf                            upstream metadata
+#
+#   Source: https://geodata.hawaii.gov/arcgis/rest/services/CoastalMarine/MapServer/1
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/843
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: benthic-habitat-2007-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: benthic-habitat-2007-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: benthic-habitat-2007-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 3600
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          LAYER="https://geodata.hawaii.gov/arcgis/rest/services/CoastalMarine/MapServer/1"
+          mkdir -p /tmp/stage /tmp/scripts && cd /tmp/stage
+          curl -fsSL --retry 5 -o /tmp/scripts/stage_arcgis.py \
+            https://raw.githubusercontent.com/boettiger-lab/data-workflows/a7bfe6179f7eab9c92e3ee6efdee205b8e88ee20/catalog/hawaii/k8s/stage_arcgis.py
+          python3 -I /tmp/scripts/stage_arcgis.py "$LAYER" benthic-habitat-2007-service-response.geojson
+          curl -fsSL --retry 5 --retry-all-errors -o benthic-habitat-2007-layer.json "$LAYER?f=json"
+          curl -fsSL --retry 5 -o benthic_habitat.pdf https://files.hawaii.gov/dbedt/op/gis/data/benthic_habitat.pdf
+
+          python3 -I - <<'PY2'
+          import json
+          fc = json.load(open("benthic-habitat-2007-service-response.geojson"))
+          assert len(fc["features"]) == 8762, len(fc["features"])
+          for f in fc["features"]:
+              for k in ("st_area(shape)", "st_perimeter(shape)"):
+                  f["properties"].pop(k, None)
+          json.dump(fc, open("benthic-habitat-2007.geojson", "w"))
+          print(f"{len(fc['features'])} polygons, fields: {list(fc['features'][0]['properties'])}")
+          PY2
+
+          ls -l
+          sha256sum *
+          rclone copy /tmp/stage nrp:public-hawaii/raw/benthic-habitat-2007/ --s3-no-check-bucket
+          echo "staged raw -> s3://public-hawaii/raw/benthic-habitat-2007/"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 6Gi
+            ephemeral-storage: 6Gi
+          limits:
+            cpu: '1'
+            memory: 6Gi
+            ephemeral-storage: 6Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
