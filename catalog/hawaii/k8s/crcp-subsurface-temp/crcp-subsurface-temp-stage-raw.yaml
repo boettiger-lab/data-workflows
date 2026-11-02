@@ -1,0 +1,102 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step for an ERDDAP tabledap source; this pulls the
+# full record and stages it before the build job converts it.
+#
+# Stage NOAA CRCP subsurface temperature recorder data, Hawaiian Islands, to S3.
+#
+# Upstream is NCEI ERDDAP `CRCP_Subsurface_Temp_Hawaii` (~250M rows at 5-minute cadence, 2005-2024).
+# A time-sliced pull takes ~1 minute per day of record; a per-site pull is fast (~30 s for 1.6M
+# rows), so this fetches the full record one OCC_SITEID at a time, every column, 4 sites at once.
+# Upstream has no edition label beyond `date_created`, so the staged files plus their sha256
+# (written to MANIFEST.sha256 and recorded in the STAC) are the provenance.
+#
+# Staged to s3://public-hawaii/raw/crcp-subsurface-temp/:
+#   sites/<OCC_SITEID>.csv.gz   ERDDAP .csv response for one site, all columns, gzipped
+#   site-list.csv               distinct OCC_SITEID, DEPTH_M, REGION, latitude, longitude
+#   erddap-info.csv             dataset metadata (ERDDAP info page)
+#   MANIFEST.sha256             sha256 + byte size of every staged file
+#
+#   Source: https://www.ncei.noaa.gov/erddap/tabledap/CRCP_Subsurface_Temp_Hawaii.html
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/817
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crcp-subsurface-temp-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: crcp-subsurface-temp-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: crcp-subsurface-temp-stage-raw
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 28800
+      # Runs over an hour, so default priority (not opportunistic). Requests stay at or under
+      # 1 CPU / 2 GiB, below NRP's usage-policy check thresholds; the work is network-bound.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          E="https://www.ncei.noaa.gov/erddap"
+          DS="CRCP_Subsurface_Temp_Hawaii"
+          DEST="nrp:public-hawaii/raw/crcp-subsurface-temp"
+          mkdir -p /work/sites && cd /work
+          C="curl -fsS --retry 6 --retry-all-errors --retry-delay 30 --max-time 3600"
+
+          $C -o erddap-info.csv "$E/info/$DS/index.csv"
+          $C -o site-list.csv "$E/tabledap/$DS.csv?OCC_SITEID,DEPTH_M,REGION,latitude,longitude&distinct()"
+          tail -n +3 site-list.csv | cut -d, -f1 | sort -u > ids.txt
+          echo "$(wc -l < ids.txt) sites"
+
+          fetch() {
+            id="$1"; f="sites/$id.csv.gz"
+            $C "$E/tabledap/$DS.csv?&OCC_SITEID=%22$id%22" | gzip -1 > "$f"
+            # header + units row + at least one data row
+            n=$(zcat "$f" | wc -l); [ "$n" -gt 2 ] || { echo "EMPTY $id"; return 1; }
+            echo "$id $((n-2)) rows"
+            rclone copyto "$f" "$DEST/$f" --s3-no-check-bucket
+            echo "$(sha256sum "$f" | cut -d' ' -f1)  $(stat -c %s "$f")  $f" >> MANIFEST.part
+            rm -f "$f"
+          }
+          export -f fetch; export C E DS DEST
+          xargs -P 4 -I{} bash -c 'fetch "$@"' _ {} < ids.txt
+
+          for f in site-list.csv erddap-info.csv; do
+            echo "$(sha256sum "$f" | cut -d' ' -f1)  $(stat -c %s "$f")  $f" >> MANIFEST.part
+            rclone copyto "$f" "$DEST/$f" --s3-no-check-bucket
+          done
+          sort -k3 MANIFEST.part > MANIFEST.sha256
+          [ "$(grep -c 'sites/' MANIFEST.sha256)" -eq "$(wc -l < ids.txt)" ] || { echo "site count mismatch"; exit 1; }
+          rclone copyto MANIFEST.sha256 "$DEST/MANIFEST.sha256" --s3-no-check-bucket
+          echo "accessed $(date -u +%Y-%m-%dT%H:%M:%SZ); staged $(wc -l < MANIFEST.sha256) files -> s3://public-hawaii/raw/crcp-subsurface-temp/"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 1Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '1'
+            memory: 1Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

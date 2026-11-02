@@ -1,0 +1,127 @@
+# HAND-ROLLED: cng-datasets converts a geospatial source to GeoParquet, but this source is a
+# 250M-row ERDDAP observation table. This job splits it into the three published tables; the
+# generated workflow (configmap.yaml / workflow.yaml) then builds PMTiles + hex from sites.
+#
+# Reads  s3://public-hawaii/raw/crcp-subsurface-temp/sites/*.csv.gz   (stage-raw job)
+# Writes s3://public-hawaii/crcp-subsurface-temp/observations.parquet  one row per reading
+#        s3://public-hawaii/crcp-subsurface-temp/deployments.parquet   one row per deployment
+#        s3://public-hawaii/raw/crcp-subsurface-temp/sites.parquet     one point per (site, depth);
+#                                                                       input to the generated workflow
+#
+# - Exact duplicate rows are dropped (upstream serves every reading twice); the count is printed.
+# - YEAR..SECOND, TIMESTAMP and UTC_DATE restate `time`; the job asserts that and drops them.
+# - REGION is kept verbatim on deployments/observations (upstream uses both "MHI" and
+#   "Main Hawaiian Islands", "NWHI" and "Northwestern Hawaiian Islands"); sites carry the
+#   long form.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/817
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crcp-subsurface-temp-build
+  namespace: geo-workflows
+  labels:
+    k8s-app: crcp-subsurface-temp-build
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: crcp-subsurface-temp-build
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 7200
+      containers:
+      - name: build
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        command:
+        - python3
+        - -c
+        - |
+          import duckdb, os
+          c = duckdb.connect('/work/build.duckdb')
+          for s in ["INSTALL spatial", "LOAD spatial", "INSTALL httpfs", "LOAD httpfs",
+                    "SET s3_endpoint='rook-ceph-rgw-nautiluss3.rook'", "SET s3_use_ssl=false",
+                    "SET s3_url_style='path'", "SET TimeZone='UTC'",
+                    "SET memory_limit='12GB'", "SET temp_directory='/work/tmp'", "SET threads=4",
+                    "SET preserve_insertion_order=false"]:
+              c.execute(s)
+          c.execute(f"SET s3_access_key_id='{os.environ['AWS_ACCESS_KEY_ID']}'")
+          c.execute(f"SET s3_secret_access_key='{os.environ['AWS_SECRET_ACCESS_KEY']}'")
+          RAW = "s3://public-hawaii/raw/crcp-subsurface-temp"
+          OUT = "s3://public-hawaii/crcp-subsurface-temp"
+          T = "TIMESTAMPTZ"
+          cols = {"time": T, "latitude": "DOUBLE", "longitude": "DOUBLE", "OCC_SITEID": "VARCHAR",
+                  "DEPTH_M": "DOUBLE", "REGION": "VARCHAR", "LOCATION": "VARCHAR",
+                  "INSTRUMENT_TYPE": "VARCHAR", "INSTRUMENTSN": "VARCHAR", "DEPLOY_CRUISE": "VARCHAR",
+                  "DEPLOY_UTC": T, "RETRIEVE_CRUISE": "VARCHAR", "RETRIEVE_UTC": T,
+                  "VALID_DATA_START": T, "INSTFIELDSUMMARYID": "VARCHAR", "VALID_DATA_END": T,
+                  "YEAR": "INTEGER", "MONTH": "INTEGER", "DAY": "INTEGER", "HOUR": "INTEGER",
+                  "MINUTE": "INTEGER", "SECOND": "INTEGER", "TIMESTAMP": T, "TEMP_C": "DOUBLE",
+                  "accession_url": "VARCHAR", "UTC_DATE": T}
+          colspec = "{" + ", ".join(f"'{k}': '{v}'" for k, v in cols.items()) + "}"
+          src = f"""read_csv('{RAW}/sites/*.csv.gz', header=false, skip=2,
+                             columns={colspec}, nullstr=['', 'NaN'])"""
+          n_raw, bad = c.execute(f"""SELECT count(*), count(*) FILTER (WHERE
+                             TIMESTAMP IS DISTINCT FROM time OR UTC_DATE IS DISTINCT FROM time
+                             OR YEAR <> year(time) OR MONTH <> month(time) OR DAY <> day(time)
+                             OR HOUR <> hour(time) OR MINUTE <> minute(time)
+                             OR SECOND <> second(time)) FROM {src}""").fetchone()
+          assert bad == 0, f"{bad} rows where the date-part columns disagree with time"
+          keep = [k for k in cols if k not in
+                  ("YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND", "TIMESTAMP", "UTC_DATE")]
+          c.execute(f"CREATE TABLE obs AS SELECT DISTINCT {', '.join(keep)} FROM {src}")
+          n_obs = c.execute("SELECT count(*) FROM obs").fetchone()[0]
+          print(f"raw rows {n_raw:,}; exact duplicates dropped {n_raw - n_obs:,}; observations {n_obs:,}")
+
+          c.execute(f"""COPY (SELECT OCC_SITEID, DEPTH_M, time, TEMP_C, INSTFIELDSUMMARYID,
+                                     INSTRUMENTSN, latitude, longitude, REGION, LOCATION
+                              FROM obs ORDER BY OCC_SITEID, DEPTH_M, time)
+                        TO '{OUT}/observations.parquet'
+                        (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 1000000)""")
+
+          c.execute(f"""COPY (SELECT INSTFIELDSUMMARYID, OCC_SITEID, DEPTH_M, REGION, LOCATION,
+                                     latitude, longitude, INSTRUMENT_TYPE, INSTRUMENTSN,
+                                     DEPLOY_CRUISE, DEPLOY_UTC, RETRIEVE_CRUISE, RETRIEVE_UTC,
+                                     VALID_DATA_START, VALID_DATA_END, accession_url,
+                                     count(*) AS n_obs, min(time) AS first_time, max(time) AS last_time,
+                                     min(TEMP_C) AS temp_min_c, avg(TEMP_C) AS temp_mean_c,
+                                     max(TEMP_C) AS temp_max_c
+                              FROM obs GROUP BY ALL ORDER BY OCC_SITEID, DEPTH_M, DEPLOY_UTC)
+                        TO '{OUT}/deployments.parquet' (FORMAT parquet, COMPRESSION zstd)""")
+          nd, nk = c.execute(f"SELECT count(*), count(DISTINCT INSTFIELDSUMMARYID) FROM '{OUT}/deployments.parquet'").fetchone()
+          print(f"deployments {nd:,} rows, {nk:,} distinct INSTFIELDSUMMARYID")
+
+          c.execute(f"""COPY (SELECT OCC_SITEID, DEPTH_M,
+                                     CASE WHEN any_value(REGION) IN ('MHI', 'Main Hawaiian Islands')
+                                          THEN 'Main Hawaiian Islands' ELSE 'Northwestern Hawaiian Islands' END AS REGION,
+                                     any_value(LOCATION) AS LOCATION,
+                                     median(latitude) AS latitude, median(longitude) AS longitude,
+                                     count(DISTINCT INSTFIELDSUMMARYID) AS n_deployments,
+                                     string_agg(DISTINCT INSTRUMENT_TYPE, ', ') AS instrument_types,
+                                     count(*) AS n_obs, min(time) AS first_time, max(time) AS last_time,
+                                     min(TEMP_C) AS temp_min_c, avg(TEMP_C) AS temp_mean_c,
+                                     max(TEMP_C) AS temp_max_c,
+                                     ST_Point(median(longitude), median(latitude)) AS geometry
+                              FROM obs GROUP BY OCC_SITEID, DEPTH_M ORDER BY OCC_SITEID, DEPTH_M)
+                        TO '{RAW}/sites.parquet' (FORMAT parquet, COMPRESSION zstd)""")
+          print(c.execute(f"""SELECT count(*) AS sites, count(DISTINCT OCC_SITEID) AS site_ids,
+                                     min(first_time), max(last_time), count(*) FILTER (WHERE REGION IS NULL)
+                              FROM '{RAW}/sites.parquet'""").fetchall())
+          print(c.execute("SELECT REGION, count(*) FROM obs GROUP BY 1 ORDER BY 1").fetchall())
+        volumeMounts:
+        - {name: work, mountPath: /work}
+        resources:
+          requests: {cpu: '4', memory: 14Gi, ephemeral-storage: 50Gi}
+          limits: {cpu: '4', memory: 14Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - name: work
+        emptyDir: {}
