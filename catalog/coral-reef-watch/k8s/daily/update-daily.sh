@@ -297,4 +297,10 @@ EOF
     rclone copyto "$WORK/stac.json" "$stac"
   done
 fi
+# Publish the COGs as STAC assets so map apps can find them (data-workflows#802): see cog-assets.py.
+# Parallel backfill pods (COMPACT=0) and all but one compaction shard skip it, so only one
+# writer touches each collection.
+if [ "$COMPACT" = 1 ] && [[ "${CELL_SHARD:-0/1}" == 0/* ]]; then
+  python3 "$(dirname "$0")/cog-assets.py" "$BUCKET" "$PREFIX" daily "${PRODUCTS[@]}"
+fi
 echo "done: $START .. $END"
