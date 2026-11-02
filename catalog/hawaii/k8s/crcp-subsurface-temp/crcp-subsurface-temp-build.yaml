@@ -1,5 +1,5 @@
 # HAND-ROLLED: cng-datasets converts a geospatial source to GeoParquet, but this source is a
-# 250M-row ERDDAP observation table. This job splits it into the three published tables; the
+# 136M-row ERDDAP observation table. This job splits it into the three published tables; the
 # generated workflow (configmap.yaml / workflow.yaml) then builds PMTiles + hex from sites.
 #
 # Reads  s3://public-hawaii/raw/crcp-subsurface-temp/sites/*.csv.gz   (stage-raw job)
@@ -9,7 +9,9 @@
 #                                                                       input to the generated workflow
 #
 # - Exact duplicate rows are dropped (upstream serves every reading twice); the count is printed.
-# - YEAR..SECOND, TIMESTAMP and UTC_DATE restate `time`; the job asserts that and drops them.
+# - YEAR..SECOND and UTC_DATE restate `time`; the job asserts that and drops them. TIMESTAMP is
+#   dropped too: it equals `time` except on 1,000,000 rows from 5 sites (2016-2019) where upstream
+#   truncated it to the minute (12:18:00 vs time 12:18:58). The job prints that count.
 # - REGION is kept verbatim on deployments/observations (upstream uses both "MHI" and
 #   "Main Hawaiian Islands", "NWHI" and "Northwestern Hawaiian Islands"); sites carry the
 #   long form.
@@ -70,12 +72,14 @@ spec:
           colspec = "{" + ", ".join(f"'{k}': '{v}'" for k, v in cols.items()) + "}"
           src = f"""read_csv('{RAW}/sites/*.csv.gz', header=false, skip=2,
                              columns={colspec}, nullstr=['', 'NaN'])"""
-          n_raw, bad = c.execute(f"""SELECT count(*), count(*) FILTER (WHERE
-                             TIMESTAMP IS DISTINCT FROM time OR UTC_DATE IS DISTINCT FROM time
+          n_raw, n_ts, bad = c.execute(f"""SELECT count(*),
+                             count(*) FILTER (WHERE TIMESTAMP IS DISTINCT FROM time),
+                             count(*) FILTER (WHERE UTC_DATE IS DISTINCT FROM time
                              OR YEAR <> year(time) OR MONTH <> month(time) OR DAY <> day(time)
                              OR HOUR <> hour(time) OR MINUTE <> minute(time)
                              OR SECOND <> second(time)) FROM {src}""").fetchone()
           assert bad == 0, f"{bad} rows where the date-part columns disagree with time"
+          print(f"TIMESTAMP differs from time on {n_ts:,} rows (minute-truncated upstream); dropped")
           keep = [k for k in cols if k not in
                   ("YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND", "TIMESTAMP", "UTC_DATE")]
           c.execute(f"CREATE TABLE obs AS SELECT DISTINCT {', '.join(keep)} FROM {src}")
