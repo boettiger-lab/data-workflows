@@ -80,12 +80,13 @@ spec:
                              OR SECOND <> second(time)) FROM {src}""").fetchone()
           assert bad == 0, f"{bad} rows where the date-part columns disagree with time"
           print(f"TIMESTAMP differs from time on {n_ts:,} rows (minute-truncated upstream); dropped")
-          # Readings: one row per distinct reading. Deployment timestamps stay out of the key,
-          # because upstream serves 5 deployments twice with RETRIEVE_UTC minute-truncated in one
-          # copy (exactly 1,000,000 readings); keeping them in the key would keep both copies.
+          # Readings: one row per distinct reading. Deployment fields stay out of the key: upstream
+          # serves 5 deployments (2306-2309, 2311) twice, and the second copy has been through a
+          # spreadsheet -- INSTRUMENTSN in scientific notation ("5.69066E+11") and timestamps
+          # truncated to the minute. Keying on them would keep both copies (1,000,000 readings).
           dep_ts = ("DEPLOY_UTC", "RETRIEVE_UTC", "VALID_DATA_START", "VALID_DATA_END")
           dep_meta = ("INSTRUMENT_TYPE", "DEPLOY_CRUISE", "RETRIEVE_CRUISE", "accession_url")
-          okeys = ["time", "OCC_SITEID", "DEPTH_M", "TEMP_C", "INSTFIELDSUMMARYID", "INSTRUMENTSN",
+          okeys = ["time", "OCC_SITEID", "DEPTH_M", "TEMP_C", "INSTFIELDSUMMARYID",
                    "latitude", "longitude", "REGION", "LOCATION"]
           c.execute(f"CREATE TABLE obs AS SELECT DISTINCT {', '.join(okeys)} FROM {src}")
           n_obs = c.execute("SELECT count(*) FROM obs").fetchone()[0]
@@ -99,19 +100,24 @@ spec:
           c.execute(f"""CREATE TABLE dmeta AS SELECT INSTFIELDSUMMARYID,
                           {', '.join(f'max({t}) AS {t}' for t in dep_ts)},
                           {', '.join(f'any_value({m}) AS {m}' for m in dep_meta)},
+                          any_value(INSTRUMENTSN) FILTER (WHERE INSTRUMENTSN NOT LIKE '%E+%') AS INSTRUMENTSN,
+                          count(DISTINCT INSTRUMENTSN) FILTER (WHERE INSTRUMENTSN NOT LIKE '%E+%') AS n_sn,
                           {' + '.join(f'(count(DISTINCT {m}) > 1)::INT' for m in dep_meta)} AS n_multi
                         FROM {src} GROUP BY INSTFIELDSUMMARYID""")
           nm = c.execute("SELECT count(*) FROM dmeta WHERE n_multi > 0").fetchone()[0]
           assert nm == 0, f"{nm} deployments with more than one value of {dep_meta}"
+          nsn = c.execute("SELECT count(*) FROM dmeta WHERE n_sn <> 1").fetchone()[0]
+          assert nsn == 0, f"{nsn} deployments without exactly one plain-digit INSTRUMENTSN"
 
-          c.execute(f"""COPY (SELECT OCC_SITEID, DEPTH_M, time, TEMP_C, INSTFIELDSUMMARYID,
-                                     INSTRUMENTSN, latitude, longitude, REGION, LOCATION
-                              FROM obs ORDER BY OCC_SITEID, DEPTH_M, time)
+          c.execute(f"""COPY (SELECT o.OCC_SITEID, o.DEPTH_M, o.time, o.TEMP_C, o.INSTFIELDSUMMARYID,
+                                     d.INSTRUMENTSN, o.latitude, o.longitude, o.REGION, o.LOCATION
+                              FROM obs o JOIN dmeta d USING (INSTFIELDSUMMARYID)
+                              ORDER BY o.OCC_SITEID, o.DEPTH_M, o.time)
                         TO '{OUT}/observations.parquet'
                         (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 1000000)""")
 
           c.execute(f"""COPY (SELECT o.INSTFIELDSUMMARYID, o.OCC_SITEID, o.DEPTH_M, o.REGION, o.LOCATION,
-                                     o.latitude, o.longitude, d.INSTRUMENT_TYPE, o.INSTRUMENTSN,
+                                     o.latitude, o.longitude, d.INSTRUMENT_TYPE, d.INSTRUMENTSN,
                                      d.DEPLOY_CRUISE, d.DEPLOY_UTC, d.RETRIEVE_CRUISE, d.RETRIEVE_UTC,
                                      d.VALID_DATA_START, d.VALID_DATA_END, d.accession_url,
                                      count(*) AS n_obs, min(o.time) AS first_time, max(o.time) AS last_time,
