@@ -1,0 +1,134 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step for an ArcGIS REST source, and the statewide
+# layer is five per-island MapServer layers that must be merged before convert.
+#
+# Stage raw Hawaii DOH "Onsite Sewage Disposal Systems" points, statewide (#837).
+#
+# Upstream is five live ArcGIS MapServer layers with no edition label and no dated archive, so
+# the staged responses plus their sha256 (printed below and recorded in the STAC) ARE the
+# provenance. Each layer is pulled in full by objectid (stage_arcgis.py asserts the count).
+#
+# Staged to s3://public-hawaii/raw/osds/:
+#   osds-<island>-service-response.geojson   query response per layer, untouched (outSR=4326)
+#   osds-<island>-layer.json                 layer definition (fields, extent, copyrightText)
+#   osds_oah.pdf, osds_ni.pdf                upstream metadata (Oahu 2008; neighbour islands 2010)
+#   osds.geojson                             what convert reads: the five layers merged
+#
+# Merge rules (osds.geojson):
+#   - union of the layers' fields; a field a layer lacks is null on its rows
+#   - added: layer_island (Oahu, Molokai, Maui, Kauai, Hawaii), county (Honolulu, Maui, Maui,
+#     Kauai, Hawaii) and survey_year (2008 Oahu, 2010 the others), from the layer
+#   - the Maui layer types ten text fields (uic_no inject wwtp type ownr_typ wwtp_ownr contact
+#     eng op_drc comments) as numbers holding 0 on all 12,780 rows; they are set to null there
+#     so each field keeps one type. The job asserts they are all 0 before nulling them.
+#
+#   Source: https://geodata.hawaii.gov/arcgis/rest/services/Infrastructure/MapServer (22-26)
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/837
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: osds-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: osds-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: osds-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 3600
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts. Append public
+      # resolvers as a fallback; cluster DNS is still tried first.
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          SVC="https://geodata.hawaii.gov/arcgis/rest/services/Infrastructure/MapServer"
+          mkdir -p /tmp/stage /tmp/scripts && cd /tmp/stage
+          curl -fsSL --retry 5 -o /tmp/scripts/stage_arcgis.py \
+            https://raw.githubusercontent.com/boettiger-lab/data-workflows/a7bfe6179f7eab9c92e3ee6efdee205b8e88ee20/catalog/hawaii/k8s/stage_arcgis.py
+          for pair in 22:oahu 23:molokai 24:maui 25:kauai 26:hawaii; do
+            id=${pair%%:*}; isl=${pair##*:}
+            python3 -I /tmp/scripts/stage_arcgis.py "$SVC/$id" "osds-$isl-service-response.geojson"
+            curl -fsSL --retry 5 --retry-all-errors -o "osds-$isl-layer.json" "$SVC/$id?f=json"
+          done
+          curl -fsSL --retry 5 -o osds_oah.pdf https://files.hawaii.gov/dbedt/op/gis/data/osds_oah.pdf
+          curl -fsSL --retry 5 -o osds_ni.pdf https://files.hawaii.gov/dbedt/op/gis/data/osds_ni.pdf
+
+          python3 -I - <<'PY2'
+          import json
+          LAYERS = [("oahu", "Oahu", "Honolulu", 2008, 13684), ("molokai", "Molokai", "Maui", 2010, 1651),
+                    ("maui", "Maui", "Maui", 2010, 12780), ("kauai", "Kauai", "Kauai", 2010, 13351),
+                    ("hawaii", "Hawaii", "Hawaii", 2010, 53530)]
+          MAUI_ZERO = ["uic_no", "inject", "wwtp", "type", "ownr_typ", "wwtp_ownr", "contact",
+                       "eng", "op_drc", "comments"]
+          feats, fields = [], []
+          for key, island, county, year, n in LAYERS:
+              fc = json.load(open(f"osds-{key}-service-response.geojson"))
+              assert len(fc["features"]) == n, (key, len(fc["features"]), n)
+              for f in fc["features"]:
+                  p = f["properties"]
+                  if key == "maui":
+                      for k in MAUI_ZERO:
+                          assert p[k] in (0, 0.0), (k, p[k])
+                          p[k] = None
+                  for k in p:
+                      if k not in fields:
+                          fields.append(k)
+                  p["layer_island"], p["county"], p["survey_year"] = island, county, year
+                  feats.append(f)
+          fields += ["layer_island", "county", "survey_year"]
+          for f in feats:
+              f["properties"] = {k: f["properties"].get(k) for k in fields}
+          assert len(feats) == 94996, len(feats)
+          json.dump({"type": "FeatureCollection", "features": feats}, open("osds.geojson", "w"))
+          print(f"merged {len(feats)} points, {len(fields)} fields")
+          PY2
+
+          ls -l
+          sha256sum *
+          rclone copy /tmp/stage nrp:public-hawaii/raw/osds/ --s3-no-check-bucket
+          echo "staged raw -> s3://public-hawaii/raw/osds/"
+        resources:
+          requests:
+            cpu: '1'
+            memory: 4Gi
+            ephemeral-storage: 4Gi
+          limits:
+            cpu: '1'
+            memory: 4Gi
+            ephemeral-storage: 4Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
