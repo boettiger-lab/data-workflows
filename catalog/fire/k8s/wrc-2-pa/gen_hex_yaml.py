@@ -14,11 +14,11 @@ HDR_COMMON = """#
 # ⚠️ `priorityClassName` is deliberately OMITTED. Default priority 0 is admitted in geo-workflows
 # and is two billion points above `opportunistic` (-2000000000); a res-10 h0 runs for hours and an
 # opportunistic pod that long is near-certain to be preempted (skill `pod-preemption`).
-# ⛔ Do NOT node-pin: a 192Gi/8cpu pod fills a node, so pinning serializes the job (#307 turned a
-# CONUS res-10 hex from hours into 30-50 h).
+# ⛔ Do NOT node-pin: pinning serializes the job (#307 turned a CONUS res-10 hex from hours into
+# 30-50 h).
 """
 
-TMPL = """# HAND-ROLLED: emitted by gen_hex_yaml.py with an explicit h0 index list instead of the 122-completion fan-out (#611)
+TMPL = """# HAND-ROLLED: emitted by gen_hex_yaml.py with an explicit h0 index list instead of the 122-completion fan-out ({issue})
 # WRC v2 populated areas: {title}, {domain_long} -- res-10 `{reducer}` hex.
 {rerun}#
 # Source publication RDS-2020-0060-2 (*Spatial datasets of wildfire risk for populated areas*).
@@ -102,13 +102,8 @@ spec:
             --resolution 10 --parent-resolutions 9,8,0 \\
             --value-column {col} --hex-resampling {reducer} --nodata -9999
         resources:
-          # ⛔ 192Gi is NOT oversized. Memory at res 10 is set by the ENUMERATION, not the output:
-          # every surviving h0 enumerates the same 282,475,249 res-10 children. Measured on the
-          # sibling wrc-2 CONUS run, four pods spanning 47.8 M to 226.7 M output cells all sat at
-          # 132-134 GiB -- a 4.7x range in cells giving 1.8% in memory. So 128Gi (131,072 Mi) sits
-          # BELOW the steady state and would OOM every slice, not merely the dense one.
-          requests: {{cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}}
-          limits:   {{cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}}
+{mem_note}          requests: {{cpu: '8', memory: {mem}, ephemeral-storage: 50Gi}}
+          limits:   {{cpu: '8', memory: {mem_limit}, ephemeral-storage: 50Gi}}
       volumes:
       - {{name: rclone-config, secret: {{secretName: rclone-config}}}}
       affinity:
@@ -128,8 +123,9 @@ AK_H0 = [12, 28, 50, 59, 98, 104, 105]
 
 CLIP = """#
 # The Alaska COG is clipped to -180..-129 lon (see make-cogs.yaml): the source EPSG:3338 grid spans
-# the antimeridian and a naive warp yields a ~360-deg-wide, almost entirely nodata raster. The
-# dropped far-western Aleutians hold no National Forest System land. h0 576707042908045311 (index
+# the antimeridian and a naive warp yields a ~360-deg-wide, almost entirely nodata raster. The clip
+# drops the Aleutians west of 180 (Attu, Shemya); that narrowing is recorded in #692's scope.
+# h0 576707042908045311 (index
 # 105) is the dateline cell and must come out populated -- that is the standard check that the
 # antimeridian was handled rather than seam-inflated.
 """
@@ -163,9 +159,57 @@ SUM_NOTE = """# Reducer `sum`: HUExposure is the expected number of housing unit
 # index. Do not generalise one reducer across this publication.
 """
 
+BUILDINGCOUNT_NOTE = """# Reducer `sum`: BuildingCount is the number of buildings WITHIN A 30 m PIXEL (0-50) -- an amount,
+# not a density. `sum` gives the buildings inside the cell and totals correctly under any further
+# aggregation; it is the one theme in this publication that yields a total building count inside
+# an arbitrary boundary. make-cogs.yaml warps it with `-r sum` so the chain conserves mass: hex
+# SUM(buildingcount) must equal the COG pixel sum within rounding.
+#
+# No zero-fill repair is needed: the image carries the datasets#232 fix (PR #248, 2026-09-28), so
+# cells with no valid pixel are dropped and genuine zeros are kept.
+#
+# ⚠️ `BuildingDensity` and `BuildingCover` differ from this theme only in a suffix and take `mean`.
+"""
+
+HUIMPACT_NOTE = """# Reducer `sum`: HUImpact is a per-pixel AMOUNT, not an intensity, although the file index calls
+# it a unitless index. The producer's lineage (metadata Process step 12) builds it as housing units
+# per 30 m pixel (HUDen x 0.0009) x cRPS x Exposure Type x 1,000,000, so it scales with the number
+# of housing units in the pixel, as HUExposure does. `sum` gives the impact held by the cell and
+# totals under any further aggregation; `mean` would also average only over pixels where housing
+# density is above zero, giving a one-populated-pixel cell that pixel's full value (#692 review).
+# make-cogs.yaml warps it with `-r sum`, so hex SUM(huimpact) must equal the COG pixel sum.
+#
+# ⚠️ HURisk (= HUImpact x burn probability) has the same lineage and was published as `mean` in
+# #611; tracked separately.
+"""
+
+# #611's requests stand as they ran, before datasets#248. #692's are sized to the 2026-10-13/14
+# runs (Thanos, container_memory_working_set_bytes) for NRP's usage policy (#804): a pod older than
+# 30 min must use 20-150% of its memory request, and the limit may be at most 1.2x the request.
+MEM_611 = """          # 192Gi is what #611 ran with, before datasets#248's windowed h0 reads. Then every h0
+          # enumerated all 282,475,249 res-10 children and the sibling wrc-2 CONUS pods sat at
+          # 132-134 GiB. With the windowed reads #692's pods peaked at 2-16 GiB, so measure and
+          # resize (#804) before re-running this job.
+"""
+MEM = {
+    "wrc-2-pa-hurisk": ("192Gi", "192Gi", MEM_611),
+    "wrc-2-pa-huexposure": ("192Gi", "192Gi", MEM_611),
+    "wrc-2-pa-buildingcount": ("16Gi", "19Gi",
+        "          # DEVIATION (#692): 16Gi request, 19Gi limit. Measured on the 2026-10-13/14 run\n"
+        "          # (datasets#248 windowed reads): pods over 30 min peaked at 10.1-16.3 GiB and\n"
+        "          # averaged 5.3-12.5 GiB; CPU averaged 6.7-7.9 of 8.\n"),
+    "wrc-2-pa-huimpact": ("28Gi", "32Gi",
+        "          # DEVIATION (#692): 28Gi request, 32Gi limit. The 2026-10-13/14 `mean` run peaked at\n"
+        "          # 4.1-10.7 GiB, but `sum` needs about twice that: at 14Gi/16Gi on 2026-10-30, CONUS\n"
+        "          # indexes 2 and 3 were OOMKilled (index 2 was 7.7 GiB under `mean`) and indexes 0\n"
+        "          # and 1 sat at 11.5-11.8 GiB after 30 min (6.5-7.1 under `mean`). CPU ~7-8 of 8.\n"),
+}
+
 for ds, title, col, reducer, note in [
     ("wrc-2-pa-hurisk", "Housing Unit Risk", "hurisk", "mean", MEAN_NOTE),
     ("wrc-2-pa-huexposure", "Housing Unit Exposure", "huexposure", "sum", SUM_NOTE),
+    ("wrc-2-pa-buildingcount", "Building Count", "buildingcount", "sum", BUILDINGCOUNT_NOTE),
+    ("wrc-2-pa-huimpact", "Housing Unit Impact", "huimpact", "sum", HUIMPACT_NOTE),
 ]:
     for domain, h0s, long, short, clip in [
         ("conus", CONUS_H0, "continental United States", "CONUS", ""),
@@ -174,11 +218,13 @@ for ds, title, col, reducer, note in [
         n = len(h0s)
         hdr = HDR_COMMON.format(saved=122 - n, orig=122)
         rerun = (f"# ⛔ Re-run order: this job leaves zero-fill rows (datasets#232). Run coverage-mask-{domain}.yaml"
-                 f" then repair-zero-fill-{domain}.yaml after it; see BUILD.md.\n") if reducer == "sum" else ""
+                 f" then repair-zero-fill-{domain}.yaml after it; see BUILD.md.\n") if ds == "wrc-2-pa-huexposure" else ""
+        issue = "#611" if ds in ("wrc-2-pa-hurisk", "wrc-2-pa-huexposure") else "#692"
         body = TMPL.format(rerun=rerun,
             title=title, domain_long=long, domain_short=short, domain=domain,
             reducer=reducer, reducer_note=note, clip_note=clip, hdr_common=hdr,
             job=f"{ds}-{domain}-hex", n=n, h0s=" ".join(str(x) for x in h0s),
-            ds=f"{ds}-{domain}", col=col)
+            ds=f"{ds}-{domain}", col=col, issue=issue,
+            mem=MEM[ds][0], mem_limit=MEM[ds][1], mem_note=MEM[ds][2])
         open(f"{ds}-{domain}-hex.yaml", "w").write(body)
         print("wrote", f"{ds}-{domain}-hex.yaml", n, "completions")
