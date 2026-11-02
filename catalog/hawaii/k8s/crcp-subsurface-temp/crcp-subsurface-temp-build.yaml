@@ -8,7 +8,7 @@
 #        s3://public-hawaii/raw/crcp-subsurface-temp/sites.parquet     one point per (site, depth);
 #                                                                       input to the generated workflow
 #
-# - Exact duplicate rows are dropped (upstream serves every reading twice); the count is printed.
+# - Duplicate readings are dropped (about a third of upstream rows); the count is printed.
 # - YEAR..SECOND and UTC_DATE restate `time`; the job asserts that and drops them. TIMESTAMP is
 #   dropped too: it equals `time` except on 1,000,000 rows from 5 sites (2016-2019) where upstream
 #   truncated it to the minute (12:18:00 vs time 12:18:58). The job prints that count.
@@ -80,11 +80,29 @@ spec:
                              OR SECOND <> second(time)) FROM {src}""").fetchone()
           assert bad == 0, f"{bad} rows where the date-part columns disagree with time"
           print(f"TIMESTAMP differs from time on {n_ts:,} rows (minute-truncated upstream); dropped")
-          keep = [k for k in cols if k not in
-                  ("YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND", "TIMESTAMP", "UTC_DATE")]
-          c.execute(f"CREATE TABLE obs AS SELECT DISTINCT {', '.join(keep)} FROM {src}")
+          # Readings: one row per distinct reading. Deployment timestamps stay out of the key,
+          # because upstream serves 5 deployments twice with RETRIEVE_UTC minute-truncated in one
+          # copy (exactly 1,000,000 readings); keeping them in the key would keep both copies.
+          dep_ts = ("DEPLOY_UTC", "RETRIEVE_UTC", "VALID_DATA_START", "VALID_DATA_END")
+          dep_meta = ("INSTRUMENT_TYPE", "DEPLOY_CRUISE", "RETRIEVE_CRUISE", "accession_url")
+          okeys = ["time", "OCC_SITEID", "DEPTH_M", "TEMP_C", "INSTFIELDSUMMARYID", "INSTRUMENTSN",
+                   "latitude", "longitude", "REGION", "LOCATION"]
+          c.execute(f"CREATE TABLE obs AS SELECT DISTINCT {', '.join(okeys)} FROM {src}")
           n_obs = c.execute("SELECT count(*) FROM obs").fetchone()[0]
-          print(f"raw rows {n_raw:,}; exact duplicates dropped {n_raw - n_obs:,}; observations {n_obs:,}")
+          print(f"raw rows {n_raw:,}; duplicate readings dropped {n_raw - n_obs:,}; observations {n_obs:,}")
+          nk = c.execute("""SELECT count(*) - count(DISTINCT (OCC_SITEID, DEPTH_M, time, INSTFIELDSUMMARYID))
+                            FROM obs""").fetchone()[0]
+          assert nk == 0, f"{nk} readings repeat a (site, depth, time, deployment) key"
+
+          # Deployment metadata, one row per INSTFIELDSUMMARYID. The full-precision copy of each
+          # timestamp is the later one, so take max(); every other field must be single-valued.
+          c.execute(f"""CREATE TABLE dmeta AS SELECT INSTFIELDSUMMARYID,
+                          {', '.join(f'max({t}) AS {t}' for t in dep_ts)},
+                          {', '.join(f'any_value({m}) AS {m}' for m in dep_meta)},
+                          {' + '.join(f'(count(DISTINCT {m}) > 1)::INT' for m in dep_meta)} AS n_multi
+                        FROM {src} GROUP BY INSTFIELDSUMMARYID""")
+          nm = c.execute("SELECT count(*) FROM dmeta WHERE n_multi > 0").fetchone()[0]
+          assert nm == 0, f"{nm} deployments with more than one value of {dep_meta}"
 
           c.execute(f"""COPY (SELECT OCC_SITEID, DEPTH_M, time, TEMP_C, INSTFIELDSUMMARYID,
                                      INSTRUMENTSN, latitude, longitude, REGION, LOCATION
@@ -92,17 +110,22 @@ spec:
                         TO '{OUT}/observations.parquet'
                         (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 1000000)""")
 
-          c.execute(f"""COPY (SELECT INSTFIELDSUMMARYID, OCC_SITEID, DEPTH_M, REGION, LOCATION,
-                                     latitude, longitude, INSTRUMENT_TYPE, INSTRUMENTSN,
-                                     DEPLOY_CRUISE, DEPLOY_UTC, RETRIEVE_CRUISE, RETRIEVE_UTC,
-                                     VALID_DATA_START, VALID_DATA_END, accession_url,
-                                     count(*) AS n_obs, min(time) AS first_time, max(time) AS last_time,
-                                     min(TEMP_C) AS temp_min_c, avg(TEMP_C) AS temp_mean_c,
-                                     max(TEMP_C) AS temp_max_c
-                              FROM obs GROUP BY ALL ORDER BY OCC_SITEID, DEPTH_M, DEPLOY_UTC)
+          c.execute(f"""COPY (SELECT o.INSTFIELDSUMMARYID, o.OCC_SITEID, o.DEPTH_M, o.REGION, o.LOCATION,
+                                     o.latitude, o.longitude, d.INSTRUMENT_TYPE, o.INSTRUMENTSN,
+                                     d.DEPLOY_CRUISE, d.DEPLOY_UTC, d.RETRIEVE_CRUISE, d.RETRIEVE_UTC,
+                                     d.VALID_DATA_START, d.VALID_DATA_END, d.accession_url,
+                                     count(*) AS n_obs, min(o.time) AS first_time, max(o.time) AS last_time,
+                                     min(o.TEMP_C) AS temp_min_c, avg(o.TEMP_C) AS temp_mean_c,
+                                     max(o.TEMP_C) AS temp_max_c
+                              FROM obs o JOIN dmeta d USING (INSTFIELDSUMMARYID)
+                              GROUP BY ALL ORDER BY o.OCC_SITEID, o.DEPTH_M, d.DEPLOY_UTC)
                         TO '{OUT}/deployments.parquet' (FORMAT parquet, COMPRESSION zstd)""")
           nd, nk = c.execute(f"SELECT count(*), count(DISTINCT INSTFIELDSUMMARYID) FROM '{OUT}/deployments.parquet'").fetchone()
           print(f"deployments {nd:,} rows, {nk:,} distinct INSTFIELDSUMMARYID")
+          assert nd == nk, "a deployment has more than one site/depth/position/REGION/LOCATION"
+
+          c.execute("CREATE TABLE obs2 AS SELECT o.*, d.INSTRUMENT_TYPE FROM obs o JOIN dmeta d USING (INSTFIELDSUMMARYID)")
+          c.execute("DROP TABLE obs"); c.execute("ALTER TABLE obs2 RENAME TO obs")
 
           c.execute(f"""COPY (SELECT OCC_SITEID, DEPTH_M,
                                      CASE WHEN any_value(REGION) IN ('MHI', 'Main Hawaiian Islands')
