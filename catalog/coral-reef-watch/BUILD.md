@@ -90,7 +90,7 @@ NRP policy sets two further constraints:
 
 ## COG assets in the STAC (all tiers)
 
-Map apps such as geo-agent build a raster layer only from a STAC asset, so `k8s/cog-assets.py` publishes the COGs as assets beside each product's hex. Each tier's script runs it at the end of a run, in the one writer only (`COMPACT=1`, compaction shard 0); it rebuilds every COG asset from the bucket listing, so it is idempotent and catches up after missed runs.
+Map apps such as GLEN build a raster layer only from a STAC asset, so `k8s/cog-assets.py` publishes the COGs as assets beside each product's hex. Each tier's script runs it at the end of a run, in the one writer only (`COMPACT=1`, compaction shard 0); it rebuilds every COG asset from the bucket listing, so it is idempotent and catches up after missed runs.
 
 | tier | asset key | href |
 |---|---|---|

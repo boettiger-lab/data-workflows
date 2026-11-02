@@ -8,7 +8,7 @@ data:
 
         cog-assets.py <bucket> <tier prefix> <daily|monthly|annual> <product> [<product> ...]
 
-    The hex table is each product collection's only other asset; geo-agent builds a raster layer
+    The hex table is each product collection's only other asset; GLEN builds a raster layer
     only from a STAC asset, so the COGs need entries of their own.
 
     - daily and monthly: copies the newest dated COG to cog/<product>-latest.tif (server-side, on
