@@ -59,11 +59,12 @@ kubectl apply -f k8s/daily/crw-5km-daily-compact.yaml           # once, after th
 kubectl apply -f k8s/daily/crw-5km-daily-cronjob.yaml
 ```
 
-After editing `update-daily.sh`:
+After editing `update-daily.sh` or `cog-assets.py` (run from `k8s/daily/`):
 
 ```bash
 kubectl create configmap crw-5km-daily-script -n geo-workflows \
-  --from-file=update-daily.sh --dry-run=client -o yaml   # paste below the header in crw-5km-daily-script.yaml
+  --from-file=update-daily.sh --from-file=../cog-assets.py \
+  --dry-run=client -o yaml   # paste below the header in crw-5km-daily-script.yaml
 ```
 
 ### Out-of-range pixels
@@ -86,6 +87,22 @@ Each product-day is hexed in eight `mdim --h0-subset` batches of 16 h0 grid posi
 NRP policy sets two further constraints:
 - **Limit/request ratio:** must be ≤ 1.2 for both CPU and memory (`container-must-meet-memory-and-cpu-ratio`).
 - **Low-utilization block:** pods that request far more than they use block every deployment change on the account. The first 16Gi backfill did this on 2026-10-26.
+
+## COG assets in the STAC (all tiers)
+
+Map apps such as geo-agent build a raster layer only from a STAC asset, so `k8s/cog-assets.py` publishes the COGs as assets beside each product's hex. Each tier's script runs it at the end of a run, in the one writer only (`COMPACT=1`, compaction shard 0); it rebuilds every COG asset from the bucket listing, so it is idempotent and catches up after missed runs.
+
+| tier | asset key | href |
+|---|---|---|
+| daily | `<product>-cog` | `cog/<product>-latest.tif`, a copy of the newest day, refreshed each run |
+| monthly | `<product>-cog` | `cog/<product>-latest.tif`, a copy of the newest month |
+| annual | `<product>-cog-YYYY` | `cog/<product>-YYYY.tif`, one asset per year |
+
+The daily and monthly keys and hrefs stay fixed as the series rolls forward (the stable-key rule for refreshed collections), and the asset title carries the date shown. Annual years are separate composites side by side, so the year is in the key. The `-latest.tif` name carries no 8-digit date, so pruning never removes it.
+
+`raster:bands` was measured from the published COGs on 2026-11-02 with `gdalinfo` and `gdallocationinfo`: SST, SSTA, HotSpot and DHW are Int16, scale 0.01, nodata -32768; both BAA products are Byte, nodata 251. Land (38N 98W), the Antarctic interior (85S) and Arctic sea ice (89N) read as nodata in both families; open ocean at 0N 150W read 377 (3.77 °C SSTA) and BAA 4 on 2026-11-01. BAA assets carry `classification:classes` parsed from the hex column's level list; levels 0–4 use Coral Reef Watch's map colours, and levels 5–7 (the five-level annual product) extend the ramp.
+
+`DRY_RUN=1 OUT_DIR=<dir> python3 k8s/cog-assets.py public-coral-reef-watch <prefix> <tier> <products...>` writes the collections locally without uploading or copying anything, for `scripts/verify-stac.py --no-data`.
 
 ## Monthly tier (`crw-5km-monthly/<product>`)
 
