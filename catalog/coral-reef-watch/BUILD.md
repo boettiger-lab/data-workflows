@@ -97,6 +97,9 @@ Map apps such as GLEN build a raster layer only from a STAC asset, so `k8s/cog-a
 | daily | `<product>-cog` | `cog/<product>-latest.tif`, a copy of the newest day, refreshed each run |
 | monthly | `<product>-cog` | `cog/<product>-latest.tif`, a copy of the newest month |
 | annual | `<product>-cog-YYYY` | `cog/<product>-YYYY.tif`, one asset per year |
+| daily, monthly | `<product>-cog-frames` | `cog/frames.json`, every dated COG for animation (SchmidtDSE/glen#421) |
+
+`frames.json` is `{"interval": "P1D" | "P1M", "frames": [{"datetime": "YYYY-MM-DD", "href": "<absolute COG URL>"}, ...]}`, oldest first, listing only files that exist; a monthly frame's date is the first of the month. The script rewrites it only when the listing changed and uploads it with `Cache-Control: max-age=300`, so a new day shows up in apps within five minutes. The monthly min/max `-date.tif` files are not frames.
 
 The daily and monthly keys and hrefs stay fixed as the series rolls forward (the stable-key rule for refreshed collections), and the asset title carries the date shown. Annual years are separate composites side by side, so the year is in the key. The `-latest.tif` name carries no 8-digit date, so pruning never removes it.
 

@@ -9,6 +9,9 @@ only from a STAC asset, so the COGs need entries of their own.
 - daily and monthly: copies the newest dated COG to cog/<product>-latest.tif (server-side, on
   NRP) and points the asset <product>-cog at it. The key and href stay fixed as the series rolls
   forward, so an app config never has to change; the title carries the date shown.
+  Also writes cog/frames.json, every dated COG oldest first, and points the asset
+  <product>-cog-frames at it, so a map app can animate the series (glen#421). It is served
+  with a five-minute cache lifetime, so a new day shows up without a long wait.
 - annual: one asset per published year, <product>-cog-YYYY. Years are separate composites
   published side by side, not one refreshed edition, so the year belongs in the key.
 
@@ -66,6 +69,26 @@ def encoding_note(product):
             "Land, sea ice and missing pixels hold -32768, the declared no-data value.")
 
 
+def write_frames(bucket, base, tier, dated, local):
+    """Write cog/frames.json from the dated COG names; upload only when it changed."""
+    frames = []
+    for f in dated:
+        d = f.rsplit("-", 1)[1][:-4]
+        frames.append({"datetime": f"{d[:4]}-{d[4:6]}-{d[6:] if tier == 'daily' else '01'}",
+                       "href": f"{PUBLIC}/{bucket}/{base}/cog/{f}"})
+    body = {"interval": "P1D" if tier == "daily" else "P1M", "frames": frames}
+    remote = f"nrp:{bucket}/{base}/cog/frames.json"
+    try:
+        if json.loads(rclone("cat", remote)) == body:
+            return
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        pass
+    json.dump(body, open(local, "w"), indent=1)
+    if not DRY_RUN:
+        rclone("copyto", local, remote, "--header-upload", "Cache-Control: max-age=300",
+               "--header-upload", "Content-Type: application/json")
+
+
 def main():
     bucket, prefix, tier, *products = sys.argv[1:]
     if tier not in ("daily", "monthly", "annual") or not products:
@@ -94,7 +117,7 @@ def main():
             print(f"{p}: no COGs yet, skipping")
             continue
         assets = {k: v for k, v in coll.get("assets", {}).items()
-                  if not re.fullmatch(rf"{re.escape(p)}-cog(-\d{{4}})?", k)}
+                  if not re.fullmatch(rf"{re.escape(p)}-cog(-\d{{4}}|-frames)?", k)}
         b = band(p, values_note)
         note = encoding_note(p)
 
@@ -135,6 +158,17 @@ def main():
                                 f"currently {when}. The file at this address is replaced each time a newer "
                                 f"{unit} is added; every {unit} also keeps its own file at {PUBLIC}/{bucket}/{base}/cog/{p}-{pattern}.tif. {note}"),
                 "raster:bands": [b],
+            }
+            write_frames(bucket, base, tier, dated, f"{work}/{p}-frames.json")
+            assets[f"{p}-cog-frames"] = {
+                "href": f"{PUBLIC}/{bucket}/{base}/cog/frames.json",
+                "type": "application/json", "roles": ["metadata"],
+                "title": f"{name} (frame list)",
+                "description": (f"List of every {unit} of this product that has its own map image, oldest "
+                                f"first, for apps that animate the series. Each entry gives the {unit} as "
+                                f"YYYY-MM-DD{' (the first of the month)' if tier == 'monthly' else ''} and the "
+                                f"address of its Cloud-Optimized GeoTIFF. It is rewritten each time a {unit} "
+                                f"is added or removed."),
             }
         coll["assets"] = assets
         exts = coll.setdefault("stac_extensions", [])
