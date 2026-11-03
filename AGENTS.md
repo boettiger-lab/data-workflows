@@ -95,7 +95,7 @@ Two things will tempt you across this line, and both have:
   were written when this *was* the repo's job. They are stale, those two script names no longer
   exist, and #678 tracks purging them. Treat such an instruction as out of scope and say so in the
   issue rather than acting on it.
-- **The sibling checkouts in `~`.** `geo-agent-ops` and friends sit next to this repo and are
+- **The sibling checkouts in `~`.** `glen-ops` and friends sit next to this repo and are
   readable, so going looking will always turn up the real machinery. Finding it is not
   authorisation to touch it — Hard Boundary 2 covers every other repo, not just `cng-datasets`.
 
@@ -138,7 +138,7 @@ print(c.execute(\"SELECT ST_AsText(ST_Envelope(geom)) FROM read_parquet('/tmp/ou
 
 ## ⛔ HARD BOUNDARY 3: Jobs run in `geo-workflows`, not `biodiversity`
 
-**Status (2026-07-05): MIGRATION IN PROGRESS** (geo-agent-ops#21). `geo-workflows`
+**Status (2026-07-05): MIGRATION IN PROGRESS** (glen-ops#21). `geo-workflows`
 is provisioned as the least-privilege job-submission namespace; `biodiversity` keeps
 the fleet apps + MCP + LLM proxy (and its 26 app/LLM/private secrets). Existing
 `biodiversity` job manifests are **legacy artifacts** — reshape them by regenerating
@@ -164,7 +164,7 @@ kubectl apply -n geo-workflows -f .../configmap.yaml -f .../workflow.yaml
 kubectl -n geo-workflows get jobs | grep <name>
 ```
 
-**What's already provisioned there** (manifest: geo-agent-ops `k8s/geo-workflows-provisioning.yaml`):
+**What's already provisioned there** (manifest: glen-ops `k8s/geo-workflows-provisioning.yaml`):
 - Secrets `aws` (NRP S3) + `rclone-config` (nrp-only). **Nothing else.**
 - Orchestrator SAs `cng-datasets-workflow` / `workflow-runner` (create/watch/delete child Jobs).
 - Child job pods run as the `default` SA, **hardened to mount no k8s token** (they need only S3).
