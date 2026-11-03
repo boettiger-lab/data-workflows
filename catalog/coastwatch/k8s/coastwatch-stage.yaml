@@ -1,0 +1,110 @@
+# HAND-ROLLED: cng-datasets has no stage step for an ERDDAP griddap time series, and no
+# per-time-step COG output (datasets#172).
+#
+# Stages the Aqua MODIS 4 km monthly composites of chlorophyll-a (erdMH1chlamday, #835) and
+# Kd490 (erdMH1kd490mday, #836) from NOAA CoastWatch ERDDAP, one month per request.
+# The month list is read from ERDDAP's own time axis, so the job takes the full record
+# (230 and 232 months, counted 2026-11-03).
+#
+# Index i: product = i < 29 ? chlorophyll : Kd490, months 8*(i % 29) to 8*(i % 29) + 7, so 58 indexes.
+# For each month:
+#   raw/<ds>/nc/<ds>-YYYYMM.nc.gz         the ERDDAP netCDF as delivered, gzipped
+#   raw/<ds>/nc/<ds>-YYYYMM.nc.gz.json    source URL, access time, bytes and sha256 of the delivered file
+#   raw/<ds>/zarr/<ds>-YYYYMM.zarr/       the same array as Zarr (ZSTD). ERDDAP serves netCDF3 only,
+#                                         which GDAL cannot open over S3; the mdim hex reads this copy.
+#   <ds>/cog/<ds>-YYYYMM.tif              WGS84 COG, Float32, NaN no-data. Uploaded last, so it marks
+#                                         the month done; a finished month is skipped on retry.
+#
+# DEVIATION: opportunistic priority. A month takes about a minute and an index about 10, and finished
+# months are skipped, so a preempted index is redone cheaply. 1 CPU and 1.5Gi stay below the sizes
+# NRP's usage check looks at (#804); limits are 1.2x requests.
+# Parallelism 8 keeps the load on ERDDAP modest; a month took about a minute (2026-11-03).
+#
+#   Source: https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1chlamday.html
+#           https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1kd490mday.html
+#   Issues: https://github.com/boettiger-lab/data-workflows/issues/835 and /836
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coastwatch-stage
+  namespace: geo-workflows
+  labels: {k8s-app: coastwatch-stage}
+spec:
+  completions: 58
+  parallelism: 8
+  completionMode: Indexed
+  backoffLimitPerIndex: 4
+  maxFailedIndexes: 10
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: coastwatch-stage}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          if [ "$JOB_COMPLETION_INDEX" -lt 29 ]; then ds=erdMH1chlamday; var=chlorophyll; else ds=erdMH1kd490mday; var=k490; fi
+          start=$(( 8 * (JOB_COMPLETION_INDEX % 29) ))
+          E=https://coastwatch.pfeg.noaa.gov/erddap/griddap
+          W=/tmp/w; mkdir -p $W; cd $W
+          curl -sS --retry 5 --retry-all-errors -o times.csv "$E/$ds.csv0?time"
+          mapfile -t times < <(sed -n "$((start + 1)),$((start + 8))p" times.csv)
+          echo "$ds: ${#times[@]} months from index $start of $(wc -l < times.csv)"
+          for t in "${times[@]}"; do
+            ym=$(echo "$t" | cut -c1-7 | tr -d -)
+            name=$ds-$ym
+            if rclone lsf "nrp:$BUCKET/$ds/cog/$name.tif" 2>/dev/null | grep -q .; then echo "$name done, skipping"; continue; fi
+            url="$E/$ds.nc?$var%5B($t)%5D%5B%5D%5B%5D"
+            curl -sS --fail --retry 5 --retry-all-errors -o $name.nc "$url"
+            printf '{"source_url":"%s","accessed":"%s","bytes":%s,"sha256":"%s"}\n' \
+              "$url" "$(date -u +%FT%TZ)" "$(stat -c %s $name.nc)" "$(sha256sum $name.nc | cut -d' ' -f1)" > $name.nc.gz.json
+            n=$(gdalmdiminfo $name.nc | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['dimensions'][[x['name'] for x in d['dimensions']].index('time')]['size'])")
+            [ "$n" = 1 ] || { echo "$name: expected 1 time step, got $n" >&2; exit 1; }
+            gdal_translate -q -of COG -a_srs EPSG:4326 -a_nodata nan -co COMPRESS=ZSTD -co PREDICTOR=FLOATING_POINT \
+              -co BLOCKSIZE=512 -co OVERVIEWS=AUTO "NETCDF:\"$name.nc\":$var" $name.tif
+            gdalmdimtranslate -q -of ZARR -co ARRAY:COMPRESS=ZSTD $name.nc $name.zarr
+            gzip -1 $name.nc
+            rclone copyto $name.nc.gz "nrp:$BUCKET/raw/$ds/nc/$name.nc.gz"
+            rclone copyto $name.nc.gz.json "nrp:$BUCKET/raw/$ds/nc/$name.nc.gz.json"
+            rclone delete "nrp:$BUCKET/raw/$ds/zarr/$name.zarr/" 2>/dev/null || true
+            rclone copy $name.zarr "nrp:$BUCKET/raw/$ds/zarr/$name.zarr/"
+            rclone copyto $name.tif "nrp:$BUCKET/$ds/cog/$name.tif"
+            echo "$name staged"
+            rm -rf $name.*
+          done
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: GDAL_CACHEMAX, value: '256'}
+        - {name: BUCKET, value: public-coastwatch}
+        resources:
+          requests: {cpu: '1', memory: 1536Mi, ephemeral-storage: 5Gi}
+          limits: {cpu: '1200m', memory: 1843Mi, ephemeral-storage: 5Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
