@@ -87,11 +87,11 @@ Key commands:
 ## Backups & the public mirror — not in this repo
 
 NRP S3 is canonical. It is backed up, and licence-permitting mirrored, by
-[geo-agent-ops](https://github.com/boettiger-lab/geo-agent-ops), which owns those tiers end to
+[glen-ops](https://github.com/boettiger-lab/glen-ops), which owns those tiers end to
 end. Nothing here is read by them and nothing here can execute them.
 
 What this repo owes: **an accurate STAC `license` on every collection** (AGENTS.md Step 7). If a
-mirror looks wrong, file an issue on geo-agent-ops.
+mirror looks wrong, file an issue on glen-ops.
 
 ## Infrastructure
 
