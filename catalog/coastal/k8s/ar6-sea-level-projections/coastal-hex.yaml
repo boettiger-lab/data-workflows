@@ -123,14 +123,11 @@ data:
         con.execute("DROP TABLE IF EXISTS near_s")
         nearest("redo", "setn", "near_s")
         con.execute(f"INSERT INTO override SELECT {s}, h8, location_id, node_dist_km FROM near_s")
-    con.execute("""CREATE VIEW dist AS SELECT s.setid, n.h8, coalesce(o.location_id, n.location_id) AS location_id,
-                       coalesce(o.node_dist_km, n.node_dist_km) AS node_dist_km
-                   FROM nearest n CROSS JOIN (SELECT DISTINCT setid FROM scset) s
-                   LEFT JOIN override o ON o.h8 = n.h8 AND o.setid = s.setid""")
+    # Log summary only: the largest distance in any scenario, and quantiles of the search over all nodes.
     print(f"{ncell} cells matched in {time.time() - t:.0f}s ({con.execute('SELECT COUNT(*) FROM override').fetchone()[0]} set-specific matches); max node distance",
-          con.execute("SELECT round(max(node_dist_km), 1) FROM dist").fetchone()[0], "km; approximate quantiles 50/90/99",
-          con.execute("SELECT round(approx_quantile(node_dist_km, 0.5), 1), round(approx_quantile(node_dist_km, 0.9), 1), round(approx_quantile(node_dist_km, 0.99), 1) FROM dist").fetchone(), flush=True)
-    con.execute("DROP VIEW dist")
+          con.execute("SELECT round(max(node_dist_km), 1) FROM (SELECT node_dist_km FROM nearest UNION ALL SELECT node_dist_km FROM override)").fetchone()[0],
+          "km; quantiles 50/90/99 over all nodes",
+          con.execute("SELECT round(quantile_cont(node_dist_km, 0.5), 1), round(quantile_cont(node_dist_km, 0.9), 1), round(quantile_cont(node_dist_km, 0.99), 1) FROM nearest").fetchone(), flush=True)
 
     con.execute(f"""CREATE TABLE vals AS
         SELECT location_id, scenario, confidence, year, p5, p17, p50, p83, p95
