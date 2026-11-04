@@ -1,0 +1,168 @@
+# HAND-ROLLED: staging job; cng-datasets has no stage-raw step (#789). The GeoPackage rewrite below
+# works around boettiger-lab/datasets#314 (convert aborts on repeated column names).
+#
+# Coastal geomorphic typology (#789): stage both upstream sources under s3://public-coastal/raw/.
+#
+# 1. Dürr et al. 2011 (geotypes.net). Stages Typology-GIS.zip and Typology-Maps.zip as shipped.
+#    The GIS zip's sha256 was recorded on #789 on 2026-11-03. The site publishes no checksum, so a
+#    mismatch means the file has changed upstream; stop and look before building.
+#    The shapefiles' .dbf files repeat column names (ArcInfo coverage leftovers truncated to 10
+#    characters, e.g. C_FINT_LEN twice, with different values in every row). The cng-datasets
+#    convert step aborts on that ("duplicate column name"). The job therefore also writes
+#    raw/coastal-typology-durr-2011.gpkg: both layers unchanged, except the second copy of each
+#    repeated column is renamed <name>_2 and the undeclared CRS is set to EPSG:4326. The generated
+#    workflows read that GeoPackage.
+# 2. Worthington et al. mangrove typology v3 (Zenodo 10.5281/zenodo.8340259, CC-BY-4.0). For each
+#    of the 12 layers (Composite plus 11 years), downloads the shapefile parts and checks each
+#    against Zenodo's published md5. It then packs them unmodified into an uncompressed zip at
+#    raw/mangrove-typology-v3/Mangrove_Typology_v3_<layer>.zip, which the convert step reads.
+#
+# Prints the sha256 of every staged object for the STAC provenance fields.
+# One pod, ~11 GB from Zenodo, one layer on disk at a time. Requests sit under NRP's usage-policy
+# check thresholds (<=1 CPU, <=2 GiB), so default priority is safe for a run over an hour.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coastal-typology-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: coastal-typology-stage-raw
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: coastal-typology-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: PYTHONPATH
+          value: /usr/lib/python3/dist-packages
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          mkdir -p /tmp/w && cd /tmp/w
+          RAW=nrp:public-coastal/raw
+
+          echo "=== Dürr 2011 typology (geotypes.net) ==="
+          curl -sSL --retry 5 --retry-delay 5 -o Typology-GIS.zip  http://geotypes.net/downloads/Typology-GIS.zip
+          curl -sSL --retry 5 --retry-delay 5 -o Typology-Maps.zip http://geotypes.net/downloads/Typology-Maps.zip
+          echo "4f0ae7034cf0e472aaac93813969cc4408d9af3a44295bdaeb219d37f180f70a  Typology-GIS.zip" | sha256sum -c -
+          python3 - <<'EOF'
+          from osgeo import gdal, ogr, osr
+          gdal.UseExceptions()
+          srs = osr.SpatialReference(); srs.ImportFromEPSG(4326)
+          out = ogr.GetDriverByName("GPKG").CreateDataSource("coastal-typology-durr-2011.gpkg")
+          for name in ["typology_coastline", "typology_catchments"]:
+              src = ogr.Open(f"/vsizip/Typology-GIS.zip/{name}.shp")
+              L = src.GetLayer(); d = L.GetLayerDefn()
+              dst = out.CreateLayer(name, srs, L.GetGeomType())
+              seen = {}
+              for i in range(d.GetFieldCount()):
+                  sd = d.GetFieldDefn(i); n = sd.GetName()
+                  seen[n] = seen.get(n, 0) + 1
+                  nn = n if seen[n] == 1 else f"{n}_{seen[n]}"
+                  if nn != n:
+                      print(f"  {name}: field {i} {n} -> {nn}")
+                  fd = ogr.FieldDefn(nn, sd.GetType())
+                  fd.SetSubType(sd.GetSubType())
+                  fd.SetWidth(sd.GetWidth()); fd.SetPrecision(sd.GetPrecision())
+                  dst.CreateField(fd)
+              nf = d.GetFieldCount(); count = 0
+              dst.StartTransaction()
+              for f in L:
+                  g = ogr.Feature(dst.GetLayerDefn())
+                  g.SetGeometry(f.GetGeometryRef())
+                  for i in range(nf):
+                      g.SetField(i, f.GetField(i))
+                  dst.CreateFeature(g); count += 1
+              dst.CommitTransaction()
+              print(f"  {name}: {count} features")
+          out = None
+          EOF
+          ogrinfo -so -al coastal-typology-durr-2011.gpkg | grep -E 'Layer name|Feature Count|Geometry:'
+          for f in Typology-GIS.zip Typology-Maps.zip coastal-typology-durr-2011.gpkg; do
+            echo "STAGED raw/$f $(stat -c%s $f) sha256 $(sha256sum $f | cut -d' ' -f1)"
+            rclone copyto "$f" "$RAW/$f" --s3-no-check-bucket
+          done
+          rm -f Typology-*.zip coastal-typology-durr-2011.gpkg
+
+          echo "=== Worthington mangrove typology v3 (Zenodo 8340259) ==="
+          curl -sSL --retry 5 https://zenodo.org/api/records/8340259 > rec.json
+          python3 -c "
+          import json; r = json.load(open('rec.json'))
+          for f in r['files']: print(f['checksum'].split(':')[1] + '  ' + f['key'])" > md5.txt
+          wc -l md5.txt
+          for L in Composite 1996 2007 2008 2009 2010 2015 2016 2017 2018 2019 2020; do
+            B=Mangrove_Typology_v3_$L
+            mkdir -p $B
+            for ext in shp shx dbf prj cpg sbn sbx shp.xml; do
+              curl -sSL --retry 5 --retry-delay 10 -o "$B/$B.$ext" \
+                "https://zenodo.org/api/records/8340259/files/$B.$ext/content"
+            done
+            ( cd $B && grep " $B\." ../md5.txt | md5sum -c - )
+            python3 -c "
+          import os, sys, zipfile
+          b = sys.argv[1]
+          with zipfile.ZipFile(b + '.zip', 'w', zipfile.ZIP_STORED, allowZip64=True) as z:
+              for f in sorted(os.listdir(b)): z.write(os.path.join(b, f), f)" "$B"
+            rm -rf "$B"
+            ogrinfo -so -al "/vsizip/$B.zip" | grep -E 'Feature Count|Geometry:'
+            echo "STAGED raw/mangrove-typology-v3/$B.zip $(stat -c%s $B.zip) sha256 $(sha256sum $B.zip | cut -d' ' -f1)"
+            rclone copyto "$B.zip" "$RAW/mangrove-typology-v3/$B.zip" --s3-no-check-bucket
+            rm -f "$B.zip"
+          done
+          rclone ls $RAW/ | grep -iE 'typology'
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 10Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # Broken-egress hosts excluded: this job downloads ~11 GB from external hosts.
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
