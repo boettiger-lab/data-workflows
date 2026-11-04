@@ -1,0 +1,99 @@
+# HAND-ROLLED: staging job; cng-datasets has no stage-raw step (#795).
+#
+# IPCC AR6 Sea Level Projections, version 20210809 (Zenodo 10.5281/zenodo.6382554, CC-BY-4.0).
+# Stages, unmodified, under s3://public-coastal/raw/ar6-sea-level-projections/:
+#   - ar6-regional-confidence.zip        (relative sea level, with vertical land motion)
+#   - ar6-regional_novlm-confidence.zip  (the same without the background/VLM term)
+#   - location_list.lst                  (tide-gauge names and IDs for the regional locations)
+# Each file is checked against the size and MD5 that Zenodo publishes (also recorded on #795).
+# The script prints the SHA-256 of every staged object for the STAC provenance fields.
+#
+# One pod, about 18 GB from Zenodo, with one file on disk at a time. Requests sit under NRP's
+# usage-policy check thresholds (<=1 CPU, <=2 GiB), so default priority is safe for a run over an hour.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ar6-sea-level-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: ar6-sea-level-stage-raw
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ar6-sea-level-stage-raw
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          mkdir -p /tmp/w && cd /tmp/w
+          RAW=nrp:public-coastal/raw/ar6-sea-level-projections
+          stage() {  # name size md5
+            local f=$1 size=$2 md5=$3
+            echo "=== $f ==="
+            curl -sSL --retry 8 --retry-delay 30 --retry-all-errors -C - -o "$f" \
+              "https://zenodo.org/records/6382554/files/$f"
+            [ "$(stat -c%s "$f")" = "$size" ] || { echo "SIZE MISMATCH $f: $(stat -c%s "$f") != $size"; exit 1; }
+            echo "$md5  $f" | md5sum -c -
+            echo "STAGED raw/ar6-sea-level-projections/$f $(stat -c%s "$f") sha256 $(sha256sum "$f" | cut -d' ' -f1)"
+            rclone copyto "$f" "$RAW/$f" --s3-no-check-bucket
+            rm -f "$f"
+          }
+          stage location_list.lst                 2659137    f536e05937342f1183cc04f48294270d
+          stage ar6-regional-confidence.zip       9243771601 fec362a2385079fac32fa736d4a39944
+          stage ar6-regional_novlm-confidence.zip 8746266026 a3cdd7aecf7e12cb672ba3dc8c4ba72c
+          rclone ls $RAW/
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 12Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 12Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # Broken-egress hosts excluded: this job downloads ~18 GB from an external host.
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - hpc-nrp-g1.nmsu.edu
+                - service-02.nrp.mghpcc.org
