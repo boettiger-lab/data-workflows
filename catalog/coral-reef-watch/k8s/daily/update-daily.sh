@@ -89,7 +89,11 @@ compact() {  # product; folds daily files from closed months into each h0's data
 import os, re, subprocess, sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 import duckdb
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 p, listing, month_start, cutoff, work, prefix = sys.argv[1:7]
 bucket = os.environ.get("BUCKET", "public-coral-reef-watch")
 hexdir = f"{bucket}/{prefix}/{p}/hex"
@@ -133,25 +137,83 @@ con.execute(f"""CREATE SECRET (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]
   SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
   USE_SSL false, URL_STYLE 'path')""")
 keep = f"WHERE time >= DATE '{cutoff[:4]}-{cutoff[4:6]}-{cutoff[6:]}'" if cutoff else ""
+cutoff_date = date(int(cutoff[:4]), int(cutoff[4:6]), int(cutoff[6:])) if cutoff else None
+
+def merge_sorted(old, newf, out):
+    """Write old's rows (minus expired months and the days newf replaces), then newf's, one row
+    group at a time. data_0 is already sorted by (time, h6), so when every new day is later than
+    every day kept from it, this is the sorted union without sorting 13 months of rows: a dense
+    cell holds ~44M rows, and re-sorting it ran out of memory at 1800MiB (2026-11-03).
+    Returns False, writing nothing, when the new days interleave with the old."""
+    new_days = pq.read_table(newf, columns=["time"]).column(0).unique() if newf else None
+    if old and new_days is not None and len(new_days):
+        # Old days on or after the first new day must all be replaced by new ones. Only the
+        # row groups that reach that far are read, and only their time column.
+        f, first = pq.ParquetFile(old), pc.min(new_days).as_py()
+        ti = f.schema_arrow.names.index("time")
+        tail = set()
+        for i in range(f.metadata.num_row_groups):
+            if f.metadata.row_group(i).column(ti).statistics.max >= first:
+                tail |= {d for d in f.read_row_group(i, columns=["time"]).column(0).unique().to_pylist() if d >= first}
+        if not tail <= set(new_days.to_pylist()):
+            return False
+    schema, writer = None, None
+    for path, drop in ((old, new_days), (newf, None)):
+        if not path:
+            continue
+        f = pq.ParquetFile(path)
+        for i in range(f.num_row_groups):
+            t = f.read_row_group(i)
+            if schema is None:
+                schema = t.schema
+                writer = pq.ParquetWriter(out, schema, compression="zstd")
+            mask = None
+            if cutoff:
+                mask = pc.greater_equal(t["time"], pa.scalar(cutoff_date, type=t.schema.field("time").type))
+            if drop is not None and len(drop):
+                m = pc.invert(pc.is_in(t["time"], value_set=drop.cast(t.schema.field("time").type)))
+                mask = m if mask is None else pc.and_(mask, m)
+            if mask is not None:
+                t = t.filter(mask)
+            if t.num_rows:
+                writer.write_table(t.select(schema.names).cast(schema), row_group_size=100000)
+    if writer:
+        writer.close()
+    return writer is not None
 
 def one(cell):
     # hive_partitioning=false keeps h0 as the UBIGINT stored in the files.
     new = [f"s3://{hexdir}/{f}" for f in parts.get(cell, [])]
-    sel = []
-    if new:
-        sel.append(f"SELECT * FROM read_parquet({new!r}, hive_partitioning=false)")
-    if cell in compacted:
-        # A day present in both (reprocessed or posted late) takes the daily file's values.
-        redo = f"WHERE time NOT IN (SELECT DISTINCT time FROM read_parquet({new!r}, hive_partitioning=false))" if new else ""
-        sel.append(f"SELECT * FROM read_parquet('s3://{hexdir}/{cell}/data_0.parquet', hive_partitioning=false) {redo}")
+    if not new and cutoff and not rewrite:
+        # Nothing to add; skip the cell unless it holds days older than the cutoff. Reads only the
+        # footer, so a run that stopped partway resumes without rewriting the cells it finished.
+        first = con.cursor().execute(f"""SELECT min(stats_min_value) FROM parquet_metadata('s3://{hexdir}/{cell}/data_0.parquet')
+          WHERE path_in_schema = 'time'""").fetchone()[0]
+        if first and str(first)[:10] >= f"{cutoff[:4]}-{cutoff[4:6]}-{cutoff[6:]}":
+            return
     out = os.path.join(work, f"{cell}.parquet")
-    # DISTINCT ON keeps one row per cell per day: mdim splits a day's cell into part-t...-0, -1, ...
-    # files as it sees fit, so files from an earlier run of the same day can repeat its rows.
-    con.cursor().execute(f"""COPY (SELECT DISTINCT ON (time, h6) * FROM ({" UNION ALL BY NAME ".join(sel)}) {keep}
-      ORDER BY time, h6)
-      TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)""")
+    old = os.path.join(work, f"{cell}-old.parquet") if cell in compacted else None
+    newf = os.path.join(work, f"{cell}-new.parquet") if new else None
+    if old:
+        subprocess.run(["rclone", "copyto", f"nrp:{hexdir}/{cell}/data_0.parquet", old], check=True)
+    if newf:
+        # DISTINCT ON keeps one row per cell per day: mdim splits a day's cell into part-t...-0, -1, ...
+        # files as it sees fit, so files from an earlier run of the same day can repeat its rows.
+        con.cursor().execute(f"""COPY (SELECT DISTINCT ON (time, h6) * FROM read_parquet({new!r}, hive_partitioning=false)
+          {keep} ORDER BY time, h6) TO '{newf}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)""")
+    if rewrite or not merge_sorted(old, newf, out):
+        # The general path: REWRITE_ALL (the repair path, which also de-duplicates data_0), or a
+        # replaced day that falls inside data_0's span. A day in both takes the daily file's values.
+        sel = [f"SELECT * FROM read_parquet('{newf}')"] if newf else []
+        if old:
+            redo = f"WHERE time NOT IN (SELECT DISTINCT time FROM read_parquet('{newf}'))" if newf else ""
+            sel.append(f"SELECT * FROM read_parquet('{old}') {redo}")
+        con.cursor().execute(f"""COPY (SELECT DISTINCT ON (time, h6) * FROM ({" UNION ALL BY NAME ".join(sel)}) {keep}
+          ORDER BY time, h6) TO '{out}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)""")
     subprocess.run(["rclone", "copyto", out, f"nrp:{hexdir}/{cell}/data_0.parquet"], check=True)
-    os.remove(out)
+    for f in (out, old, newf):
+        if f:
+            os.remove(f)
     if new:  # only the daily files read above, so a file added meanwhile is kept for next time
         lst = os.path.join(work, f"{cell}.txt")
         open(lst, "w").write("\n".join(parts[cell]) + "\n")
