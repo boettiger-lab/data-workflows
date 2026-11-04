@@ -2,9 +2,10 @@
 # cng-datasets does not do (#795).
 #
 # Each H3 resolution-8 cell of the MEOW coastal band (public-coastal/meow-coastal-band, #730) takes
-# the AR6 values of the nearest unmasked 1-degree grid node, by great-circle distance from the cell
-# centre (tide gauges are not used). "Unmasked" means the node has a total-component SSP2-4.5
-# medium-confidence value in 2020. Content: total component, values (mm), with vertical land
+# the AR6 values of the nearest 1-degree grid node that has a total projection in every scenario,
+# confidence level and year (50,026 nodes), by great-circle distance from the cell centre (tide
+# gauges are not used). Upstream masks a different set of nodes in each scenario, so this gives
+# every cell a value everywhere, from one node. Content: total component, values (mm), with vertical land
 # motion, every scenario, confidence level and year, quantiles 5, 17, 50, 83 and 95. One index per
 # h0 partition of the band (97), written to
 #   s3://public-coastal/ar6-sea-level-projections/coastal-band/hex/h0=<h0>/data_0.parquet
