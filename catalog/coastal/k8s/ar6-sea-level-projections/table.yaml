@@ -27,8 +27,8 @@ data:
 
     usage: ar6_to_parquet.py <zip-url> <location_list.lst> <out: local path or s3://bucket/key>
 
-    One row per location x scenario x confidence x component x measure x year, with the
-    107 quantiles as float32 columns p0 .. p100 in physical units (mm for values, mm per
+    One row per location x scenario x confidence x component x measure x year, numbered by a
+    row-unique _cng_fid, with the 107 quantiles as float32 columns p0 .. p100 in physical units (mm for values, mm per
     year for rates). Every member .nc is read through GDAL's multidimensional API; the zip
     is read with HTTP range requests, one member at a time. The two .tgz members are
     byte-identical copies of loose .nc files in the same zip and are skipped.
@@ -133,7 +133,7 @@ data:
                     "geom": pa.array(wkb_points(lon, lat), pa.binary()),
                 }
                 schema = pa.schema(
-                    [("location_id", pa.int32()), ("location_name", pa.string()), ("scenario", pa.string()),
+                    [("_cng_fid", pa.int64()), ("location_id", pa.int32()), ("location_name", pa.string()), ("scenario", pa.string()),
                      ("confidence", pa.string()), ("component", pa.string()), ("measure", pa.string()),
                      ("year", pa.int16())] + [(c, pa.float32()) for c in qcols] +
                     [("lon", pa.float64()), ("lat", pa.float64()), ("geom", pa.binary())])
@@ -176,7 +176,7 @@ data:
                 fill = np.repeat(ymask[yi][:, None], len(qcols), axis=1)
                 blk *= np.float32(scale)
                 nloc = len(locs)
-                cols = {"location_id": loc_cols["location_id"], "location_name": loc_cols["location_name"],
+                cols = {"_cng_fid": pa.array(np.arange(rows, rows + nloc, dtype="i8")), "location_id": loc_cols["location_id"], "location_name": loc_cols["location_name"],
                         "scenario": pa.array([scen] * nloc), "confidence": pa.array([conf] * nloc),
                         "component": pa.array([comp] * nloc), "measure": pa.array([meas] * nloc),
                         "year": pa.array(np.full(nloc, y, "i2"))}
