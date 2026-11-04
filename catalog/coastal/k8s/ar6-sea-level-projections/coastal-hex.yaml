@@ -124,8 +124,9 @@ data:
         rows += tbl.num_rows
     writer.close()
     print(f"{len(blocks)} blocks, {rows:,} rows in {time.time() - t:.0f}s", flush=True)
+    con.close(); del con, tbl, r  # release DuckDB's memory before the upload
     if outp.startswith("s3://"):
-        os.system(f"rclone copyto {local} nrp:{outp[5:]}/h0={h0}/data_0.parquet --s3-no-check-bucket") == 0 or sys.exit("upload failed")
+        os.system(f"rclone copyto {local} nrp:{outp[5:]}/h0={h0}/data_0.parquet --s3-no-check-bucket --s3-upload-concurrency 4 --s3-chunk-size 32M") == 0 or sys.exit("upload failed")
     else:
         os.makedirs(f"{outp}/h0={h0}", exist_ok=True); os.replace(local, f"{outp}/h0={h0}/data_0.parquet")
     print("DONE", h0, flush=True)
