@@ -25,7 +25,8 @@ data:
 
     usage: ar6_coastal_hex.py <h0 partition index> <band hex glob> <table parquet> <out prefix>
 
-    Each h8 cell of the coastal band takes the values of the nearest unmasked 1-degree grid node
+    Each h8 cell of the coastal band takes the values of the nearest 1-degree grid node that has a
+    projection in every scenario, confidence level and year
     (great-circle distance from the cell centre; tide gauges are not used). Content: total
     component, values (mm), quantiles 5, 17, 50, 83 and 95, every scenario, confidence level and
     year. Rows are written one scenario x confidence x year block at a time, each block sorted by h8.
@@ -49,13 +50,16 @@ data:
     print(f"index {idx} of {len(h0s)}: h0={h0}", flush=True)
     t = time.time()
 
-    # Unmasked grid nodes, keyed by integer degrees (lon in -180..179).
+    # Grid nodes with a total projection in every scenario, confidence level and year, keyed by
+    # integer degrees (lon in -180..179). Upstream masks a different set of nodes in each scenario,
+    # so a node complete in all of them gives every cell a value everywhere, from one node.
     con.execute(f"""CREATE TABLE nodes AS
-        SELECT DISTINCT location_id, CAST(round(lat) AS INT) AS ilat, CAST(round(lon) AS INT) AS ilon, lat, lon
+        SELECT location_id, CAST(round(any_value(lat)) AS INT) AS ilat, CAST(round(any_value(lon)) AS INT) AS ilon,
+               any_value(lat) AS lat, any_value(lon) AS lon
         FROM read_parquet('{table}')
-        WHERE component='total' AND measure='values' AND confidence='medium' AND scenario='ssp245' AND year=2020
-          AND location_id >= 1000000000 AND p50 IS NOT NULL""")
-    print("unmasked grid nodes", con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0], flush=True)
+        WHERE component='total' AND measure='values' AND location_id >= 1000000000
+        GROUP BY location_id HAVING bool_and(p50 IS NOT NULL)""")
+    print("grid nodes complete in every scenario", con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0], flush=True)
 
     con.execute(f"""CREATE TABLE cells AS
         SELECT h8, h3_cell_to_lat(h8) AS clat, h3_cell_to_lng(h8) AS clon, (row_number() OVER (ORDER BY h8) - 1) // 250000 AS b
@@ -120,6 +124,7 @@ data:
             WHERE v.scenario = ? AND v.confidence = ? AND v.year = ?
             ORDER BY cn.h8""", [scen, conf, year]); tbl = (r.to_arrow_table() if hasattr(r, "to_arrow_table") else r.fetch_arrow_table()).cast(schema)
         assert tbl.num_rows == ncell, (scen, conf, year, tbl.num_rows, ncell)
+        assert tbl.column("p50").null_count == 0, (scen, conf, year, "null values")
         writer.write_table(tbl, row_group_size=1 << 20)
         rows += tbl.num_rows
     writer.close()
