@@ -1,0 +1,148 @@
+# HAND-ROLLED: cng-datasets has no stage step for an ERDDAP griddap time series, cannot aggregate
+# sub-daily steps to days (--time-agg stops at month), and writes no per-time-step COGs (datasets#172).
+#
+# Stages the PacIOOS ROMS Hawaiʻi reanalysis (roms_hiig_reanalysis, #840) and WaveWatch III Hawaiʻi
+# (ww3_hawaii, #841) from PacIOOS ERDDAP, one calendar month per index, and reduces each month to
+# daily values with daily.py (shipped in pacioos-daily-configmap.yaml, made from catalog/hawaii/daily.py).
+# Month bounds come from ERDDAP's own time axis, so a partial month asks only for the steps that exist.
+#
+#   ROMS: 144 months, 2009-01 to 2020-12, surface level (0.25 m), temp salt u v, 3-hourly -> daily mean
+#   WW3:  175 months, 2011-06 to 2025-12, all nine variables, hourly -> daily mean (directions: circular
+#         mean), plus the daily maximum of Thgt, shgt and whgt
+#
+# For each month, under public-hawaii:
+#   raw/<ds>/nc/<ds>-YYYYMM.nc.gz          the ERDDAP netCDF as delivered, gzipped
+#   raw/<ds>/nc/<ds>-YYYYMM.nc.gz.json     request URL, access time, bytes and sha256 of the delivered file
+#   raw/<ds>/zarr/<ds>-YYYYMM.zarr/        daily cube (time, latitude, longitude), every output variable;
+#                                          the mdim hex reads these
+#   <ds>/cog/<var>/<ds>-<var>-YYYYMMDD.tif one COG per output variable and day
+#   raw/<ds>/zarr/<ds>-YYYYMM.days.json    model steps behind each day. Uploaded last, so it marks the
+#                                          month done; a finished month is skipped on retry.
+#
+# DEVIATION: opportunistic priority. A month takes a few minutes and finished months are skipped, so a
+# preempted index is redone cheaply. 1 CPU and 1.5Gi stay below the sizes NRP's usage check looks at
+# (#804); limits are 1.2x requests. Parallelism 4 per product keeps the load on PacIOOS modest.
+#
+#   Sources: https://pae-paha.pacioos.hawaii.edu/erddap/griddap/roms_hiig_reanalysis.html
+#            https://pae-paha.pacioos.hawaii.edu/erddap/griddap/ww3_hawaii.html
+#   Issues:  https://github.com/boettiger-lab/data-workflows/issues/840 and /841
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: roms-hiig-reanalysis-stage
+  namespace: geo-workflows
+  labels: {k8s-app: pacioos-models-stage}
+spec:
+  completions: 144
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 4
+  maxFailedIndexes: 20
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: pacioos-models-stage}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: [bash, /scripts/stage.sh]
+        env:
+        - {name: PRODUCT, value: roms}
+        - {name: ERDDAP_ID, value: roms_hiig_reanalysis}
+        - {name: DS, value: roms-hiig-reanalysis}
+        - {name: FIRST_MONTH, value: '2009-01'}
+        - {name: VARS, value: temp salt u v}
+        - {name: SLICE, value: '%5B(0.25)%5D%5B%5D%5B%5D'}
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: BUCKET, value: public-hawaii}
+        resources:
+          requests: {cpu: '1', memory: 1536Mi, ephemeral-storage: 5Gi}
+          limits: {cpu: '1200m', memory: 1843Mi, ephemeral-storage: 5Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /scripts, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: pacioos-daily}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ww3-hawaii-stage
+  namespace: geo-workflows
+  labels: {k8s-app: pacioos-models-stage}
+spec:
+  completions: 175
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 4
+  maxFailedIndexes: 20
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: pacioos-models-stage}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: [bash, /scripts/stage.sh]
+        env:
+        - {name: PRODUCT, value: ww3}
+        - {name: ERDDAP_ID, value: ww3_hawaii}
+        - {name: DS, value: ww3-hawaii}
+        - {name: FIRST_MONTH, value: '2011-06'}
+        - {name: LAST_DAY, value: '2025-12-31'}
+        - {name: VARS, value: Thgt Tper Tdir shgt sper sdir whgt wper wdir}
+        - {name: SLICE, value: '%5B%5D%5B%5D%5B%5D'}
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: BUCKET, value: public-hawaii}
+        resources:
+          requests: {cpu: '1', memory: 1536Mi, ephemeral-storage: 5Gi}
+          limits: {cpu: '1200m', memory: 1843Mi, ephemeral-storage: 5Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /scripts, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: pacioos-daily}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
