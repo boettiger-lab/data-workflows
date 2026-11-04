@@ -1,0 +1,289 @@
+# Auto-generated ConfigMap for raster workflow
+# Generation command: cng-datasets mdim-workflow --dataset ww3-hawaii --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201106.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201107.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201108.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201109.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201110.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201111.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201112.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201201.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201202.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201203.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201204.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201205.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201206.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201207.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201208.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201209.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201210.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201211.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201212.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201301.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201302.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201303.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201304.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201305.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201306.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201307.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201308.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201309.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201310.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201311.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201312.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201401.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201402.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201403.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201404.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201405.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201406.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201407.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201408.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201409.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201410.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201411.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201412.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201501.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201502.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201503.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201504.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201505.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201506.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201507.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201508.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201509.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201510.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201511.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201512.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201601.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201602.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201603.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201604.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201605.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201606.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201607.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201608.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201609.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201610.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201611.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201612.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201701.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201702.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201703.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201704.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201705.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201706.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201707.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201708.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201709.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201710.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201711.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201712.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201801.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201802.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201803.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201804.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201805.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201806.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201807.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201808.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201809.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201810.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201811.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201812.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201901.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201902.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201903.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201904.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201905.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201906.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201907.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201908.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201909.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201910.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201911.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201912.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202001.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202002.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202003.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202004.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202005.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202006.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202007.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202008.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202009.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202010.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202011.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202012.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202101.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202102.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202103.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202104.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202105.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202106.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202107.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202108.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202109.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202110.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202111.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202112.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202201.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202202.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202203.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202204.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202205.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202206.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202207.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202208.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202209.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202210.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202211.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202212.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202301.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202302.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202303.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202304.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202305.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202306.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202307.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202308.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202309.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202310.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202311.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202312.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202401.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202402.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202403.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202404.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202405.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202406.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202407.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202408.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202409.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202410.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202411.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202412.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202501.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202502.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202503.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202504.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202505.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202506.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202507.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202508.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202509.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202510.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202511.zarr --input /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202512.zarr --variable Thgt --variable Tper --variable shgt --variable sper --variable whgt --variable wper --variable Tdir --variable sdir --variable wdir --variable Thgt_max --variable shgt_max --variable whgt_max --bucket public-hawaii --h3-resolution 6 --fan-out time
+apiVersion: v1
+data:
+  ww3-hawaii-hex.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: ww3-hawaii-hex
+      namespace: geo-workflows
+      labels:
+        k8s-app: ww3-hawaii-hex
+    spec:
+      completions: 175
+      parallelism: 20
+      completionMode: Indexed
+      backoffLimitPerIndex: 2
+      maxFailedIndexes: 1
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - type: DisruptionTarget
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: ww3-hawaii-hex
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: hex-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: GDAL_DATA
+              value: /usr/share/gdal
+            - name: BUCKET
+              value: public-hawaii
+            - name: DUCKDB_MEMORY_LIMIT
+              value: 1740MiB
+            - name: GDAL_CACHEMAX
+              value: '1024'
+            - name: GDAL_HTTP_MAX_RETRY
+              value: '5'
+            - name: GDAL_HTTP_RETRY_DELAY
+              value: '2'
+            - name: CNG_POD_CPU
+              value: '1'
+            command:
+            - bash
+            - -c
+            - |-
+              set -e
+
+              # One time unit per input file (#267).
+              INPUTS=(/vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201106.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201107.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201108.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201109.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201110.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201111.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201112.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201201.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201202.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201203.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201204.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201205.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201206.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201207.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201208.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201209.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201210.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201211.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201212.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201301.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201302.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201303.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201304.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201305.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201306.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201307.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201308.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201309.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201310.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201311.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201312.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201401.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201402.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201403.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201404.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201405.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201406.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201407.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201408.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201409.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201410.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201411.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201412.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201501.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201502.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201503.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201504.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201505.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201506.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201507.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201508.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201509.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201510.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201511.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201512.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201601.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201602.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201603.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201604.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201605.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201606.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201607.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201608.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201609.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201610.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201611.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201612.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201701.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201702.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201703.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201704.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201705.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201706.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201707.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201708.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201709.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201710.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201711.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201712.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201801.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201802.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201803.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201804.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201805.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201806.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201807.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201808.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201809.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201810.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201811.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201812.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201901.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201902.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201903.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201904.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201905.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201906.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201907.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201908.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201909.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201910.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201911.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-201912.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202001.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202002.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202003.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202004.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202005.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202006.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202007.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202008.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202009.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202010.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202011.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202012.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202101.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202102.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202103.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202104.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202105.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202106.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202107.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202108.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202109.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202110.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202111.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202112.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202201.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202202.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202203.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202204.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202205.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202206.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202207.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202208.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202209.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202210.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202211.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202212.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202301.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202302.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202303.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202304.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202305.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202306.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202307.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202308.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202309.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202310.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202311.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202312.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202401.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202402.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202403.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202404.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202405.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202406.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202407.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202408.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202409.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202410.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202411.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202412.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202501.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202502.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202503.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202504.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202505.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202506.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202507.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202508.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202509.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202510.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202511.zarr /vsis3/public-hawaii/raw/ww3-hawaii/zarr/ww3-hawaii-202512.zarr)
+              UNIT="${INPUTS[$JOB_COMPLETION_INDEX]}"
+              if [ -z "${JOB_COMPLETION_INDEX}" ] || [ -z "$UNIT" ]; then
+                echo "No time unit for completion index ${JOB_COMPLETION_INDEX}" >&2
+                exit 1
+              fi
+
+              cng-datasets mdim \
+                --input "$UNIT" \
+                --variable Thgt \
+                --variable Tper \
+                --variable shgt \
+                --variable sper \
+                --variable whgt \
+                --variable wper \
+                --variable Tdir \
+                --variable sdir \
+                --variable wdir \
+                --variable Thgt_max \
+                --variable shgt_max \
+                --variable whgt_max \
+                --resolution 6 \
+                --parent-resolutions 0 \
+                --hex-resampling mean \
+                --time-agg none \
+                --placement sample \
+                --output-parquet s3://public-hawaii/ww3-hawaii/hex-chunks/ \
+                --fan-out time \
+                --unit-index ${JOB_COMPLETION_INDEX}
+            resources:
+              requests:
+                cpu: '1'
+                memory: 2Gi
+                ephemeral-storage: 10Gi
+              limits:
+                cpu: '1'
+                memory: 2Gi
+                ephemeral-storage: 10Gi
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  ww3-hawaii-merge.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: ww3-hawaii-merge
+      namespace: geo-workflows
+      labels:
+        k8s-app: ww3-hawaii-merge
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: ww3-hawaii-merge
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: merge-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: GDAL_DATA
+              value: /usr/share/gdal
+            - name: PYTHONPATH
+              value: /usr/lib/python3/dist-packages
+            - name: BUCKET
+              value: public-hawaii
+            - name: DUCKDB_MEMORY_LIMIT
+              value: 13GiB
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+
+              cng-datasets merge-chunks \
+                --chunks-dir s3://public-hawaii/ww3-hawaii/hex-chunks \
+                --output-dir s3://public-hawaii/ww3-hawaii/hex \
+                --expect-chunks 175
+            resources:
+              requests:
+                cpu: '4'
+                memory: 16Gi
+                ephemeral-storage: 50Gi
+              limits:
+                cpu: '4'
+                memory: 16Gi
+                ephemeral-storage: 50Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  ww3-hawaii-setup-bucket.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: ww3-hawaii-setup-bucket
+      namespace: geo-workflows
+      labels:
+        k8s-app: ww3-hawaii-setup-bucket
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: ww3-hawaii-setup-bucket
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: setup-bucket-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-hawaii
+            volumeMounts:
+            - name: rclone-config
+              mountPath: /root/.config/rclone
+              readOnly: true
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              echo "Setting up bucket with public access and CORS..."
+              cng-datasets storage setup-bucket \
+                --bucket "${BUCKET}" \
+                --remote nrp \
+                --verify
+
+              echo "Bucket setup complete!"
+            resources:
+              requests:
+                cpu: '1'
+                memory: 2Gi
+              limits:
+                cpu: '1'
+                memory: 2Gi
+          volumes:
+          - name: rclone-config
+            secret:
+              secretName: rclone-config
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+kind: ConfigMap
+metadata:
+  name: ww3-hawaii-yamls
+  namespace: geo-workflows
