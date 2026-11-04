@@ -152,23 +152,25 @@ data:
             assert np.array_equal(locs, ref), f"location order differs in {n}"
             assert np.allclose(qs, [float(c[1:].replace("_", ".")) / 100 for c in qcols]), n
             v = a.ReadAsArray()  # int16 (q, y, loc)
-            # Upstream marks a missing projection with fill in the values files, consistently across
-            # the 107 quantiles, for a whole location (inland grid nodes, gauges without a projection)
-            # or for some years (SSP3-7.0 stops after 2050 at 61 grid nodes). The rates files store 0
-            # instead of fill there, and also 0 in the last year that has a value, since a rate there
-            # needs the following decade. So a rate is masked where the value is masked, and where all
-            # 107 rate quantiles are exactly 0 at a location that has any masked value.
+            # Upstream marks a missing projection with fill, consistently across the 107 quantiles,
+            # for a whole location (inland grid nodes, gauges without a projection) or for some years
+            # (SSP3-7.0 stops after 2050 at 61 grid nodes). Most rates files store 0 instead of fill
+            # there, and also 0 in the last year that has a value, since a rate there needs the
+            # following decade; some (no-VLM ocean dynamics) store fill. The rates cover fewer years
+            # than the values (vertical land motion values start in 2005), so masks match by year.
+            # A rate is masked where it is fill, where the value for that year is masked, and where
+            # all 107 rate quantiles are exactly 0 at a location that has any masked value.
             key = (comp, conf, scen)
+            fm = (v == -32768).all(axis=0)  # (year, location)
+            assert ((v == -32768).any(axis=0) == fm).all(), f"fill differs across quantiles in {n}"
             if meas == "values":
-                vm = (v == -32768).all(axis=0)  # (year, location)
-                assert ((v == -32768).any(axis=0) == vm).all(), f"fill differs across quantiles in {n}"
-                masks[key] = vm
+                masks[key] = dict(zip(years.tolist(), fm)), fm.any(axis=0)
+                ymask = fm
             else:
-                assert (v == -32768).sum() == 0, f"fill in rates {n}"
-                vm = masks[key]
-                vm = vm | ((v == 0).all(axis=0) & vm.any(axis=0)[None, :])
-                assert (v[:, vm] == 0).all(), f"masked rates not zero in {n}"
-            ymask = vm
+                byyear, anym = masks[key]
+                vm = np.stack([byyear[y] for y in years.tolist()])
+                ymask = fm | vm | ((v == 0).all(axis=0) & anym[None, :])
+                assert np.isin(v[:, ymask & ~fm], [0]).all(), f"masked rates not zero in {n}"
             for yi, y in enumerate(years):
                 blk = v[:, yi, :].T.astype("f4")
                 fill = np.repeat(ymask[yi][:, None], len(qcols), axis=1)
