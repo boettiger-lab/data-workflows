@@ -5,10 +5,11 @@
 # motion) and index 1 reads ar6-regional_novlm-confidence.zip (without it). Each writes
 #   s3://public-coastal/ar6-sea-level-projections/regional-confidence[-novlm].parquet
 # with one row per location x scenario x confidence x component x measure x year and the 107
-# quantiles as columns p0 .. p100, in mm (values) or mm per year (rates). Every location is kept;
-# the 14,022 masked locations (14,008 inland grid nodes and 14 tide gauges with no projection)
-# have null quantiles. Upstream stores those as fill in the values files but as 0 in the rates
-# files, so the values mask is applied to the rates. The two .tgz members are byte-identical
+# quantiles as columns p0 .. p100, in mm (values) or mm per year (rates). Every location and year
+# is kept; where upstream has no projection the quantiles are null. In the values files that is
+# fill (a whole location, such as an inland grid node, or some years, such as SSP3-7.0 after 2050
+# at 61 grid nodes); the rates files store 0 there instead, so the converter masks the rates from
+# the values. The two .tgz members are byte-identical
 # copies of loose .nc files in the same zip and are skipped.
 #
 # Measured locally on two medium-confidence files: 625 MB peak RSS, about 5 s per file. Requests
@@ -151,20 +152,26 @@ data:
             assert np.array_equal(locs, ref), f"location order differs in {n}"
             assert np.allclose(qs, [float(c[1:].replace("_", ".")) / 100 for c in qcols]), n
             v = a.ReadAsArray()  # int16 (q, y, loc)
-            # A location is masked (inland grid node, or a gauge without a projection) when the
-            # values file holds only fill for it. The rates files store 0 there instead of fill,
-            # so the values file's mask is carried over to the matching rates file.
+            # Upstream marks a missing projection with fill in the values files, consistently across
+            # the 107 quantiles, for a whole location (inland grid nodes, gauges without a projection)
+            # or for some years (SSP3-7.0 stops after 2050 at 61 grid nodes). The rates files store 0
+            # instead of fill there, and also 0 in the last year that has a value, since a rate there
+            # needs the following decade. So a rate is masked where the value is masked, and where all
+            # 107 rate quantiles are exactly 0 at a location that has any masked value.
             key = (comp, conf, scen)
             if meas == "values":
-                masks[key] = (v == -32768).all(axis=(0, 1))
-                assert not ((v == -32768).any(axis=(0, 1)) & ~masks[key]).any(), f"partial fill in {n}"
+                vm = (v == -32768).all(axis=0)  # (year, location)
+                assert ((v == -32768).any(axis=0) == vm).all(), f"fill differs across quantiles in {n}"
+                masks[key] = vm
             else:
                 assert (v == -32768).sum() == 0, f"fill in rates {n}"
-                assert (v[:, :, masks[key]] == 0).all(), f"masked rates not zero in {n}"
-            locmask = masks[key]
+                vm = masks[key]
+                vm = vm | ((v == 0).all(axis=0) & vm.any(axis=0)[None, :])
+                assert (v[:, vm] == 0).all(), f"masked rates not zero in {n}"
+            ymask = vm
             for yi, y in enumerate(years):
                 blk = v[:, yi, :].T.astype("f4")
-                fill = np.repeat(locmask[:, None], len(qcols), axis=1)
+                fill = np.repeat(ymask[yi][:, None], len(qcols), axis=1)
                 blk *= np.float32(scale)
                 nloc = len(locs)
                 cols = {"location_id": loc_cols["location_id"], "location_name": loc_cols["location_name"],
@@ -176,7 +183,7 @@ data:
                 cols.update({k: loc_cols[k] for k in ("lon", "lat", "geom")})
                 writer.write_table(pa.table(cols, schema=writer.schema), row_group_size=nloc)
                 rows += nloc
-            print(f"{comp} {conf} {scen} {meas}: {len(years)} years {years.min()}-{years.max()} scale {scale}; masked {int(locmask.sum())}; rows so far {rows:,}", flush=True)
+            print(f"{comp} {conf} {scen} {meas}: {len(years)} years {years.min()}-{years.max()} scale {scale}; masked location-years {int(ymask.sum())}, locations all years {int(ymask.all(axis=0).sum())}; rows so far {rows:,}", flush=True)
             del v, g, a
             os.remove(local)
         writer.close()
