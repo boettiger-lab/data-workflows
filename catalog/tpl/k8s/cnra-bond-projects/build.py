@@ -122,6 +122,36 @@ for fk in sorted(set(ok) - covered):  # has a page, but its ref num is in no dow
     recs.append(from_page(fk, None)); extra += 1
 print("projects with a detail page but in no download file (prop unknown):", extra)
 
+# ---- administering agency and recipient --------------------------------------------------
+# The first four digits of a Project Ref Num are the state organization code of the department
+# holding the bond appropriation. CNRA's own Prop 4 list gives AgencyOrg beside the ref num, which
+# fixes the code -> agency mapping for 19 codes; the remaining four never occur in Prop 4 and are
+# named from their program titles (e.g. 3480 '... Planning Grants - DOC').
+ORG = {"0540": "CNRA", "0650": "LCI", "3125": "CTC", "3340": "CCC", "3360": "CEC", "3540": "CAL FIRE", "3600": "CDFW",
+       "3640": "WCB", "3760": "SCC", "3790": "Parks", "3825": "RMC", "3835": "BHUWC", "3845": "SDRC", "3850": "CVMC",
+       "3855": "SNC", "3860": "DWR", "3861": "DWR", "3940": "SWRCB", "8570": "CDFA",
+       "3480": "DOC", "3810": "SMMC", "3875": "SSJDC", "4265": "CDPH"}
+FROM_P4 = {k for k in ORG if k not in ("3480", "3810", "3875", "4265")}
+p4map = {}
+for d in recs:
+    if d["prop"] == "4" and d.get("project_ref_num") and d.get("agency_org"):
+        p4map.setdefault(d["project_ref_num"][:4], set()).add(d["agency_org"])
+for k, v in p4map.items():
+    assert v == {ORG[k]}, f"org code {k}: Prop 4 says {v}, table says {ORG.get(k)}"
+assert FROM_P4 <= set(p4map), f"codes no longer in Prop 4: {FROM_P4 - set(p4map)}"
+unk = set()
+for d in recs:
+    ref = d.get("project_ref_num") or ""
+    code = ref[:4]
+    if d["prop"] == "4" and d.get("agency_org"):
+        d["administering_agency"], d["administering_agency_basis"] = d["agency_org"], "Prop 4 AgencyOrg"
+    elif code in ORG:
+        d["administering_agency"] = ORG[code]
+        d["administering_agency_basis"] = ("org code " + code + (" (named by Prop 4 AgencyOrg)" if code in FROM_P4 else " (named from program titles)"))
+    elif ref: unk.add(code)
+    d["recipient"] = d.get("recipient_org") or d.get("implemented_by")
+print("ref-num prefixes with no agency:", sorted(unk))
+
 # ---- map features ---------------------------------------------------------------------------
 feats = []
 for lyr, name in [("point", "abcrs-points"), ("line", "abcrs-lines"), ("polygon", "abcrs-polygons")]:
@@ -149,7 +179,7 @@ mapped = {f["project_no"] for f in feats}
 for d in recs:
     if d.get("project_no") not in mapped: out.append({**d, "geojson": None, "map_feature_count": 0})
 cols = ["funding_record_id", "prop", "project_ref_num", "project_no", "map_feature_count", "title", "description", "objective", "implemented_by", "agency_org",
-        "applicant_org", "recipient_org", "program", "chapter", "bond_program_code_section", "project_types", "project_status",
+        "applicant_org", "recipient_org", "recipient", "administering_agency", "administering_agency_basis", "program", "chapter", "bond_program_code_section", "project_types", "project_status",
         "prop_funds", "total_cost", "federal_contribution", "local_contribution", "private_contribution", "other_state_contribution",
         "program_contribution_date", "federal_contribution_date", "local_contribution_date", "private_contribution_date",
         "other_state_contribution_date", "est_act_completion", "final_payment", "on_time", "within_scope", "within_budget",
@@ -173,6 +203,7 @@ q("SELECT prop, count(*) nrows, count(geom) with_geom, count(DISTINCT project_re
 q("SELECT map_layer, count(*) nrows, count(DISTINCT map_layer||map_objectid) feats, count(*) FILTER (WHERE attribute_source IS NULL) no_attrs FROM OUT GROUP BY 1 ORDER BY 1")
 q("SELECT prop, count(DISTINCT funding_record_id) recs, round(sum(prop_funds)/1e6,1) prop_funds_m FROM (SELECT DISTINCT funding_record_id, prop, prop_funds FROM OUT) GROUP BY 1 ORDER BY 1")
 q("SELECT round(sum(prop_funds / greatest(map_feature_count,1))/1e6,1) split_sum_m, round((SELECT sum(prop_funds) FROM (SELECT DISTINCT funding_record_id, prop_funds FROM OUT))/1e6,1) dedup_sum_m FROM OUT")
+q("SELECT administering_agency, count(DISTINCT funding_record_id) recs, round(sum(prop_funds)/1e6,1) m FROM (SELECT DISTINCT funding_record_id, administering_agency, prop_funds FROM OUT) GROUP BY 1 ORDER BY 3 DESC NULLS LAST")
 q("SELECT count(*) FILTER (WHERE funding_record_id IS NULL AND attribute_source IS NOT NULL) missing_ids FROM OUT")
 q("SELECT ST_GeometryType(geom) gt, count(*) n, count(*) FILTER (WHERE NOT ST_IsValid(geom)) invalid FROM OUT GROUP BY 1")
 q("SELECT min(ST_XMin(geom)), max(ST_XMax(geom)), min(ST_YMin(geom)), max(ST_YMax(geom)) FROM OUT")
