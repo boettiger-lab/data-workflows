@@ -1,4 +1,5 @@
 apiVersion: batch/v1
+# 200Gi ephemeral (#866): ~14 statewide polygons hex to ~27M resolution-10 cells each; the 525M-row, 4.7 GB chunk set evicted repartition twice at the 50Gi default.
 kind: Job
 metadata:
   name: cnra-bond-projects-repartition
@@ -57,11 +58,11 @@ spec:
           requests:
             cpu: '4'
             memory: 32Gi
-            ephemeral-storage: 50Gi
+            ephemeral-storage: 200Gi
           limits:
             cpu: '4'
             memory: 32Gi
-            ephemeral-storage: 50Gi
+            ephemeral-storage: 200Gi
       volumes:
       - name: rclone-config
         secret:
