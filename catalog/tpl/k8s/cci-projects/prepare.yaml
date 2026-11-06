@@ -1,0 +1,37 @@
+# HAND-ROLLED: the generator cannot read an Excel sheet or parse a 'lat,lon;lat,lon' text column into
+# MultiPoint, so this job builds the GeoParquet that the generated workflow converts (#867).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cci-projects-prepare
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  activeDeadlineSeconds: 3600
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: prepare
+        image: ghcr.io/boettiger-lab/datasets:latest
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /scripts}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          pip install -q openpyxl
+          rclone copy nrp:public-tpl/raw/cci-projects/cci_2026ar_detaileddata.xlsx /tmp/ --s3-no-check-bucket
+          echo "d042113ef67e54bf7a6b6d2926b175c5dab5c0ab74391f66404efdc9db5f3b00  /tmp/cci_2026ar_detaileddata.xlsx" | sha256sum -c
+          python3 /scripts/prepare.py /tmp/cci_2026ar_detaileddata.xlsx /tmp/cci-projects-prepared.parquet
+          rclone copyto /tmp/cci-projects-prepared.parquet nrp:public-tpl/raw/cci-projects/cci-projects-prepared.parquet --s3-no-check-bucket
+        resources:
+          requests: {cpu: '1', memory: 12Gi}
+          limits:   {cpu: '1', memory: 12Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: cci-projects-prepare}}
