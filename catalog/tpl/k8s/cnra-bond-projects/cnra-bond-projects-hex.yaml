@@ -6,7 +6,7 @@ metadata:
   labels:
     k8s-app: cnra-bond-projects-hex
 spec:
-  completions: 200
+  completions: 66
   parallelism: 50
   completionMode: Indexed
   backoffLimitPerIndex: 2
@@ -59,7 +59,7 @@ spec:
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-tpl/cnra-bond-projects.parquet --output s3://public-tpl/cnra-bond-projects/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0 --plan s3://public-tpl/cnra-bond-projects/_hex_plan.parquet
+          cng-datasets vector --input s3://public-tpl/cnra-bond-projects.parquet --output s3://public-tpl/cnra-bond-projects/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 282 --intermediate-chunk-size 10 --resolution-by-area "0.1:10,8" --parent-resolutions 9,8,0
         resources:
           requests:
             cpu: '4'
