@@ -166,6 +166,19 @@ for lyr, name in [("point", "abcrs-points"), ("line", "abcrs-lines"), ("polygon"
                       "map_created_by": clean(a.get("CreateUserName")), "map_updated_by": clean(a.get("UpdateUserName")),
                       "geojson": json.dumps(f["geometry"])})
 print("map features:", len(feats))
+# Two Prop 84 points (ProjectNo_FK 12975, Lanare CSD, OBJECTID 53731/54147) are digitized at
+# POINT(43.67 -79.35) upstream. Swapping the axes gives Toronto, not Lanare (Fresno County), so the
+# true location cannot be recovered: their geometry is dropped and the service's raw coordinates stay
+# in map_x/map_y. The rule is general (any feature with a vertex outside California's envelope).
+def _coords(c):
+    return [c] if not isinstance(c[0], list) else [p for x in c for p in _coords(x)]
+for f in feats:
+    g = json.loads(f["geojson"]) if f["geojson"] else None
+    bad = g is not None and any(not (-130 <= x <= -110 and 30 <= y <= 45) for x, y, *_ in _coords(g["coordinates"]))
+    f["map_coords_outside_ca"] = bad
+    if bad:
+        print("geometry dropped, coordinates outside California:", f["map_layer"], f["map_objectid"], f["project_no"], g)
+        f["geojson"] = None
 by_fk = {}
 for d in recs:
     if d.get("project_no") is not None: by_fk.setdefault(d["project_no"], []).append(d)
@@ -186,16 +199,30 @@ cols = ["funding_record_id", "prop", "project_ref_num", "project_no", "map_featu
         "associated_counties", "benefits_dac_or_sdac", "located_in_sdac", "located_in_dac", "disadvantaged_comm",
         "severely_disadvantaged_comm", "vulnerable_population", "funding_id", "program_allocation_pl2id", "point_collection",
         "attribute_source", "map_layer", "map_objectid", "map_label", "map_description", "map_online_url", "map_mapping_method_id",
-        "map_x", "map_y", "map_created", "map_updated", "map_created_by", "map_updated_by"]
+        "map_x", "map_y", "map_coords_outside_ca", "map_created", "map_updated", "map_created_by", "map_updated_by"]
 TY = {c: "DOUBLE" for c in DET_NUM.values()} | {c: "DATE" for c in ["program_contribution_date", "federal_contribution_date",
       "local_contribution_date", "private_contribution_date", "other_state_contribution_date", "est_act_completion", "final_payment"]} \
      | {"project_no": "BIGINT", "map_objectid": "BIGINT", "map_mapping_method_id": "BIGINT", "map_x": "DOUBLE", "map_feature_count": "BIGINT", "map_y": "DOUBLE",
-        "map_created": "TIMESTAMP", "map_updated": "TIMESTAMP"}
+        "map_created": "TIMESTAMP", "map_updated": "TIMESTAMP", "map_coords_outside_ca": "BOOLEAN"}
 con = duckdb.connect(); con.execute("INSTALL spatial; LOAD spatial;")
 con.execute("CREATE TABLE t (" + ", ".join(f"{c} {TY.get(c, 'VARCHAR')}" for c in cols) + ", geojson VARCHAR)")
 con.executemany(f"INSERT INTO t VALUES ({','.join(['?'] * (len(cols) + 1))})",
                 [[(str(r.get(c)) if TY.get(c, "VARCHAR") == "VARCHAR" and r.get(c) is not None else r.get(c)) for c in cols] + [r.get("geojson")] for r in out])
-con.execute(f"COPY (SELECT * EXCLUDE geojson, ST_GeomFromGeoJSON(geojson) AS geom FROM t ORDER BY prop, project_ref_num, map_layer, map_objectid) "
+# Per-feature size, for map overlays that must leave out statewide and regional program areas
+# (tpl-grants request on #866). native_res is the hex's own rule, taken from cng-datasets itself
+# (--resolution-by-area '0.1:10,8', planar deg2 of the WGS84 geometry), so the two cannot drift:
+# lines and points measure 0 deg2 and are hexed at 10. feature_km2 (polygons) and feature_km (lines)
+# are measured in California Albers (EPSG:3310).
+from cng_datasets.vector.h3_tiling import parse_resolution_by_area, _native_res_case_sql
+NATIVE_RES = _native_res_case_sql(parse_resolution_by_area("0.1:10,8"), "geom")
+ALB = "ST_Transform(geom, 'EPSG:4326', 'EPSG:3310', always_xy := true)"
+con.execute(f"""CREATE TABLE g AS SELECT * EXCLUDE geojson, ST_GeomFromGeoJSON(geojson) AS geom FROM t""")
+con.execute(f"""CREATE TABLE s AS SELECT * EXCLUDE geom,
+    CASE WHEN geom IS NOT NULL THEN ({NATIVE_RES}) END::INTEGER AS native_res,
+    CASE WHEN ST_GeometryType(geom) IN ('POLYGON', 'MULTIPOLYGON') THEN ST_Area({ALB}) / 1e6 END AS feature_km2,
+    CASE WHEN ST_GeometryType(geom) IN ('LINESTRING', 'MULTILINESTRING') THEN ST_Length({ALB}) / 1e3 END AS feature_km,
+    geom FROM g""")
+con.execute(f"COPY (SELECT * FROM s ORDER BY prop, project_ref_num, map_layer, map_objectid) "
             f"TO '{OUT}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 2000)")
 q = lambda s: print(con.sql(s.replace("OUT", f"'{OUT}'")))
 q("SELECT count(*) nrows, count(geom) with_geom, count(DISTINCT project_no) projects, count(DISTINCT map_objectid || map_layer) features FROM OUT")
@@ -206,6 +233,8 @@ q("SELECT round(sum(prop_funds / greatest(map_feature_count,1))/1e6,1) split_sum
 q("SELECT administering_agency, count(DISTINCT funding_record_id) recs, round(sum(prop_funds)/1e6,1) m FROM (SELECT DISTINCT funding_record_id, administering_agency, prop_funds FROM OUT) GROUP BY 1 ORDER BY 3 DESC NULLS LAST")
 q("SELECT count(*) FILTER (WHERE funding_record_id IS NULL AND attribute_source IS NOT NULL) missing_ids FROM OUT")
 q("SELECT ST_GeometryType(geom) gt, count(*) n, count(*) FILTER (WHERE NOT ST_IsValid(geom)) invalid FROM OUT GROUP BY 1")
+q("SELECT map_layer, native_res, count(DISTINCT map_layer||map_objectid) feats, count(*) FILTER (WHERE feature_km2 > 1000) gt1000km2, count(*) FILTER (WHERE feature_km > 200) gt200km, round(max(feature_km2)) max_km2, round(max(feature_km)) max_km FROM OUT GROUP BY 1, 2 ORDER BY 1, 2")
+q("SELECT count(*) FILTER (WHERE map_coords_outside_ca) rows_dropped_geom, count(DISTINCT map_objectid) FILTER (WHERE map_coords_outside_ca) feats_dropped_geom FROM OUT")
 q("SELECT min(ST_XMin(geom)), max(ST_XMax(geom)), min(ST_YMin(geom)), max(ST_YMax(geom)) FROM OUT")
 # ---- companion metrics table ---------------------------------------------------------------
 m = []
