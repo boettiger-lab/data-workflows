@@ -1630,7 +1630,7 @@ def check_null_hex_index(doc: dict, mcp: MCPClient) -> list[Finding]:
     """A hex column with NULLs where a coarser column is fully populated means joining
     at that resolution silently drops the very large features that have no finer cell
     (WDPA: ~38% of rows have NULL h9 while h8/h0 are complete). HARD unless the asset
-    or collection description documents the NULL-parent / join-at-coarsest caveat."""
+    or collection description documents the NULL-parent / finest-cell fallback caveat (#880)."""
     out = []
     coll_desc = doc.get("description", "") or ""
     for key, asset in doc.get("assets", {}).items():
@@ -1667,8 +1667,9 @@ def check_null_hex_index(doc: dict, mcp: MCPClient) -> list[Finding]:
                     f"asset '{key}': column '{finest}' is NULL for {pct:.0f}% of rows "
                     f"while '{coarsest_full}' is fully populated — joining on '{finest}' "
                     f"silently drops the largest features. Document in the description: "
-                    f"join at the coarsest shared resolution (or via h3_cell_to_parent), "
-                    f"not '{finest}'."))
+                    f"use each feature's finest cell — '{finest}' where set, '{coarsest_full}' "
+                    f"only where '{finest}' is NULL (via h3_cell_to_parent) — not '{coarsest_full}' "
+                    f"for every row, which overstates coverage (#880)."))
     return out
 
 
