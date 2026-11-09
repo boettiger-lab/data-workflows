@@ -23,9 +23,34 @@ spec:
         - -c
         - |-
           set -e
+          keep_styles() {  # #881: replacing a live collection must not drop its default style assets or renders
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            mkdir -p /tmp/keep-styles
+            rclone cat "$2" > /tmp/keep-styles/live.json 2>/dev/null || return 0
+            python3 -c '
+          import json, sys
+          try:
+              new = json.load(open(sys.argv[1])); live = json.load(open(sys.argv[2]))
+          except Exception:
+              sys.exit(0)
+          kept = {k: a for k, a in live.get("assets", {}).items()
+                  if "style" in (a.get("roles") or []) and k not in new.setdefault("assets", {})}
+          new["assets"].update(kept)
+          renders = {k: v for k, v in live.get("renders", {}).items() if k not in new.get("renders", {})}
+          if renders:
+              new.setdefault("renders", {}).update(renders)
+          for e in live.get("stac_extensions", []):
+              if "/render/" in e and e not in new.setdefault("stac_extensions", []):
+                  new["stac_extensions"].append(e)
+          if kept or renders:
+              json.dump(new, open(sys.argv[1], "w"), indent=2)
+              print(f"  kept {len(kept)} style asset(s) and {len(renders)} render(s) from the live collection")
+          ' "$1" /tmp/keep-styles/live.json
+          }
           B=nrp:public-land-cover
           # ConfigMap files are symlinks, which rclone copyto rejects; dereference first.
           mkdir -p /tmp/stac && cp -L /src/stac-collection.json /tmp/stac/ && cd /tmp/stac
+          keep_styles stac-collection.json $B/forest-to-grass-shrub/stac-collection.json
           rclone copyto stac-collection.json $B/forest-to-grass-shrub/stac-collection.json
           # The README is not generated; publish it only when one is supplied in the ConfigMap.
           if [ -e /src/README.md ]; then
@@ -47,6 +72,7 @@ spec:
               print("child link present; title set")
           json.dump(p, open("parent.json", "w"), indent=2)
           PY
+          keep_styles parent.json $B/stac-collection.json
           rclone copyto parent.json $B/stac-collection.json
           rclone lsl $B/forest-to-grass-shrub/ --max-depth 1
         resources: {requests: {cpu: '1', memory: 1Gi}, limits: {cpu: '1', memory: 1Gi}}
