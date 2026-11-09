@@ -186,10 +186,24 @@ def layer_type(cfg: dict) -> str:
     return "fill"
 
 
+NO_DATA = "#cccccc"
+
+
+def guard_nulls(expr):
+    """An interpolate/step on a missing or non-numeric value draws black in MapLibre. Send
+    those features to a no-data grey, unless the app already guarded the expression."""
+    if (isinstance(expr, list) and expr and expr[0] in ("interpolate", "step")):
+        inp = expr[2] if expr[0] == "interpolate" else expr[1]
+        if isinstance(inp, list) and len(inp) == 2 and inp[0] == "get":
+            return ["case", ["==", ["typeof", inp], "number"], expr, NO_DATA]
+    return expr
+
+
 def maplibre_style(cfg: dict, name: str, pmtiles_rel: str, source_layer: str,
                    description: str) -> dict:
     t = layer_type(cfg)
-    paint = {k: v for k, v in (cfg.get("default_style") or {}).items() if k.startswith(t + "-")}
+    paint = {k: guard_nulls(v) if k.endswith("-color") else v
+             for k, v in (cfg.get("default_style") or {}).items() if k.startswith(t + "-")}
     layers = [{"id": f"{source_layer}-{t}", "type": t, "source": "data",
                "source-layer": source_layer, "paint": paint}]
     if t == "fill" and cfg.get("outline_style"):
