@@ -56,6 +56,30 @@ spec:
         - -c
         - |
           set -euo pipefail
+          keep_styles() {  # #881: replacing a live collection must not drop its default style assets or renders
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            mkdir -p /tmp/keep-styles
+            rclone cat "$2" > /tmp/keep-styles/live.json 2>/dev/null || return 0
+            python3 -c '
+          import json, sys
+          try:
+              new = json.load(open(sys.argv[1])); live = json.load(open(sys.argv[2]))
+          except Exception:
+              sys.exit(0)
+          kept = {k: a for k, a in live.get("assets", {}).items()
+                  if "style" in (a.get("roles") or []) and k not in new.setdefault("assets", {})}
+          new["assets"].update(kept)
+          renders = {k: v for k, v in live.get("renders", {}).items() if k not in new.get("renders", {})}
+          if renders:
+              new.setdefault("renders", {}).update(renders)
+          for e in live.get("stac_extensions", []):
+              if "/render/" in e and e not in new.setdefault("stac_extensions", []):
+                  new["stac_extensions"].append(e)
+          if kept or renders:
+              json.dump(new, open(sys.argv[1], "w"), indent=2)
+              print(f"  kept {len(kept)} style asset(s) and {len(renders)} render(s) from the live collection")
+          ' "$1" /tmp/keep-styles/live.json
+          }
 
           # Measure the published objects + staged raw (size, MD5, mtime) so the STAC's
           # provenance fields are read from the objects rather than transcribed (#417).
@@ -85,12 +109,15 @@ spec:
 
           # Order matters: publish the children BEFORE overwriting the bucket root, so the
           # WWF collection is never unreachable at either URL.
+          keep_styles /tmp/stac/wwf-ecoregions-2017/stac-collection.json nrp:public-ecoregion/wwf-ecoregions-2017/stac-collection.json
           rclone copyto /tmp/stac/wwf-ecoregions-2017/stac-collection.json \
             nrp:public-ecoregion/wwf-ecoregions-2017/stac-collection.json
           for d in epa-ecoregions-l3 epa-ecoregions-l4; do
+            keep_styles /tmp/stac/$d/stac-collection.json nrp:public-ecoregion/$d/stac-collection.json
             rclone copyto /tmp/stac/$d/stac-collection.json nrp:public-ecoregion/$d/stac-collection.json
             rclone copyto /tmp/stac/$d/README.md          nrp:public-ecoregion/$d/README.md
           done
+          keep_styles /tmp/stac/stac-collection.json nrp:public-ecoregion/stac-collection.json
           rclone copyto /tmp/stac/stac-collection.json nrp:public-ecoregion/stac-collection.json
 
           echo "=== published ==="
