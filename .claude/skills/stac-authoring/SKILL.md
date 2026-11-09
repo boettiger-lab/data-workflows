@@ -421,6 +421,12 @@ plus a categorical (`match`) or graduated (`interpolate`) style on the main attr
 colour distinct from neighbouring layers in the catalog. An app that later adds the layer should
 read the catalog style rather than copy it.
 
+**A recipe job that overwrites a live collection** (a `*-publish-stac.yaml` that copies a
+ConfigMap file over `stac-collection.json`) would drop the styles. Copy the `keep_styles` shell
+function from an existing job (e.g. `catalog/ca30x30/k8s/fmmp-2022/fmmp-2022-publish-stac.yaml`)
+and call `keep_styles <local file> <nrp: target>` before each such `rclone copyto`. It merges the
+live collection's `style` assets and `renders` into the file being uploaded.
+
 `verify-stac.py` fails a malformed style asset (wrong media type, not under `styles/`, no title,
 not exactly one `default`) and advises `pmtiles-no-style` on a PMTiles collection without one.
 
