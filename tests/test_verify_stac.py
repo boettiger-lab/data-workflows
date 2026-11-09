@@ -941,3 +941,37 @@ class LicenceConsistencyAcrossCollections(unittest.TestCase):
             self._doc("wdoecm-may-2026", "other", LEGAL),
         ])
         self.assertEqual({cid for cid, _ in out}, {"wdpa", "wdoecm-may-2026"})
+
+
+class TestStyles(unittest.TestCase):
+    PM = {"href": "https://s3-west.nrp-nautilus.io/b/d.pmtiles",
+          "type": "application/vnd.pmtiles", "vector:layers": ["d"], "roles": ["visual"]}
+
+    def style(self, roles=("style",), **kw):
+        a = {"href": "https://s3-west.nrp-nautilus.io/b/styles/d.json",
+             "type": vs.STYLE_TYPE, "title": "D", "roles": list(roles)}
+        a.update(kw)
+        return a
+
+    def codes(self, assets):
+        return {(f.severity, f.code) for f in vs.check_styles({"assets": assets})}
+
+    def test_pmtiles_without_style_is_advisory(self):
+        self.assertEqual(self.codes({"d-pmtiles": self.PM}),
+                         {(vs.ADVISORY, "pmtiles-no-style")})
+
+    def test_single_style_needs_no_default(self):
+        self.assertEqual(self.codes({"d-pmtiles": self.PM, "style-d": self.style()}), set())
+
+    def test_several_styles_need_exactly_one_default(self):
+        two = {"d-pmtiles": self.PM, "style-a": self.style(), "style-b": self.style()}
+        self.assertIn((vs.HARD, "style-default-count"), self.codes(two))
+        two["style-a"] = self.style(roles=("style", "default"))
+        self.assertEqual(self.codes(two), set())
+
+    def test_wrong_media_type_and_location(self):
+        bad = self.style(type="application/json",
+                         href="https://s3-west.nrp-nautilus.io/b/d-style.json")
+        got = self.codes({"d-pmtiles": self.PM, "style-d": bad})
+        self.assertIn((vs.HARD, "style-media-type"), got)
+        self.assertIn((vs.HARD, "style-not-in-styles-dir"), got)

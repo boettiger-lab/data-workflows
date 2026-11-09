@@ -429,9 +429,13 @@ Fix every HARD finding before `rclone copyto`; the post-cluster run must exit 0.
 verifier on the PR, deriving collections from the `s3://` paths in changed `catalog/**` YAMLs — so
 a RED check at PR-open is correct, and you re-fire it after the cluster jobs land.
 
+**Ship a default style with the data.** Every PMTiles collection carries a MapLibre style file
+as a `style` asset (one marked `default`), and every COG a `renders` entry with its colormap and
+rescale (Portolan, #881). Reuse the paint the GLEN apps already use: `scripts/app-styles.py`.
+
 Everything about *what to write* — the user-facing description register, `table:columns`
 placement, SPDX license rules, categorical `values`, hex per-feature duplication notes, `h3:*`
-declarations, point/line notes — is in **skill `stac-authoring`**. Load it before writing or
+declarations, point/line notes, default styles — is in **skill `stac-authoring`**. Load it before writing or
 editing any `stac-collection.json` or README.
 ### Step 6: Register in the parent sub-catalog
 

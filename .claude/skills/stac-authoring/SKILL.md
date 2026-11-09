@@ -1,7 +1,7 @@
 ---
 name: stac-authoring
 description: >-
-  Author and verify STAC collection metadata for a published dataset: the verify-stac.py gate, the user-facing description register, table:columns placement, SPDX license rules, categorical values arrays, hex per-feature duplication notes, h3:* resolution declarations, and registering a collection in its parent sub-catalog. Use whenever writing or editing a stac-collection.json or a dataset README.
+  Author and verify STAC collection metadata for a published dataset: the verify-stac.py gate, the user-facing description register, table:columns placement, SPDX license rules, categorical values arrays, hex per-feature duplication notes, h3:* resolution declarations, the default MapLibre style (PMTiles) or render (COG) every collection carries, and registering a collection in its parent sub-catalog. Use whenever writing or editing a stac-collection.json or a dataset README.
 ---
 
 # STAC Authoring
@@ -362,6 +362,67 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   rather than assumption — see `catalog/usgs-nhd/k8s/nhdplus-hr/BUILD.md` for the pattern.
 
 - **Point datasets:** `description` or `"processing:notes"` MUST state each point resolved to one H3 cell at the processing resolution, and name the resolution. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
+
+## Step 5b: Ship a default style with the data
+
+Every collection says how to draw itself. This is a Portolan rule (PORTO-CORE-069/070,
+PORTO-FMT-014/015), and it means an app, or any other Portolan client, gets a sensible map from
+the catalog alone instead of each app re-inventing the paint in its own `layers-input.json`.
+
+**PMTiles → a MapLibre style file.** One or more complete MapLibre GL style v8 files in a
+`styles/` directory beside the collection JSON, each registered as a collection-level asset:
+
+```json
+"style-fee": {
+  "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee/styles/fee.json",
+  "type": "application/vnd.mapbox.style+json",
+  "title": "Fee lands by GAP status",
+  "description": "Features coloured by GAP status: dark green 1, green 2, blue 3, grey 4.",
+  "roles": ["style", "default"]
+}
+```
+
+- The file sets `version: 8`, a `name`, `sources.data` = `{"type": "vector", "url":
+  "pmtiles://<path from styles/ to the .pmtiles>"}` (e.g. `pmtiles://../../fee.pmtiles`; a bare
+  relative path does not load in MapLibre), and every layer has `source: "data"` and
+  `source-layer` = the PMTiles asset's `vector:layers` entry.
+- Polygons get a `fill` layer plus an outline `line` layer; lines a `line`; points a `circle`.
+- Several styles (one per interesting attribute) are welcome; **exactly one carries the
+  `default` role**. Put `default` on a lone style too.
+- `description` says what the colours mean, in the user-facing register below.
+- Legend and hover hints go in the style's `metadata` under `glen:` keys
+  (`glen:legend` = `{type, classes, label}`, `glen:tooltip_fields`), which MapLibre ignores.
+
+**COG → a `renders` entry**, since Portolan has not settled raster style files yet
+(portolan-spec#41). Add the render extension
+(`https://stac-extensions.github.io/render/v2.0.0/schema.json`) and one entry per COG with the
+same values the apps pass to titiler:
+
+```json
+"renders": {"v2-irrecoverable-2024": {"title": "Irrecoverable carbon 2024",
+  "assets": ["v2-irrecoverable-2024-cog"], "colormap_name": "reds", "rescale": [[0, 150]]}}
+```
+
+A categorical COG whose colours are embedded as a colour table needs no entry.
+
+**Where the colours come from.** When any GLEN app already shows the layer, reuse its paint:
+`scripts/app-styles.py` reads every app's `layers-input.json` (the list is glen-ops `APPS.md`),
+picks one style when apps disagree (most apps wins, then the app named for the bucket), and writes
+the style files and the patched collection to a scratch directory, with a report of every choice.
+
+```bash
+scripts/app-styles.py --fetch --out /tmp/styles --only public-padus   # then review /tmp/styles/report.md
+scripts/verify-stac.py --no-data /tmp/styles/public-padus/padus-4-1/fee/stac-collection.json
+rclone copy /tmp/styles/public-padus/ nrp:public-padus/   # only styles/ files and patched collection JSON are in it
+```
+
+For a new dataset no app shows yet, write the default yourself: one colour per geometry type,
+plus a categorical (`match`) or graduated (`interpolate`) style on the main attribute, with a
+colour distinct from neighbouring layers in the catalog. An app that later adds the layer should
+read the catalog style rather than copy it.
+
+`verify-stac.py` fails a malformed style asset (wrong media type, not under `styles/`, no title,
+not exactly one `default`) and advises `pmtiles-no-style` on a PMTiles collection without one.
 
 ## Step 6: Register in the parent sub-catalog
 

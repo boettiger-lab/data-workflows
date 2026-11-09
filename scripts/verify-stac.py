@@ -26,6 +26,10 @@ Static checks (no data; just the STAC JSON):
   - hex asset href uses the hive glob  …/hex/h0=*/data_0.parquet  (not a bare dir)
   - hex asset declares h3:native_resolution + h3:parent_resolutions (incl 0)
   - vector:layers on every PMTiles asset
+  - Portolan styles (PORTO-CORE-069/070, PORTO-FMT-014/015): a style asset is typed
+    application/vnd.mapbox.style+json under styles/; with several, exactly one carries
+    the `default` role. ADVISORY: a PMTiles collection with no style asset (catalog-wide
+    debt being retrofitted from the GLEN app configs, #881)
   - table:columns on each parquet asset (NOT collection-level); geometry column
     included on the geoparquet asset, excluded on the hex asset
   - universal `_cng_fid` on vector assets (#369): HARD for a flat GeoParquet-with-
@@ -574,6 +578,41 @@ def check_vector_layers(doc: dict) -> list[Finding]:
             out.append(Finding(HARD, "pmtiles-no-vector-layers",
                                 f"PMTiles asset '{key}' missing 'vector:layers' "
                                 f"(the MapLibre source-layer id)."))
+    return out
+
+
+STYLE_TYPE = "application/vnd.mapbox.style+json"
+
+
+def check_styles(doc: dict) -> list[Finding]:
+    """Portolan visualization styles (#881). Malformed style assets are HARD because they
+    are new and cheap to get right; a missing style is ADVISORY until the retrofit
+    (`scripts/app-styles.py`) has reached the whole catalog."""
+    out = []
+    assets = doc.get("assets", {})
+    styles = {k: a for k, a in assets.items() if "style" in (a.get("roles") or [])}
+    for key, a in styles.items():
+        if a.get("type") != STYLE_TYPE:
+            out.append(Finding(HARD, "style-media-type",
+                               f"style asset '{key}' type is {a.get('type')!r}; "
+                               f"Portolan requires {STYLE_TYPE!r} (PORTO-FMT-015)."))
+        if "/styles/" not in a.get("href", ""):
+            out.append(Finding(HARD, "style-not-in-styles-dir",
+                               f"style asset '{key}' href should sit in a styles/ "
+                               f"directory beside the data (PORTO-FMT-015)."))
+        if not a.get("title"):
+            out.append(Finding(HARD, "style-no-title",
+                               f"style asset '{key}' needs a human-readable title."))
+    defaults = [k for k, a in styles.items() if "default" in a.get("roles", [])]
+    if len(styles) > 1 and len(defaults) != 1:
+        out.append(Finding(HARD, "style-default-count",
+                           f"{len(styles)} style assets and {len(defaults)} carry the "
+                           f"'default' role; exactly one must (PORTO-CORE-070)."))
+    if not styles and any(is_pmtiles(a) for a in assets.values()):
+        out.append(Finding(ADVISORY, "pmtiles-no-style",
+                           "collection has PMTiles but no MapLibre style asset "
+                           "(PORTO-CORE-069). Generate one with scripts/app-styles.py "
+                           "or write one (skill stac-authoring)."))
     return out
 
 
@@ -1128,6 +1167,7 @@ STATIC_CHECKS = [
     check_asset_keys,
     check_hex_assets,
     check_vector_layers,
+    check_styles,
     check_table_columns_placement,
     check_cng_fid,
     check_hex_dup_warning,
