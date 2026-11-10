@@ -975,3 +975,152 @@ class TestStyles(unittest.TestCase):
         got = self.codes({"d-pmtiles": self.PM, "style-d": bad})
         self.assertIn((vs.HARD, "style-media-type"), got)
         self.assertIn((vs.HARD, "style-not-in-styles-dir"), got)
+
+
+# ---------------------------------------------------------------------------
+# Portolan column shape (PORTO-FMT-046/048, glen#441): one dictionary on the collection
+# ---------------------------------------------------------------------------
+
+FLAT_HREF = "https://s3-west.nrp-nautilus.io/public-x/d.parquet"
+TILES_HREF = "https://s3-west.nrp-nautilus.io/public-x/d.pmtiles"
+SELF_HREF = "https://s3-west.nrp-nautilus.io/public-x/d/stac-collection.json"
+
+
+def portolan_doc(hex_cols=("_cng_fid", "name", "h8", "h0"), flat_list=None, links=()):
+    """Dictionary covers flat + hex; flat matches it except for h*, so both keep lists."""
+    dictionary = [
+        {"name": "_cng_fid", "type": "int64", "description": "feature id"},
+        {"name": "name", "type": "string", "description": "site name"},
+        {"name": "kind", "type": "string", "description": "site kind",
+         "values": [{"value": "a", "description": "A"}]},
+        {"name": "geometry", "type": "binary", "description": "WKB"},
+        {"name": "h8", "type": "uint64", "description": "H3 res 8"},
+        {"name": "h0", "type": "uint64", "description": "H3 res 0"},
+    ]
+    flat = {"href": FLAT_HREF, "type": PARQUET}
+    if flat_list is not None:
+        flat["table:columns"] = flat_list
+    return {
+        "id": "d", "description": "", "table:columns": dictionary,
+        "links": [{"rel": "self", "href": SELF_HREF}, *links],
+        "assets": {
+            "d-parquet": flat,
+            "d-hex": {"href": HEX_HREF, "type": PARQUET,
+                      "table:columns": [{"name": c, "type": "uint64"} for c in hex_cols]},
+        },
+    }
+
+
+class ResolveColumns(unittest.TestCase):
+    def test_per_asset_shape_is_returned_unchanged(self):
+        doc = {"assets": {"d-hex": hex_asset(["h8"])}}
+        self.assertIs(vs.resolve_columns(doc), doc)
+
+    def test_asset_without_list_inherits_the_dictionary(self):
+        r = vs.resolve_columns(portolan_doc())
+        names = [c["name"] for c in r["assets"]["d-parquet"]["table:columns"]]
+        self.assertEqual(names, ["_cng_fid", "name", "kind", "geometry", "h8", "h0"])
+
+    def test_kept_list_takes_descriptions_and_values_by_name(self):
+        r = vs.resolve_columns(portolan_doc(hex_cols=("_cng_fid", "kind", "h8", "h0")))
+        cols = {c["name"]: c for c in r["assets"]["d-hex"]["table:columns"]}
+        self.assertEqual(cols["kind"]["description"], "site kind")
+        self.assertEqual(cols["kind"]["values"][0]["value"], "a")
+        self.assertEqual(cols["kind"]["type"], "uint64")  # the asset's own type wins
+
+    def test_resolution_does_not_mutate_the_published_doc(self):
+        doc = portolan_doc()
+        vs.resolve_columns(doc)
+        self.assertNotIn("table:columns", doc["assets"]["d-parquet"])
+
+
+class ColumnsPlacement(unittest.TestCase):
+    def codes(self, doc):
+        return {f.code: f.severity for f in vs.check_table_columns_placement(doc)}
+
+    def test_portolan_shape_is_clean(self):
+        self.assertEqual(self.codes(portolan_doc()), {})
+
+    def test_per_asset_shape_is_advisory(self):
+        doc = {"assets": {"d-hex": hex_asset(["h8", "h0"])}}
+        self.assertEqual(self.codes(doc), {"table-columns-per-asset": vs.ADVISORY})
+
+    def test_parquet_with_no_columns_anywhere_is_hard(self):
+        doc = {"assets": {"d-parquet": {"href": FLAT_HREF, "type": PARQUET}}}
+        self.assertEqual(self.codes(doc), {"parquet-no-table-columns": vs.HARD})
+
+    def test_asset_column_missing_from_dictionary_is_hard(self):
+        c = self.codes(portolan_doc(hex_cols=("_cng_fid", "ghost", "h0")))
+        self.assertEqual(c, {"column-not-in-dictionary": vs.HARD})
+
+    def test_duplicate_dictionary_entry_is_hard(self):
+        doc = portolan_doc()
+        doc["table:columns"].append({"name": "name", "type": "string"})
+        self.assertEqual(self.codes(doc), {"column-dictionary-duplicate": vs.HARD})
+
+    def test_described_asset_list_is_advisory(self):
+        doc = portolan_doc()
+        doc["assets"]["d-hex"]["table:columns"][1]["description"] = "site name"
+        self.assertEqual(self.codes(doc), {"asset-column-described": vs.ADVISORY})
+
+    def test_list_identical_to_dictionary_is_advisory(self):
+        doc = portolan_doc()
+        doc["assets"]["d-parquet"]["table:columns"] = [
+            {"name": c["name"], "type": c["type"]} for c in doc["table:columns"]]
+        self.assertEqual(self.codes(doc), {"asset-columns-redundant": vs.ADVISORY})
+
+
+class PortolanThroughTheOtherChecks(unittest.TestCase):
+    def test_hex_inheriting_geometry_from_the_dictionary_is_hard(self):
+        doc = portolan_doc()
+        del doc["assets"]["d-hex"]["table:columns"]
+        codes = [f.code for f in vs.check_parquet_columns_shape(vs.resolve_columns(doc))]
+        self.assertEqual(codes, ["hex-has-geom-column"])
+
+    def test_asset_text_disagreeing_with_dictionary_is_divergent(self):
+        doc = portolan_doc()
+        doc["assets"]["d-hex"]["table:columns"][1]["description"] = "another name"
+        codes = [f.code for f in vs.check_column_description_consistency(doc)]
+        self.assertEqual(codes, ["column-description-divergent"])
+
+    def test_verify_runs_clean_on_the_portolan_shape(self):
+        import json, os, tempfile
+        doc = portolan_doc()
+        doc.update({"license": "CC-BY-4.0", "extent": {"temporal": {"interval": [[None, None]]}}})
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as t:
+            json.dump(doc, t)
+        try:
+            _, findings = vs.verify(t.name, do_data=False, do_recall=False)
+        finally:
+            os.unlink(t.name)
+        codes = {f.code for f in findings}
+        for gone in ("parquet-no-table-columns", "table-columns-collection-level",
+                     "hex-has-geom-column", "column-not-in-dictionary"):
+            self.assertNotIn(gone, codes)
+
+
+class PmtilesLink(unittest.TestCase):
+    def doc(self, links=(), asset=True):
+        d = {"links": [{"rel": "self", "href": SELF_HREF}, *links], "assets": {}}
+        if asset:
+            d["assets"]["d-pmtiles"] = {"href": TILES_HREF, "type": "application/vnd.pmtiles"}
+        return d
+
+    def codes(self, doc):
+        return {f.code: f.severity for f in vs.check_pmtiles_link(doc)}
+
+    def test_missing_link_is_advisory(self):
+        self.assertEqual(self.codes(self.doc()), {"pmtiles-no-link": vs.ADVISORY})
+
+    def test_relative_link_matching_the_asset_is_clean(self):
+        link = {"rel": "pmtiles", "href": "../d.pmtiles", "type": "application/vnd.pmtiles"}
+        self.assertEqual(self.codes(self.doc([link])), {})
+
+    def test_link_without_asset_is_hard(self):
+        link = {"rel": "pmtiles", "href": TILES_HREF, "type": "application/vnd.pmtiles"}
+        self.assertEqual(self.codes(self.doc([link], asset=False)),
+                         {"pmtiles-link-without-asset": vs.HARD})
+
+    def test_wrong_link_type_is_hard(self):
+        link = {"rel": "pmtiles", "href": TILES_HREF, "type": "application/octet-stream"}
+        self.assertEqual(self.codes(self.doc([link])), {"pmtiles-link-type": vs.HARD})

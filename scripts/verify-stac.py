@@ -30,8 +30,16 @@ Static checks (no data; just the STAC JSON):
     application/vnd.mapbox.style+json under styles/; with several, exactly one carries
     the `default` role. ADVISORY: a PMTiles collection with no style asset (catalog-wide
     debt being retrofitted from the GLEN app configs, #881)
-  - table:columns on each parquet asset (NOT collection-level); geometry column
-    included on the geoparquet asset, excluded on the hex asset
+  - table:columns in the Portolan shape (PORTO-FMT-046/048, glen#441): one column dictionary
+    on the collection (name, type, description, values) covering every column of every
+    data asset; an asset keeps its own list, names and types only, where its schema
+    differs. An asset with no list of its own is described by the dictionary. The older
+    per-asset shape is ADVISORY until the catalog is migrated. Every check below reads
+    each asset's *effective* columns (resolve_columns). Geometry column included on the
+    geoparquet asset, excluded on the hex asset
+  - ADVISORY: a PMTiles collection with no collection-level `rel: pmtiles` link
+    (PORTO-FMT-011); HARD: a pmtiles link with no matching PMTiles asset, since the
+    deployed apps read the asset (FMT-013 allows both)
   - universal `_cng_fid` on vector assets (#369): HARD for a flat GeoParquet-with-
     geometry or a vector hex lacking it; raster-derived hex (no vector source in the
     collection) is exempt; a non-spatial table is ADVISORY (see the advisory list)
@@ -94,6 +102,8 @@ MCP_AUTH_TOKEN for a bearer token if the endpoint is ever locked down.
 """
 
 import argparse
+import copy
+import tempfile
 import importlib.util
 import http.client
 import json
@@ -102,6 +112,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -616,30 +627,145 @@ def check_styles(doc: dict) -> list[Finding]:
     return out
 
 
+COLUMN_FIELDS_FROM_DICTIONARY = ("description", "values")
+
+
+def _carries_columns(asset: dict) -> bool:
+    """Data assets that have a column schema: parquet (flat or hex) and PMTiles."""
+    return is_parquet(asset) or is_pmtiles(asset)
+
+
+def resolve_columns(doc: dict) -> dict:
+    """The Portolan reading of `table:columns` (PORTO-FMT-046/048, glen#441).
+
+    The collection carries one column dictionary. An asset with no list of its own is
+    described by the whole dictionary; an asset that keeps a list (because its schema
+    differs) takes `description` and `values` for each of its columns from the dictionary
+    by name. Returns a copy in which every data asset carries its effective columns, so
+    the checks written against per-asset lists keep working on either shape. A doc with
+    no collection dictionary is returned unchanged (the older per-asset shape).
+    """
+    dictionary = {c.get("name"): c for c in doc.get("table:columns", []) or []
+                  if isinstance(c, dict) and c.get("name")}
+    if not dictionary:
+        return doc
+    out = copy.deepcopy(doc)
+    for asset in out.get("assets", {}).values():
+        if not _carries_columns(asset):
+            continue
+        own = asset.get("table:columns")
+        if not own:
+            asset["table:columns"] = copy.deepcopy(list(dictionary.values()))
+            continue
+        for col in own:
+            entry = dictionary.get(col.get("name"))
+            if not entry:
+                continue
+            for field in COLUMN_FIELDS_FROM_DICTIONARY:
+                if field not in col and field in entry:
+                    col[field] = copy.deepcopy(entry[field])
+    return out
+
+
 def check_table_columns_placement(doc: dict) -> list[Finding]:
+    """Reads the doc AS PUBLISHED (not resolved): where the columns live is the point."""
     out = []
-    if "table:columns" in doc:
-        out.append(Finding(HARD, "table-columns-collection-level",
-                            "`table:columns` is at the collection level — it must live on "
-                            "each parquet asset, not the collection."))
+    dictionary = {c.get("name"): c for c in doc.get("table:columns", []) or []
+                  if isinstance(c, dict) and c.get("name")}
+    data_assets = {k: a for k, a in doc.get("assets", {}).items() if _carries_columns(a)}
+    if not dictionary:
+        if any(a.get("table:columns") for a in data_assets.values()):
+            out.append(Finding(ADVISORY, "table-columns-per-asset",
+                               "columns are described per asset; Portolan puts one column "
+                               "dictionary on the collection (PORTO-FMT-046), with asset lists "
+                               "only where an asset's schema differs (FMT-048). See skill "
+                               "stac-authoring (glen#441)."))
+        for key, asset in data_assets.items():
+            if is_parquet(asset) and not asset.get("table:columns"):
+                out.append(Finding(HARD, "parquet-no-table-columns",
+                                   f"parquet asset '{key}' has no 'table:columns' and the "
+                                   f"collection has no column dictionary."))
+        return out
+
+    names = [c.get("name") for c in doc.get("table:columns", []) if isinstance(c, dict)]
+    dupes = sorted({n for n in names if n and names.count(n) > 1})
+    if dupes:
+        out.append(Finding(HARD, "column-dictionary-duplicate",
+                           f"the collection's column dictionary lists {dupes} more than "
+                           f"once; one entry per column name."))
+    for key, asset in data_assets.items():
+        own = asset.get("table:columns") or []
+        missing = sorted({c.get("name") for c in own if c.get("name")} - set(dictionary))
+        if missing:
+            out.append(Finding(HARD, "column-not-in-dictionary",
+                               f"asset '{key}' lists {missing}, which the collection's column "
+                               f"dictionary does not; the dictionary must cover every column "
+                               f"of every data asset, or their descriptions live nowhere."))
+        described = sorted(c.get("name") for c in own
+                           if c.get("name") in dictionary and c.get("description"))
+        if described:
+            out.append(Finding(ADVISORY, "asset-column-described",
+                               f"asset '{key}' repeats descriptions for {described[:5]}"
+                               f"{'…' if len(described) > 5 else ''}; descriptions belong in "
+                               f"the collection's dictionary, the asset list keeps names and "
+                               f"types only (PORTO-FMT-048)."))
+        if own and [(c.get("name"), c.get("type")) for c in own] == \
+                [(c.get("name"), c.get("type")) for c in doc["table:columns"]]:
+            out.append(Finding(ADVISORY, "asset-columns-redundant",
+                               f"asset '{key}' lists exactly the collection's columns; drop "
+                               f"its list, an asset without one is described by the "
+                               f"dictionary."))
+    return out
+
+
+def check_parquet_columns_shape(doc: dict) -> list[Finding]:
+    """Geometry column present on flat GeoParquet, absent on hex (effective columns)."""
+    out = []
     for key, asset in doc.get("assets", {}).items():
         if not is_parquet(asset):
             continue
         cols = asset.get("table:columns")
         if not cols:
-            out.append(Finding(HARD, "parquet-no-table-columns",
-                                f"parquet asset '{key}' has no 'table:columns'."))
-            continue
+            continue  # parquet-no-table-columns already reports it
         has_geom = any(_is_geom_col(c.get("name", "")) for c in cols)
         is_hex = is_hex_asset(key, asset)
         if is_hex and has_geom:
             out.append(Finding(HARD, "hex-has-geom-column",
                                 f"hex asset '{key}' lists a geometry column in "
-                                f"table:columns — hex parquet has no geometry; remove it."))
+                                f"table:columns — hex parquet has no geometry; remove it "
+                                f"(an asset with no list of its own inherits the collection's "
+                                f"dictionary, geometry included, so give the hex its own list)."))
         if not is_hex and not has_geom:
             out.append(Finding(ADVISORY, "geoparquet-no-geom-column",
                                 f"geoparquet asset '{key}' table:columns lists no geometry "
                                 f"column ({sorted(GEOM_COLS)}); confirm it isn't a hex asset."))
+    return out
+
+
+def check_pmtiles_link(doc: dict) -> list[Finding]:
+    """Portolan: PMTiles are reached through a collection-level `rel: pmtiles` link
+    (PORTO-FMT-011, MUST). The PMTiles asset stays too (FMT-013 allows it): the deployed
+    GLEN apps read the asset. ADVISORY for a missing link while the catalog is backfilled;
+    promote to HARD once it is (glen#441)."""
+    out = []
+    base = next((l.get("href") for l in doc.get("links", []) if l.get("rel") == "self"), "")
+    absolute = lambda h: urllib.parse.urljoin(base, h or "")
+    tiles = {absolute(a.get("href")) for a in doc.get("assets", {}).values() if is_pmtiles(a)}
+    links = [l for l in doc.get("links", []) if l.get("rel") == "pmtiles"]
+    if tiles and not links:
+        out.append(Finding(ADVISORY, "pmtiles-no-link",
+                           "collection has a PMTiles asset but no `rel: pmtiles` link "
+                           "(PORTO-FMT-011). Add one per PMTiles file, with type "
+                           "application/vnd.pmtiles and pmtiles:layers; keep the asset."))
+    for l in links:
+        if l.get("type") != "application/vnd.pmtiles":
+            out.append(Finding(HARD, "pmtiles-link-type",
+                               f"pmtiles link '{l.get('href')}' must have type "
+                               f"application/vnd.pmtiles."))
+        if absolute(l.get("href")) not in tiles:
+            out.append(Finding(HARD, "pmtiles-link-without-asset",
+                               f"pmtiles link '{l.get('href')}' matches no PMTiles asset; keep "
+                               f"the asset alongside the link, the deployed apps read it."))
     return out
 
 
@@ -672,8 +798,10 @@ def check_column_description_consistency(doc: dict) -> list[Finding]:
     out = []
     seen: dict[str, tuple[str, str]] = {}
     clashes: dict[str, set[str]] = {}
-    for key, asset in doc.get("assets", {}).items():
-        for col in asset.get("table:columns", []):
+    sources = [("collection", doc.get("table:columns", []) or [])] + [
+        (key, asset.get("table:columns", [])) for key, asset in doc.get("assets", {}).items()]
+    for key, columns in sources:
+        for col in columns:
             name, text = col.get("name", ""), col.get("description", "")
             if not name or not text:
                 continue
@@ -1169,6 +1297,8 @@ STATIC_CHECKS = [
     check_vector_layers,
     check_styles,
     check_table_columns_placement,
+    check_parquet_columns_shape,
+    check_pmtiles_link,
     check_cng_fid,
     check_hex_dup_warning,
     check_column_description_consistency,
@@ -1176,6 +1306,10 @@ STATIC_CHECKS = [
     check_inline_area_formula,
     check_region_title_vs_bbox,
 ]
+
+# Checks about WHERE columns are written read the doc as published; every other check reads
+# each asset's effective columns (resolve_columns, glen#441).
+AS_PUBLISHED_CHECKS = {check_table_columns_placement, check_column_description_consistency}
 
 
 # ---------------------------------------------------------------------------
@@ -2145,12 +2279,25 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
     if collect is not None:
         collect.append((collection_id, doc))
     findings: list[Finding] = []
+    resolved = resolve_columns(doc)
     for check in STATIC_CHECKS:
-        findings.extend(check(doc))
+        findings.extend(check(doc if check in AS_PUBLISHED_CHECKS else resolved))
 
-    # Reuse the two standalone linters (these fetch/parse the doc themselves).
-    findings.extend(run_sibling_linter(_categorical, source, "categorical"))
-    findings.extend(run_sibling_linter(_pmtiles, source, "pmtiles-fields"))
+    # Reuse the two standalone linters (these fetch/parse the doc themselves, so hand them
+    # the resolved doc as a file when the collection carries a column dictionary).
+    linted = source
+    if resolved is not doc:
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        json.dump(resolved, tmp)
+        tmp.close()
+        linted = tmp.name
+    try:
+        findings.extend(run_sibling_linter(_categorical, linted, "categorical"))
+        findings.extend(run_sibling_linter(_pmtiles, linted, "pmtiles-fields"))
+    finally:
+        if linted != source:
+            os.unlink(linted)
+    doc = resolved  # the data-backed checks compare effective columns with the files
 
     if do_data or do_recall:
         client = mcp
