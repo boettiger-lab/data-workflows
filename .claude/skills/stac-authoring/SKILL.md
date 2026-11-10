@@ -267,9 +267,8 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   reaches PMTiles through a collection-level link (PORTO-FMT-011):
   `{"rel": "pmtiles", "href": "<same href as the asset>", "type": "application/vnd.pmtiles",
   "title": "…", "pmtiles:layers": ["<source-layer>"]}`. **Keep the PMTiles asset as well**
-  (FMT-013 allows both): the deployed GLEN apps read the asset. `verify-stac.py` reports a
-  missing link as ADVISORY (`pmtiles-no-link`) while the catalog is backfilled, and HARD-fails a
-  link with no matching asset.
+  (FMT-013 allows both): the deployed GLEN apps read the asset. `verify-stac.py` HARD-fails a
+  missing link (`pmtiles-no-link`) and a link with no matching asset.
 
   GLEN and app authors learn which fields are stylable from the PMTiles asset's columns, so
   the asset keeps a `table:columns` list of **`name` + `type`** for the fields actually in the
