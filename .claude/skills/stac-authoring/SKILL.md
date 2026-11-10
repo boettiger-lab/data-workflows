@@ -232,25 +232,58 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
 
 - **Any vector asset with named layers** (PMTiles, GDB, GPKG, etc.) MUST include `"vector:layers": ["<name>"]`. For PMTiles the layer name = last segment of `--dataset`.
 
-- **`table:columns` goes on each parquet asset — NOT at the collection level.** Put it inside the asset object for the GeoParquet and hex assets. Do not add a top-level `table:columns` to the collection. `verify-stac.py` HARD-fails a collection-level `table:columns`.
+- **`table:columns`: one column dictionary on the collection (Portolan PORTO-FMT-046/048, glen#441).**
+  The collection carries a top-level `table:columns` listing **every column of every data
+  asset** (flat GeoParquet, hex, PMTiles) once, each with `name`, `type`, `description` and, for
+  coded columns, `values`. That dictionary is the single place a column is described.
 
-  **Every queryable parquet asset is fully self-describing** — it carries the full per-column schema (name, type, description, `values`), the SAME text on the flat GeoParquet and the hex. This is deliberate: the mcp-data-server renderer dedups identical per-column descriptions across assets at read time (mcp-data-server#303), so full-both costs nothing to the LLM; and a consumer targeting a single asset directly still gets the full schema. That last point is not optional — **raster-derived datasets have a hex but no GeoParquet**, so the hex must stand alone. The single authority is the **build/relocation tool** (one source schema written identically to every asset), never a hand-edit of one asset — identical text means the #303 "first-seen wins" merge never drops anything.
+  An asset carries its own `table:columns` **only where its schema differs** from the
+  dictionary, and then with **`name` and `type` only**: no descriptions, no `values` (they come
+  from the dictionary by name). An asset with no list of its own is described by the whole
+  dictionary. In practice:
+  - **GeoParquet asset:** the dictionary covers it, geometry column included (`Shape`, `geom`
+    or `geometry`). It keeps a list only when another asset adds columns it lacks, such as the
+    hex's `h*` indexes.
+  - **Hex asset:** almost always keeps a list, because it drops the geometry and adds `h0`,
+    `h8`, `h9`, `h10` etc. A hex with no list inherits the dictionary's geometry column, and
+    `verify-stac.py` HARD-fails that (`hex-has-geom-column`).
+  - **PMTiles asset:** keeps a list with the tile types (String/Number/Boolean, coarser than the
+    parquet's); see the PMTiles bullet below.
+  - **COG assets**: no `table:columns` (not SQL-queryable).
 
-  Each parquet asset documents exactly the columns it contains:
-  - **GeoParquet asset** (vector, when present): include the geometry column (`Shape`, `geom`, or `geometry`).
-  - **Hex asset**: full per-column descriptions identical to the flat (minus the geometry column); include the H3 index columns (`h0`, `h8`, `h9`, `h10` etc.) and `_cng_fid`/`bbox`. The hex is the primary query target (and the sole one for rasters), so it is never "lean."
-  - **COG assets**: no `table:columns` needed (not SQL-queryable).
+  Write each column's description once, true for every asset that has the column. A note that
+  holds for one asset only (a hex dedup warning) goes in that asset's `description`, never in a
+  second text for the column. `verify-stac.py` HARD-fails a column the dictionary does not
+  cover (`column-not-in-dictionary`) and a column described two different ways
+  (`column-description-divergent`). It reports the older per-asset shape as ADVISORY
+  (`table-columns-per-asset`) while the catalog migrates. To rewrite an existing collection,
+  use `scripts/portolan-columns.py <stac-url> --out /tmp/pc`, which builds the dictionary from
+  the asset lists, keeps names and types where an asset differs, adds the `rel: pmtiles` link,
+  and refuses a collection whose assets disagree on a description or on coded `values`.
 
 - **`_cng_fid` is the universal per-feature id — REQUIRED on every vector asset, flat GeoParquet *and* hex (#369).** cng-datasets `convert_to_parquet` synthesizes it on every conversion (always, additive, row-unique), so one uniform key works for dedup / `COUNT(DISTINCT)` across all datasets instead of per-dataset id discovery (the over-count class behind #309). Source ids (`ramsarid`, `tpl_id`, `GEOID`) may accompany it for cross-collection joins but never replace it. `verify-stac.py` **HARD**-fails a vector flat GeoParquet (has a geometry column) or a vector hex that lacks `_cng_fid`; if the data genuinely lacks it, reprocess through cng-datasets. **Exempt:** raster-derived hex (a raster reduce into H3, not a feature conversion — detected as a hex/`h0=*`-partitioned asset in a collection with no vector source; covers carbon/ghs-pop *and* the richness/cwhr/gbif reductions). A **non-spatial** parquet table (no geometry, not a hex) is **ADVISORY** — it may be a feature fact table that should carry `_cng_fid` (e.g. tpl `…-funding`) or a legit lookup/crosswalk/coefficient/scores table; use judgment.
 
-- **PMTiles assets MUST carry tile-accurate `table:columns` (data-workflows #283/#320), in LEAN form.** GLEN (and human app authors) can only learn which fields are stylable/filterable in MapLibre from the PMTiles asset's own schema — an empty `table:columns` forces them to byte-range the `.pmtiles` footer. **Empirically, our tippecanoe step keeps ALL attribute columns: the tile field set is just `GeoParquet attrs − geometry + _cng_fid`** (types coarsened to String/Number/Boolean). So the standard is to **mirror the canonical GeoParquet schema onto the PMTiles asset** — do NOT hand-scrape thin metadata from the footer, and do NOT duplicate the prose:
-  - **Lean columns:** each PMTiles column carries **`name` + `type` + `values`** (the `values` enumeration is the styling-critical part for categoricals) — copied from the GeoParquet column of the same name. **Omit the prose `description`** — it stays CANONICAL on the GeoParquet asset (duplicating it across 3 assets just bloats agent context; the agent reads definitions there).
-  - Drop the geometry column; include `_cng_fid` (present in tiles).
+- **PMTiles: a `rel: pmtiles` link AND the asset, with a tile-accurate column list.** Portolan
+  reaches PMTiles through a collection-level link (PORTO-FMT-011):
+  `{"rel": "pmtiles", "href": "<same href as the asset>", "type": "application/vnd.pmtiles",
+  "title": "…", "pmtiles:layers": ["<source-layer>"]}`. **Keep the PMTiles asset as well**
+  (FMT-013 allows both): the deployed GLEN apps read the asset. `verify-stac.py` reports a
+  missing link as ADVISORY (`pmtiles-no-link`) while the catalog is backfilled, and HARD-fails a
+  link with no matching asset.
+
+  GLEN and app authors learn which fields are stylable from the PMTiles asset's columns, so
+  the asset keeps a `table:columns` list of **`name` + `type`** for the fields actually in the
+  tiles (data-workflows #283/#320). Our tippecanoe step keeps all attribute columns, so the
+  tile field set is `GeoParquet attrs − geometry + _cng_fid`, with types coarsened to
+  String/Number/Boolean. Descriptions and coded `values` come from the collection dictionary.
   - Keep `vector:layers` (the source-layer id list).
-  - **Continuous (choropleth) layers only:** add the **nodata sentinel** and flag the **intended value column** for styling, as a short `description` on that one column (e.g. SVI `RPL_THEMES = -999`) — these are viz-specific and not inferable from the GeoParquet schema.
-  - **Generate it** with `scripts/mirror-pmtiles-columns.py <stac-url>` — it reads the footer to *validate* the field set (and flags the rare genuine-subset case, e.g. SVI, where tippecanoe really did drop columns), mirrors the GeoParquet `name`/`type`/`values`, and writes the updated STAC to `/tmp`. Then `rclone copyto` to S3.
-  - Because PMTiles mirrors the GeoParquet, **fix the GeoParquet/hex categoricals FIRST** (the #303 work), then mirror — otherwise you copy incomplete `values`.
-  - Gate with `scripts/lint-stac-pmtiles-fields.py <stac-collection.json|url>` (companion to `lint-stac-categorical.py`); it requires `name` + `type` and does NOT require descriptions.
+  - **Continuous (choropleth) layers:** state the **nodata sentinel** and the intended value
+    column (e.g. SVI `RPL_THEMES = -999`) in that column's dictionary description, or in the
+    PMTiles asset's `description` if it holds for the tiles only.
+  - The rare genuine subset (e.g. SVI, where tippecanoe really did drop columns) is read from
+    the PMTiles footer; list only the fields present.
+  - Gate with `scripts/lint-stac-pmtiles-fields.py` (run by `verify-stac.py`); it requires
+    `name` + `type` and does not require descriptions.
 
 - **Hex assets MUST declare their H3 resolutions explicitly** via `h3:native_resolution` and `h3:parent_resolutions` on the asset itself. Column-name presence (`h10`, `h9`, …) is not enough — downstream tools shouldn't have to enumerate `table:columns` to find out what resolutions exist. `h3:native_resolution` is the finest resolution (one row per feature-cell at this res); `h3:parent_resolutions` is the list of rollup resolutions, which MUST include `0` (the partition key).
 
@@ -268,7 +301,7 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   ```bash
   scripts/audit-feature-dup.py <parquet-url|stac-url --asset KEY> --key <feature-id-col>
   ```
-  It reports rows vs `COUNT(DISTINCT key)`, warns on blank keys, classifies each column REPEATED vs VARIES, and quantifies raw-vs-deduped `SUM` inflation. Then document the verdict in the asset's `table:columns`: name the key, mark REPEATED columns "dedup before SUM", and (if any) note VARIES columns are safe to SUM. A clean one-row-per-feature file needs no note.
+  It reports rows vs `COUNT(DISTINCT key)`, warns on blank keys, classifies each column REPEATED vs VARIES, and quantifies raw-vs-deduped `SUM` inflation. Then document the verdict in the collection's column dictionary (or in one asset's `description` when it holds for that asset only): name the key, mark REPEATED columns "dedup before SUM", and (if any) note VARIES columns are safe to SUM. A clean one-row-per-feature file needs no note.
 
 - **Hex assets MUST flag per-feature duplication — at the hex ASSET-description level, NOT per-column.** One hex row = one (feature, cell) pair, so any column that represents a per-feature total — area (`GIS_Acres`, `SHAPE_Area`), length (`SHAPE_Length`), population, count, amount, funding, intensity — is repeated on every cell the feature covers. Put this warning (name the pattern + the **dedup key**, list the affected columns) in the **hex asset's `description`**, because the mcp-data-server#303 renderer keeps per-column descriptions identical across the flat and hex (single authority) and would silently drop a per-column note that differs between them — whereas the per-asset `description` line is always rendered. `verify-stac.py` accepts the note at the asset (or collection) level. (Raster hex: the asset note states reducer semantics instead — e.g. "`sum` reducer, SUM is the catalog total" or "mean density → × cell area for totals".) The two safe patterns:
   - **SUM after dedup** (the attribute is a real per-feature value): `SELECT DISTINCT <feature_key>, <attr> …` or `ROW_NUMBER() OVER (PARTITION BY <feature_key>)` before aggregating.
@@ -277,31 +310,40 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   Columns that are safe to aggregate on hex (H3 indexes, `_cng_fid`, `bbox`) don't need a warning. If no column on the hex asset is safe to SUM, say so once in the collection description too.
 
   ```json
+  "table:columns": [
+    {"name": "GEOID", "type": "string", "description": "…"},
+    {"name": "ALAND", "type": "int64", "description": "Land area in m² of the source district polygon."},
+    {"name": "geometry", "type": "geometry", "description": "Feature geometry (GeoParquet)"},
+    {"name": "h10", "type": "uint64", "description": "H3 cell ID at resolution 10 (native resolution)."},
+    {"name": "h9",  "type": "uint64", "description": "H3 cell ID at resolution 9."},
+    {"name": "h8",  "type": "uint64", "description": "H3 cell ID at resolution 8."},
+    {"name": "h0",  "type": "int64",  "description": "H3 cell ID at resolution 0, used as the partition key for hive-partitioned reads."}
+  ],
   "assets": {
     "sldl-parquet": {
       "href": "https://…/sldl.parquet",
       "type": "application/x-parquet",
       "title": "…",
       "table:columns": [
-        {"name": "GEOID", "type": "string", "description": "…"},
-        {"name": "ALAND", "type": "int64", "description": "Land area in m² of the source district polygon."},
-        {"name": "geometry", "type": "geometry", "description": "Feature geometry (GeoParquet)"}
+        {"name": "GEOID", "type": "string"},
+        {"name": "ALAND", "type": "int64"},
+        {"name": "geometry", "type": "geometry"}
       ]
     },
     "sldl-hex": {
       "href": "https://…/sldl/hex/h0=*/data_0.parquet",
       "type": "application/x-parquet",
       "title": "…",
+      "description": "One row per (district, h10 cell). ALAND is repeated on every row a district covers — never SUM(ALAND) on hex data; dedup first (SELECT DISTINCT GEOID, ALAND). For area from the H3 footprint see the h3-guide.",
       "h3:native_resolution": 10,
       "h3:parent_resolutions": [9, 8, 0],
       "table:columns": [
-        {"name": "GEOID", "type": "string", "description": "…"},
-        {"name": "ALAND", "type": "int64",
-         "description": "Land area in m² of the source district polygon. **Repeated on every hex row the district covers — never SUM(ALAND) on hex data; dedup first (SELECT DISTINCT GEOID, ALAND).** For area from the H3 footprint see the h3-guide."},
-        {"name": "h10", "type": "uint64", "description": "H3 cell ID at resolution 10 (native resolution; one row per (feature, h10) pair)."},
-        {"name": "h9",  "type": "uint64", "description": "H3 cell ID at resolution 9."},
-        {"name": "h8",  "type": "uint64", "description": "H3 cell ID at resolution 8."},
-        {"name": "h0",  "type": "int64",  "description": "H3 cell ID at resolution 0, used as the partition key for hive-partitioned reads."}
+        {"name": "GEOID", "type": "string"},
+        {"name": "ALAND", "type": "int64"},
+        {"name": "h10", "type": "uint64"},
+        {"name": "h9",  "type": "uint64"},
+        {"name": "h8",  "type": "uint64"},
+        {"name": "h0",  "type": "int64"}
       ]
     }
   }
