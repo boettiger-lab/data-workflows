@@ -50,6 +50,14 @@ spec:
         - |-
           set -euo pipefail
           R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
 
           rclone copyto nrp:public-pesticides/raw/Metadata.pdf nrp:public-pesticides/tang-2021/Metadata.pdf $R
 
@@ -70,11 +78,14 @@ spec:
           assert len(new["links"]) - len(old["links"]) in (0, 1), "more than one link added"
           c = json.load(open("/tmp/stac/tang-2021/stac-collection.json"))
           assert c["license"] == "CC-BY-4.0" and len(c["assets"]) == 11, (c["license"], len(c["assets"]))
+          assert len(c["renders"]) == 5 and len(c["table:columns"]) == 7, (len(c["renders"]), len(c["table:columns"]))
           print("gate OK:", len(old["links"]), "->", len(new["links"]), "root links")
           PY
 
+          guard_stac /tmp/stac/tang-2021/stac-collection.json nrp:public-pesticides/tang-2021/stac-collection.json
           rclone copyto /tmp/stac/tang-2021/stac-collection.json nrp:public-pesticides/tang-2021/stac-collection.json $R
           rclone copyto /tmp/stac/tang-2021/README.md nrp:public-pesticides/tang-2021/README.md $R
+          guard_stac /tmp/stac/stac-collection.json nrp:public-pesticides/stac-collection.json
           rclone copyto /tmp/stac/stac-collection.json nrp:public-pesticides/stac-collection.json $R
           rclone copyto /tmp/stac/README.md nrp:public-pesticides/README.md $R
           rclone copyto /tmp/stac/catalog.json nrp:public-data/stac/catalog.json $R

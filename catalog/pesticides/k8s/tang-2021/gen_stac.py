@@ -54,6 +54,7 @@ LAYERS = {
         "title": "Pesticide pollution risk score",
         "unit": "unitless",
         "cells": COMMON_CELLS, "vmin": 0.0, "vmax": 5.992,
+        "render": {"colormap_name": "magma", "rescale": [[0, 6]]},
         "col_desc": (
             "Pesticide pollution risk score of the agricultural land in the cell, unitless, "
             "the area-weighted mean of the source pixels (source range 0 to 6.1). It describes "
@@ -68,6 +69,7 @@ LAYERS = {
         "title": "Number of active ingredients posing pollution risk",
         "unit": "count of active ingredients",
         "cells": COMMON_CELLS, "vmin": 0.0, "vmax": 43.0,
+        "render": {"colormap_name": "ylorrd", "rescale": [[0, 43]]},
         "col_desc": (
             "Number of pesticide active ingredients posing a pollution risk in the cell, the "
             "largest count among the source pixels in the cell (source range 0 to 43). A whole "
@@ -98,6 +100,7 @@ LAYERS = {
         "unit": "unitless index, 0 to 1",
         # Masked rebuild: a subset of the common cells, less 14 with no upstream quality value.
         "cells": 377_418, "vmin": 0.403, "vmax": 0.889,
+        "render": {"colormap_name": "viridis", "rescale": [[0, 1]]},
         "col_desc": (
             "Data quality index of the estimates in the cell, from 0 (low quality) to 1 (high "
             "quality), the area-weighted mean of the source pixels."),
@@ -109,6 +112,7 @@ LAYERS = {
         "title": "Data certainty index",
         "unit": "unitless index, 0 to 1",
         "cells": COMMON_CELLS, "vmin": 0.322, "vmax": 1.0,
+        "render": {"colormap_name": "viridis", "rescale": [[0, 1]]},
         "col_desc": (
             "Data certainty index from the parameter sensitivity analysis, from 0 (low "
             "certainty) to 1 (high certainty), the area-weighted mean of the source pixels."),
@@ -130,6 +134,9 @@ REDUCER_NOTE = {
 }
 
 COLORS = {1: "B2182B", 2: "EF8A62", 3: "FDDBC7", 4: "D1E5F0"}
+# Default render for the categorical layer: the class colours above, as a titiler colormap.
+LAYERS["regions-of-concern"]["render"] = {"colormap": {
+    str(v): [int(c[i:i + 2], 16) for i in (0, 2, 4)] + [255] for v, c in COLORS.items()}}
 CLASSES = [
     {"value": 1, "name": "Highest concern", "description": "Area of highest concern.",
      "color_hint": COLORS[1]},
@@ -155,6 +162,7 @@ def created(objs, key):
 
 
 def h3_cols(native):
+    """H3 index columns, with descriptions; assets keep name and type only."""
     return [
         {"name": f"h{native}", "type": "uint64",
          "description": f"H3 cell ID at resolution {native}, the native resolution; one row "
@@ -174,7 +182,7 @@ def build_collection(objs, access_date):
         raw.append(f"`raw/{name}` ({o['Size']:,} bytes, MD5 {o['Hashes']['md5']})")
     masked = objs["raw/derived/Quality_index_masked.tif"]
 
-    assets = {}
+    assets, renders, dictionary = {}, {}, []
     for key, L in LAYERS.items():
         cog_key = f"{DATASET}/{key}-cog.tif"
         band = {"name": L["col"], "data_type": L["dtype"], "nodata": -2,
@@ -201,6 +209,8 @@ def build_collection(objs, access_date):
             "created": created(objs, cog_key),
             "raster:bands": [band],
         }
+        renders[f"{DATASET}-{key}"] = {"title": L["title"], "assets": [f"{DATASET}-{key}-cog"],
+                                       **L["render"]}
 
         hex_desc = (
             f"{L['about']} H3 hex parquet at native resolution 5 with parent 0: one row per "
@@ -225,8 +235,13 @@ def build_collection(objs, access_date):
             "created": created(objs, first_hex),
             "h3:native_resolution": 5,
             "h3:parent_resolutions": [0],
-            "table:columns": [col] + h3_cols(5),
+            "table:columns": [{"name": c["name"], "type": c["type"]}
+                              for c in [col] + h3_cols(5)],
         }
+        # One column dictionary on the collection; each hex lists only names and types.
+        for c in [col] + h3_cols(5):
+            if c["name"] not in {d["name"] for d in dictionary}:
+                dictionary.append(c)
 
     assets[f"{DATASET}-metadata"] = {
         "href": f"{BASE}/{DATASET}/Metadata.pdf",
@@ -270,6 +285,7 @@ Five layers, each published as a WGS84 cloud-optimized GeoTIFF on the source gri
             "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
             "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
             "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+            "https://stac-extensions.github.io/render/v2.0.0/schema.json",
         ],
         "type": "Collection",
         "id": DATASET,
@@ -309,6 +325,8 @@ Five layers, each published as a WGS84 cloud-optimized GeoTIFF on the source gri
             {"rel": "via", "href": FIGSHARE_API, "type": "application/json",
              "title": "Figshare record (file list, checksums, licence)"},
         ],
+        "table:columns": dictionary,
+        "renders": renders,
         "assets": assets,
     }
 
