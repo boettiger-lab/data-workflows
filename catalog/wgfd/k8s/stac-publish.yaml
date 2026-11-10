@@ -425,7 +425,23 @@ spec:
         command:
         - bash
         - -c
-        - set -uo pipefail; python3 /config/publish.py
+        - |
+          set -euo pipefail
+          # stac-publish-guard.py (#890): guard copies of the ConfigMap's collections against the live
+          # ones, then run publish.py on the guarded copies. Exits if the guard refuses.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs
+          mkdir -p /tmp/config && cp -L /config/* /tmp/config/
+          guard_stac() {
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "/tmp/config/$1" /tmp/stac-guard/live.json
+          }
+          guard_stac elk-crucial.json nrp:public-wgfd/elk-crucial/stac-collection.json
+          guard_stac mule-deer-crucial.json nrp:public-wgfd/mule-deer-crucial/stac-collection.json
+          guard_stac pronghorn-crucial.json nrp:public-wgfd/pronghorn-crucial/stac-collection.json
+          guard_stac bucket.json nrp:public-wgfd/stac-collection.json
+          set +e
+          sed 's|/config/|/tmp/config/|g' /config/publish.py > /tmp/publish.py
+          python3 /tmp/publish.py
         resources:
           requests:
             cpu: '1'

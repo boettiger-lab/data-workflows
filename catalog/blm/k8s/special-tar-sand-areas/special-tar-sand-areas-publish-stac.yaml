@@ -22,33 +22,17 @@ spec:
         - -c
         - |
           set -euo pipefail
-          keep_styles() {  # #881: replacing a live collection must not drop its default style assets or renders
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
             case "$2" in *.json) ;; *) return 0 ;; esac
-            mkdir -p /tmp/keep-styles
-            rclone cat "$2" > /tmp/keep-styles/live.json 2>/dev/null || return 0
-            python3 -c '
-          import json, sys
-          try:
-              new = json.load(open(sys.argv[1])); live = json.load(open(sys.argv[2]))
-          except Exception:
-              sys.exit(0)
-          kept = {k: a for k, a in live.get("assets", {}).items()
-                  if "style" in (a.get("roles") or []) and k not in new.setdefault("assets", {})}
-          new["assets"].update(kept)
-          renders = {k: v for k, v in live.get("renders", {}).items() if k not in new.get("renders", {})}
-          if renders:
-              new.setdefault("renders", {}).update(renders)
-          for e in live.get("stac_extensions", []):
-              if "/render/" in e and e not in new.setdefault("stac_extensions", []):
-                  new["stac_extensions"].append(e)
-          if kept or renders:
-              json.dump(new, open(sys.argv[1], "w"), indent=2)
-              print(f"  kept {len(kept)} style asset(s) and {len(renders)} render(s) from the live collection")
-          ' "$1" /tmp/keep-styles/live.json
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
           }
           D=nrp:public-blm
           mkdir -p /tmp/s && cp -L /config/stac-collection.json /config/README.md /tmp/s/
-          keep_styles /tmp/s/stac-collection.json $D/special-tar-sand-areas/stac-collection.json
+          guard_stac /tmp/s/stac-collection.json $D/special-tar-sand-areas/stac-collection.json
           rclone copyto /tmp/s/stac-collection.json $D/special-tar-sand-areas/stac-collection.json
           rclone copyto /tmp/s/README.md $D/special-tar-sand-areas/README.md
           rclone copyto $D/stac-collection.json /tmp/s/parent.json
@@ -64,7 +48,7 @@ spec:
           else:
               print("child link already present")
           PY
-          keep_styles /tmp/s/parent.json $D/stac-collection.json
+          guard_stac /tmp/s/parent.json $D/stac-collection.json
           rclone copyto /tmp/s/parent.json $D/stac-collection.json
         resources:
           requests: {cpu: "1", memory: 1Gi, ephemeral-storage: 1Gi}

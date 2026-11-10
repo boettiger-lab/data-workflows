@@ -51,6 +51,14 @@ spec:
         - -c
         - |
           set -euo pipefail
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
           # AGENTS.md Hard Boundary 1: canonical STAC lives on NRP S3 and never in this repo.
           # The usual route is `rclone copyto` from a workstation, which needs NRP credentials.
           # This job exists because a build session may not have them: the geo-workflows
@@ -74,6 +82,7 @@ spec:
             # symlink source without --copy-links; materialize a real file instead so the
             # upload does not depend on that flag's semantics.
             cat "$f" > /tmp/payload
+            guard_stac /tmp/payload "nrp:public-mesic/$dest"
             rclone copyto /tmp/payload "nrp:public-mesic/$dest"
             published=$((published+1))
           done

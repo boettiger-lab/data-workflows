@@ -1906,8 +1906,23 @@ data:
             staged = os.path.join("/tmp", os.path.basename(local))
             shutil.copyfile(local, staged)
             local = staged
+        if remote.endswith(".json"):
+            guard(local, f"{BUCKET}/{remote}")
         subprocess.run(["rclone", "copyto", local, f"{BUCKET}/{remote}"], check=True)
         print(f"  published {remote}", flush=True)
+
+
+    def guard(local, key):
+        # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links;
+        # refuse a file that would drop the live column dictionary or revert an asset-key rename.
+        if not os.path.exists("/tmp/stac-guard/guard.py"):
+            subprocess.run(["curl", "-fsSL", "https://raw.githubusercontent.com/boettiger-lab/"
+                            "data-workflows/main/scripts/stac-publish-guard.py",
+                            "-o", "/tmp/stac-guard/guard.py", "--create-dirs"], check=True)
+        live = subprocess.run(["rclone", "cat", key], capture_output=True).stdout
+        open("/tmp/stac-guard/live.json", "wb").write(live)
+        subprocess.run(["python3", "/tmp/stac-guard/guard.py", local, "/tmp/stac-guard/live.json"],
+                       check=True)
 
 
     # 1. the two collections

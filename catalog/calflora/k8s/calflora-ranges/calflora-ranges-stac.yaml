@@ -39,6 +39,14 @@ spec:
         - -c
         - |-
           set -euo pipefail
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
           cd /tmp
           rclone copyto nrp:public-ca-ccca5/calflora-ranges/cog-stats.json /tmp/cog-stats.json --retries 5
           rclone copyto nrp:public-ca-ccca5/calflora-ranges/species.parquet /tmp/species.parquet --retries 5
@@ -54,6 +62,7 @@ spec:
             --out-stac /tmp/stac-collection.json \
             --out-readme /tmp/README.md
 
+          guard_stac /tmp/stac-collection.json nrp:public-ca-ccca5/calflora-ranges/stac-collection.json
           rclone copyto /tmp/stac-collection.json nrp:public-ca-ccca5/calflora-ranges/stac-collection.json --retries 5
           rclone copyto /tmp/README.md nrp:public-ca-ccca5/calflora-ranges/README.md --retries 5
           echo "STAC STEP COMPLETE"

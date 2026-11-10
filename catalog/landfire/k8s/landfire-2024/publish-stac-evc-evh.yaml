@@ -54,6 +54,14 @@ spec:
         - -c
         - |
           set -euo pipefail
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
 
           # Class legends come from the CSV shipped in each product zip, staged beside the raw.
           rclone copy nrp:public-landfire/raw/landfire-2024/ /tmp/legends/ --include '*.csv'
@@ -82,9 +90,11 @@ spec:
 
           # Child first, then the root, so the new collection is never advertised before it exists.
           for lyr in evc evh; do
+            guard_stac /tmp/stac/landfire-2024-$lyr.json nrp:public-landfire/landfire-2024-$lyr/stac-collection.json
             rclone copyto /tmp/stac/landfire-2024-$lyr.json \
               nrp:public-landfire/landfire-2024-$lyr/stac-collection.json
           done
+          guard_stac /tmp/stac/landfire-bucket.json nrp:public-landfire/stac-collection.json
           rclone copyto /tmp/stac/landfire-bucket.json \
             nrp:public-landfire/stac-collection.json
 
