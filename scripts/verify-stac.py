@@ -745,15 +745,14 @@ def check_parquet_columns_shape(doc: dict) -> list[Finding]:
 def check_pmtiles_link(doc: dict) -> list[Finding]:
     """Portolan: PMTiles are reached through a collection-level `rel: pmtiles` link
     (PORTO-FMT-011, MUST). The PMTiles asset stays too (FMT-013 allows it): the deployed
-    GLEN apps read the asset. ADVISORY for a missing link while the catalog is backfilled;
-    promote to HARD once it is (glen#441)."""
+    GLEN apps read the asset. A missing link is HARD: the catalog was backfilled (glen#441)."""
     out = []
     base = next((l.get("href") for l in doc.get("links", []) if l.get("rel") == "self"), "")
     absolute = lambda h: urllib.parse.urljoin(base, h or "")
     tiles = {absolute(a.get("href")) for a in doc.get("assets", {}).values() if is_pmtiles(a)}
     links = [l for l in doc.get("links", []) if l.get("rel") == "pmtiles"]
     if tiles and not links:
-        out.append(Finding(ADVISORY, "pmtiles-no-link",
+        out.append(Finding(HARD, "pmtiles-no-link",
                            "collection has a PMTiles asset but no `rel: pmtiles` link "
                            "(PORTO-FMT-011). Add one per PMTiles file, with type "
                            "application/vnd.pmtiles and pmtiles:layers; keep the asset."))

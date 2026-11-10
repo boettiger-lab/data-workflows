@@ -1109,8 +1109,8 @@ class PmtilesLink(unittest.TestCase):
     def codes(self, doc):
         return {f.code: f.severity for f in vs.check_pmtiles_link(doc)}
 
-    def test_missing_link_is_advisory(self):
-        self.assertEqual(self.codes(self.doc()), {"pmtiles-no-link": vs.ADVISORY})
+    def test_missing_link_is_hard(self):
+        self.assertEqual(self.codes(self.doc()), {"pmtiles-no-link": vs.HARD})
 
     def test_relative_link_matching_the_asset_is_clean(self):
         link = {"rel": "pmtiles", "href": "../d.pmtiles", "type": "application/vnd.pmtiles"}
