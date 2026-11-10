@@ -1,0 +1,61 @@
+# HAND-ROLLED: the generator has no stage-raw step; staging upstream files is per-source (#882).
+#
+# InVEST Peru (#882), input staging: FAO Global Ecological Zones, second edition (2010),
+# CC-BY-4.0, from the FAO Map Catalog (https://data.apps.fao.org/catalog, dataset
+# 2fb209d0-fd34-4e5e-a3d8-a13c241eb61b). The IPCC Tier 1 biomass tables are keyed on these
+# zones. Stages the zip unchanged under raw/, and writes a GeoParquet copy clipped to a box
+# around Peru (-82..-68 E, -19..1 N; 6 of the 21 dissolved zone polygons) under raw/derived/ so
+# the zones can be queried with the duckdb-geo MCP. Clipping first keeps -makevalid away from the
+# global polygons, which OOMed at 2Gi. The log prints size, MD5 and sha256 of the staged zip.
+#
+#   kubectl apply -n geo-workflows -f catalog/ncp/k8s/invest-peru-2019/stage-gez.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: invest-peru-2019-stage-gez
+  namespace: geo-workflows
+  labels: {k8s-app: invest-peru-2019-stage-gez}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: invest-peru-2019-stage-gez}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts.
+      dnsConfig:
+        nameservers: [8.8.8.8, 1.1.1.1]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          URL=https://storage.googleapis.com/fao-maps-catalog-data/uuid/2fb209d0-fd34-4e5e-a3d8-a13c241eb61b/resources/gez2010.zip
+          curl -sSL --retry 8 --retry-all-errors --retry-delay 5 -o gez2010.zip "$URL"
+          echo "gez2010.zip bytes=$(stat -c%s gez2010.zip) md5=$(md5sum gez2010.zip | cut -d' ' -f1) sha256=$(sha256sum gez2010.zip | cut -d' ' -f1)"
+          rclone copyto gez2010.zip nrp:public-ncp/raw/fao-gez-2010/gez2010.zip $R
+          ogr2ogr -f Parquet gez2010-peru-box.parquet /vsizip/gez2010.zip/gez_2010_wgs84.shp \
+            -spat -82 -19 -68 1 -clipsrc spat_extent -nlt PROMOTE_TO_MULTI -makevalid
+          ogrinfo -ro -al -geom=NO gez2010-peru-box.parquet | grep -E "Feature Count|gez_name ="
+          rclone copyto gez2010-peru-box.parquet nrp:public-ncp/raw/derived/fao-gez-2010/gez2010-peru-box.parquet $R
+          rclone lsl nrp:public-ncp/raw/ --include '*gez2010*'
+        resources:
+          requests: {cpu: '1', memory: 4Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 4Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
