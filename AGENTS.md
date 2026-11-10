@@ -415,8 +415,16 @@ A ~300K-feature vector run typically takes 1–2 hours.
 **Write STAC/README to `/tmp/` only — never to `catalog/<dataset>/stac/`.** Upload directly:
 ```bash
 rclone copyto /tmp/README.md nrp:<bucket>/README.md
+rclone cat nrp:<bucket>/<dataset>/stac-collection.json > /tmp/live.json 2>/dev/null || : > /tmp/live.json
+scripts/stac-publish-guard.py /tmp/stac-collection.json /tmp/live.json   # must exit 0
 rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.json
 ```
+
+**Replacing a live collection goes through `scripts/stac-publish-guard.py`, by hand or in a job.**
+It keeps the live default styles, renders and `rel: pmtiles` links the new file lacks, and
+refuses a file that would drop the live column dictionary or revert an asset-key rename. A job
+that uploads a collection must run it (CI checks, `scripts/check-stac-publish-guard.py`); the
+script's docstring has the job snippet.
 
 ⛔ **Do not hand-check the STAC rules — run the gate.**
 
