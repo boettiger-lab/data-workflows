@@ -107,10 +107,13 @@ spec:
           NODATA = 65535
           lucode = (zone.astype(np.uint16) * 1000 + cls).astype(np.uint16)
           lucode[(lc == 255) | (zone == 0)] = NODATA
-          # every Peru pixel has a zone, and none is in Tropical moist forest (12), which only
-          # occurs outside Peru (its rows below exist for buffer pixels, which are clipped away)
+          # every Peru pixel has a zone. Tropical moist forest (12) is not a Peru zone: it covers
+          # buffer pixels and 2 border-sliver pixels inside Peru, all given rainforest values
+          # (#882). More than 100 such pixels would mean a real zone mismatch, so stop.
           assert not (peru & (zone == 0)).any(), int((peru & (zone == 0)).sum())
-          assert not (peru & (zone == 12)).any(), int((peru & (zone == 12)).sum())
+          n12 = int((peru & (zone == 12)).sum())
+          print("Peru pixels in Tropical moist forest (rainforest values):", n12, flush=True)
+          assert n12 <= 100, n12
           print("cocoa pixels inside Peru:", int((cocoa & peru).sum()), flush=True)
           del lc, cls, cocoa
 
@@ -170,7 +173,7 @@ spec:
               15: ((59.9, 22.7, 2.1, 9.0), (55.9, 18.7, 2.1, 9.0), (1.1, 3.0, 0, 9.0),
                    (24.0, 0, 0, 9.1), (5.0, 0, 0, 8.3)),                       # desert
           }
-          Z[12] = Z[11]   # moist forest: outside Peru only (asserted above); clipped away
+          Z[12] = Z[11]   # moist forest: buffer pixels plus a few border slivers in Peru (#882)
           rows = []
           for zc, (cf, of, veg, coc, cult) in Z.items():
               for c in list(CLOSED) + list(OPEN) + list(VEG) + list(ZERO) + [40, COCOA]:
