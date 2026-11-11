@@ -1388,6 +1388,29 @@ def check_license_consistency(docs: list[tuple[str, dict]]) -> list[tuple[str, F
     return out
 
 
+THUMBNAIL_TYPES = {"image/png", "image/jpeg", "image/webp"}
+
+
+def check_thumbnail(doc: dict) -> list[Finding]:
+    """Portolan: a collection with a render path carries a thumbnail drawn from its default
+    styling (PORTO-CORE-067), an asset with role `thumbnail` and an image type. A wrong type is
+    HARD; a missing thumbnail is ADVISORY until the backfill is done (#889). Build one with
+    scripts/thumbnail.py."""
+    assets = doc.get("assets", {})
+    thumbs = {k: a for k, a in assets.items() if "thumbnail" in (a.get("roles") or [])}
+    out = [Finding(HARD, "thumbnail-type",
+                   f"thumbnail '{k}' has type {a.get('type')!r}; use one of "
+                   f"{sorted(THUMBNAIL_TYPES)} (PORTO-CORE-067)")
+           for k, a in thumbs.items() if a.get("type") not in THUMBNAIL_TYPES]
+    drawable = doc.get("renders") or any(
+        "style" in (a.get("roles") or []) and "default" in a["roles"] for a in assets.values())
+    if drawable and not thumbs:
+        out.append(Finding(ADVISORY, "thumbnail-missing",
+                           "the collection has a default style or render but no `thumbnail` "
+                           "asset (PORTO-CORE-067); build one with scripts/thumbnail.py"))
+    return out
+
+
 STATIC_CHECKS = [
     check_license,
     check_nav_links,
@@ -1401,6 +1424,7 @@ STATIC_CHECKS = [
     check_table_columns_placement,
     check_parquet_columns_shape,
     check_pmtiles_link,
+    check_thumbnail,
     check_cng_fid,
     check_hex_dup_warning,
     check_column_description_consistency,
