@@ -98,8 +98,10 @@ Exit 0 = no HARD findings. Exit 1 = one or more HARD findings.
 The heavy data check POSTs SQL to the geo-query MCP server
 (https://geo-query.nrp-nautilus.io/mcp), so it is not bound by GitHub runner
 resources or the slow public S3 endpoint. That route needs a bearer token in
-MCP_AUTH_TOKEN; without one the data checks fail with HTTP 401. Set MCP_ENDPOINT
-to use another server.
+MCP_AUTH_TOKEN; without one the server answers HTTP 401 and the run reports a HARD
+`mcp-unavailable` (data checks that cannot run are not a pass). With --no-data the
+same failure is only advisory, so the static pre-publish run needs no key. Set
+MCP_ENDPOINT to use another server.
 """
 
 import argparse
@@ -2306,8 +2308,13 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
             try:
                 client.initialize()
             except Exception as e:
-                findings.append(Finding(ADVISORY, "mcp-unavailable",
-                                        f"data checks skipped — MCP not reachable: {e}"))
+                # Data checks that cannot run are not a pass: a dead route or a missing
+                # key let CI skip every data check and report green (#897). The recall
+                # pass alone (--no-data) stays advisory so the static run needs no key.
+                findings.append(Finding(
+                    HARD if do_data else ADVISORY, "mcp-unavailable",
+                    f"data checks could not run — MCP not reachable ({client.endpoint}): {e}"
+                    + (". UNVERIFIED, not clean." if do_data else "")))
                 client = None
         if client is not None:
             if do_data:
