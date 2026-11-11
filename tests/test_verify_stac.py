@@ -976,6 +976,46 @@ class TestStyles(unittest.TestCase):
         self.assertIn((vs.HARD, "style-media-type"), got)
         self.assertIn((vs.HARD, "style-not-in-styles-dir"), got)
 
+    def test_one_default_per_pmtiles_file(self):
+        e = dict(self.PM, href="https://s3-west.nrp-nautilus.io/b/e.pmtiles")
+        both = {"d-pmtiles": self.PM, "e-pmtiles": e,
+                "style-d": self.style(roles=("style", "default")),
+                "style-d-x": self.style(),
+                "style-e-y": self.style(roles=("style", "default"))}
+        self.assertEqual(self.codes(both), set())
+        both["style-d-x"] = self.style(roles=("style", "default"))
+        self.assertIn((vs.HARD, "style-default-count"), self.codes(both))
+
+    def test_fallback_default_is_hard(self):
+        got = self.codes({"d-pmtiles": self.PM,
+                          "style-fallback-d": self.style(roles=("style", "default"))})
+        self.assertIn((vs.HARD, "style-fallback-default"), got)
+
+
+class TestDefaultStylePaint(unittest.TestCase):
+    def run_check(self, sty):
+        doc = {"assets": {"style-d": {"href": "x", "roles": ["style", "default"]},
+                          "style-d-other": {"href": "y", "roles": ["style"]}}}
+        return {(f.severity, f.code) for f in vs.check_default_style_paint(doc, lambda h: sty)}
+
+    def layer(self, color):
+        return {"layers": [{"type": "fill", "paint": {"fill-color": color}}]}
+
+    def test_constant_colour_is_hard(self):
+        self.assertEqual(self.run_check(self.layer("#4a7bb7")),
+                         {(vs.HARD, "style-single-colour-default")})
+
+    def test_stated_reason_passes(self):
+        sty = dict(self.layer("#4a7bb7"), metadata={"glen:single_colour_reason": "no attributes"})
+        self.assertEqual(self.run_check(sty), set())
+
+    def test_data_driven_colour_passes(self):
+        self.assertEqual(self.run_check(self.layer(["match", ["get", "a"], "x", "#f00", "#ccc"])),
+                         set())
+
+    def test_unreadable_style_is_advisory(self):
+        self.assertEqual(self.run_check(None), {(vs.ADVISORY, "style-unreadable")})
+
 
 # ---------------------------------------------------------------------------
 # Portolan column shape (PORTO-FMT-046/048, glen#441): one dictionary on the collection

@@ -22,52 +22,34 @@ TILES = {"href": BASE + "d.pmtiles", "type": "application/vnd.pmtiles", "vector:
 
 
 class Pmtiles(unittest.TestCase):
-    def run_fb(self, d, types, targets=None):
-        with mock.patch.object(fb, "pmtiles_layer_types", return_value=types):
-            return fb.fallback(d, COLL, targets=targets or {})
+    def run_fb(self, d, targets=None):
+        return fb.fallback(d, COLL, targets=targets or {})
 
-    def test_one_colour_style_by_geometry(self):
-        new, files, _ = self.run_fb(doc(**{"d-pmtiles": dict(TILES)}), {"d": "line"})
-        a = new["assets"]["style-fallback-d"]
-        self.assertEqual(a["roles"], ["style", "default"])
-        self.assertEqual(a["href"], BASE + "d/styles/fallback-d.json")
-        (fname, sty), = files
-        self.assertEqual(sty["layers"][0]["type"], "line")
-        self.assertEqual(sty["layers"][0]["source-layer"], "d")
-        self.assertEqual(sty["sources"]["data"]["url"], "pmtiles://../../d.pmtiles")
+    def test_file_without_style_is_reported_not_styled(self):
+        new, files, notes = self.run_fb(doc(**{"d-pmtiles": dict(TILES)}))
+        self.assertIsNone(new)
+        self.assertEqual(files, [])
+        self.assertIn("scripts/default-style.py", notes[0])
 
     def test_existing_default_style_is_left_alone(self):
         d = doc(**{"d-pmtiles": dict(TILES),
                    "style-d": {"href": BASE + "s.json", "roles": ["style", "default"]}})
-        new, files, _ = self.run_fb(d, {"d": "fill"}, {"style-d": {TILES["href"]}})
+        new, files, _ = self.run_fb(d, {"style-d": {TILES["href"]}})
         self.assertIsNone(new)
         self.assertEqual(files, [])
 
     def test_generic_default_covers_every_file(self):
         d = doc(**{"d-pmtiles": dict(TILES),
                    "style-d": {"href": BASE + "s.json", "roles": ["style", "default"]}})
-        new, _, _ = self.run_fb(d, {"d": "fill"}, {"style-d": None})
+        new, _, _ = self.run_fb(d, {"style-d": None})
         self.assertIsNone(new)
-
-    def test_each_file_gets_its_own_default(self):
-        other = dict(TILES, href=BASE + "e.pmtiles", **{"vector:layers": ["e"]})
-        d = doc(**{"d-pmtiles": dict(TILES), "e-pmtiles": other,
-                   "style-d": {"href": BASE + "s.json", "roles": ["style", "default"]}})
-        new, files, _ = self.run_fb(d, {"e": "fill"}, {"style-d": {TILES["href"]}})
-        self.assertEqual(new["assets"]["style-fallback-e"]["roles"], ["style", "default"])
-        self.assertEqual(len(files), 1)
 
     def test_existing_style_for_a_file_is_promoted(self):
         d = doc(**{"d-pmtiles": dict(TILES),
                    "style-d": {"href": BASE + "s.json", "roles": ["style"]}})
-        new, files, notes = self.run_fb(d, {"d": "fill"}, {"style-d": {TILES["href"]}})
+        new, files, notes = self.run_fb(d, {"style-d": {TILES["href"]}})
         self.assertEqual(new["assets"]["style-d"]["roles"], ["style", "default"])
         self.assertEqual(files, [])
-
-    def test_unknown_geometry_is_skipped(self):
-        new, _, notes = self.run_fb(doc(**{"d-pmtiles": dict(TILES)}), {})
-        self.assertIsNone(new)
-        self.assertIn("no geometry type", notes[0])
 
 
 class Renders(unittest.TestCase):

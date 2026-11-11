@@ -28,8 +28,12 @@ Static checks (no data; just the STAC JSON):
   - vector:layers on every PMTiles asset
   - Portolan styles (PORTO-CORE-069/070, PORTO-FMT-014/015): a style asset is typed
     application/vnd.mapbox.style+json under styles/; with several, exactly one carries
-    the `default` role. ADVISORY: a PMTiles collection with no style asset (catalog-wide
-    debt being retrofitted from the GLEN app configs, #881)
+    the `default` role for each PMTiles file (glen matches a style to its file, glen#440).
+    A file's default is a considered style on its primary variable: a one-colour
+    `style-fallback-*` default is HARD, and so is a default whose colour is a constant
+    unless the style says why in `glen:single_colour_reason` (scripts/default-style.py).
+    ADVISORY: a PMTiles collection with no style asset (catalog-wide debt being
+    retrofitted from the GLEN app configs, #881)
   - table:columns in the Portolan shape (PORTO-FMT-046/048, glen#441): one column dictionary
     on the collection (name, type, description, values) covering every column of every
     data asset; an asset keeps its own list, names and types only, where its schema
@@ -102,6 +106,7 @@ MCP_AUTH_TOKEN for a bearer token if the endpoint is ever locked down.
 """
 
 import argparse
+import collections
 import copy
 import tempfile
 import importlib.util
@@ -615,15 +620,67 @@ def check_styles(doc: dict) -> list[Finding]:
             out.append(Finding(HARD, "style-no-title",
                                f"style asset '{key}' needs a human-readable title."))
     defaults = [k for k, a in styles.items() if "default" in a.get("roles", [])]
-    if len(styles) > 1 and len(defaults) != 1:
+    stems = sorted((k.removesuffix("-pmtiles") for k, a in assets.items() if is_pmtiles(a)),
+                   key=len, reverse=True)
+    if len(stems) > 1:  # one default per PMTiles file (glen#440)
+        def stem_of(k):
+            k = k.removeprefix("style-fallback-").removeprefix("style-")
+            return next((s for s in stems if k == s or k.startswith(s + "-")), None)
+        per = collections.Counter(stem_of(k) for k in defaults)
+        for stem in sorted({stem_of(k) for k in styles} - {None}):
+            if per[stem] != 1:
+                out.append(Finding(HARD, "style-default-count",
+                                   f"PMTiles file '{stem}-pmtiles' has {per[stem]} default "
+                                   f"styles; exactly one must (PORTO-CORE-070, glen#440)."))
+    elif len(styles) > 1 and len(defaults) != 1:
         out.append(Finding(HARD, "style-default-count",
                            f"{len(styles)} style assets and {len(defaults)} carry the "
                            f"'default' role; exactly one must (PORTO-CORE-070)."))
+    for k in defaults:
+        if k.startswith("style-fallback-"):
+            out.append(Finding(HARD, "style-fallback-default",
+                               f"default style '{k}' is a one-colour fallback. Build a default "
+                               f"on the file's primary variable with scripts/default-style.py "
+                               f"(skill stac-authoring, Step 5b)."))
     if not styles and any(is_pmtiles(a) for a in assets.values()):
         out.append(Finding(ADVISORY, "pmtiles-no-style",
                            "collection has PMTiles but no MapLibre style asset "
                            "(PORTO-CORE-069). Generate one with scripts/app-styles.py "
                            "or write one (skill stac-authoring)."))
+    return out
+
+
+def _fetch_style(href: str) -> dict | None:
+    try:
+        with urllib.request.urlopen(href, timeout=30) as r:
+            return json.load(r)
+    except Exception:  # noqa: BLE001 — reported as a finding by the caller
+        return None
+
+
+def check_default_style_paint(doc: dict, fetch=_fetch_style) -> list[Finding]:
+    """A default style must colour its features by a variable, unless the style records why
+    the data has none worth showing (`glen:single_colour_reason`). Fetches each default."""
+    out = []
+    for key, a in doc.get("assets", {}).items():
+        roles = a.get("roles") or []
+        if "style" not in roles or "default" not in roles or key.startswith("style-fallback-"):
+            continue
+        sty = fetch(a.get("href", ""))
+        if not isinstance(sty, dict):
+            out.append(Finding(ADVISORY, "style-unreadable",
+                               f"default style '{key}' could not be read from {a.get('href')}."))
+            continue
+        if (sty.get("metadata") or {}).get("glen:single_colour_reason"):
+            continue
+        paints = [(l.get("paint") or {}).get(f"{l.get('type')}-color")
+                  for l in sty.get("layers", []) if l.get("type") in ("fill", "line", "circle")]
+        if paints and not any(isinstance(p, list) for p in paints):
+            out.append(Finding(HARD, "style-single-colour-default",
+                               f"default style '{key}' draws every feature in one colour. Colour "
+                               f"it by the file's primary variable (scripts/default-style.py), or, "
+                               f"if the data has no variable worth showing, say why in the style's "
+                               f"metadata `glen:single_colour_reason` (--single-colour REASON)."))
     return out
 
 
@@ -1295,6 +1352,7 @@ STATIC_CHECKS = [
     check_hex_assets,
     check_vector_layers,
     check_styles,
+    check_default_style_paint,
     check_table_columns_placement,
     check_parquet_columns_shape,
     check_pmtiles_link,
