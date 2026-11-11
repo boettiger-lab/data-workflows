@@ -59,11 +59,29 @@ def band(product, values_note):
     return {"data_type": "int16", "nodata": -32768, "scale": 0.01, "offset": 0, "unit": unit}
 
 
-def baa_render(title, asset, b):
-    """A categorical render for a BAA COG: its classes as a colormap, so a map app draws the
-    alert levels in Coral Reef Watch's colours rather than as a continuous ramp."""
-    return {"title": title, "assets": [asset], "resampling": "nearest", "nodata": b["nodata"],
-            "colormap": {str(c["value"]): "#" + c["color_hint"] for c in b["classification:classes"]}}
+# How each product is drawn. Ranges are in real units (degrees Celsius, degree Celsius-weeks):
+# a map app asks TiTiler to unscale a band with a scale factor, and TiTiler applies `rescale`
+# after unscaling, so a range in stored hundredths would stretch over thousands of degrees.
+RAMPS = [  # (product prefix, colormap, low, high); first match wins
+    ("annual ssta-mean", "rdbu_r", -2, 2),  # a year's mean anomaly is small
+    ("ssta", "rdbu_r", -5, 5),
+    ("sst", "rdylbu_r", -2, 32),      # sea water freezes near -2 C; the warmest reefs pass 31 C
+    ("hs", "ylorrd", 0, 5),           # HotSpot: heat stress above the bleaching threshold
+    ("dhw", "ylorrd", 0, 30),
+]
+
+
+def render(tier, product, title, asset, b):
+    """The render for one COG: a categorical colormap from a BAA band's classes, so the alert
+    levels draw in Coral Reef Watch's colours, or a continuous ramp in real units."""
+    if "classification:classes" in b:
+        return {"title": title, "assets": [asset], "resampling": "nearest", "nodata": b["nodata"],
+                "colormap": {str(c["value"]): "#" + c["color_hint"]
+                             for c in b["classification:classes"]}}
+    cmap, lo, hi = next((c, lo, hi) for pre, c, lo, hi in RAMPS
+                        if product.startswith(pre) or f"{tier} {product}".startswith(pre))
+    return {"title": title, "assets": [asset], "colormap_name": cmap, "rescale": [[lo, hi]],
+            "nodata": b["nodata"]}
 
 
 def encoding_note(product):
@@ -156,8 +174,7 @@ def main():
                     "end_datetime": f"{y}-12-31T23:59:59Z",
                     "raster:bands": [b],
                 }
-                if "classification:classes" in b:
-                    renders[f"{p}-cog-{y}"] = baa_render(f"{name}, {y}", f"{p}-cog-{y}", b)
+                renders[f"{p}-cog-{y}"] = render(tier, p, f"{name}, {y}", f"{p}-cog-{y}", b)
         else:
             newest = dated[-1]
             stamp = newest[len(p) + 1:-4]
@@ -181,8 +198,7 @@ def main():
                                 f"{unit} is added; every {unit} also keeps its own file at {PUBLIC}/{bucket}/{base}/cog/{p}-{pattern}.tif. {note}"),
                 "raster:bands": [b],
             }
-            if "classification:classes" in b:
-                renders[p] = baa_render(name, f"{p}-cog", b)
+            renders[p] = render(tier, p, name, f"{p}-cog", b)
             write_frames(bucket, base, tier, dated, f"{work}/{p}-frames.json")
             assets[f"{p}-cog-frames"] = {
                 "href": f"{PUBLIC}/{bucket}/{base}/cog/frames.json",

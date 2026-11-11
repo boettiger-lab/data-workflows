@@ -34,6 +34,10 @@ Static checks (no data; just the STAC JSON):
     unless the style says why in `glen:single_colour_reason` (scripts/default-style.py).
     ADVISORY: a PMTiles collection with no style asset (catalog-wide debt being
     retrofitted from the GLEN app configs, #881)
+  - a render's `rescale` is in real units: a map app unscales a band that declares a scale or
+    offset before TiTiler applies `rescale`. HARD when the range lies outside what the band's
+    data type can hold after unscaling (a range in stored units); ADVISORY when it lies far
+    outside the band's statistics, unscaled
   - table:columns in the Portolan shape (PORTO-FMT-046/048, glen#441): one column dictionary
     on the collection (name, type, description, values) covering every column of every
     data asset; an asset keeps its own list, names and types only, where its schema
@@ -681,6 +685,46 @@ def check_default_style_paint(doc: dict, fetch=_fetch_style) -> list[Finding]:
                                f"it by the file's primary variable (scripts/default-style.py), or, "
                                f"if the data has no variable worth showing, say why in the style's "
                                f"metadata `glen:single_colour_reason` (--single-colour REASON)."))
+    return out
+
+
+DTYPE_RANGE = {"int8": (-128, 127), "uint8": (0, 255), "int16": (-32768, 32767),
+               "uint16": (0, 65535), "int32": (-2**31, 2**31 - 1), "uint32": (0, 2**32 - 1)}
+
+
+def check_render_units(doc: dict) -> list[Finding]:
+    """A render's rescale must be in the units a map app draws: real units once the band's
+    scale and offset are applied (TiTiler unscales, then rescales)."""
+    out = []
+    assets = doc.get("assets", {})
+    for rkey, r in (doc.get("renders") or {}).items():
+        if not r.get("rescale"):
+            continue
+        for akey in r.get("assets", []):
+            band = ((assets.get(akey) or {}).get("raster:bands") or [{}])[0]
+            scale, offset = band.get("scale") or 1, band.get("offset") or 0
+
+            def real(x):
+                return x * scale + offset
+            for lo, hi in r["rescale"][:1]:
+                dt = DTYPE_RANGE.get(band.get("data_type"))
+                if dt and (scale, offset) != (1, 0):
+                    a, b = sorted(real(x) for x in dt)
+                    if lo < a or hi > b:
+                        out.append(Finding(HARD, "render-rescale-raw-units",
+                                           f"render '{rkey}' rescales {lo}..{hi}, but asset '{akey}' "
+                                           f"({band['data_type']}, scale {scale}, offset {offset}) "
+                                           f"holds only {a:g}..{b:g} once unscaled: give the range "
+                                           f"in real units."))
+                        continue
+                st = band.get("statistics") or {}
+                if st.get("minimum") is not None and st.get("maximum") is not None:
+                    a, b = sorted(real(st[k]) for k in ("minimum", "maximum"))
+                    span = max(b - a, abs(b) * 1e-6, 1e-9)
+                    if hi < a or lo > b or lo < a - span or hi > b + span:
+                        out.append(Finding(ADVISORY, "render-rescale-outside-statistics",
+                                           f"render '{rkey}' rescales {lo}..{hi}, far outside the "
+                                           f"statistics of asset '{akey}' ({a:g}..{b:g} in real units)."))
     return out
 
 
@@ -1353,6 +1397,7 @@ STATIC_CHECKS = [
     check_vector_layers,
     check_styles,
     check_default_style_paint,
+    check_render_units,
     check_table_columns_placement,
     check_parquet_columns_shape,
     check_pmtiles_link,

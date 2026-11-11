@@ -53,7 +53,14 @@ def _range(url, start, length):
 
 
 def cog_render(asset_key: str, asset: dict, measured: dict | None = None) -> tuple[dict | None, str]:
+    """A render whose `rescale` is in real units: statistics are of the stored values, and a map
+    app unscales a band with a scale or offset before TiTiler applies `rescale`."""
     band = (asset.get("raster:bands") or [{}])[0]
+    scale, offset = band.get("scale") or 1, band.get("offset") or 0
+
+    def real(x):
+        return round(x * scale + offset, 6)
+
     title = f"Fallback: {asset.get('title') or asset_key}"
     nodata = band.get("nodata", asset.get("nodata"))
     classes = band.get("classification:classes") or asset.get("classification:classes")
@@ -63,7 +70,7 @@ def cog_render(asset_key: str, asset: dict, measured: dict | None = None) -> tup
     elif (st := band.get("statistics")) and st.get("minimum") is not None \
             and st.get("maximum") is not None and st["maximum"] > st["minimum"]:
         e = {"title": title, "assets": [asset_key], "colormap_name": "viridis",
-             "rescale": [[st["minimum"], st["maximum"]]]}
+             "rescale": [sorted([real(st["minimum"]), real(st["maximum"])])]}
     elif measured and measured.get("min") is not None and measured.get("max") is not None \
             and measured["max"] > measured["min"]:
         lo, hi = measured["min"], measured["max"]
@@ -71,7 +78,7 @@ def cog_render(asset_key: str, asset: dict, measured: dict | None = None) -> tup
             lo = max(lo, measured["mean"] - 2 * measured["std"])
             hi = min(hi, measured["mean"] + 2 * measured["std"])
         e = {"title": title, "assets": [asset_key], "colormap_name": "viridis",
-             "rescale": [[round(lo, 6), round(hi, 6)]]}
+             "rescale": [sorted([real(lo), real(hi)])]}
     else:
         return None, "no classes with color_hint and no statistics"
     if nodata is not None:

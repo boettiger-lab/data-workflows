@@ -992,6 +992,28 @@ class TestStyles(unittest.TestCase):
         self.assertIn((vs.HARD, "style-fallback-default"), got)
 
 
+class TestRenderUnits(unittest.TestCase):
+    def codes(self, band, rescale):
+        doc = {"assets": {"d-cog": {"raster:bands": [band]}},
+               "renders": {"d": {"assets": ["d-cog"], "rescale": [rescale]}}}
+        return {(f.severity, f.code) for f in vs.check_render_units(doc)}
+
+    SCALED = {"data_type": "int16", "scale": 0.01, "offset": 0}
+
+    def test_stored_units_on_a_scaled_band_is_hard(self):
+        self.assertEqual(self.codes(self.SCALED, [-204, 3250]),
+                         {(vs.HARD, "render-rescale-raw-units")})
+
+    def test_real_units_pass(self):
+        self.assertEqual(self.codes(self.SCALED, [-2, 32]), set())
+
+    def test_far_outside_statistics_is_advisory(self):
+        band = dict(self.SCALED, statistics={"minimum": -200, "maximum": 3500})
+        self.assertEqual(self.codes(band, [-2, 32]), set())
+        self.assertEqual(self.codes(band, [100, 300]),
+                         {(vs.ADVISORY, "render-rescale-outside-statistics")})
+
+
 class TestDefaultStylePaint(unittest.TestCase):
     def run_check(self, sty):
         doc = {"assets": {"style-d": {"href": "x", "roles": ["style", "default"]},

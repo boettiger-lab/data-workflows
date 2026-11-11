@@ -84,6 +84,12 @@ class Renders(unittest.TestCase):
         new, _, _ = fb.fallback(d, COLL)
         self.assertIsNone(new)
 
+    def test_scaled_band_rescale_is_in_real_units(self):
+        a = self.cog({"nodata": -32768, "scale": 0.01, "offset": 0,
+                      "statistics": {"minimum": -200, "maximum": 3250}})
+        e, _ = fb.cog_render("d-cog", a)
+        self.assertEqual(e["rescale"], [[-2.0, 32.5]])
+
     def test_overview_stats_become_a_clipped_stretch(self):
         a = self.cog({"nodata": -1})
         stats = {a["href"]: {"min": 0, "max": 100, "mean": 10, "std": 5}}
