@@ -19,6 +19,8 @@ Idempotent: it rebuilds every COG asset from the bucket listing on each run, lea
 asset and everything else in the collection untouched, and skips the upload when nothing changed.
 Uses only the standard library and rclone (remote `nrp`), so it runs in the build image and locally.
 """
+# STAC-PUBLISH-GUARD: not needed: reads each live collection, edits its COG assets and renders
+# in place, and uploads the result, so nothing added to the collection since is lost.
 import json
 import os
 import re
