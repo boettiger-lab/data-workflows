@@ -680,6 +680,38 @@ class CatalogNotCollection(unittest.TestCase):
         self.assertIn("nav-parent-missing", [f.code for f in vs.check_nav_links(d)])
 
 
+class TestMcpUnavailable(unittest.TestCase):
+    """A server that cannot be reached fails a data run, but not a --no-data run (#897)."""
+
+    def run_verify(self, do_data):
+        import json, tempfile
+        from unittest import mock
+
+        class Dead:
+            endpoint = "https://example.invalid/mcp"
+
+            def initialize(self):
+                raise vs.MCPError("HTTP Error 401: Unauthorized")
+
+        doc = {"type": "Collection", "id": "x", "stac_version": "1.0.0", "description": "x",
+               "license": "CC-BY-4.0", "links": [], "assets": {},
+               "extent": {"spatial": {"bbox": [[0, 0, 1, 1]]},
+                          "temporal": {"interval": [["2020-01-01T00:00:00Z", None]]}}}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(doc, f)
+        with mock.patch.object(vs, "MCPClient", lambda *a, **k: Dead()):
+            _, findings = vs.verify(f.name, do_data=do_data, do_recall=True)
+        return [x for x in findings if x.code == "mcp-unavailable"]
+
+    def test_data_run_fails(self):
+        (f,) = self.run_verify(do_data=True)
+        self.assertEqual(f.severity, vs.HARD)
+
+    def test_no_data_run_stays_advisory(self):
+        (f,) = self.run_verify(do_data=False)
+        self.assertEqual(f.severity, vs.ADVISORY)
+
+
 if __name__ == "__main__":
     unittest.main()
 
