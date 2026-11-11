@@ -33,6 +33,15 @@ class Choice(unittest.TestCase):
         self.assertEqual(th.cog_render(doc)[0], "x-cog-2025")
 
 
+class Name(unittest.TestCase):
+    def test_names(self):
+        self.assertEqual(th.thumb_name(BASE), "thumbnail.png")
+        self.assertEqual(th.thumb_name("https://h/public-cpad/cpad-units-stac-collection.json"),
+                         "cpad-units-thumbnail.png")
+        self.assertEqual(th.thumb_name("https://h/public-indigenous/landmark/iplc-pt-stac.json"),
+                         "iplc-pt-thumbnail.png")
+
+
 class CogPreview(unittest.TestCase):
     def query(self, render, asset):
         url = th.cog_preview_url(BASE, render, asset, 256)

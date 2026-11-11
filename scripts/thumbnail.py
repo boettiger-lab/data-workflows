@@ -4,7 +4,8 @@
     scripts/thumbnail.py <collection-url> --out DIR [--size 512]
 
 Writes DIR/<bucket>/<path>/thumbnail.png and DIR/<bucket>/<path>/stac-collection.json, the
-collection with a `thumbnail` asset (role `thumbnail`, image/png) pointing at it. Publish both
+collection with a `thumbnail` asset (role `thumbnail`, image/png) pointing at it. A collection
+file not named stac-collection.json gets <stem>-thumbnail.png, so neighbours do not collide. Publish both
 with the usual guard (AGENTS.md Step 5); the guard keeps a live thumbnail the new file lacks.
 
 What it draws, in order of preference:
@@ -55,6 +56,15 @@ def self_href(doc: dict, fallback: str) -> str:
 
 def absolute(base: str, href: str) -> str:
     return urllib.parse.urljoin(base, href)
+
+
+def thumb_name(collection_url: str) -> str:
+    """thumbnail.png beside stac-collection.json; <stem>-thumbnail.png beside any other collection
+    file, so collections sharing a directory (public-cpad) do not overwrite each other's."""
+    name = urllib.parse.urlparse(collection_url).path.rsplit("/", 1)[-1]
+    if name == "stac-collection.json":
+        return "thumbnail.png"
+    return name.removesuffix(".json").removesuffix("-stac-collection").removesuffix("-stac") + "-thumbnail.png"
 
 
 def coll_path(url: str) -> str:
@@ -236,7 +246,7 @@ def thumbnail(url: str, size: int) -> tuple[dict, bytes, str] | None:
         how = f"render {name}"
     new = json.loads(json.dumps(doc))
     new.setdefault("assets", {})["thumbnail"] = {
-        "href": absolute(base, "thumbnail.png"), "type": "image/png", "roles": ["thumbnail"],
+        "href": absolute(base, thumb_name(base)), "type": "image/png", "roles": ["thumbnail"],
         "title": "Thumbnail", "description": f"Preview drawn from the collection's {how}."}
     return new, png, how
 
@@ -257,7 +267,7 @@ def main() -> int:
         return 1
     out = a.out / coll_path(self_href(new, a.url))
     out.parent.mkdir(parents=True, exist_ok=True)
-    (out.parent / "thumbnail.png").write_bytes(png)
+    (out.parent / thumb_name(self_href(new, a.url))).write_bytes(png)
     out.write_text(json.dumps(new, indent=2) + "\n")
     print(f"{coll_path(self_href(new, a.url))}: thumbnail from {how}, {len(png)} bytes")
     return 0
