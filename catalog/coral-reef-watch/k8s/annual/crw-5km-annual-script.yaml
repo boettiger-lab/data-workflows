@@ -38,6 +38,7 @@ data:
     EXT = {
         "raster": "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
         "classification": "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+        "render": "https://stac-extensions.github.io/render/v2.0.0/schema.json",
     }
     # Bleaching Alert Area colours. Levels 0-4 follow Coral Reef Watch's published map colours;
     # levels 5-7 (the five-level annual product only) extend the ramp to darker reds and purple.
@@ -61,6 +62,13 @@ data:
             return b
         unit = "Celsius-weeks" if product.startswith("dhw") else "Celsius"
         return {"data_type": "int16", "nodata": -32768, "scale": 0.01, "offset": 0, "unit": unit}
+
+
+    def baa_render(title, asset, b):
+        """A categorical render for a BAA COG: its classes as a colormap, so a map app draws the
+        alert levels in Coral Reef Watch's colours rather than as a continuous ramp."""
+        return {"title": title, "assets": [asset], "resampling": "nearest", "nodata": b["nodata"],
+                "colormap": {str(c["value"]): "#" + c["color_hint"] for c in b["classification:classes"]}}
 
 
     def encoding_note(product):
@@ -100,6 +108,7 @@ data:
             sys.exit(__doc__)
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         work = os.environ.get("OUT_DIR") or tempfile.mkdtemp()
+        failed = []
         for p in products:
             base = f"{prefix}/{p}"
             stac_path = f"{work}/{p}.json"
@@ -111,9 +120,13 @@ data:
             coll = json.loads(text)
             before = json.dumps(coll, sort_keys=True)
 
-            # The value column's description lists the BAA levels (0=No Stress, ...).
-            values_note = next((c.get("description", "") for a in coll.get("assets", {}).values()
-                                for c in a.get("table:columns", []) if c["name"] == "bleaching_alert_area"), "")
+            # The value column's description lists the BAA levels (0=No Stress, ...). It lives in the
+            # collection's column dictionary since the Portolan column shape (glen#441), and on the
+            # asset's own list in collections not yet migrated.
+            columns = list(coll.get("table:columns", [])) + [
+                c for a in coll.get("assets", {}).values() for c in a.get("table:columns", [])]
+            values_note = next((c["description"] for c in columns if c.get("name") == "bleaching_alert_area"
+                                and "=" in c.get("description", "")), "")
             name = coll["title"].split(" (")[0]
             files = rclone("lsf", "--files-only", f"nrp:{bucket}/{base}/cog/").split()
             digits = {"daily": 8, "monthly": 6, "annual": 4}[tier]
@@ -125,6 +138,13 @@ data:
                       if not re.fullmatch(rf"{re.escape(p)}-cog(-\d{{4}}|-frames)?", k)}
             b = band(p, values_note)
             note = encoding_note(p)
+            renders = {k: v for k, v in coll.get("renders", {}).items()
+                       if not any(re.fullmatch(rf"{re.escape(p)}-cog(-\d{{4}})?", a) for a in v.get("assets", []))}
+            if p.startswith("baa") and "classification:classes" not in b:
+                print(f"{p}: no Bleaching Alert Area levels in the column descriptions; collection "
+                      f"left as it is", file=sys.stderr)
+                failed.append(p)
+                continue
 
             if tier == "annual":
                 for f in dated:
@@ -141,6 +161,8 @@ data:
                         "end_datetime": f"{y}-12-31T23:59:59Z",
                         "raster:bands": [b],
                     }
+                    if "classification:classes" in b:
+                        renders[f"{p}-cog-{y}"] = baa_render(f"{name}, {y}", f"{p}-cog-{y}", b)
             else:
                 newest = dated[-1]
                 stamp = newest[len(p) + 1:-4]
@@ -164,6 +186,8 @@ data:
                                     f"{unit} is added; every {unit} also keeps its own file at {PUBLIC}/{bucket}/{base}/cog/{p}-{pattern}.tif. {note}"),
                     "raster:bands": [b],
                 }
+                if "classification:classes" in b:
+                    renders[p] = baa_render(name, f"{p}-cog", b)
                 write_frames(bucket, base, tier, dated, f"{work}/{p}-frames.json")
                 assets[f"{p}-cog-frames"] = {
                     "href": f"{PUBLIC}/{bucket}/{base}/cog/frames.json",
@@ -176,9 +200,13 @@ data:
                                     f"is added or removed."),
                 }
             coll["assets"] = assets
+            if renders:
+                coll["renders"] = renders
             exts = coll.setdefault("stac_extensions", [])
-            for key in ("raster", "classification"):
-                if (key == "raster" or "classification:classes" in b) and EXT[key] not in exts:
+            for key in ("raster", "classification", "render"):
+                want = {"raster": True, "classification": "classification:classes" in b,
+                        "render": bool(renders)}[key]
+                if want and EXT[key] not in exts:
                     exts.append(EXT[key])
             if json.dumps(coll, sort_keys=True) == before:
                 print(f"{p}: COG assets unchanged")
@@ -190,6 +218,8 @@ data:
                 continue
             rclone("copyto", stac_path, f"nrp:{bucket}/{base}/stac-collection.json")
             print(f"{p}: {len(dated)} COGs, assets {sorted(k for k in assets if '-cog' in k)[:3]}...")
+        if failed:
+            sys.exit(f"no BAA levels found for {', '.join(failed)}")
 
 
     if __name__ == "__main__":
