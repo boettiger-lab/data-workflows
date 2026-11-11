@@ -13,8 +13,9 @@ name: Verify STAC
 #   - GitHub status checks don't auto-refresh from S3, so RE-RUN this workflow via
 #     workflow_dispatch after the cluster jobs finish. Merge requires it green.
 #
-# The data-backed checks POST SQL to the public duckdb-geo MCP endpoint (no auth), so
-# they are not bound by runner resources or the slow public S3 endpoint.
+# The data-backed checks POST SQL to the geo-query MCP server, so they are not bound
+# by runner resources or the slow public S3 endpoint. The route needs this repo's
+# own key, the MCP_AUTH_TOKEN secret.
 
 on:
   pull_request:
@@ -51,7 +52,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     env:
-      # Optional bearer token, only if the MCP endpoint is ever locked down.
+      MCP_ENDPOINT: https://geo-query.nrp-nautilus.io/mcp
       MCP_AUTH_TOKEN: ${{ secrets.MCP_AUTH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
