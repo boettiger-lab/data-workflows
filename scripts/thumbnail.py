@@ -13,8 +13,8 @@ What it draws, in order of preference:
     headless Chromium (Playwright) over the collection's bounding box, or a crop at the
     tiles' minimum zoom when the box would fit below it. Symbol layers are
     dropped, so a thumbnail needs no glyphs or sprites.
-  * COG: the collection's last render by name whose asset is a GeoTIFF (the newest year of a
-    series keyed by year), drawn by TiTiler's
+  * COG: the collection's first render whose asset is a GeoTIFF (the newest year, for a series
+    of renders keyed by year), drawn by TiTiler's
     /cog/preview.png with the render's colormap, rescale and nodata. A band with a scale or
     offset is unscaled first, as the map apps do, so the rescale is in real units.
 A collection with neither gets no thumbnail; the script says so and exits 2.
@@ -28,6 +28,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import sys
 import time
 import urllib.parse
@@ -109,8 +110,12 @@ def default_style(doc: dict) -> tuple[str, dict] | None:
 
 def cog_render(doc: dict) -> tuple[str, dict, dict] | None:
     assets = doc.get("assets", {})
-    # Last by name: a series keyed by year (CRW annual `*-cog-1985` … `-2025`) shows its newest.
-    for name, r in sorted((doc.get("renders") or {}).items(), reverse=True):
+    renders = list((doc.get("renders") or {}).items())
+    # A series keyed by year (CRW annual `*-cog-1985` … `-2025`) shows its newest year; any
+    # other collection its first render, in the order the collection lists them.
+    if renders and all(re.search(r"(19|20)\d\d$", n) for n, _ in renders):
+        renders.sort(key=lambda kv: kv[0][-4:], reverse=True)
+    for name, r in renders:
         for k in r.get("assets", []):
             a = assets.get(k, {})
             if "geotiff" in (a.get("type") or "") or (a.get("href") or "").endswith((".tif", ".tiff")):

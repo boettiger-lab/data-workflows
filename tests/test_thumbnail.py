@@ -32,6 +32,12 @@ class Choice(unittest.TestCase):
                "assets": {"a": tif(1985), "b": tif(2025)}}
         self.assertEqual(th.cog_render(doc)[0], "x-cog-2025")
 
+    def test_topic_renders_keep_their_order(self):
+        tif = lambda n: {"href": f"{n}.tif"}
+        doc = {"renders": {"crop-current": {"assets": ["a"]}, "wood": {"assets": ["b"]}},
+               "assets": {"a": tif("a"), "b": tif("b")}}
+        self.assertEqual(th.cog_render(doc)[0], "crop-current")
+
 
 class Name(unittest.TestCase):
     def test_names(self):
