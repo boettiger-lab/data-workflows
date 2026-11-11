@@ -1024,6 +1024,28 @@ class TestStyles(unittest.TestCase):
         self.assertIn((vs.HARD, "style-fallback-default"), got)
 
 
+class TestThumbnail(unittest.TestCase):
+    STYLE = {"href": "s.json", "roles": ["style", "default"]}
+
+    def codes(self, assets, **extra):
+        return {f.code: f.severity for f in vs.check_thumbnail(dict(assets=assets, **extra))}
+
+    def test_missing_thumbnail_is_advisory_when_drawable(self):
+        self.assertEqual(self.codes({"s": self.STYLE}), {"thumbnail-missing": vs.ADVISORY})
+        self.assertEqual(self.codes({}, renders={"r": {"assets": ["c"]}}),
+                         {"thumbnail-missing": vs.ADVISORY})
+
+    def test_nothing_to_draw_needs_no_thumbnail(self):
+        self.assertEqual(self.codes({"p": {"href": "d.parquet"}}), {})
+
+    def test_thumbnail_type(self):
+        ok = {"href": "thumbnail.png", "type": "image/png", "roles": ["thumbnail"]}
+        self.assertEqual(self.codes({"s": self.STYLE, "thumbnail": ok}), {})
+        bad = dict(ok, type="application/octet-stream")
+        self.assertEqual(self.codes({"s": self.STYLE, "thumbnail": bad}),
+                         {"thumbnail-type": vs.HARD})
+
+
 class TestRenderUnits(unittest.TestCase):
     def codes(self, band, rescale):
         doc = {"assets": {"d-cog": {"raster:bands": [band]}},

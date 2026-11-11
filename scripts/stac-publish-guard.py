@@ -11,6 +11,7 @@ renames such as Kaiparowits. This guard runs between building the new file and t
 
 It edits NEW.json in place to KEEP what the new file lacks:
   * style assets (`style` role), `renders`, and the render extension (#881)
+  * the `thumbnail` asset, when the new file has none (#889)
   * `rel: pmtiles` links whose file is still a PMTiles asset of the new collection (#890)
 
 and REFUSES (exit 3, NEW.json untouched) when the new file would undo a change:
@@ -116,6 +117,13 @@ def guard(new: dict, live: dict, allow: set[str]) -> tuple[list[str], list[str]]
     for ext in live.get("stac_extensions", []):
         if "/render/" in ext and ext not in new.setdefault("stac_extensions", []):
             new["stac_extensions"].append(ext)
+
+    if not any("thumbnail" in (a.get("roles") or []) for a in assets.values()):  # #889
+        thumbs = {k: a for k, a in live.get("assets", {}).items()
+                  if "thumbnail" in (a.get("roles") or []) and k not in assets}
+        if thumbs:
+            assets.update(thumbs)
+            kept.append(f"{len(thumbs)} thumbnail(s)")
 
     tiles = {_absolute(new, a.get("href")) for a in assets.values() if _is_pmtiles(a)}
     have = {_absolute(new, l.get("href")) for l in new.get("links", []) if l.get("rel") == "pmtiles"}

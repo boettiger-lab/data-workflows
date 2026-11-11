@@ -63,6 +63,18 @@ class Keeps(unittest.TestCase):
         g.guard(new, live(), set())
         self.assertFalse(any(l["rel"] == "pmtiles" for l in new["links"]))
 
+    def test_keeps_live_thumbnail_unless_the_new_file_has_one(self):
+        thumb = {"href": BASE + "thumbnail.png", "type": "image/png", "roles": ["thumbnail"]}
+        old = live(); old["assets"]["thumbnail"] = thumb
+        new = live()
+        kept, _ = g.guard(new, old, set())
+        self.assertEqual(new["assets"]["thumbnail"], thumb)
+        self.assertIn("1 thumbnail(s)", kept)
+        mine = dict(thumb, href=BASE + "thumb2.png")
+        new = live(); new["assets"]["preview"] = mine
+        g.guard(new, old, set())
+        self.assertNotIn("thumbnail", new["assets"])
+
     def test_identical_file_changes_nothing(self):
         new = live()
         kept, refused = g.guard(new, live(), set())

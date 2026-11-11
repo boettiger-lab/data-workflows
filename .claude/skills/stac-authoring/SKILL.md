@@ -488,15 +488,28 @@ and `glen:single_colour_reason`. An app that later adds the layer should read th
 rather than copy it.
 
 **A recipe job that overwrites a live collection** (a `*-publish-stac.yaml` that copies a
-ConfigMap file over `stac-collection.json`) would drop the styles. Copy the `keep_styles` shell
-function from an existing job (e.g. `catalog/ca30x30/k8s/fmmp-2022/fmmp-2022-publish-stac.yaml`)
-and call `keep_styles <local file> <nrp: target>` before each such `rclone copyto`. It merges the
-live collection's `style` assets and `renders` into the file being uploaded.
+ConfigMap file over `stac-collection.json`) would drop the styles, renders and thumbnail. Run
+`scripts/stac-publish-guard.py` before each such `rclone copyto` (its docstring has the job
+snippet); it merges them back from the live collection.
 
 `verify-stac.py` fails a malformed style asset (wrong media type, not under `styles/`, no title,
 not exactly one `default` per PMTiles file), a `style-fallback-*` default, and a one-colour
 default with no `glen:single_colour_reason`; it advises `pmtiles-no-style` on a PMTiles
 collection without one.
+
+### Thumbnail
+
+Every collection with a default style or render carries a thumbnail drawn from it
+(PORTO-CORE-067, #889). Build it after the style, and publish it with the collection:
+
+```bash
+scripts/thumbnail.py <collection-url> --out /tmp/thumbs   # writes thumbnail.png + the collection
+```
+
+It draws the first default style (PMTiles, MapLibre in headless Chromium via Playwright) or
+the newest COG render (TiTiler `/cog/preview.png`, unscaled like the apps), and adds a
+`thumbnail` asset (`image/png`). The guard keeps a live thumbnail the new file lacks.
+`verify-stac.py` fails a thumbnail that is not an image and advises `thumbnail-missing`.
 
 ## Step 6: Register in the parent sub-catalog
 
