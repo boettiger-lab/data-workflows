@@ -95,10 +95,12 @@ Usage:
 
 Exit 0 = no HARD findings. Exit 1 = one or more HARD findings.
 
-The heavy data check POSTs SQL to the public duckdb-geo MCP endpoint
-(https://duckdb-mcp.nrp-nautilus.io/mcp, no auth), so it is not bound by GitHub
-runner resources or the slow public S3 endpoint. Set MCP_ENDPOINT to override and
-MCP_AUTH_TOKEN for a bearer token if the endpoint is ever locked down.
+The data checks POST SQL to a duckdb-geo MCP server, so they run beside NRP S3, not on
+the GitHub runner (a runner reading NRP directly took 10-30x longer, #897). The default
+endpoint is a public app's MCP proxy, which adds the apps' shared token itself. Set
+MCP_ENDPOINT to override (e.g. http://localhost:8000/mcp through the geo-workflows
+port-forward, with MCP_AUTH_TOKEN). An unreachable server is a HARD finding: data checks
+that cannot run are not a pass.
 """
 
 import argparse
@@ -1315,7 +1317,7 @@ AS_PUBLISHED_CHECKS = {check_table_columns_placement, check_column_description_c
 # MCP client (streamable HTTP, JSON-RPC 2.0, SSE-framed replies)
 # ---------------------------------------------------------------------------
 
-DEFAULT_MCP = os.environ.get("MCP_ENDPOINT", "https://duckdb-mcp.nrp-nautilus.io/mcp")
+DEFAULT_MCP = os.environ.get("MCP_ENDPOINT", "https://ca-wolves.nrp-nautilus.io/api/mcp")
 
 
 class MCPError(Exception):
@@ -2305,8 +2307,9 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
             try:
                 client.initialize()
             except Exception as e:
-                findings.append(Finding(ADVISORY, "mcp-unavailable",
-                                        f"data checks skipped — MCP not reachable: {e}"))
+                findings.append(Finding(HARD, "mcp-unavailable",
+                                        f"data checks could not run — MCP not reachable "
+                                        f"({client.endpoint}): {e}. UNVERIFIED, not clean."))
                 client = None
         if client is not None:
             if do_data:
