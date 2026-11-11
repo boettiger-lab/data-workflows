@@ -81,6 +81,23 @@ class Renders(unittest.TestCase):
         new, _, _ = fb.fallback(d, COLL)
         self.assertIsNone(new)
 
+    def test_overview_stats_become_a_clipped_stretch(self):
+        a = self.cog({"nodata": -1})
+        stats = {a["href"]: {"min": 0, "max": 100, "mean": 10, "std": 5}}
+        new, _, notes = fb.fallback(doc(**{"d-cog": a}), COLL, stats)
+        self.assertEqual(new["renders"]["d"]["rescale"], [[0, 20]])
+        self.assertIn("overview statistics", notes[0])
+        self.assertNotIn("statistics", new["assets"]["d-cog"]["raster:bands"][0])
+
+    def test_load_stats_maps_vsis3_to_href_and_drops_errors(self):
+        import tempfile, pathlib, json
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as t:
+            t.write(json.dumps({"path": "/vsis3/public-x/d-cog.tif", "min": 0, "max": 1}))
+            t.write(json.dumps({"path": "/vsis3/public-x/f.tif", "min": 0, "max": 1}) + "\n")
+            t.write(json.dumps({"path": "/vsis3/public-x/e.tif", "error": "x"}) + "\nDONE\n")
+        got = fb.load_stats(pathlib.Path(t.name))
+        self.assertEqual(sorted(got), [BASE + "d-cog.tif", BASE + "f.tif"])
+
 
 if __name__ == "__main__":
     unittest.main()

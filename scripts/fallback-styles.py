@@ -6,8 +6,11 @@ default style; a COG gets a render when it has none and its metadata says how to
 
   * `classification:classes` with `color_hint` -> a per-class colormap
   * `raster:bands[0].statistics` min/max      -> viridis stretched over that range
+  * `--stats` file (overview statistics)       -> viridis over mean ± 2 sd, clipped to min/max
 
-COGs with neither are listed in the report and skipped. Fallback styles are keyed
+`--stats` takes the JSON lines the overview-statistics Job prints ({"path": "/vsis3/...",
+"min", "max", "mean", "std"}); they shape the render only and are not written to the STAC.
+COGs with none of these are listed in the report and skipped. Fallback styles are keyed
 `style-fallback-<stem>`; `scripts/app-styles.py` drops them when an app supplies real paint.
 
   scripts/fallback-styles.py --out /tmp/fb URL [URL ...]
@@ -71,7 +74,7 @@ def pmtiles_layer_types(url: str) -> dict:
     return out
 
 
-def cog_render(asset_key: str, asset: dict) -> tuple[dict | None, str]:
+def cog_render(asset_key: str, asset: dict, measured: dict | None = None) -> tuple[dict | None, str]:
     band = (asset.get("raster:bands") or [{}])[0]
     title = f"Fallback: {asset.get('title') or asset_key}"
     nodata = band.get("nodata", asset.get("nodata"))
@@ -83,6 +86,14 @@ def cog_render(asset_key: str, asset: dict) -> tuple[dict | None, str]:
             and st.get("maximum") is not None and st["maximum"] > st["minimum"]:
         e = {"title": title, "assets": [asset_key], "colormap_name": "viridis",
              "rescale": [[st["minimum"], st["maximum"]]]}
+    elif measured and measured.get("min") is not None and measured.get("max") is not None \
+            and measured["max"] > measured["min"]:
+        lo, hi = measured["min"], measured["max"]
+        if measured.get("std"):
+            lo = max(lo, measured["mean"] - 2 * measured["std"])
+            hi = min(hi, measured["mean"] + 2 * measured["std"])
+        e = {"title": title, "assets": [asset_key], "colormap_name": "viridis",
+             "rescale": [[round(lo, 6), round(hi, 6)]]}
     else:
         return None, "no classes with color_hint and no statistics"
     if nodata is not None:
@@ -90,7 +101,22 @@ def cog_render(asset_key: str, asset: dict) -> tuple[dict | None, str]:
     return e, ""
 
 
-def fallback(doc: dict, coll: str) -> tuple[dict | None, list[tuple[str, dict]], list[str]]:
+def key_has_stats(asset: dict) -> bool:
+    return bool(((asset.get("raster:bands") or [{}])[0]).get("statistics"))
+
+
+def load_stats(path: Path) -> dict:
+    """{asset href: stats} from the Job's JSON lines; lines with an error are dropped."""
+    out, text, i, dec = {}, path.read_text(), 0, json.JSONDecoder()
+    while (i := text.find("{", i)) >= 0:  # parallel writers can share a line
+        r, i = dec.raw_decode(text, i)
+        if "error" not in r and r.get("path", "").startswith("/vsis3/"):
+            out[apps.PUBLIC + r["path"].removeprefix("/vsis3/")] = r
+    return out
+
+
+def fallback(doc: dict, coll: str, stats: dict | None = None
+             ) -> tuple[dict | None, list[tuple[str, dict]], list[str]]:
     """Return (new doc or None, [(style filename, style)], report lines)."""
     assets = doc.get("assets", {})
     has_default = any({"style", "default"} <= set(a.get("roles") or []) for a in assets.values())
@@ -140,13 +166,14 @@ def fallback(doc: dict, coll: str) -> tuple[dict | None, list[tuple[str, dict]],
     for key, a in sorted(assets.items()):
         if not (a.get("type") or "").startswith("image/tiff") or key in rendered:
             continue
-        e, why = cog_render(key, a)
+        e, why = cog_render(key, a, (stats or {}).get(a.get("href")))
         if e:
             rkey = key.removesuffix("-cog")
             if rkey in renders or rkey in added:
                 rkey = key
             added[rkey] = e
-            notes.append(f"`{key}`: render ({'classes' if 'colormap' in e else 'statistics'})")
+            kind = "classes" if "colormap" in e else "statistics" if key_has_stats(a) else "overview statistics"
+            notes.append(f"`{key}`: render ({kind})")
         else:
             notes.append(f"`{key}`: no render, {why}")
     if added:
@@ -163,9 +190,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--crawl")
+    ap.add_argument("--stats", type=Path, help="JSON lines from the overview-statistics Job")
     ap.add_argument("urls", nargs="*")
     args = ap.parse_args()
     urls = list(args.urls) + (pc.crawl(args.crawl) if args.crawl else [])
+    stats = load_stats(args.stats) if args.stats else None
     report = ["# Fallback styles and renders", ""]
     n = 0
     for url in urls:
@@ -174,7 +203,7 @@ def main() -> int:
             report.append(f"- {url}: unreadable, skipped")
             continue
         coll = apps.asset_path(url)
-        new, files, notes = fallback(doc, coll)
+        new, files, notes = fallback(doc, coll, stats)
         if notes:
             report.append(f"- `{coll}`" + ("" if new else " (unchanged)"))
             report += [f"  - {x}" for x in notes]
