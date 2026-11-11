@@ -316,6 +316,9 @@ def build(rows: list[dict], out: Path, only: str | None) -> None:
         styles.sort(key=lambda s: (-s["votes"], not s["visible"], s["key"]))
         cdir = out / coll_dir
         new = json.loads(json.dumps(doc))
+        if styles:  # real paint replaces fallback styles (scripts/fallback-styles.py)
+            for k in [k for k in new["assets"] if k.startswith("style-fallback-")]:
+                del new["assets"][k]
         for i, s in enumerate(styles):
             (cdir / "styles").mkdir(parents=True, exist_ok=True)
             (cdir / "styles" / s["file"]).write_text(json.dumps(s["style"], indent=2) + "\n")

@@ -75,12 +75,21 @@ def guard(new: dict, live: dict, allow: set[str]) -> tuple[list[str], list[str]]
         return kept, refused
 
     assets = new.setdefault("assets", {})
-    styles = {k: a for k, a in live.get("assets", {}).items()
-              if "style" in (a.get("roles") or []) and k not in assets}
+    own = [a for k, a in assets.items() if "style" in (a.get("roles") or [])
+           and not k.startswith("style-fallback-")]
+    has_default = any("default" in a["roles"] for a in own)
+    styles = {k: json.loads(json.dumps(a)) for k, a in live.get("assets", {}).items()
+              if "style" in (a.get("roles") or []) and k not in assets
+              and not (own and k.startswith("style-fallback-"))}  # real paint retires fallbacks
+    for a in styles.values():
+        if has_default and "default" in a["roles"]:
+            a["roles"] = [r for r in a["roles"] if r != "default"]
     assets.update(styles)
     if styles:
         kept.append(f"{len(styles)} style asset(s)")
-    renders = {k: v for k, v in live.get("renders", {}).items() if k not in new.get("renders", {})}
+    rendered = {a for r in new.get("renders", {}).values() for a in r.get("assets", [])}
+    renders = {k: v for k, v in live.get("renders", {}).items() if k not in new.get("renders", {})
+               and not (v.get("assets") and set(v["assets"]) <= rendered)}
     if renders:
         new.setdefault("renders", {}).update(renders)
         kept.append(f"{len(renders)} render(s)")
