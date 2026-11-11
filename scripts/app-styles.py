@@ -299,7 +299,8 @@ def build(rows: list[dict], out: Path, only: str | None) -> None:
                     desc = describe(cfg, var)
                     sty = maplibre_style(cfg, title, pm_rel, layers[0], desc)
                     fname = key.removeprefix("style-") + ".json"
-                    styles.append({"key": key, "file": fname, "style": sty, "title": title,
+                    styles.append({"key": key, "asset": asset_key, "file": fname,
+                                   "style": sty, "title": title,
                                    "desc": desc, "votes": win["votes"],
                                    "visible": any(r["visible"] for r in vr)})
                     if len(opts) > 1:
@@ -316,16 +317,25 @@ def build(rows: list[dict], out: Path, only: str | None) -> None:
         styles.sort(key=lambda s: (-s["votes"], not s["visible"], s["key"]))
         cdir = out / coll_dir
         new = json.loads(json.dumps(doc))
-        if styles:  # real paint replaces fallback styles (scripts/fallback-styles.py)
-            for k in [k for k in new["assets"] if k.startswith("style-fallback-")]:
+        if styles:  # real paint replaces fallback styles for the same file
+            stems = {s["asset"].removesuffix("-pmtiles") for s in styles}
+            for k in [k for k in new["assets"]
+                      if k.removeprefix("style-fallback-") in stems and k.startswith("style-fallback-")]:
                 del new["assets"][k]
+        seen = set()  # glen matches a style to its PMTiles file: one default per file
+        for s in styles:
+            if s["asset"] not in seen:
+                for k, a in new["assets"].items():  # demote other defaults for this file
+                    if "default" in (a.get("roles") or []) and k.startswith(f"style-{s['asset'].removesuffix('-pmtiles')}"):
+                        a["roles"] = ["style"]
         for i, s in enumerate(styles):
             (cdir / "styles").mkdir(parents=True, exist_ok=True)
             (cdir / "styles" / s["file"]).write_text(json.dumps(s["style"], indent=2) + "\n")
             new["assets"][s["key"]] = {
                 "href": f"{PUBLIC}{coll_dir}/styles/{s['file']}", "type": STYLE_TYPE,
                 "title": s["title"], "description": s["desc"],
-                "roles": ["style", "default"] if i == 0 else ["style"]}
+                "roles": ["style", "default"] if s["asset"] not in seen else ["style"]}
+            seen.add(s["asset"])
         if renders:
             new.setdefault("renders", {}).update(renders)
             ext = new.setdefault("stac_extensions", [])

@@ -99,6 +99,19 @@ class Fallbacks(unittest.TestCase):
         g.guard(new, live(), set())
         self.assertEqual(new["assets"]["style-d"]["roles"], ["style"])
 
+    def test_default_for_another_file_is_kept(self):
+        lv = live()
+        lv["assets"]["e-pmtiles"] = {"href": BASE + "e.pmtiles", "type": "application/vnd.pmtiles"}
+        lv["assets"]["style-e"] = {"href": BASE + "styles/e.json", "type": self.STYLE,
+                                   "roles": ["style", "default"]}
+        new = new_from(lv)
+        new["assets"].pop("style-e")
+        new["assets"]["style-d-by-x"] = {"href": BASE + "styles/x.json", "type": self.STYLE,
+                                         "roles": ["style", "default"]}
+        g.guard(new, lv, set())
+        self.assertEqual(new["assets"]["style-e"]["roles"], ["style", "default"])
+        self.assertEqual(new["assets"]["style-d"]["roles"], ["style"])
+
     def test_live_render_for_an_asset_new_renders_is_dropped(self):
         new = new_from(live())
         new["renders"] = {"other-key": {"assets": ["d-cog"]}}

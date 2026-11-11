@@ -24,6 +24,7 @@ import json
 import posixpath
 import struct
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -115,52 +116,79 @@ def load_stats(path: Path) -> dict:
     return out
 
 
-def fallback(doc: dict, coll: str, stats: dict | None = None
+def style_targets(doc: dict) -> dict:
+    """{style asset key: set of absolute PMTiles hrefs its sources name, or None if none}."""
+    out = {}
+    for k, a in doc.get("assets", {}).items():
+        if "style" not in (a.get("roles") or []):
+            continue
+        sty = apps.fetch_json(a["href"]) or {}
+        urls = {urllib.parse.urljoin(a["href"], src["url"].removeprefix("pmtiles://"))
+                for src in (sty.get("sources") or {}).values()
+                if str(src.get("url", "")).startswith("pmtiles://")}
+        out[k] = urls or None
+    return out
+
+
+def fallback(doc: dict, coll: str, stats: dict | None = None, targets: dict | None = None
              ) -> tuple[dict | None, list[tuple[str, dict]], list[str]]:
-    """Return (new doc or None, [(style filename, style)], report lines)."""
+    """Return (new doc or None, [(style filename, style)], report lines).
+
+    Every PMTiles file gets a default style naming it (glen matches style to file): an
+    existing style for the file is promoted to default, else a fallback style is added."""
     assets = doc.get("assets", {})
-    has_default = any({"style", "default"} <= set(a.get("roles") or []) for a in assets.values())
     renders = doc.get("renders", {})
     rendered = {a for r in renders.values() for a in r.get("assets", [])}
     coll_dir = posixpath.dirname(coll)
     new = json.loads(json.dumps(doc))
-    files, notes = [], []
+    files, notes, promoted = [], [], False
+    base = next((l.get("href") for l in doc.get("links", []) if l.get("rel") == "self"), "")
+    tiles = {k: dict(a, href=urllib.parse.urljoin(base, a["href"]))
+             for k, a in sorted(assets.items()) if pc.is_pmtiles(a)}
+    if tiles and targets is None:
+        targets = style_targets(doc)
+    targets = targets or {}
+    generic_default = any(t is None and "default" in assets[k].get("roles", [])
+                          for k, t in targets.items())
 
-    if not has_default:
-        for key, a in sorted(assets.items()):
-            if not pc.is_pmtiles(a):
-                continue
-            layers = a.get("vector:layers") or []
-            if not layers:
-                notes.append(f"`{key}`: no `vector:layers`, skipped")
-                continue
-            try:
-                types = pmtiles_layer_types(a["href"])
-            except Exception as e:  # noqa: BLE001 — report and skip
-                notes.append(f"`{key}`: cannot read PMTiles metadata ({e}), skipped")
-                continue
-            layer = layers[0]
-            t = types.get(layer)
-            if not t:
-                notes.append(f"`{key}`: no geometry type for layer `{layer}`, skipped")
-                continue
-            stem = key.removesuffix("-pmtiles")
-            paint, outline = PAINT[t]
-            cfg = {"layer_type": t, "default_style": paint}
-            if outline:
-                cfg["outline_style"] = outline
-            title = f"Fallback: {a.get('title') or stem}"
-            desc = "All features in one colour. No GLEN app styles this layer yet."
-            pm_rel = posixpath.relpath(apps.asset_path(a["href"]),
-                                       posixpath.join(coll_dir, "styles"))
-            fname = f"fallback-{stem}.json"
-            files.append((fname, apps.maplibre_style(cfg, title, pm_rel, layer, desc)))
-            first = not any(k.startswith(FALLBACK_PREFIX) for k in new["assets"])
-            new["assets"][FALLBACK_PREFIX + stem] = {
-                "href": f"{apps.PUBLIC}{coll_dir}/styles/{fname}", "type": apps.STYLE_TYPE,
-                "title": title, "description": desc,
-                "roles": ["style", "default"] if first else ["style"]}
-            notes.append(f"`{key}`: {t} style")
+    for key, a in ({} if generic_default else tiles).items():
+        mine = sorted(k for k, t in targets.items() if t and a["href"] in t)
+        if any("default" in assets[k].get("roles", []) for k in mine):
+            continue
+        if mine:
+            new["assets"][mine[0]]["roles"] = ["style", "default"]
+            promoted = True
+            notes.append(f"`{key}`: `{mine[0]}` made its default")
+            continue
+        layers = a.get("vector:layers") or []
+        if not layers:
+            notes.append(f"`{key}`: no `vector:layers`, skipped")
+            continue
+        try:
+            types = pmtiles_layer_types(a["href"])
+        except Exception as e:  # noqa: BLE001 — report and skip
+            notes.append(f"`{key}`: cannot read PMTiles metadata ({e}), skipped")
+            continue
+        layer = layers[0]
+        t = types.get(layer)
+        if not t:
+            notes.append(f"`{key}`: no geometry type for layer `{layer}`, skipped")
+            continue
+        stem = key.removesuffix("-pmtiles")
+        paint, outline = PAINT[t]
+        cfg = {"layer_type": t, "default_style": paint}
+        if outline:
+            cfg["outline_style"] = outline
+        title = f"Fallback: {a.get('title') or stem}"
+        desc = "All features in one colour. No GLEN app styles this layer yet."
+        pm_rel = posixpath.relpath(apps.asset_path(a["href"]),
+                                   posixpath.join(coll_dir, "styles"))
+        fname = f"fallback-{stem}.json"
+        files.append((fname, apps.maplibre_style(cfg, title, pm_rel, layer, desc)))
+        new["assets"][FALLBACK_PREFIX + stem] = {
+            "href": f"{apps.PUBLIC}{coll_dir}/styles/{fname}", "type": apps.STYLE_TYPE,
+            "title": title, "description": desc, "roles": ["style", "default"]}
+        notes.append(f"`{key}`: {t} style")
 
     added = {}
     for key, a in sorted(assets.items()):
@@ -182,7 +210,7 @@ def fallback(doc: dict, coll: str, stats: dict | None = None
         if apps.RENDER_EXT not in ext:
             ext.append(apps.RENDER_EXT)
 
-    changed = bool(files or added)
+    changed = bool(files or added or promoted)
     return (new if changed else None), files, notes
 
 

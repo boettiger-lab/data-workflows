@@ -75,14 +75,21 @@ def guard(new: dict, live: dict, allow: set[str]) -> tuple[list[str], list[str]]
         return kept, refused
 
     assets = new.setdefault("assets", {})
-    own = [a for k, a in assets.items() if "style" in (a.get("roles") or [])
-           and not k.startswith("style-fallback-")]
-    has_default = any("default" in a["roles"] for a in own)
+    # Style keys name their PMTiles file: style-<stem>[-<variant>], style-fallback-<stem>.
+    stems = sorted((k.removesuffix("-pmtiles") for k, a in assets.items() if _is_pmtiles(a)),
+                   key=len, reverse=True)
+    def stem_of(k):
+        k = k.removeprefix("style-fallback-").removeprefix("style-")
+        return next((s for s in stems if k == s or k.startswith(s + "-")), None)
+    own = {k: a for k, a in assets.items() if "style" in (a.get("roles") or [])
+           and not k.startswith("style-fallback-")}
+    styled = {stem_of(k) for k in own}
+    defaulted = {stem_of(k) for k, a in own.items() if "default" in a["roles"]}
     styles = {k: json.loads(json.dumps(a)) for k, a in live.get("assets", {}).items()
               if "style" in (a.get("roles") or []) and k not in assets
-              and not (own and k.startswith("style-fallback-"))}  # real paint retires fallbacks
-    for a in styles.values():
-        if has_default and "default" in a["roles"]:
+              and not (k.startswith("style-fallback-") and stem_of(k) in styled)}
+    for k, a in styles.items():  # one default per PMTiles file
+        if stem_of(k) in defaulted and "default" in a["roles"]:
             a["roles"] = [r for r in a["roles"] if r != "default"]
     assets.update(styles)
     if styles:
