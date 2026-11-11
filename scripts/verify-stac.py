@@ -95,10 +95,11 @@ Usage:
 
 Exit 0 = no HARD findings. Exit 1 = one or more HARD findings.
 
-The heavy data check POSTs SQL to the public duckdb-geo MCP endpoint
-(https://duckdb-mcp.nrp-nautilus.io/mcp, no auth), so it is not bound by GitHub
-runner resources or the slow public S3 endpoint. Set MCP_ENDPOINT to override and
-MCP_AUTH_TOKEN for a bearer token if the endpoint is ever locked down.
+The heavy data check POSTs SQL to the geo-query MCP server
+(https://geo-query.nrp-nautilus.io/mcp), so it is not bound by GitHub runner
+resources or the slow public S3 endpoint. That route needs a bearer token in
+MCP_AUTH_TOKEN; without one the data checks fail with HTTP 401. Set MCP_ENDPOINT
+to use another server.
 """
 
 import argparse
@@ -1315,7 +1316,7 @@ AS_PUBLISHED_CHECKS = {check_table_columns_placement, check_column_description_c
 # MCP client (streamable HTTP, JSON-RPC 2.0, SSE-framed replies)
 # ---------------------------------------------------------------------------
 
-DEFAULT_MCP = os.environ.get("MCP_ENDPOINT", "https://duckdb-mcp.nrp-nautilus.io/mcp")
+DEFAULT_MCP = os.environ.get("MCP_ENDPOINT", "https://geo-query.nrp-nautilus.io/mcp")
 
 
 class MCPError(Exception):
