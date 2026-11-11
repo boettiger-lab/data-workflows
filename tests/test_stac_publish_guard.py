@@ -70,6 +70,42 @@ class Keeps(unittest.TestCase):
         self.assertEqual(new, live())
 
 
+class Fallbacks(unittest.TestCase):
+    STYLE = "application/vnd.mapbox.style+json"
+
+    def live_with_fallback(self):
+        d = live()
+        del d["assets"]["style-d"]
+        d["assets"]["style-fallback-d"] = {"href": BASE + "styles/fallback-d.json",
+                                           "roles": ["style", "default"], "type": self.STYLE}
+        return d
+
+    def test_real_style_retires_fallback(self):
+        new = new_from(live())
+        new["assets"]["style-d"] = {"href": BASE + "styles/d.json", "type": self.STYLE,
+                                    "roles": ["style", "default"]}
+        g.guard(new, self.live_with_fallback(), set())
+        self.assertNotIn("style-fallback-d", new["assets"])
+
+    def test_fallback_kept_when_new_has_no_style(self):
+        new = new_from(live())
+        g.guard(new, self.live_with_fallback(), set())
+        self.assertEqual(new["assets"]["style-fallback-d"]["roles"], ["style", "default"])
+
+    def test_kept_style_loses_default_when_new_has_one(self):
+        new = new_from(live())
+        new["assets"]["style-d-by-x"] = {"href": BASE + "styles/x.json", "type": self.STYLE,
+                                         "roles": ["style", "default"]}
+        g.guard(new, live(), set())
+        self.assertEqual(new["assets"]["style-d"]["roles"], ["style"])
+
+    def test_live_render_for_an_asset_new_renders_is_dropped(self):
+        new = new_from(live())
+        new["renders"] = {"other-key": {"assets": ["d-cog"]}}
+        g.guard(new, live(), set())
+        self.assertEqual(list(new["renders"]), ["other-key"])
+
+
 class Refuses(unittest.TestCase):
     def test_dropping_the_column_dictionary_is_refused_and_file_untouched(self):
         new = new_from(live()); new.pop("table:columns")
