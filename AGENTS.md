@@ -17,6 +17,7 @@ directly if it has no skill support.
 | `dataset-recipes` | starting an ingest that resembles a worked example |
 | `armada-pipeline` | `armadactl` will not authenticate, a k8s job hits the 200-completion cap, or you are choosing between the k8s and Armada pathways |
 | `pod-preemption` | indexed-job pods die and retry for no apparent reason, you are working out which indexes actually need re-running, you are choosing a priority class or sizing requests (NRP usage policy), or before submitting any job whose pods run over an hour |
+| `duckdb-geo` | the `mcp__duckdb-geo__*` tools fail to connect |
 
 Everything below is always in force, skill or no skill.
 
@@ -50,18 +51,10 @@ above: assess them against the upstream data and settle them with the user (GMW 
 
 For ANY query/scan/aggregation over S3 parquet — catalog data **and** large intermediate/build files (e.g. a 24 GB consolidated GeoParquet) — use the **`mcp__duckdb-geo__query` MCP server**. It runs on generously-provisioned NRP cluster metal beside NRP S3, and DuckDB **streams** (larger-than-memory spills to disk) — so it does not hit the RAM limits or the slow laptop link (~12 MB/s) that bottleneck local work. It reads anonymously-readable buckets only.
 
-**The server is a geo-query copy in `geo-workflows` with no public address (#896).** Start a port-forward before using the tools, and restart it if it drops:
-
-```bash
-kubectl port-forward -n geo-workflows svc/duckdb-mcp 8000:8000
-```
-
-The server is re-created every Sunday at 03:10 UTC, which drops the forward. `.mcp.json` sends `Authorization: Bearer ${GEO_WORKFLOWS_MCP_TOKEN}`, so that variable must be set in the environment Claude Code starts in. The token is the `data-workflows` key of Secret `geo-workflows/duckdb-mcp-tokens`; never commit it.
-
 - ❌ Do NOT shell out to local `duckdb`/`python -c "import duckdb"`/`uv run --with duckdb`.
 - ❌ Do NOT spin up k8s jobs running `pyarrow`/`geopandas`/`duckdb` to scan big parquet, and never read big parquet over `https://s3-west.nrp-nautilus.io/...` (public endpoint) — use `s3://` (internal) inside jobs and the MCP for queries.
 - ✅ Verify counts/schema, scan for pathological geometries/bbox/validity, distinct counts, ST_*/h3_* → `mcp__duckdb-geo__query`.
-- The tool is deferred: `ToolSearch select:mcp__duckdb-geo__query` first. **If ToolSearch returns no match the MCP server is disconnected — check the port-forward, then ask the user to reconnect it; do NOT fall back to the slow RAM-bound path.**
+- The tool is deferred: `ToolSearch select:mcp__duckdb-geo__query` first. **If ToolSearch returns no match the MCP server is disconnected — load skill `duckdb-geo`; do NOT fall back to the slow RAM-bound path.**
 - Heavy *writes/transforms* the MCP can't do still run as cluster jobs, but over the **internal** endpoint (`rook-ceph-rgw-nautiluss3.rook`, `AWS_HTTPS=false`), never the laptop.
 
 ### ⛔ Serialization standard: keep parquet row groups small
