@@ -9,7 +9,8 @@ with the usual guard (AGENTS.md Step 5); the guard keeps a live thumbnail the ne
 
 What it draws, in order of preference:
   * PMTiles: the collection's first default style (by asset key), drawn by MapLibre GL JS in
-    headless Chromium (Playwright) over the collection's bounding box. Symbol layers are
+    headless Chromium (Playwright) over the collection's bounding box, or a crop at the
+    tiles' minimum zoom when the box would fit below it. Symbol layers are
     dropped, so a thumbnail needs no glyphs or sprites.
   * COG: the collection's last render by name whose asset is a GeoTIFF (the newest year of a
     series keyed by year), drawn by TiTiler's
@@ -61,9 +62,27 @@ def coll_path(url: str) -> str:
     return urllib.parse.urlparse(url).path.lstrip("/")
 
 
-def bbox(doc: dict) -> list[float]:
+def pmtiles_header(url: str) -> tuple[list[float], int] | None:
+    """([w, s, e, n], min zoom) from a PMTiles v3 header (bounds at bytes 102-117 as int32
+    degrees x 1e7, min zoom at byte 100)."""
+    import struct
+    try:
+        req = urllib.request.Request(url, headers={**UA, "Range": "bytes=0-126"})
+        h = urllib.request.urlopen(req, timeout=60).read()
+        if h[:7] != b"PMTiles":
+            return None
+        return [v / 1e7 for v in struct.unpack_from("<iiii", h, 102)], h[100]
+    except Exception:
+        return None
+
+
+def bbox(doc: dict, fallback: list[float] | None = None) -> list[float]:
     b = doc.get("extent", {}).get("spatial", {}).get("bbox") or [[-180, -85, 180, 85]]
     b = b if isinstance(b[0], (int, float)) else b[0]  # tolerate a flat (malformed) bbox
+    if len(b) not in (4, 6) or not all(isinstance(v, (int, float)) for v in b):
+        where = "the tile bounds" if fallback else "the whole world"
+        print(f"  unusable bbox {b!r}; using {where}", file=sys.stderr)
+        b = fallback or [-180, -85, 180, 85]
     w, s, e, n = (b[0], b[1], b[3], b[4]) if len(b) == 6 else b[:4]
     if e < w:  # crosses the antimeridian: show the whole width
         w, e = -180, 180
@@ -113,6 +132,27 @@ def cog_preview_url(base: str, render: dict, asset: dict, size: int) -> str:
     return f"{TITILER}/cog/preview.png?" + urllib.parse.urlencode(q)
 
 
+def colormap_locally(base: str, render: dict, asset: dict, size: int) -> bytes:
+    """Fetch the raw band as .npy and apply a categorical colormap here, for a colormap too
+    long to send in a URL (LANDFIRE vegetation types have hundreds of classes)."""
+    import io
+    import numpy as np
+    from PIL import Image
+    bare = {k: v for k, v in render.items() if k not in ("colormap", "rescale", "colormap_name")}
+    url = cog_preview_url(base, bare, asset, size).replace("/preview.png?", "/preview.npy?")
+    arr = np.load(io.BytesIO(fetch(url)))
+    data, mask = arr[0], arr[-1]
+    rgba = np.zeros(data.shape + (4,), dtype=np.uint8)
+    for code, colour in render["colormap"].items():
+        c = colour.lstrip("#") if isinstance(colour, str) else None
+        rgb = [int(c[i:i + 2], 16) for i in (0, 2, 4)] if c else list(colour)[:3]
+        rgba[data == float(code)] = rgb + [255]
+    rgba[mask == 0] = 0
+    buf = io.BytesIO()
+    Image.fromarray(rgba, "RGBA").save(buf, "PNG")
+    return buf.getvalue()
+
+
 # ---------------------------------------------------------------------------- PMTiles
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
@@ -126,6 +166,8 @@ const map = new maplibregl.Map({{container: "map", style: {style}, bounds: {boun
   fitBoundsOptions: {{padding: 12}}, attributionControl: false, interactive: false,
   canvasContextAttributes: {{preserveDrawingBuffer: true}}, fadeDuration: 0}});
 map.on("error", e => {{ window.mapErrors = (window.mapErrors || []).concat(String(e.error && e.error.message)); }});
+// Below the tiles' minimum zoom nothing is drawn: show a crop at that zoom instead.
+if (map.getZoom() < {minzoom}) map.jumpTo({{zoom: {minzoom}}});
 map.once("idle", () => {{ window.done = true; }});
 </script></body></html>"""
 
@@ -147,10 +189,10 @@ def style_for_thumbnail(style: dict, style_url: str) -> dict:
     return s
 
 
-def render_pmtiles(style: dict, bounds: list[float], w: int, h: int) -> bytes:
+def render_pmtiles(style: dict, bounds: list[float], w: int, h: int, min_zoom: int = 0) -> bytes:
     from playwright.sync_api import sync_playwright
     w_, s_, e_, n_ = bounds
-    html = PAGE.format(ml=MAPLIBRE, pm=PMTILES, w=w, h=h, style=json.dumps(style),
+    html = PAGE.format(ml=MAPLIBRE, pm=PMTILES, w=w, h=h, style=json.dumps(style), minzoom=min_zoom,
                        bounds=json.dumps([[w_, s_], [e_, n_]]))
     with sync_playwright() as p:
         browser = p.chromium.launch(args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
@@ -175,14 +217,22 @@ def thumbnail(url: str, size: int) -> tuple[dict, bytes, str] | None:
         key, asset = st
         style_url = absolute(base, asset["href"])
         style = style_for_thumbnail(json.loads(fetch(style_url)), style_url)
-        png = render_pmtiles(style, bbox(doc), size, round(size * 3 / 4))
+        tiles = next((src["url"][len("pmtiles://"):] for src in style.get("sources", {}).values()
+                      if str(src.get("url", "")).startswith("pmtiles://")), None)
+        head = pmtiles_header(tiles) if tiles else None
+        png = render_pmtiles(style, bbox(doc, head and head[0]), size, round(size * 3 / 4),
+                             min_zoom=head[1] if head else 0)
         how = f"default style {key}"
     else:
         cr = cog_render(doc)
         if not cr:
             return None
         name, render, asset = cr
-        png = fetch(cog_preview_url(base, render, asset, size))
+        url = cog_preview_url(base, render, asset, size)
+        if len(url) > 6000 and render.get("colormap"):  # hundreds of classes: too long a URL
+            png = colormap_locally(base, render, asset, size)
+        else:
+            png = fetch(url)
         how = f"render {name}"
     new = json.loads(json.dumps(doc))
     new.setdefault("assets", {})["thumbnail"] = {
