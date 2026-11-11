@@ -18,6 +18,9 @@ and REFUSES (exit 3, NEW.json untouched) when the new file would undo a change:
     (regenerate it in the dictionary shape, skill stac-authoring)
   * `keys`: an asset file is live under one key and new under another (an asset-key rename
     reverted, e.g. Kaiparowits `m_adit-pmtiles` back to `kaiparowits-m-adit-pmtiles`)
+  * `fallback`: a PMTiles file would be published with a one-colour `style-fallback-*` style
+    as its default. Build a considered default with scripts/default-style.py (skill
+    stac-authoring, Step 5b); there is no override.
 
 A deliberate change of either kind sets STAC_GUARD_ALLOW=columns,keys (or one of them) in the
 job, which records the decision where a reviewer sees it.
@@ -74,6 +77,7 @@ def guard(new: dict, live: dict, allow: set[str]) -> tuple[list[str], list[str]]
     if refused:
         return kept, refused
 
+    before = json.loads(json.dumps(new))
     assets = new.setdefault("assets", {})
     # Style keys name their PMTiles file: style-<stem>[-<variant>], style-fallback-<stem>.
     stems = sorted((k.removesuffix("-pmtiles") for k, a in assets.items() if _is_pmtiles(a)),
@@ -92,6 +96,15 @@ def guard(new: dict, live: dict, allow: set[str]) -> tuple[list[str], list[str]]
         if stem_of(k) in defaulted and "default" in a["roles"]:
             a["roles"] = [r for r in a["roles"] if r != "default"]
     assets.update(styles)
+    fallbacks = sorted(k for k, a in assets.items() if k.startswith("style-fallback-")
+                       and "default" in (a.get("roles") or []))
+    if fallbacks:
+        new.clear()
+        new.update(before)
+        return [], [f"fallback: '{k}' would be the default style of its PMTiles file, and it "
+                    f"draws every feature in one colour; build a default on the file's primary "
+                    f"variable with scripts/default-style.py (skill stac-authoring, Step 5b)"
+                    for k in fallbacks]
     if styles:
         kept.append(f"{len(styles)} style asset(s)")
     rendered = {a for r in new.get("renders", {}).values() for a in r.get("assets", [])}

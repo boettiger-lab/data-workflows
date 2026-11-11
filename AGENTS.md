@@ -438,9 +438,12 @@ Fix every HARD finding before `rclone copyto`; the post-cluster run must exit 0.
 verifier on the PR, deriving collections from the `s3://` paths in changed `catalog/**` YAMLs — so
 a RED check at PR-open is correct, and you re-fire it after the cluster jobs land.
 
-**Ship a default style with the data.** Every PMTiles collection carries a MapLibre style file
-as a `style` asset (one marked `default`), and every COG a `renders` entry with its colormap and
-rescale (Portolan, #881). Reuse the paint the GLEN apps already use: `scripts/app-styles.py`.
+**Ship a default style with the data.** Every PMTiles file carries a MapLibre style file as a
+`style` asset (one marked `default` per file), and every COG a `renders` entry with its colormap
+and rescale (Portolan, #881). Reuse the paint the GLEN apps already use (`scripts/app-styles.py`);
+for a layer no app shows, examine the data, pick its primary variable and build the default on
+it with `scripts/default-style.py`. A one-colour default is refused unless the style says why
+the data has no variable worth showing.
 
 Everything about *what to write* — the user-facing description register, `table:columns`
 placement, SPDX license rules, categorical `values`, hex per-feature duplication notes, `h3:*`

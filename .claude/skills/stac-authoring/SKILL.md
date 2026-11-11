@@ -428,8 +428,9 @@ the catalog alone instead of each app re-inventing the paint in its own `layers-
   relative path does not load in MapLibre), and every layer has `source: "data"` and
   `source-layer` = the PMTiles asset's `vector:layers` entry.
 - Polygons get a `fill` layer plus an outline `line` layer; lines a `line`; points a `circle`.
-- Several styles (one per interesting attribute) are welcome; **exactly one carries the
-  `default` role**. Put `default` on a lone style too.
+- Several styles (one per interesting attribute) are welcome; **exactly one per PMTiles file
+  carries the `default` role** (glen matches a style to its file, glen#440). Put `default` on
+  a lone style too.
 - `description` says what the colours mean, in the user-facing register below.
 - Legend and hover hints go in the style's `metadata` under `glen:` keys
   (`glen:legend` = `{type, classes, label}`, `glen:tooltip_fields`), which MapLibre ignores.
@@ -457,10 +458,34 @@ scripts/verify-stac.py --no-data /tmp/styles/public-padus/padus-4-1/fee/stac-col
 rclone copy /tmp/styles/public-padus/ nrp:public-padus/   # only styles/ files and patched collection JSON are in it
 ```
 
-For a new dataset no app shows yet, write the default yourself: one colour per geometry type,
-plus a categorical (`match`) or graduated (`interpolate`) style on the main attribute, with a
-colour distinct from neighbouring layers in the catalog. An app that later adds the layer should
-read the catalog style rather than copy it.
+**For a new dataset no app shows yet, the default is a considered style on its primary
+variable, built from the data the way you write its STAC.** Part of every ingest, before any app
+draws the layer:
+
+1. Examine the data: `scripts/default-style.py profile <collection-url>` lists each PMTiles
+   file's attributes (type, distinct count, range or values) beside the column descriptions.
+2. Decide which variable is primary: a categorical one, or a continuous one if that is the main
+   thing the data measures. An identifier, a name or a per-feature area is not a variable.
+3. Build the style on it, with a sentence on why that variable:
+
+```bash
+scripts/default-style.py build <url> --asset d-pmtiles --column CLASS --kind categorical \
+  --label "habitat class" --why "..." [--colors '{"A":"#..."}'] [--labels '{"A":"..."}'] --out /tmp/styles
+scripts/default-style.py build <url> --asset d-pmtiles --column VALUE --kind continuous \
+  --label "..." --why "..." [--palette ylorrd] [--unit "%"] [--nodata -9999] --out /tmp/styles
+```
+
+Categorical colours the most frequent values (counted in the GeoParquet through the duckdb-geo
+server), labelled from the column's `CODE=Definition` description, the rest as Other; give
+`--colors` for classes that have a meaning (wildfire red, GAP greens) and it also sets the legend
+order. Continuous shades quantile classes of the real range, with missing values in no-data
+grey. `A/B` as the column shades a ratio of two columns. Both write `glen:legend` classes.
+
+A one-colour default is refused (`stac-publish-guard.py` and `verify-stac.py`) unless the data
+really has no variable worth showing, such as an outline with no attributes or tiles that carry
+only identifiers. Then `--single-colour "why"` records the reason as the style's description
+and `glen:single_colour_reason`. An app that later adds the layer should read the catalog style
+rather than copy it.
 
 **A recipe job that overwrites a live collection** (a `*-publish-stac.yaml` that copies a
 ConfigMap file over `stac-collection.json`) would drop the styles. Copy the `keep_styles` shell
@@ -469,7 +494,9 @@ and call `keep_styles <local file> <nrp: target>` before each such `rclone copyt
 live collection's `style` assets and `renders` into the file being uploaded.
 
 `verify-stac.py` fails a malformed style asset (wrong media type, not under `styles/`, no title,
-not exactly one `default`) and advises `pmtiles-no-style` on a PMTiles collection without one.
+not exactly one `default` per PMTiles file), a `style-fallback-*` default, and a one-colour
+default with no `glen:single_colour_reason`; it advises `pmtiles-no-style` on a PMTiles
+collection without one.
 
 ## Step 6: Register in the parent sub-catalog
 

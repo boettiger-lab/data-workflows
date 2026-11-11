@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Fallback default styles and renders for collections no GLEN app styles (#881).
+"""Fallback renders for COGs, and the list of PMTiles files still without a default style (#881).
 
-Fills gaps only: a PMTiles asset gets a one-colour MapLibre style when the collection has no
-default style; a COG gets a render when it has none and its metadata says how to draw it:
+Fills gaps only. A PMTiles file whose style already exists is given that style as its default;
+a file with no style is listed in the report and left alone, because a one-colour style is not
+a default (the publish guard and verify-stac refuse it): build one on the file's primary
+variable with scripts/default-style.py. A COG gets a render when it has none and its metadata
+says how to draw it:
 
   * `classification:classes` with `color_hint` -> a per-class colormap
   * `raster:bands[0].statistics` min/max      -> viridis stretched over that range
@@ -10,19 +13,16 @@ default style; a COG gets a render when it has none and its metadata says how to
 
 `--stats` takes the JSON lines the overview-statistics Job prints ({"path": "/vsis3/...",
 "min", "max", "mean", "std"}); they shape the render only and are not written to the STAC.
-COGs with none of these are listed in the report and skipped. Fallback styles are keyed
-`style-fallback-<stem>`; `scripts/app-styles.py` drops them when an app supplies real paint.
+COGs with none of these are listed in the report and skipped.
 
   scripts/fallback-styles.py --out /tmp/fb URL [URL ...]
   scripts/fallback-styles.py --out /tmp/fb --crawl https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json
 """
 
 import argparse
-import gzip
 import importlib.util
 import json
 import posixpath
-import struct
 import sys
 import urllib.parse
 import urllib.request
@@ -41,14 +41,7 @@ def _load(name, fname):
 apps = _load("app_styles", "app-styles.py")
 pc = _load("portolan_columns", "portolan-columns.py")
 
-FALLBACK_PREFIX = "style-fallback-"
-PAINT = {
-    "fill": ({"fill-color": "#4a7bb7", "fill-opacity": 0.5},
-             {"line-color": "#2b4c7e", "line-width": 0.5}),
-    "line": ({"line-color": "#2b4c7e", "line-width": 1.2}, None),
-    "circle": ({"circle-color": "#2b4c7e", "circle-radius": 3,
-                "circle-stroke-color": "#ffffff", "circle-stroke-width": 0.5}, None),
-}
+FALLBACK_PREFIX = "style-fallback-"  # the retired one-colour styles (#900); refused as defaults
 GEOM = {"polygon": "fill", "multipolygon": "fill", "linestring": "line",
         "multilinestring": "line", "point": "circle", "multipoint": "circle"}
 
@@ -59,24 +52,15 @@ def _range(url, start, length):
         return r.read()
 
 
-def pmtiles_layer_types(url: str) -> dict:
-    """{layer: fill|line|circle} from a PMTiles v3 file's tilestats (header + metadata only)."""
-    head = _range(url, 0, 127)
-    if head[:7] != b"PMTiles" or head[7] != 3:
-        raise ValueError("not a PMTiles v3 file")
-    off, ln = struct.unpack_from("<QQ", head, 24)
-    raw = _range(url, off, ln)
-    meta = json.loads(gzip.decompress(raw) if head[97] == 2 else raw)
-    out = {}
-    for lay in (meta.get("tilestats") or {}).get("layers", []):
-        g = (lay.get("geometry") or "").lower()
-        if g in GEOM:
-            out[lay["layer"]] = GEOM[g]
-    return out
-
-
 def cog_render(asset_key: str, asset: dict, measured: dict | None = None) -> tuple[dict | None, str]:
+    """A render whose `rescale` is in real units: statistics are of the stored values, and a map
+    app unscales a band with a scale or offset before TiTiler applies `rescale`."""
     band = (asset.get("raster:bands") or [{}])[0]
+    scale, offset = band.get("scale") or 1, band.get("offset") or 0
+
+    def real(x):
+        return round(x * scale + offset, 6)
+
     title = f"Fallback: {asset.get('title') or asset_key}"
     nodata = band.get("nodata", asset.get("nodata"))
     classes = band.get("classification:classes") or asset.get("classification:classes")
@@ -86,7 +70,7 @@ def cog_render(asset_key: str, asset: dict, measured: dict | None = None) -> tup
     elif (st := band.get("statistics")) and st.get("minimum") is not None \
             and st.get("maximum") is not None and st["maximum"] > st["minimum"]:
         e = {"title": title, "assets": [asset_key], "colormap_name": "viridis",
-             "rescale": [[st["minimum"], st["maximum"]]]}
+             "rescale": [sorted([real(st["minimum"]), real(st["maximum"])])]}
     elif measured and measured.get("min") is not None and measured.get("max") is not None \
             and measured["max"] > measured["min"]:
         lo, hi = measured["min"], measured["max"]
@@ -94,7 +78,7 @@ def cog_render(asset_key: str, asset: dict, measured: dict | None = None) -> tup
             lo = max(lo, measured["mean"] - 2 * measured["std"])
             hi = min(hi, measured["mean"] + 2 * measured["std"])
         e = {"title": title, "assets": [asset_key], "colormap_name": "viridis",
-             "rescale": [[round(lo, 6), round(hi, 6)]]}
+             "rescale": [sorted([real(lo), real(hi)])]}
     else:
         return None, "no classes with color_hint and no statistics"
     if nodata is not None:
@@ -134,12 +118,11 @@ def fallback(doc: dict, coll: str, stats: dict | None = None, targets: dict | No
              ) -> tuple[dict | None, list[tuple[str, dict]], list[str]]:
     """Return (new doc or None, [(style filename, style)], report lines).
 
-    Every PMTiles file gets a default style naming it (glen matches style to file): an
-    existing style for the file is promoted to default, else a fallback style is added."""
+    Every PMTiles file needs a default style naming it (glen matches style to file): an
+    existing style for the file is promoted to default, else the file is reported."""
     assets = doc.get("assets", {})
     renders = doc.get("renders", {})
     rendered = {a for r in renders.values() for a in r.get("assets", [])}
-    coll_dir = posixpath.dirname(coll)
     new = json.loads(json.dumps(doc))
     files, notes, promoted = [], [], False
     base = next((l.get("href") for l in doc.get("links", []) if l.get("rel") == "self"), "")
@@ -160,35 +143,8 @@ def fallback(doc: dict, coll: str, stats: dict | None = None, targets: dict | No
             promoted = True
             notes.append(f"`{key}`: `{mine[0]}` made its default")
             continue
-        layers = a.get("vector:layers") or []
-        if not layers:
-            notes.append(f"`{key}`: no `vector:layers`, skipped")
-            continue
-        try:
-            types = pmtiles_layer_types(a["href"])
-        except Exception as e:  # noqa: BLE001 — report and skip
-            notes.append(f"`{key}`: cannot read PMTiles metadata ({e}), skipped")
-            continue
-        layer = layers[0]
-        t = types.get(layer)
-        if not t:
-            notes.append(f"`{key}`: no geometry type for layer `{layer}`, skipped")
-            continue
-        stem = key.removesuffix("-pmtiles")
-        paint, outline = PAINT[t]
-        cfg = {"layer_type": t, "default_style": paint}
-        if outline:
-            cfg["outline_style"] = outline
-        title = f"Fallback: {a.get('title') or stem}"
-        desc = "All features in one colour. No GLEN app styles this layer yet."
-        pm_rel = posixpath.relpath(apps.asset_path(a["href"]),
-                                   posixpath.join(coll_dir, "styles"))
-        fname = f"fallback-{stem}.json"
-        files.append((fname, apps.maplibre_style(cfg, title, pm_rel, layer, desc)))
-        new["assets"][FALLBACK_PREFIX + stem] = {
-            "href": f"{apps.PUBLIC}{coll_dir}/styles/{fname}", "type": apps.STYLE_TYPE,
-            "title": title, "description": desc, "roles": ["style", "default"]}
-        notes.append(f"`{key}`: {t} style")
+        notes.append(f"`{key}`: no default style; build one on its primary variable with "
+                     f"scripts/default-style.py")
 
     added = {}
     for key, a in sorted(assets.items()):
