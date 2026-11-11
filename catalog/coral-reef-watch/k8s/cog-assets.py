@@ -19,6 +19,8 @@ Idempotent: it rebuilds every COG asset from the bucket listing on each run, lea
 asset and everything else in the collection untouched, and skips the upload when nothing changed.
 Uses only the standard library and rclone (remote `nrp`), so it runs in the build image and locally.
 """
+# STAC-PUBLISH-GUARD: not needed: reads each live collection, edits its COG assets and renders
+# in place, and uploads the result, so nothing added to the collection since is lost.
 import json
 import os
 import re
@@ -33,6 +35,7 @@ COG_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
 EXT = {
     "raster": "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
     "classification": "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "render": "https://stac-extensions.github.io/render/v2.0.0/schema.json",
 }
 # Bleaching Alert Area colours. Levels 0-4 follow Coral Reef Watch's published map colours;
 # levels 5-7 (the five-level annual product only) extend the ramp to darker reds and purple.
@@ -56,6 +59,31 @@ def band(product, values_note):
         return b
     unit = "Celsius-weeks" if product.startswith("dhw") else "Celsius"
     return {"data_type": "int16", "nodata": -32768, "scale": 0.01, "offset": 0, "unit": unit}
+
+
+# How each product is drawn. Ranges are in real units (degrees Celsius, degree Celsius-weeks):
+# a map app asks TiTiler to unscale a band with a scale factor, and TiTiler applies `rescale`
+# after unscaling, so a range in stored hundredths would stretch over thousands of degrees.
+RAMPS = [  # (product prefix, colormap, low, high); first match wins
+    ("annual ssta-mean", "rdbu_r", -2, 2),  # a year's mean anomaly is small
+    ("ssta", "rdbu_r", -5, 5),
+    ("sst", "rdylbu_r", -2, 32),      # sea water freezes near -2 C; the warmest reefs pass 31 C
+    ("hs", "ylorrd", 0, 5),           # HotSpot: heat stress above the bleaching threshold
+    ("dhw", "ylorrd", 0, 30),
+]
+
+
+def render(tier, product, title, asset, b):
+    """The render for one COG: a categorical colormap from a BAA band's classes, so the alert
+    levels draw in Coral Reef Watch's colours, or a continuous ramp in real units."""
+    if "classification:classes" in b:
+        return {"title": title, "assets": [asset], "resampling": "nearest", "nodata": b["nodata"],
+                "colormap": {str(c["value"]): "#" + c["color_hint"]
+                             for c in b["classification:classes"]}}
+    cmap, lo, hi = next((c, lo, hi) for pre, c, lo, hi in RAMPS
+                        if product.startswith(pre) or f"{tier} {product}".startswith(pre))
+    return {"title": title, "assets": [asset], "colormap_name": cmap, "rescale": [[lo, hi]],
+            "nodata": b["nodata"]}
 
 
 def encoding_note(product):
@@ -95,6 +123,7 @@ def main():
         sys.exit(__doc__)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     work = os.environ.get("OUT_DIR") or tempfile.mkdtemp()
+    failed = []
     for p in products:
         base = f"{prefix}/{p}"
         stac_path = f"{work}/{p}.json"
@@ -106,9 +135,13 @@ def main():
         coll = json.loads(text)
         before = json.dumps(coll, sort_keys=True)
 
-        # The value column's description lists the BAA levels (0=No Stress, ...).
-        values_note = next((c.get("description", "") for a in coll.get("assets", {}).values()
-                            for c in a.get("table:columns", []) if c["name"] == "bleaching_alert_area"), "")
+        # The value column's description lists the BAA levels (0=No Stress, ...). It lives in the
+        # collection's column dictionary since the Portolan column shape (glen#441), and on the
+        # asset's own list in collections not yet migrated.
+        columns = list(coll.get("table:columns", [])) + [
+            c for a in coll.get("assets", {}).values() for c in a.get("table:columns", [])]
+        values_note = next((c["description"] for c in columns if c.get("name") == "bleaching_alert_area"
+                            and "=" in c.get("description", "")), "")
         name = coll["title"].split(" (")[0]
         files = rclone("lsf", "--files-only", f"nrp:{bucket}/{base}/cog/").split()
         digits = {"daily": 8, "monthly": 6, "annual": 4}[tier]
@@ -120,6 +153,13 @@ def main():
                   if not re.fullmatch(rf"{re.escape(p)}-cog(-\d{{4}}|-frames)?", k)}
         b = band(p, values_note)
         note = encoding_note(p)
+        renders = {k: v for k, v in coll.get("renders", {}).items()
+                   if not any(re.fullmatch(rf"{re.escape(p)}-cog(-\d{{4}})?", a) for a in v.get("assets", []))}
+        if p.startswith("baa") and "classification:classes" not in b:
+            print(f"{p}: no Bleaching Alert Area levels in the column descriptions; collection "
+                  f"left as it is", file=sys.stderr)
+            failed.append(p)
+            continue
 
         if tier == "annual":
             for f in dated:
@@ -136,6 +176,7 @@ def main():
                     "end_datetime": f"{y}-12-31T23:59:59Z",
                     "raster:bands": [b],
                 }
+                renders[f"{p}-cog-{y}"] = render(tier, p, f"{name}, {y}", f"{p}-cog-{y}", b)
         else:
             newest = dated[-1]
             stamp = newest[len(p) + 1:-4]
@@ -159,6 +200,7 @@ def main():
                                 f"{unit} is added; every {unit} also keeps its own file at {PUBLIC}/{bucket}/{base}/cog/{p}-{pattern}.tif. {note}"),
                 "raster:bands": [b],
             }
+            renders[p] = render(tier, p, name, f"{p}-cog", b)
             write_frames(bucket, base, tier, dated, f"{work}/{p}-frames.json")
             assets[f"{p}-cog-frames"] = {
                 "href": f"{PUBLIC}/{bucket}/{base}/cog/frames.json",
@@ -171,9 +213,13 @@ def main():
                                 f"is added or removed."),
             }
         coll["assets"] = assets
+        if renders:
+            coll["renders"] = renders
         exts = coll.setdefault("stac_extensions", [])
-        for key in ("raster", "classification"):
-            if (key == "raster" or "classification:classes" in b) and EXT[key] not in exts:
+        for key in ("raster", "classification", "render"):
+            want = {"raster": True, "classification": "classification:classes" in b,
+                    "render": bool(renders)}[key]
+            if want and EXT[key] not in exts:
                 exts.append(EXT[key])
         if json.dumps(coll, sort_keys=True) == before:
             print(f"{p}: COG assets unchanged")
@@ -185,6 +231,8 @@ def main():
             continue
         rclone("copyto", stac_path, f"nrp:{bucket}/{base}/stac-collection.json")
         print(f"{p}: {len(dated)} COGs, assets {sorted(k for k in assets if '-cog' in k)[:3]}...")
+    if failed:
+        sys.exit(f"no BAA levels found for {', '.join(failed)}")
 
 
 if __name__ == "__main__":

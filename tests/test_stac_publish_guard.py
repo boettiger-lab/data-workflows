@@ -87,10 +87,20 @@ class Fallbacks(unittest.TestCase):
         g.guard(new, self.live_with_fallback(), set())
         self.assertNotIn("style-fallback-d", new["assets"])
 
-    def test_fallback_kept_when_new_has_no_style(self):
+    def test_fallback_default_is_refused(self):
         new = new_from(live())
-        g.guard(new, self.live_with_fallback(), set())
-        self.assertEqual(new["assets"]["style-fallback-d"]["roles"], ["style", "default"])
+        untouched = copy.deepcopy(new)
+        kept, refused = g.guard(new, self.live_with_fallback(), set())
+        self.assertEqual(len(refused), 1)
+        self.assertIn("style-fallback-d", refused[0])
+        self.assertEqual(new, untouched)
+
+    def test_fallback_in_new_file_is_refused(self):
+        new = new_from(live())
+        new["assets"]["style-fallback-d"] = {"href": BASE + "styles/fallback-d.json",
+                                             "roles": ["style", "default"], "type": self.STYLE}
+        _, refused = g.guard(new, live(), set())
+        self.assertTrue(refused)
 
     def test_kept_style_loses_default_when_new_has_one(self):
         new = new_from(live())

@@ -28,8 +28,16 @@ Static checks (no data; just the STAC JSON):
   - vector:layers on every PMTiles asset
   - Portolan styles (PORTO-CORE-069/070, PORTO-FMT-014/015): a style asset is typed
     application/vnd.mapbox.style+json under styles/; with several, exactly one carries
-    the `default` role. ADVISORY: a PMTiles collection with no style asset (catalog-wide
-    debt being retrofitted from the GLEN app configs, #881)
+    the `default` role for each PMTiles file (glen matches a style to its file, glen#440).
+    A file's default is a considered style on its primary variable: a one-colour
+    `style-fallback-*` default is HARD, and so is a default whose colour is a constant
+    unless the style says why in `glen:single_colour_reason` (scripts/default-style.py).
+    ADVISORY: a PMTiles collection with no style asset (catalog-wide debt being
+    retrofitted from the GLEN app configs, #881)
+  - a render's `rescale` is in real units: a map app unscales a band that declares a scale or
+    offset before TiTiler applies `rescale`. HARD when the range lies outside what the band's
+    data type can hold after unscaling (a range in stored units); ADVISORY when it lies far
+    outside the band's statistics, unscaled
   - table:columns in the Portolan shape (PORTO-FMT-046/048, glen#441): one column dictionary
     on the collection (name, type, description, values) covering every column of every
     data asset; an asset keeps its own list, names and types only, where its schema
@@ -102,6 +110,7 @@ MCP_AUTH_TOKEN for a bearer token if the endpoint is ever locked down.
 """
 
 import argparse
+import collections
 import copy
 import tempfile
 import importlib.util
@@ -615,15 +624,107 @@ def check_styles(doc: dict) -> list[Finding]:
             out.append(Finding(HARD, "style-no-title",
                                f"style asset '{key}' needs a human-readable title."))
     defaults = [k for k, a in styles.items() if "default" in a.get("roles", [])]
-    if len(styles) > 1 and len(defaults) != 1:
+    stems = sorted((k.removesuffix("-pmtiles") for k, a in assets.items() if is_pmtiles(a)),
+                   key=len, reverse=True)
+    if len(stems) > 1:  # one default per PMTiles file (glen#440)
+        def stem_of(k):
+            k = k.removeprefix("style-fallback-").removeprefix("style-")
+            return next((s for s in stems if k == s or k.startswith(s + "-")), None)
+        per = collections.Counter(stem_of(k) for k in defaults)
+        for stem in sorted({stem_of(k) for k in styles} - {None}):
+            if per[stem] != 1:
+                out.append(Finding(HARD, "style-default-count",
+                                   f"PMTiles file '{stem}-pmtiles' has {per[stem]} default "
+                                   f"styles; exactly one must (PORTO-CORE-070, glen#440)."))
+    elif len(styles) > 1 and len(defaults) != 1:
         out.append(Finding(HARD, "style-default-count",
                            f"{len(styles)} style assets and {len(defaults)} carry the "
                            f"'default' role; exactly one must (PORTO-CORE-070)."))
+    for k in defaults:
+        if k.startswith("style-fallback-"):
+            out.append(Finding(HARD, "style-fallback-default",
+                               f"default style '{k}' is a one-colour fallback. Build a default "
+                               f"on the file's primary variable with scripts/default-style.py "
+                               f"(skill stac-authoring, Step 5b)."))
     if not styles and any(is_pmtiles(a) for a in assets.values()):
         out.append(Finding(ADVISORY, "pmtiles-no-style",
                            "collection has PMTiles but no MapLibre style asset "
                            "(PORTO-CORE-069). Generate one with scripts/app-styles.py "
                            "or write one (skill stac-authoring)."))
+    return out
+
+
+def _fetch_style(href: str) -> dict | None:
+    try:
+        with urllib.request.urlopen(href, timeout=30) as r:
+            return json.load(r)
+    except Exception:  # noqa: BLE001 — reported as a finding by the caller
+        return None
+
+
+def check_default_style_paint(doc: dict, fetch=_fetch_style) -> list[Finding]:
+    """A default style must colour its features by a variable, unless the style records why
+    the data has none worth showing (`glen:single_colour_reason`). Fetches each default."""
+    out = []
+    for key, a in doc.get("assets", {}).items():
+        roles = a.get("roles") or []
+        if "style" not in roles or "default" not in roles or key.startswith("style-fallback-"):
+            continue
+        sty = fetch(a.get("href", ""))
+        if not isinstance(sty, dict):
+            out.append(Finding(ADVISORY, "style-unreadable",
+                               f"default style '{key}' could not be read from {a.get('href')}."))
+            continue
+        if (sty.get("metadata") or {}).get("glen:single_colour_reason"):
+            continue
+        paints = [(l.get("paint") or {}).get(f"{l.get('type')}-color")
+                  for l in sty.get("layers", []) if l.get("type") in ("fill", "line", "circle")]
+        if paints and not any(isinstance(p, list) for p in paints):
+            out.append(Finding(HARD, "style-single-colour-default",
+                               f"default style '{key}' draws every feature in one colour. Colour "
+                               f"it by the file's primary variable (scripts/default-style.py), or, "
+                               f"if the data has no variable worth showing, say why in the style's "
+                               f"metadata `glen:single_colour_reason` (--single-colour REASON)."))
+    return out
+
+
+DTYPE_RANGE = {"int8": (-128, 127), "uint8": (0, 255), "int16": (-32768, 32767),
+               "uint16": (0, 65535), "int32": (-2**31, 2**31 - 1), "uint32": (0, 2**32 - 1)}
+
+
+def check_render_units(doc: dict) -> list[Finding]:
+    """A render's rescale must be in the units a map app draws: real units once the band's
+    scale and offset are applied (TiTiler unscales, then rescales)."""
+    out = []
+    assets = doc.get("assets", {})
+    for rkey, r in (doc.get("renders") or {}).items():
+        if not r.get("rescale"):
+            continue
+        for akey in r.get("assets", []):
+            band = ((assets.get(akey) or {}).get("raster:bands") or [{}])[0]
+            scale, offset = band.get("scale") or 1, band.get("offset") or 0
+
+            def real(x):
+                return x * scale + offset
+            for lo, hi in r["rescale"][:1]:
+                dt = DTYPE_RANGE.get(band.get("data_type"))
+                if dt and (scale, offset) != (1, 0):
+                    a, b = sorted(real(x) for x in dt)
+                    if lo < a or hi > b:
+                        out.append(Finding(HARD, "render-rescale-raw-units",
+                                           f"render '{rkey}' rescales {lo}..{hi}, but asset '{akey}' "
+                                           f"({band['data_type']}, scale {scale}, offset {offset}) "
+                                           f"holds only {a:g}..{b:g} once unscaled: give the range "
+                                           f"in real units."))
+                        continue
+                st = band.get("statistics") or {}
+                if st.get("minimum") is not None and st.get("maximum") is not None:
+                    a, b = sorted(real(st[k]) for k in ("minimum", "maximum"))
+                    span = max(b - a, abs(b) * 1e-6, 1e-9)
+                    if hi < a or lo > b or lo < a - span or hi > b + span:
+                        out.append(Finding(ADVISORY, "render-rescale-outside-statistics",
+                                           f"render '{rkey}' rescales {lo}..{hi}, far outside the "
+                                           f"statistics of asset '{akey}' ({a:g}..{b:g} in real units)."))
     return out
 
 
@@ -1295,6 +1396,8 @@ STATIC_CHECKS = [
     check_hex_assets,
     check_vector_layers,
     check_styles,
+    check_default_style_paint,
+    check_render_units,
     check_table_columns_placement,
     check_parquet_columns_shape,
     check_pmtiles_link,
