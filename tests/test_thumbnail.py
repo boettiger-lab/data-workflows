@@ -69,6 +69,10 @@ class Bbox(unittest.TestCase):
         self.assertEqual(th.bbox({"extent": {"spatial": {"bbox": [[-200, -90, 0, -10, 90, 0]]}}}),
                          [-180, -85, -10, 85])
 
+    def test_flat_bbox_is_tolerated(self):
+        self.assertEqual(th.bbox({"extent": {"spatial": {"bbox": [-124, 32, -114, 42]}}}),
+                         [-124, 32, -114, 42])
+
     def test_antimeridian_shows_full_width(self):
         self.assertEqual(th.bbox({"extent": {"spatial": {"bbox": [[170, -20, -170, 10]]}}}),
                          [-180, -20, 180, 10])

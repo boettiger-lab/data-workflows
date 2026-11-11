@@ -62,7 +62,8 @@ def coll_path(url: str) -> str:
 
 
 def bbox(doc: dict) -> list[float]:
-    b = (doc.get("extent", {}).get("spatial", {}).get("bbox") or [[-180, -85, 180, 85]])[0]
+    b = doc.get("extent", {}).get("spatial", {}).get("bbox") or [[-180, -85, 180, 85]]
+    b = b if isinstance(b[0], (int, float)) else b[0]  # tolerate a flat (malformed) bbox
     w, s, e, n = (b[0], b[1], b[3], b[4]) if len(b) == 6 else b[:4]
     if e < w:  # crosses the antimeridian: show the whole width
         w, e = -180, 180
