@@ -6,8 +6,11 @@ default style; a COG gets a render when it has none and its metadata says how to
 
   * `classification:classes` with `color_hint` -> a per-class colormap
   * `raster:bands[0].statistics` min/max      -> viridis stretched over that range
+  * `--stats` file (overview statistics)       -> viridis over mean ± 2 sd, clipped to min/max
 
-COGs with neither are listed in the report and skipped. Fallback styles are keyed
+`--stats` takes the JSON lines the overview-statistics Job prints ({"path": "/vsis3/...",
+"min", "max", "mean", "std"}); they shape the render only and are not written to the STAC.
+COGs with none of these are listed in the report and skipped. Fallback styles are keyed
 `style-fallback-<stem>`; `scripts/app-styles.py` drops them when an app supplies real paint.
 
   scripts/fallback-styles.py --out /tmp/fb URL [URL ...]
@@ -21,6 +24,7 @@ import json
 import posixpath
 import struct
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -71,7 +75,7 @@ def pmtiles_layer_types(url: str) -> dict:
     return out
 
 
-def cog_render(asset_key: str, asset: dict) -> tuple[dict | None, str]:
+def cog_render(asset_key: str, asset: dict, measured: dict | None = None) -> tuple[dict | None, str]:
     band = (asset.get("raster:bands") or [{}])[0]
     title = f"Fallback: {asset.get('title') or asset_key}"
     nodata = band.get("nodata", asset.get("nodata"))
@@ -83,6 +87,14 @@ def cog_render(asset_key: str, asset: dict) -> tuple[dict | None, str]:
             and st.get("maximum") is not None and st["maximum"] > st["minimum"]:
         e = {"title": title, "assets": [asset_key], "colormap_name": "viridis",
              "rescale": [[st["minimum"], st["maximum"]]]}
+    elif measured and measured.get("min") is not None and measured.get("max") is not None \
+            and measured["max"] > measured["min"]:
+        lo, hi = measured["min"], measured["max"]
+        if measured.get("std"):
+            lo = max(lo, measured["mean"] - 2 * measured["std"])
+            hi = min(hi, measured["mean"] + 2 * measured["std"])
+        e = {"title": title, "assets": [asset_key], "colormap_name": "viridis",
+             "rescale": [[round(lo, 6), round(hi, 6)]]}
     else:
         return None, "no classes with color_hint and no statistics"
     if nodata is not None:
@@ -90,63 +102,106 @@ def cog_render(asset_key: str, asset: dict) -> tuple[dict | None, str]:
     return e, ""
 
 
-def fallback(doc: dict, coll: str) -> tuple[dict | None, list[tuple[str, dict]], list[str]]:
-    """Return (new doc or None, [(style filename, style)], report lines)."""
+def key_has_stats(asset: dict) -> bool:
+    return bool(((asset.get("raster:bands") or [{}])[0]).get("statistics"))
+
+
+def load_stats(path: Path) -> dict:
+    """{asset href: stats} from the Job's JSON lines; lines with an error are dropped."""
+    out, text, i, dec = {}, path.read_text(), 0, json.JSONDecoder()
+    while (i := text.find("{", i)) >= 0:  # parallel writers can share a line
+        r, i = dec.raw_decode(text, i)
+        if "error" not in r and r.get("path", "").startswith("/vsis3/"):
+            out[apps.PUBLIC + r["path"].removeprefix("/vsis3/")] = r
+    return out
+
+
+def style_targets(doc: dict) -> dict:
+    """{style asset key: set of absolute PMTiles hrefs its sources name, or None if none}."""
+    out = {}
+    for k, a in doc.get("assets", {}).items():
+        if "style" not in (a.get("roles") or []):
+            continue
+        sty = apps.fetch_json(a["href"]) or {}
+        urls = {urllib.parse.urljoin(a["href"], src["url"].removeprefix("pmtiles://"))
+                for src in (sty.get("sources") or {}).values()
+                if str(src.get("url", "")).startswith("pmtiles://")}
+        out[k] = urls or None
+    return out
+
+
+def fallback(doc: dict, coll: str, stats: dict | None = None, targets: dict | None = None
+             ) -> tuple[dict | None, list[tuple[str, dict]], list[str]]:
+    """Return (new doc or None, [(style filename, style)], report lines).
+
+    Every PMTiles file gets a default style naming it (glen matches style to file): an
+    existing style for the file is promoted to default, else a fallback style is added."""
     assets = doc.get("assets", {})
-    has_default = any({"style", "default"} <= set(a.get("roles") or []) for a in assets.values())
     renders = doc.get("renders", {})
     rendered = {a for r in renders.values() for a in r.get("assets", [])}
     coll_dir = posixpath.dirname(coll)
     new = json.loads(json.dumps(doc))
-    files, notes = [], []
+    files, notes, promoted = [], [], False
+    base = next((l.get("href") for l in doc.get("links", []) if l.get("rel") == "self"), "")
+    tiles = {k: dict(a, href=urllib.parse.urljoin(base, a["href"]))
+             for k, a in sorted(assets.items()) if pc.is_pmtiles(a)}
+    if tiles and targets is None:
+        targets = style_targets(doc)
+    targets = targets or {}
+    generic_default = any(t is None and "default" in assets[k].get("roles", [])
+                          for k, t in targets.items())
 
-    if not has_default:
-        for key, a in sorted(assets.items()):
-            if not pc.is_pmtiles(a):
-                continue
-            layers = a.get("vector:layers") or []
-            if not layers:
-                notes.append(f"`{key}`: no `vector:layers`, skipped")
-                continue
-            try:
-                types = pmtiles_layer_types(a["href"])
-            except Exception as e:  # noqa: BLE001 — report and skip
-                notes.append(f"`{key}`: cannot read PMTiles metadata ({e}), skipped")
-                continue
-            layer = layers[0]
-            t = types.get(layer)
-            if not t:
-                notes.append(f"`{key}`: no geometry type for layer `{layer}`, skipped")
-                continue
-            stem = key.removesuffix("-pmtiles")
-            paint, outline = PAINT[t]
-            cfg = {"layer_type": t, "default_style": paint}
-            if outline:
-                cfg["outline_style"] = outline
-            title = f"Fallback: {a.get('title') or stem}"
-            desc = "All features in one colour. No GLEN app styles this layer yet."
-            pm_rel = posixpath.relpath(apps.asset_path(a["href"]),
-                                       posixpath.join(coll_dir, "styles"))
-            fname = f"fallback-{stem}.json"
-            files.append((fname, apps.maplibre_style(cfg, title, pm_rel, layer, desc)))
-            first = not any(k.startswith(FALLBACK_PREFIX) for k in new["assets"])
-            new["assets"][FALLBACK_PREFIX + stem] = {
-                "href": f"{apps.PUBLIC}{coll_dir}/styles/{fname}", "type": apps.STYLE_TYPE,
-                "title": title, "description": desc,
-                "roles": ["style", "default"] if first else ["style"]}
-            notes.append(f"`{key}`: {t} style")
+    for key, a in ({} if generic_default else tiles).items():
+        mine = sorted(k for k, t in targets.items() if t and a["href"] in t)
+        if any("default" in assets[k].get("roles", []) for k in mine):
+            continue
+        if mine:
+            new["assets"][mine[0]]["roles"] = ["style", "default"]
+            promoted = True
+            notes.append(f"`{key}`: `{mine[0]}` made its default")
+            continue
+        layers = a.get("vector:layers") or []
+        if not layers:
+            notes.append(f"`{key}`: no `vector:layers`, skipped")
+            continue
+        try:
+            types = pmtiles_layer_types(a["href"])
+        except Exception as e:  # noqa: BLE001 — report and skip
+            notes.append(f"`{key}`: cannot read PMTiles metadata ({e}), skipped")
+            continue
+        layer = layers[0]
+        t = types.get(layer)
+        if not t:
+            notes.append(f"`{key}`: no geometry type for layer `{layer}`, skipped")
+            continue
+        stem = key.removesuffix("-pmtiles")
+        paint, outline = PAINT[t]
+        cfg = {"layer_type": t, "default_style": paint}
+        if outline:
+            cfg["outline_style"] = outline
+        title = f"Fallback: {a.get('title') or stem}"
+        desc = "All features in one colour. No GLEN app styles this layer yet."
+        pm_rel = posixpath.relpath(apps.asset_path(a["href"]),
+                                   posixpath.join(coll_dir, "styles"))
+        fname = f"fallback-{stem}.json"
+        files.append((fname, apps.maplibre_style(cfg, title, pm_rel, layer, desc)))
+        new["assets"][FALLBACK_PREFIX + stem] = {
+            "href": f"{apps.PUBLIC}{coll_dir}/styles/{fname}", "type": apps.STYLE_TYPE,
+            "title": title, "description": desc, "roles": ["style", "default"]}
+        notes.append(f"`{key}`: {t} style")
 
     added = {}
     for key, a in sorted(assets.items()):
         if not (a.get("type") or "").startswith("image/tiff") or key in rendered:
             continue
-        e, why = cog_render(key, a)
+        e, why = cog_render(key, a, (stats or {}).get(a.get("href")))
         if e:
             rkey = key.removesuffix("-cog")
             if rkey in renders or rkey in added:
                 rkey = key
             added[rkey] = e
-            notes.append(f"`{key}`: render ({'classes' if 'colormap' in e else 'statistics'})")
+            kind = "classes" if "colormap" in e else "statistics" if key_has_stats(a) else "overview statistics"
+            notes.append(f"`{key}`: render ({kind})")
         else:
             notes.append(f"`{key}`: no render, {why}")
     if added:
@@ -155,7 +210,7 @@ def fallback(doc: dict, coll: str) -> tuple[dict | None, list[tuple[str, dict]],
         if apps.RENDER_EXT not in ext:
             ext.append(apps.RENDER_EXT)
 
-    changed = bool(files or added)
+    changed = bool(files or added or promoted)
     return (new if changed else None), files, notes
 
 
@@ -163,9 +218,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--crawl")
+    ap.add_argument("--stats", type=Path, help="JSON lines from the overview-statistics Job")
     ap.add_argument("urls", nargs="*")
     args = ap.parse_args()
     urls = list(args.urls) + (pc.crawl(args.crawl) if args.crawl else [])
+    stats = load_stats(args.stats) if args.stats else None
     report = ["# Fallback styles and renders", ""]
     n = 0
     for url in urls:
@@ -174,7 +231,7 @@ def main() -> int:
             report.append(f"- {url}: unreadable, skipped")
             continue
         coll = apps.asset_path(url)
-        new, files, notes = fallback(doc, coll)
+        new, files, notes = fallback(doc, coll, stats)
         if notes:
             report.append(f"- `{coll}`" + ("" if new else " (unchanged)"))
             report += [f"  - {x}" for x in notes]

@@ -22,9 +22,9 @@ TILES = {"href": BASE + "d.pmtiles", "type": "application/vnd.pmtiles", "vector:
 
 
 class Pmtiles(unittest.TestCase):
-    def run_fb(self, d, types):
+    def run_fb(self, d, types, targets=None):
         with mock.patch.object(fb, "pmtiles_layer_types", return_value=types):
-            return fb.fallback(d, COLL)
+            return fb.fallback(d, COLL, targets=targets or {})
 
     def test_one_colour_style_by_geometry(self):
         new, files, _ = self.run_fb(doc(**{"d-pmtiles": dict(TILES)}), {"d": "line"})
@@ -39,8 +39,29 @@ class Pmtiles(unittest.TestCase):
     def test_existing_default_style_is_left_alone(self):
         d = doc(**{"d-pmtiles": dict(TILES),
                    "style-d": {"href": BASE + "s.json", "roles": ["style", "default"]}})
-        new, files, _ = self.run_fb(d, {"d": "fill"})
+        new, files, _ = self.run_fb(d, {"d": "fill"}, {"style-d": {TILES["href"]}})
         self.assertIsNone(new)
+        self.assertEqual(files, [])
+
+    def test_generic_default_covers_every_file(self):
+        d = doc(**{"d-pmtiles": dict(TILES),
+                   "style-d": {"href": BASE + "s.json", "roles": ["style", "default"]}})
+        new, _, _ = self.run_fb(d, {"d": "fill"}, {"style-d": None})
+        self.assertIsNone(new)
+
+    def test_each_file_gets_its_own_default(self):
+        other = dict(TILES, href=BASE + "e.pmtiles", **{"vector:layers": ["e"]})
+        d = doc(**{"d-pmtiles": dict(TILES), "e-pmtiles": other,
+                   "style-d": {"href": BASE + "s.json", "roles": ["style", "default"]}})
+        new, files, _ = self.run_fb(d, {"e": "fill"}, {"style-d": {TILES["href"]}})
+        self.assertEqual(new["assets"]["style-fallback-e"]["roles"], ["style", "default"])
+        self.assertEqual(len(files), 1)
+
+    def test_existing_style_for_a_file_is_promoted(self):
+        d = doc(**{"d-pmtiles": dict(TILES),
+                   "style-d": {"href": BASE + "s.json", "roles": ["style"]}})
+        new, files, notes = self.run_fb(d, {"d": "fill"}, {"style-d": {TILES["href"]}})
+        self.assertEqual(new["assets"]["style-d"]["roles"], ["style", "default"])
         self.assertEqual(files, [])
 
     def test_unknown_geometry_is_skipped(self):
@@ -80,6 +101,23 @@ class Renders(unittest.TestCase):
         d["renders"] = {"x": {"assets": ["d-cog"]}}
         new, _, _ = fb.fallback(d, COLL)
         self.assertIsNone(new)
+
+    def test_overview_stats_become_a_clipped_stretch(self):
+        a = self.cog({"nodata": -1})
+        stats = {a["href"]: {"min": 0, "max": 100, "mean": 10, "std": 5}}
+        new, _, notes = fb.fallback(doc(**{"d-cog": a}), COLL, stats)
+        self.assertEqual(new["renders"]["d"]["rescale"], [[0, 20]])
+        self.assertIn("overview statistics", notes[0])
+        self.assertNotIn("statistics", new["assets"]["d-cog"]["raster:bands"][0])
+
+    def test_load_stats_maps_vsis3_to_href_and_drops_errors(self):
+        import tempfile, pathlib, json
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as t:
+            t.write(json.dumps({"path": "/vsis3/public-x/d-cog.tif", "min": 0, "max": 1}))
+            t.write(json.dumps({"path": "/vsis3/public-x/f.tif", "min": 0, "max": 1}) + "\n")
+            t.write(json.dumps({"path": "/vsis3/public-x/e.tif", "error": "x"}) + "\nDONE\n")
+        got = fb.load_stats(pathlib.Path(t.name))
+        self.assertEqual(sorted(got), [BASE + "d-cog.tif", BASE + "f.tif"])
 
 
 if __name__ == "__main__":
