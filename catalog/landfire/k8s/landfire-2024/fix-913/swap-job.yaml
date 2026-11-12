@@ -22,12 +22,15 @@ spec:
         - |
           set -euo pipefail
           b=public-landfire
+          # Stream through the pod: a server-side copy of a file over 5 GiB is a multipart copy,
+          # which stalled with no progress on Ceph (evc, 8.5 GB). Upload concurrency fits 1Gi.
+          R="--disable copy --s3-upload-concurrency 4"
           for p in $PRODUCTS; do
             k=landfire-2024-$p/landfire-2024-$p-cog.tif
             rclone lsf "nrp:$b/staging/913-fixed/$k" | grep -q .
             rclone lsf "nrp:$b/staging/913-backup/$k" | grep -q . || \
-              rclone copyto "nrp:$b/$k" "nrp:$b/staging/913-backup/$k" -v
-            rclone copyto "nrp:$b/staging/913-fixed/$k" "nrp:$b/$k" -v
+              rclone copyto $R "nrp:$b/$k" "nrp:$b/staging/913-backup/$k" -v
+            rclone copyto $R "nrp:$b/staging/913-fixed/$k" "nrp:$b/$k" -v
             rclone lsl "nrp:$b/$k"
           done
         env:
