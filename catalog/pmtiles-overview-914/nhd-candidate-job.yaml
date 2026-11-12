@@ -1,0 +1,42 @@
+# HAND-ROLLED (#914): the NHDPlus HR flowline candidate (ASSETS[3], thinned by USGS's own
+# visibilityfilter), built like catalog/usgs-nhd/k8s/nhdplus-hr/pmtiles.yaml: work and tippecanoe
+# temp files on the rechunk-scratch PVC (a 25.6M-line GeoJSONL exceeds pod ephemeral storage),
+# open-files limit raised, 32Gi as that build used. Writes staging/914-candidates/ only.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: overview-914-nhd
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      activeDeadlineSeconds: 43200
+      containers:
+      - name: tile
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        command: ["bash", "-c", "ulimit -n \"$(ulimit -Hn)\" || true; rm -rf /tmp/work; cd /opt/914 && python3 build.py"]
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: ASSET_INDEX, value: "3"}
+        - {name: STAGING, value: 914-candidates}
+        - {name: TILE_THREADS, value: "4"}
+        - {name: DUCKDB_MEMORY, value: 20GB}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: code, mountPath: /opt/914, readOnly: true}
+        - {name: scratch, mountPath: /tmp, subPath: overview-914-nhd}
+        resources:
+          requests: {cpu: "4", memory: 32Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: "4", memory: 32Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: code, configMap: {name: overview-914}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
