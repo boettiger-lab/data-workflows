@@ -38,4 +38,11 @@ ASSETS = [
          src="s3://public-storms/ibtracs-v04r01/points.parquet", geom="geom", layer="points",
          flags="-r1 -z11 --minimum-detail 12 --drop-densest-as-needed --extend-zooms-if-still-dropping",
          select=dict(IB_SELECT)),
+    # IBTrACS candidate C: --drop-densest keeps evenly spaced points, which reads as a lattice
+    # (only 6.5% of positions sit on a 0.1-degree grid, so it is not the data). The table is
+    # ordered storm by storm, so --drop-fraction-as-needed thins each track evenly instead.
+    dict(bucket="public-storms", key="ibtracs-v04r01/points.r1-fraction.pmtiles",
+         src="s3://public-storms/ibtracs-v04r01/points.parquet", geom="geom", layer="points",
+         flags="-r1 -z11 --drop-fraction-as-needed --extend-zooms-if-still-dropping",
+         select=dict(IB_SELECT)),
 ]

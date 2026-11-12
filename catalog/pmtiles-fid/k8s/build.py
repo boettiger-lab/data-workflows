@@ -6,7 +6,7 @@ import gzip, json, os, struct, subprocess, sys
 import duckdb
 from assets import ASSETS
 
-a = ASSETS[int(os.environ.get("ASSET_INDEX", os.environ["JOB_COMPLETION_INDEX"]))]
+a = ASSETS[int(os.environ.get("ASSET_INDEX") or os.environ["JOB_COMPLETION_INDEX"])]  # a plain Job sets ASSET_INDEX
 print("=== asset:", a["bucket"], a["key"], flush=True)
 work = "/tmp/work"
 os.makedirs(f"{work}/duckdb", exist_ok=True)
