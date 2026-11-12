@@ -1,0 +1,59 @@
+"""#913: rewrite one LANDFIRE 2024 COG with the 32767 fill mapped to the declared nodata -9999.
+
+    PRODUCT=ch python3 remap.py      (or JOB_COMPLETION_INDEX into PRODUCTS)
+
+The band declares nodata -9999, but 32767 also fills 5.26% of every raster (BUILD.md), so
+readers and continuous renders treat it as data. A VRT lookup table maps 32767 to -9999 and
+every other value to itself (exact for integers), and gdal_translate writes it straight to a
+COG with the original's structure (DEFLATE, predictor 2, 512 blocks, nearest overviews).
+Before upload it checks 64 random full-resolution windows: new == where(old == 32767, -9999,
+old). The result goes to staging/913-fixed/; swap.sh replaces the live file after review.
+"""
+import os
+import random
+import subprocess
+import sys
+
+import numpy as np
+from osgeo import gdal
+
+PRODUCTS = ["cbd", "cbh", "cc", "ch", "evc", "evh", "evt", "fbfm13", "fbfm40", "fvc", "fvh", "fvt", "vcc"]
+p = os.environ.get("PRODUCT") or PRODUCTS[int(os.environ["JOB_COMPLETION_INDEX"])]
+key = f"landfire-2024-{p}/landfire-2024-{p}-cog.tif"
+src = f"/vsis3/public-landfire/{key}"
+work = os.environ.get("WORK", "/scratch")
+vrt, out = f"{work}/{p}.vrt", f"{work}/{p}-cog.tif"
+gdal.UseExceptions()
+print("===", p, src, flush=True)
+
+gdal.Translate(vrt, src, format="VRT")
+text = open(vrt).read()
+assert text.count("<SimpleSource") == 1, "expected one source"
+text = text.replace("<SimpleSource", "<ComplexSource").replace(
+    "</SimpleSource>", "<LUT>-9999:-9999,32766:32766,32767:-9999</LUT></ComplexSource>")
+open(vrt, "w").write(text)
+
+subprocess.run(["gdal_translate", "-of", "COG", "-co", "COMPRESS=DEFLATE", "-co", "PREDICTOR=2",
+                "-co", "BLOCKSIZE=512", "-co", "OVERVIEW_RESAMPLING=NEAREST", "-co", "BIGTIFF=IF_SAFER",
+                "-co", "NUM_THREADS=ALL_CPUS", "-a_nodata", "-9999", vrt, out], check=True)
+
+old, new = gdal.Open(src), gdal.Open(out)
+assert (old.RasterXSize, old.RasterYSize) == (new.RasterXSize, new.RasterYSize), "size changed"
+assert old.GetGeoTransform() == new.GetGeoTransform(), "geotransform changed"
+assert new.GetRasterBand(1).GetNoDataValue() == -9999
+random.seed(913)
+fills = 0
+for _ in range(64):
+    x = random.randrange(0, old.RasterXSize - 512)
+    y = random.randrange(0, old.RasterYSize - 512)
+    a = old.GetRasterBand(1).ReadAsArray(x, y, 512, 512)
+    b = new.GetRasterBand(1).ReadAsArray(x, y, 512, 512)
+    fills += int((a == 32767).sum())
+    assert np.array_equal(b, np.where(a == 32767, -9999, a)), f"window {x},{y} differs"
+    assert not (b == 32767).any()
+ov = new.GetRasterBand(1).GetOverview(new.GetRasterBand(1).GetOverviewCount() - 1).ReadAsArray()
+assert not (ov == 32767).any(), "32767 left in the coarsest overview"
+print(f"checked 64 windows ({fills} fill pixels remapped); size {os.path.getsize(out) / 1e9:.2f} GB", flush=True)
+
+subprocess.run(["rclone", "copyto", out, f"nrp:public-landfire/staging/913-fixed/{key}", "-v"], check=True)
+print("=== done", p, flush=True)

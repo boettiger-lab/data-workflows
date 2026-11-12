@@ -1,0 +1,43 @@
+# HAND-ROLLED (#913): after remap-job.yaml and a review of its checks, back up each live
+# LANDFIRE 2024 COG to staging/913-backup/<key> and copy the remapped file over it,
+# server-side over the internal endpoint. PRODUCTS limits it to a subset.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: landfire-913-swap
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: swap
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          b=public-landfire
+          for p in $PRODUCTS; do
+            k=landfire-2024-$p/landfire-2024-$p-cog.tif
+            rclone lsf "nrp:$b/staging/913-fixed/$k" | grep -q .
+            rclone lsf "nrp:$b/staging/913-backup/$k" | grep -q . || \
+              rclone copyto "nrp:$b/$k" "nrp:$b/staging/913-backup/$k" -v
+            rclone copyto "nrp:$b/staging/913-fixed/$k" "nrp:$b/$k" -v
+            rclone lsl "nrp:$b/$k"
+          done
+        env:
+        - name: PRODUCTS
+          value: "cbd cbh cc ch evc evh evt fbfm13 fbfm40 fvc fvh fvt vcc"
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: "1", memory: 1Gi}
+          limits: {cpu: "1", memory: 1Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
