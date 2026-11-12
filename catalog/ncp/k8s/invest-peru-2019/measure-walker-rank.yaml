@@ -64,8 +64,12 @@ spec:
           FILES = {"agb": "Base_Cur_AGB_MgCha_500m.tif", "bio": "Base_Cur_AGB_BGB_MgCha_500m.tif"}
 
           # 1. stage, verified against Dataverse's checksums
-          meta = json.load(urllib.request.urlopen(
-              f"https://dataverse.harvard.edu/api/datasets/:persistentId/?persistentId={DOI}"))
+          # Dataverse answers 403 to Python's default user agent; curl with a generic one works.
+          UA = "data-workflows-staging/1.0"
+          meta = json.loads(subprocess.run(
+              ["curl", "-fsSL", "--retry", "5", "-A", UA,
+               f"https://dataverse.harvard.edu/api/datasets/:persistentId/?persistentId={DOI}"],
+              check=True, capture_output=True, text=True).stdout)
           v = meta["data"]["latestVersion"]
           byname = {f["dataFile"]["filename"]: f["dataFile"] for f in v["files"]}
           staged = {o["Name"]: o for o in json.loads(subprocess.run(
@@ -78,7 +82,7 @@ spec:
                         "already_staged": o["ModTime"][:10]}), flush=True)
                   continue
               p = f"/tmp/{name}"
-              run("curl", "-fsSL", "--retry", "5", "--retry-delay", "20", "-o", p,
+              run("curl", "-fsSL", "--retry", "5", "--retry-delay", "20", "-A", UA, "-o", p,
                   f"https://dataverse.harvard.edu/api/access/datafile/{df['id']}")
               h = hashlib.md5()
               with open(p, "rb") as f:
