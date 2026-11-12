@@ -1,4 +1,4 @@
-# Generation command: cng-datasets raster-workflow --dataset present-day-connectivity-categories --source-url "https://s3-west.nrp-nautilus.io/public-connectivity/present-day-connectivity-categories-cog.tif" --bucket public-connectivity --h3-resolution 9 --parent-resolutions "0"  (#916: 0 and 255 are nodata)
+# Generation command: cng-datasets raster-workflow --dataset present-day-connectivity-categories --source-url "https://s3-west.nrp-nautilus.io/public-connectivity/present-day-connectivity-categories-cog.tif" --bucket public-connectivity --h3-resolution 9 --parent-resolutions "0"  (#916: the COG's fill is the single declared nodata 255)
 # DEVIATION from generated output (#916): output path hex-fractions/ and job name -hex-fractions,
 # so this fractions table does not overwrite the mode table the generator would also write to hex/.
 apiVersion: batch/v1
@@ -76,7 +76,7 @@ spec:
           \ >&2\n  exit 1\nfi\n\ncng-datasets raster --input \"https://s3-west.nrp-nautilus.io/public-connectivity/present-day-connectivity-categories-cog.tif\"\
           \ --output-parquet s3://public-connectivity/present-day-connectivity-categories/hex-fractions/\
           \ --h0-index ${H0} --resolution 9 --parent-resolutions 0 --value-column\
-          \ connectivity_category --hex-resampling fractions --nodata \"0,255\""
+          \ connectivity_category --hex-resampling fractions --nodata \"255\""
         resources:
           requests:
             cpu: '4'
