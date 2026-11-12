@@ -12,7 +12,7 @@ spec:
   template:
     spec:
       restartPolicy: Never
-      priorityClassName: opportunistic
+      # default priority: ~96 GB of server-side copies; 1 CPU / 1Gi is below NRP's usage checks
       automountServiceAccountToken: false
       containers:
       - name: swap
