@@ -1,0 +1,171 @@
+# HAND-ROLLED: input staging plus a one-off measurement; the generator has neither (#882).
+#
+# InVEST Peru (#882), carbon rank check. Ale asked (2026-11-11) whether our carbon ranks places
+# the way an independent map does, at H3 resolution 5. No public copy of Asner et al. 2014 was
+# found, so this compares against Walker et al. 2022 (PNAS, doi:10.1073/pnas.2111312119), data
+# on Harvard Dataverse doi:10.7910/DVN/DSDDQK, CC-BY-4.0, ~500 m, Mg C/ha:
+#   - above-ground: Walker Base_Cur_AGB vs ours, rebuilt from the carbon run's land-use raster and
+#     carbon_pools.csv (c_above); we do not publish an above-ground layer.
+#   - biomass: Walker Base_Cur_AGB_BGB vs our published carbon-biomass layer (above + below).
+#   1. Stages both Walker files unchanged to s3://public-ncp/raw/walker-2022/, asserting the
+#      Dataverse MD5s, and logs size, MD5 and access date (#417). Skips files already staged.
+#   2. Puts ours and Walker's on one EPSG:4326 grid of 1/252 degree (exactly 4x4 CGLS-LC100
+#      pixels, ~440 m) over Peru: ours by averaging the 100 m pixels, Walker by bilinear warp.
+#   3. Averages each into H3 resolution 5 cells (area-weighted), keeps cells with at least half
+#      their area inside Peru, and reports the Spearman rank correlation, the overlap of the two
+#      top quartiles, and each map's Peru total. Results go to the log as one RESULT JSON line.
+#
+#   kubectl apply -n geo-workflows -f catalog/ncp/k8s/invest-peru-2019/measure-walker-rank.yaml
+#   kubectl -n geo-workflows logs job/invest-peru-2019-measure-walker-rank | grep -E '^(STAGED|RESULT)'
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: invest-peru-2019-measure-walker-rank
+  namespace: geo-workflows
+  labels: {k8s-app: invest-peru-2019-measure-walker-rank}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: invest-peru-2019-measure-walker-rank}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 5400
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # nrp-c17 hung on the image pull for every pod on 2026-11-10.
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}, {key: kubernetes.io/hostname, operator: NotIn, values: [nrp-c17.nysernet.org]}]}
+      containers:
+      - name: measure
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        - {name: AWS_NO_SIGN_REQUEST, value: "YES"}
+        - {name: GDAL_CACHEMAX, value: "512"}
+        command:
+        - python3
+        - -c
+        - |
+          import csv, datetime, glob, hashlib, json, math, os, subprocess, urllib.request
+          import duckdb, numpy as np, pandas as pd
+          from osgeo import gdal
+          gdal.UseExceptions()
+          run = lambda *a: subprocess.run(a, check=True)
+          DOI = "doi:10.7910/DVN/DSDDQK"
+          DEST = "nrp:public-ncp/raw/walker-2022/"
+          FILES = {"agb": "Base_Cur_AGB_MgCha_500m.tif", "bio": "Base_Cur_AGB_BGB_MgCha_500m.tif"}
+
+          # 1. stage, verified against Dataverse's checksums
+          meta = json.load(urllib.request.urlopen(
+              f"https://dataverse.harvard.edu/api/datasets/:persistentId/?persistentId={DOI}"))
+          v = meta["data"]["latestVersion"]
+          byname = {f["dataFile"]["filename"]: f["dataFile"] for f in v["files"]}
+          staged = {o["Name"]: o for o in json.loads(subprocess.run(
+              ["rclone", "lsjson", "--hash", DEST], capture_output=True, text=True).stdout or "[]")}
+          for k, name in FILES.items():
+              df = byname[name]; md5 = df["md5"]
+              o = staged.get(name)
+              if o and o.get("Hashes", {}).get("md5") == md5:
+                  print("STAGED " + json.dumps({"file": DEST + name, "bytes": o["Size"], "md5": md5,
+                        "already_staged": o["ModTime"][:10]}), flush=True)
+                  continue
+              p = f"/tmp/{name}"
+              run("curl", "-fsSL", "--retry", "5", "--retry-delay", "20", "-o", p,
+                  f"https://dataverse.harvard.edu/api/access/datafile/{df['id']}")
+              h = hashlib.md5()
+              with open(p, "rb") as f:
+                  for chunk in iter(lambda: f.read(1 << 24), b""): h.update(chunk)
+              assert h.hexdigest() == md5, (name, h.hexdigest(), md5)
+              run("rclone", "copyto", p, DEST + name, "--s3-no-check-bucket", "--retries", "10")
+              print("STAGED " + json.dumps({"file": DEST + name, "bytes": os.path.getsize(p), "md5": md5,
+                    "dataverse": DOI, "dataverse_version": f"{v['versionNumber']}.{v['versionMinorNumber']}",
+                    "accessed": datetime.date.today().isoformat()}), flush=True)
+              os.remove(p)
+
+          # 2. common 1/252-degree grid over Peru
+          D = "/vsis3/public-ncp/raw/derived/invest-peru-2019/"
+          run("gdalbuildvrt", "-q", "/tmp/peru.vrt", *[f"{D}strips/peru-{i:02d}.tif" for i in range(12)])
+          pv = gdal.Open("/tmp/peru.vrt"); gt = pv.GetGeoTransform(); W, H = pv.RasterXSize, pv.RasterYSize
+          wkt = pv.GetProjection()
+          te = [gt[0], gt[3] + H * gt[5], gt[0] + W * gt[1], gt[3]]
+          pv = None
+          C = 252
+          cw, ch = math.ceil(W / 4), math.ceil(H / 4)
+          cte = [te[0], te[3] - ch / C, te[0] + cw / C, te[3]]
+          def coarse(src, out, alg, srcnd=None):
+              gdal.Warp(out, src, dstSRS="EPSG:4326", outputBounds=cte, width=cw, height=ch,
+                        resampleAlg=alg, srcNodata=srcnd, dstNodata=-9999, outputType=gdal.GDT_Float32,
+                        creationOptions=["TILED=YES", "COMPRESS=DEFLATE"])
+              d = gdal.Open(out); a = d.ReadAsArray(); d = None
+              return np.where(a == -9999, np.nan, a)
+
+          # our above-ground on the 100 m CGLS grid, from the land-use raster and the pools table
+          pools = {}
+          run("rclone", "copyto", "nrp:public-ncp/raw/derived/invest-peru-2019/carbon/carbon_pools.csv", "/tmp/pools.csv")
+          for r in csv.DictReader(open("/tmp/pools.csv")): pools[int(r["lucode"])] = float(r["c_above"])
+          gdal.Warp("/tmp/lu.tif", f"{D}carbon/lulc_peru_5km_alb.tif", dstSRS="EPSG:4326",
+                    outputBounds=te, width=W, height=H, resampleAlg="near",
+                    creationOptions=["TILED=YES", "COMPRESS=DEFLATE"])
+          lds = gdal.Open("/tmp/lu.tif"); lnd = lds.GetRasterBand(1).GetNoDataValue(); lu = lds.ReadAsArray(); lds = None
+          bds = gdal.Open(f"{D}carbon/carbon-biomass.tif"); bio100 = bds.ReadAsArray(); bds = None
+          lut = np.full(65536, np.nan, np.float32)
+          for code, val in pools.items(): lut[code] = val
+          agb100 = lut[lu]; agb100[(bio100 == -9999) | (lu == lnd)] = np.nan
+          del lu
+          drv = gdal.GetDriverByName("GTiff")
+          o = drv.Create("/tmp/agb100.tif", W, H, 1, gdal.GDT_Float32, ["TILED=YES", "COMPRESS=DEFLATE"])
+          o.SetGeoTransform(gt); o.SetProjection(wkt)
+          ob = o.GetRasterBand(1); ob.SetNoDataValue(-9999); ob.WriteArray(np.nan_to_num(agb100, nan=-9999)); o = None
+          del agb100, bio100
+          ours = {"agb": coarse("/tmp/agb100.tif", "/tmp/ours_agb.tif", "average", -9999),
+                  "bio": coarse(f"{D}carbon/carbon-biomass.tif", "/tmp/ours_bio.tif", "average", -9999)}
+          walk = {k: coarse(f"/vsis3/public-ncp/raw/walker-2022/{n}", f"/tmp/w_{k}.tif", "bilinear", -32768)
+                  for k, n in FILES.items()}
+
+          # 3. H3 resolution 5, area-weighted
+          lat = cte[3] - (np.arange(ch) + 0.5) / C
+          lon = cte[0] + (np.arange(cw) + 0.5) / C
+          LON, LAT = np.meshgrid(lon, lat)
+          R = 6371.0088
+          ha = (R * R * math.radians(1 / C) * np.abs(np.sin(np.radians(LAT - 0.5 / C)) - np.sin(np.radians(LAT + 0.5 / C)))) * 100
+          ok = np.isfinite(ours["bio"])
+          df = pd.DataFrame({"lat": LAT[ok], "lon": LON[ok], "ha": ha[ok],
+                             **{f"ours_{k}": a[ok] for k, a in ours.items()},
+                             **{f"walker_{k}": a[ok] for k, a in walk.items()}})
+          con = duckdb.connect(); con.execute("INSTALL h3 FROM community; LOAD h3")
+          cells = con.execute("""
+            WITH p AS (SELECT h3_latlng_to_cell(lat, lon, 5) AS h5, * FROM df)
+            SELECT h5, SUM(ha) AS ha_in, h3_cell_area(h5, 'km^2') * 100 AS ha_cell,
+                   SUM(CASE WHEN isnan(ours_agb) THEN 0 ELSE ours_agb * ha END) / NULLIF(SUM(CASE WHEN isnan(ours_agb) THEN 0 ELSE ha END), 0) AS ours_agb,
+                   SUM(CASE WHEN isnan(ours_bio) THEN 0 ELSE ours_bio * ha END) / NULLIF(SUM(CASE WHEN isnan(ours_bio) THEN 0 ELSE ha END), 0) AS ours_bio,
+                   SUM(CASE WHEN isnan(walker_agb) THEN 0 ELSE walker_agb * ha END) / NULLIF(SUM(CASE WHEN isnan(walker_agb) THEN 0 ELSE ha END), 0) AS walker_agb,
+                   SUM(CASE WHEN isnan(walker_bio) THEN 0 ELSE walker_bio * ha END) / NULLIF(SUM(CASE WHEN isnan(walker_bio) THEN 0 ELSE ha END), 0) AS walker_bio
+            FROM p GROUP BY h5""").df()
+          tot = {f"{w}_{k}_Pg": float(np.nansum(df[f"{w}_{k}"] * df["ha"]) / 1e9) for w in ("ours", "walker") for k in FILES}
+          keep = cells[(cells.ha_in >= 0.5 * cells.ha_cell)].dropna()
+          out = {"cells_res5": int(len(cells)), "cells_kept": int(len(keep)), **tot}
+          for k in FILES:
+              a, b = keep[f"ours_{k}"], keep[f"walker_{k}"]
+              q = len(keep) // 4
+              top_o = set(keep.nlargest(q, f"ours_{k}").h5); top_w = set(keep.nlargest(q, f"walker_{k}").h5)
+              out[k] = {"spearman": round(float(a.rank().corr(b.rank())), 3),
+                        "pearson": round(float(a.corr(b)), 3),
+                        "top_quartile_overlap": round(len(top_o & top_w) / q, 3),
+                        "ours_mean": round(float(a.mean()), 1), "walker_mean": round(float(b.mean()), 1)}
+          keep.to_csv("/tmp/walker-rank-res5.csv", index=False)
+          run("rclone", "copyto", "/tmp/walker-rank-res5.csv",
+              "nrp:public-ncp/raw/derived/invest-peru-2019/checks/walker-rank-res5.csv")
+          print("RESULT " + json.dumps(out), flush=True)
+        resources:
+          requests: {cpu: '2', memory: 16Gi, ephemeral-storage: 12Gi}
+          limits:   {cpu: '2', memory: 16Gi, ephemeral-storage: 12Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
