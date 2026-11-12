@@ -309,6 +309,10 @@ def build(doc: dict, coll: str, key: str, args) -> tuple[dict, str, dict, list[s
                 pal = iter(ramp[round(i * (len(ramp) - 1) / k1)] for i in range(len(shown)))
             else:
                 pal = iter(CATEGORICAL)
+            need = sum(1 for v, _ in shown if v not in colors)
+            if not (args.palette and not colors) and need > len(CATEGORICAL):
+                sys.exit(f"{need} classes but the categorical palette has {len(CATEGORICAL)} colours; "
+                         f"pass --colors, or lower --max-classes")
             pairs = [(v, colors.get(v) or next(pal)) for v, _ in shown]
             other = k > len(pairs)
             expr = ["match", ["to-string", ["get", column]]]
