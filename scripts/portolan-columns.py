@@ -23,7 +23,9 @@ It reads live STAC and publishes nothing. For each collection it writes
 every conflict that needs a human: a column described two different ways, or an asset whose
 coded `values` differ from the dictionary's (usually two different tables in one collection).
 A collection with a conflict is reported and NOT written, so it cannot be uploaded by
-accident. Gate the output with scripts/verify-stac.py before uploading.
+accident. With --merge-values, differing `values` lists are merged into one instead (#762);
+use it only after checking that no code means two things, and say which codes belong to
+which table in the description (--notes adds a sentence where the text does not). Gate the output with scripts/verify-stac.py before uploading.
 
 Usage:
   scripts/portolan-columns.py --out /tmp/pc URL [URL ...]
@@ -89,9 +91,10 @@ def data_assets(doc: dict) -> list[tuple[str, dict]]:
                    if (is_parquet(a) or is_pmtiles(a)) and a.get("table:columns")), key=rank)
 
 
-def build_dictionary(doc: dict) -> tuple[list[dict], list[str]]:
+def build_dictionary(doc: dict, merge_values: bool = False) -> tuple[list[dict], list[str], list[str]]:
     entries: dict[str, dict] = {}
     conflicts: list[str] = []
+    merged: list[str] = []
     for key, asset in data_assets(doc):
         for col in asset["table:columns"]:
             name = col.get("name")
@@ -112,18 +115,38 @@ def build_dictionary(doc: dict) -> tuple[list[dict], list[str]]:
             if "type" not in entry and col.get("type"):
                 entry["type"] = col["type"]
             if col.get("values") and entry.get("values") and col["values"] != entry["values"]:
-                conflicts.append(f"column `{name}` has different coded values on `{key}`")
+                if merge_values:  # one list of every code; a person has confirmed no code has two meanings (#762)
+                    extra = [v for v in col["values"] if v not in entry["values"]]
+                    if extra:
+                        entry["values"] = entry["values"] + extra
+                        merged.append(f"column `{name}`: added {extra} from `{key}`")
+                else:
+                    conflicts.append(f"column `{name}` has different coded values on `{key}`")
     ordered = []
     for e in entries.values():  # name, type, description first; the rest as found
         ordered.append({k: e[k] for k in ("name", "type", "description") if k in e}
                        | {k: v for k, v in e.items() if k not in ("name", "type", "description")})
-    return ordered, sorted(set(conflicts))
+    return ordered, sorted(set(conflicts)), merged
 
 
-def migrate_columns(doc: dict) -> tuple[dict, list[str], list[str]]:
+def migrate_columns(doc: dict, merge_values: bool = False,
+                    notes_for: dict | None = None) -> tuple[dict, list[str], list[str]]:
     out = copy.deepcopy(doc)
-    dictionary, conflicts = build_dictionary(out)
-    notes = []
+    dictionary, conflicts, notes = build_dictionary(out, merge_values)
+    for col in dictionary:  # what a person wrote for a merged column (--notes)
+        extra = (notes_for or {}).get(col["name"])
+        if isinstance(extra, dict):  # {"add_values": [...], "note": "..."}: codes no table declared
+            add = [v for v in extra.get("add_values", []) if v not in col.get("values", [])]
+            if add:
+                col["values"] = col.get("values", []) + add
+                notes.append(f"column `{col['name']}`: added {add} from the notes")
+            extra = extra.get("note")
+        if extra:
+            base = col.get("description", "").rstrip()
+            if base and not base.endswith((".", "!", "?")):
+                base += "."
+            col["description"] = (base + " " + extra).strip()
+            notes.append(f"column `{col['name']}`: description extended")
     if not dictionary:
         return out, notes, conflicts
     dict_types = {c["name"]: c.get("type") for c in dictionary}
@@ -167,6 +190,13 @@ def main() -> int:
     p.add_argument("--crawl", help="catalog or collection URL to walk for collections")
     p.add_argument("--out", required=True)
     p.add_argument("--links-only", action="store_true", help="add rel pmtiles links only")
+    p.add_argument("--merge-values", action="store_true",
+                   help="merge differing `values` lists into one, in order, instead of refusing. "
+                        "Use only after a person has checked that no code means two things (#762).")
+    p.add_argument("--notes", help="JSON {collection path: {column: sentence}} appended to the "
+                                   "dictionary description of a merged column; a column may instead "
+                                   "map to {\"add_values\": [...], \"note\": \"...\"} to declare "
+                                   "codes a table carries without a values list")
     args = p.parse_args()
 
     urls = list(args.urls)
@@ -175,6 +205,7 @@ def main() -> int:
     if args.crawl:
         urls += crawl(args.crawl)
     out_dir = Path(args.out)
+    notes_all = json.loads(Path(args.notes).read_text()) if args.notes else {}
     report = ["# Portolan column migration", ""]
     written = blocked = unchanged = 0
     before = after = 0
@@ -193,7 +224,8 @@ def main() -> int:
         elif doc.get("table:columns"):
             new, notes, conflicts = copy.deepcopy(doc), ["already has a column dictionary"], []
         else:
-            new, notes, conflicts = migrate_columns(doc)
+            new, notes, conflicts = migrate_columns(
+                doc, args.merge_values, notes_all.get(url[len(PUBLIC):], {}))
         notes += add_pmtiles_links(new)
         rel = url[len(PUBLIC):]
         if conflicts:

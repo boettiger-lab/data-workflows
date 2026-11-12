@@ -47,7 +47,7 @@ def doc():
 
 class Dictionary(unittest.TestCase):
     def test_union_in_flat_hex_pmtiles_order_with_parquet_types(self):
-        d, conflicts = pc.build_dictionary(doc())
+        d, conflicts, _ = pc.build_dictionary(doc())
         self.assertEqual(conflicts, [])
         self.assertEqual([(c["name"], c["type"]) for c in d],
                          [("_cng_fid", "int64"), ("name", "string"),
@@ -58,15 +58,48 @@ class Dictionary(unittest.TestCase):
     def test_divergent_description_is_a_conflict(self):
         x = doc()
         x["assets"]["d-hex"]["table:columns"][1]["description"] = "other"
-        _, conflicts = pc.build_dictionary(x)
+        _, conflicts, _ = pc.build_dictionary(x)
         self.assertEqual(len(conflicts), 1)
         self.assertIn("`name`", conflicts[0])
 
     def test_type_spelling_is_not_a_conflict(self):
         x = doc()
         x["assets"]["d-hex"]["table:columns"][0]["type"] = "integer"
-        _, conflicts = pc.build_dictionary(x)
+        _, conflicts, _ = pc.build_dictionary(x)
         self.assertEqual(conflicts, [])
+
+
+class MergeValues(unittest.TestCase):
+    def two_lists(self):
+        x = doc()
+        x["assets"]["d-hex"]["table:columns"][1]["values"] = [{"value": "x"}, {"value": "y"}]
+        return x
+
+    def test_differing_values_refused_by_default(self):
+        _, conflicts, _ = pc.build_dictionary(self.two_lists())
+        self.assertEqual(len(conflicts), 1)
+
+    def test_merge_values_unions_in_order(self):
+        d, conflicts, merged = pc.build_dictionary(self.two_lists(), merge_values=True)
+        self.assertEqual(conflicts, [])
+        self.assertEqual(d[1]["values"], [{"value": "x"}, {"value": "y"}])
+        self.assertIn("`name`", merged[0])
+
+    def test_note_extends_the_description(self):
+        new, notes, conflicts = pc.migrate_columns(self.two_lists(), True,
+                                                   {"name": "y appears on the hex only."})
+        self.assertEqual(conflicts, [])
+        col = next(c for c in new["table:columns"] if c["name"] == "name")
+        self.assertEqual(col["description"], "site name. y appears on the hex only.")
+
+
+class NotesAddValues(unittest.TestCase):
+    def test_add_values_and_note(self):
+        new, notes, _ = pc.migrate_columns(doc(), True, {"name": {"add_values": [{"value": "z"}],
+                                                                  "note": "z on old rows."}})
+        col = next(c for c in new["table:columns"] if c["name"] == "name")
+        self.assertEqual(col["values"], [{"value": "x"}, {"value": "z"}])
+        self.assertTrue(col["description"].endswith("z on old rows."))
 
 
 class Migrate(unittest.TestCase):
