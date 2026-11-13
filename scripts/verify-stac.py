@@ -22,6 +22,8 @@ Static checks (no data; just the STAC JSON):
     end), start not after end — pystac parses these eagerly, so a malformed value
     makes the whole collection unloadable for every MCP consumer
   - asset keys follow {last-segment}-{format}; no generic keys
+  - no asset href points into a `raw/` prefix: raw/ holds upstream input staged for a
+    rebuild, and the backup tier treats it as disposable (#721)
     (pmtiles/geoparquet/hex/parquet/cog/h3-parquet)
   - hex asset href uses the hive glob  …/hex/h0=*/data_0.parquet  (not a bare dir)
   - hex asset declares h3:native_resolution + h3:parent_resolutions (incl 0)
@@ -586,6 +588,22 @@ def check_asset_keys(doc: dict) -> list[Finding]:
                                 f"asset key '{key}' is a generic format name — use "
                                 f"'{{last-segment}}-{{format}}' (e.g. 'tract-{key}') so keys "
                                 f"don't collide across collections."))
+    return out
+
+
+def check_asset_not_under_raw(doc: dict) -> list[Finding]:
+    """An asset href must not point into a `raw/` prefix (#721). `raw/` holds upstream
+    input staged so a build can restart, and the backup tier excludes it as re-downloadable.
+    A published file there is not backed up, or costs that tier a per-bucket exemption.
+    Publish a copy at a normal asset location instead, even when the file is upstream's own."""
+    out = []
+    for key, asset in doc.get("assets", {}).items():
+        path = urllib.parse.urlparse(asset.get("href", "")).path
+        if "raw" in path.split("/")[:-1]:
+            out.append(Finding(HARD, "asset-under-raw",
+                               f"asset '{key}' is published from a raw/ prefix ({asset['href']}). "
+                               f"raw/ is upstream input staged for a rebuild and is not backed up; "
+                               f"publish the file at a normal asset location."))
     return out
 
 
@@ -1478,6 +1496,7 @@ STATIC_CHECKS = [
     check_nav_links,
     check_temporal_extent,
     check_asset_keys,
+    check_asset_not_under_raw,
     check_hex_assets,
     check_vector_layers,
     check_styles,

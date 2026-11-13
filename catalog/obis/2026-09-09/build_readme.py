@@ -92,7 +92,7 @@ The aggregate is **CC BY-NC 4.0**: non-commercial use, attribution required. Thi
 restrictive than most of this catalog.
 
 Individual source datasets are licensed CC0, CC BY or CC BY-NC. Per-dataset licence and citation
-details are at `s3://public-obis/raw/licenses.tsv`.
+details are at `s3://public-obis/2026-09-09/licenses.tsv`.
 
 > Ocean Biodiversity Information System (OBIS). OBIS Occurrence Data. Intergovernmental
 > Oceanographic Commission of UNESCO. https://obis.org. Accessed 2026-09-09.
