@@ -7,9 +7,9 @@ metadata:
     k8s-app: tree-cover-loss-loss-year-hex
 spec:
   completions: 122
-  parallelism: 61
+  parallelism: 40
   completionMode: Indexed
-  backoffLimitPerIndex: 2
+  backoffLimitPerIndex: 3
   maxFailedIndexes: 1
   podFailurePolicy:
     rules:
@@ -59,7 +59,7 @@ spec:
         - name: CNG_POD_CPU
           value: '4'
         - name: DUCKDB_MEMORY_LIMIT
-          value: 27GiB
+          value: 8704MiB
         - name: GDAL_CACHEMAX
           value: '512'
         command:
@@ -72,11 +72,11 @@ spec:
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 10Gi
             ephemeral-storage: 20Gi
           limits:
             cpu: '4'
-            memory: 32Gi
+            memory: 10Gi
             ephemeral-storage: 20Gi
         volumeMounts:
         - name: rclone-config
@@ -86,6 +86,7 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
+      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
