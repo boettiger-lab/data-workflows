@@ -1,0 +1,43 @@
+# HAND-ROLLED: a polite crawl of the project detail pages, the only public crosswalk between the map
+# service's ProjectNo_FK and the spreadsheets' Project Ref Num; the generator has no such step (#866).
+# 6 slices x ~2,600 pages, 2 threads + 0.5 s pause each; each pod finishes well under an hour.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cnra-bond-projects-crawl-details
+  namespace: geo-workflows
+spec:
+  completionMode: Indexed
+  completions: 6
+  parallelism: 3
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 6
+  ttlSecondsAfterFinished: 604800
+  activeDeadlineSeconds: 14400
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: crawl
+        image: ghcr.io/boettiger-lab/datasets:latest
+        env:
+        - {name: N_SLICES, value: "6"}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /scripts}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          rclone copy nrp:public-tpl/raw/cnra-bond-projects/ /tmp/raw/ --include 'abcrs-*.geojson' --s3-no-check-bucket
+          python3 /scripts/crawl_details.py
+          rclone copyto /tmp/part-$(printf %02d $JOB_COMPLETION_INDEX).jsonl \
+            nrp:public-tpl/raw/cnra-bond-projects/detail-pages/part-$(printf %02d $JOB_COMPLETION_INDEX).jsonl --s3-no-check-bucket
+        resources:
+          requests: {cpu: 250m, memory: 1Gi}
+          limits:   {cpu: 250m, memory: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: cnra-bond-projects-crawl-details}}
