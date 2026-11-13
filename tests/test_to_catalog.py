@@ -14,12 +14,14 @@ class ToCatalog(unittest.TestCase):
         d = {"type": "Collection", "id": "g", "license": "various", "extent": {}, "keywords": ["k"],
              "stac_extensions": ["https://stac-extensions.github.io/table/v1.2.0/schema.json",
                                  "https://stac-extensions.github.io/scientific/v1.0.0/schema.json"],
-             "sci:citation": "c", "links": [{"rel": "child", "href": "./a/stac-collection.json"}],
+             "sci:citation": "c", "links": [{"rel": "child", "href": "./a/stac-collection.json"},
+                                            {"rel": "pmtiles", "href": "./a.pmtiles"}],
              "assets": {"README": {"href": "https://h/b/README.md"}}}
         c = tc.to_catalog(d)
         self.assertEqual(c["type"], "Catalog")
         self.assertNotIn("license", c); self.assertNotIn("extent", c); self.assertNotIn("assets", c)
         self.assertEqual(c["sci:citation"], "c")
+        self.assertFalse(any(l["rel"] == "pmtiles" for l in c["links"]))
         self.assertEqual(len(c["stac_extensions"]), 1)
         self.assertIn({"rel": "describedby", "href": "https://h/b/README.md", "type": "text/markdown",
                        "title": "README"}, c["links"])
