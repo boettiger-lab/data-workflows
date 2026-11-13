@@ -182,7 +182,7 @@ correctly — the job reports `Failed` while S3 holds a complete, valid object. 
 landed before re-running anything.
 
 Step 1b requires a checksum recomputed from the object (never transcribed), so compute it by
-streaming the staged object back:
+streaming the staged object back, in a job (the `nrp` remote and its key exist only there):
 
 ```bash
 rclone size   nrp:<bucket>/raw/<file>

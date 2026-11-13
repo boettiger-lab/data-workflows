@@ -8,7 +8,7 @@ description: >-
 
 Everything needed for **Step 5 (Document)** and **Step 6 (Register in the parent sub-catalog)**.
 
-Write STAC and README to `/tmp/` and upload with `rclone` — this repo never contains STAC JSON or README files (AGENTS.md Hard Boundary 1).
+Draft STAC and README in `/tmp/` and upload them from a publish job in `geo-workflows`, never from your machine. This repo never contains STAC JSON or README files (AGENTS.md Hard Boundary 1).
 
 ### ⛔ Verify the STAC — don't hand-check the rules
 
@@ -455,8 +455,11 @@ the style files and the patched collection to a scratch directory, with a report
 ```bash
 scripts/app-styles.py --fetch --out /tmp/styles --only public-padus   # then review /tmp/styles/report.md
 scripts/verify-stac.py --no-data /tmp/styles/public-padus/padus-4-1/fee/stac-collection.json
-rclone copy /tmp/styles/public-padus/ nrp:public-padus/   # only styles/ files and patched collection JSON are in it
 ```
+
+Then upload `/tmp/styles/public-padus/` (only styles/ files and the patched collection JSON are
+in it) from a publish job, through a ConfigMap; nothing uploads from your machine (AGENTS.md,
+Hard Boundary 1).
 
 **For a new dataset no app shows yet, the default is a considered style on its primary
 variable, built from the data the way you write its STAC.** Part of every ingest, before any app
@@ -521,8 +524,9 @@ Before linking:
 3. Brand-new bucket/domain → create bucket-level `stac-collection.json`, register children in it, then link that bucket-level collection from root.
 
 ```bash
-curl -s https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json > /tmp/parent.json
-# Edit /tmp/parent.json to append {"rel": "child", "id": "...", "href": "...", "title": "..."}
+# In the publish job, so the edit lands on the live file:
+rclone cat nrp:<bucket>/stac-collection.json > /tmp/parent.json
+# append {"rel": "child", "id": "...", "href": "...", "title": "..."} to /tmp/parent.json
 rclone copyto /tmp/parent.json nrp:<bucket>/stac-collection.json
 ```
 
