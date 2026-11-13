@@ -281,6 +281,7 @@ KNOWN_SPDX = {
     "CDLA-Permissive-1.0", "CDLA-Permissive-2.0", "CDLA-Sharing-1.0",
     "ODbL-1.0", "ODC-By-1.0", "PDDL-1.0",
     "Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "GPL-3.0-only",
+    "GPL-1.0-or-later",  # an unversioned GPL grant: Bio-ORACLE (#886)
     "OGL-UK-3.0",
 }
 # Sanctioned non-SPDX values (AGENTS.md): escape hatches + US federal works.
