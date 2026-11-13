@@ -1,6 +1,6 @@
 # HAND-ROLLED (#914): after a candidate is chosen, back up the live tiles to staging/914-backup/
 # and copy the chosen candidate over them. ITEMS lists "bucket:candidate key:live key".
-# Chosen so far: easement coalesce (2026-11-12), IBTrACS r1-detail (2026-11-13).
+# Chosen: easement coalesce (2026-11-12), IBTrACS r1-detail and NHDPlus stream order (2026-11-13).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -33,6 +33,7 @@ spec:
           value: >-
             public-padus:padus-4-1/easement.coalesce.pmtiles:padus-4-1/easement.pmtiles
             public-storms:ibtracs-v04r01/points.r1-detail.pmtiles:ibtracs-v04r01/points.pmtiles
+            public-usgs-nhd:nhdplus-hr/flowline.streamorder.pmtiles:nhdplus-hr/flowline.pmtiles
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         resources:

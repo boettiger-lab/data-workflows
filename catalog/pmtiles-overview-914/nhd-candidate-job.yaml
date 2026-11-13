@@ -3,6 +3,8 @@
 # the GeoJSONL on the rechunk-scratch PVC (25.6M lines, 41 GB, exceeds pod ephemeral storage) and
 # tippecanoe's temp files on local disk (-t /ltmp): with them on the CephFS PVC tippecanoe deadlocked,
 # open-files limit raised, 32Gi as that build used. Writes staging/914-candidates/ only.
+# Slow on CephFS: reading the 41 GB GeoJSONL and writing the final archive took ~8 of the ~9 hours.
+# A node with ~100 GB of local disk for both would make this a ~1-2 hour build.
 apiVersion: batch/v1
 kind: Job
 metadata:
