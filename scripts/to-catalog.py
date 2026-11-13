@@ -6,7 +6,7 @@
 A node with children and no data assets of its own is a Catalog, not a Collection. This keeps
 id, title, description, links (self, parent, children, root and the rest), keywords, providers
 and citations; it drops what only a Collection carries (license, extent, summaries, item_assets,
-table:columns, renders, assets) and the extensions that described them. A README asset becomes a
+table:columns, renders, assets, `rel: pmtiles` links) and the extensions that described them. A README asset becomes a
 `describedby` link. It refuses a node that still holds data assets: move them into a child
 collection first. Publish through stac-publish-guard.py with STAC_GUARD_ALLOW=columns when the
 live node had a column dictionary.
@@ -26,6 +26,7 @@ def to_catalog(d: dict) -> dict:
     if data:
         raise SystemExit(f"{d.get('id')}: still holds data assets {data}; move them to a child first")
     out = {k: v for k, v in d.items() if k not in DROP}
+    out["links"] = [l for l in d.get("links", []) if l.get("rel") != "pmtiles"]  # links to data it no longer holds
     for a in assets.values():
         if (a.get("href") or "").endswith(".md"):
             out.setdefault("links", []).append({"rel": "describedby", "href": a["href"],

@@ -75,6 +75,12 @@ class Keeps(unittest.TestCase):
         g.guard(new, old, set())
         self.assertNotIn("thumbnail", new["assets"])
 
+    def test_catalog_keeps_no_assets(self):
+        new = {"type": "Catalog", "links": [{"rel": "self", "href": BASE + "stac-collection.json"}]}
+        kept, refused = g.guard(new, live(), {"columns"})
+        self.assertEqual((kept, refused), ([], []))
+        self.assertNotIn("assets", new); self.assertNotIn("renders", new)
+
     def test_identical_file_changes_nothing(self):
         new = live()
         kept, refused = g.guard(new, live(), set())
