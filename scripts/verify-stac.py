@@ -182,7 +182,9 @@ def targets_from_yaml(text: str) -> set[tuple[str, str]]:
     for bucket, rest in re.findall(r"s3://(public-[a-z0-9-]+)/([^\s'\"]+)", text):
         if bucket in INFRA_BUCKETS:
             continue
-        rest = rest.strip("/")
+        # A path inside a shell script can end in a line-continuation `\` or sit in
+        # prose ("…/report.json)."). Neither character occurs in a dataset path.
+        rest = rest.rstrip("\\,.;:)").strip("/")
         # Skip raw/staging inputs — never a dataset collection. `raw` may be a
         # top-level prefix (public-census/raw/…) OR nested under a domain prefix
         # (public-rivers/american-rivers/raw/<ds>-src.parquet, the staging layout
@@ -218,12 +220,33 @@ def derive_url(bucket: str, dataset: str) -> str:
 
 
 def _collection_exists(url: str) -> bool:
-    """True if a STAC doc loads at url (used to fall back to a bucket-level collection)."""
+    """True if a STAC doc loads at url (used to fall back to an enclosing collection)."""
     try:
         load_doc(url)
         return True
     except Exception:
         return False
+
+
+def resolve_collection_url(bucket: str, dataset: str, exists=_collection_exists) -> str:
+    """The collection that holds (bucket, dataset): the nearest one that exists.
+
+    Many datasets share an enclosing collection rather than carrying their own:
+    `public-ncp/invest-peru-2019/carbon-total` is an asset of
+    `public-ncp/invest-peru-2019/stac-collection.json`, and whole buckets such as
+    public-carbon keep one collection at the root. So try the dataset, then each parent
+    prefix, then the bucket root. Jumping straight to the bucket root skips the
+    intermediate collection that actually holds the data (#903).
+
+    If none exists (recipe not run yet at PR-open), keep the per-dataset URL so the
+    load-error RED still fires, the intended pre-publish state.
+    """
+    parts = [p for p in dataset.strip("/").split("/") if p]
+    for i in range(len(parts), -1, -1):
+        url = derive_url(bucket, "/".join(parts[:i]))
+        if exists(url):
+            return url
+    return derive_url(bucket, dataset)
 
 
 # ---------------------------------------------------------------------------
@@ -2502,17 +2525,8 @@ def main():
             except OSError as e:
                 print(f"[warn] could not read {path}: {e}", file=sys.stderr)
         for bucket, dataset in sorted(targets):
-            url = derive_url(bucket, dataset)
-            # Bucket-level collections: many datasets can share ONE collection at the
-            # bucket root (e.g. public-carbon, public-nci-frontiers) instead of a
-            # per-dataset stac-collection.json. If the per-dataset STAC 404s but a
-            # bucket-level one exists, verify that instead. De-dup (below) then collapses
-            # all the bucket's datasets to the single bucket-level collection. If NEITHER
-            # exists (recipe not run yet at PR-open), keep the per-dataset URL so the
-            # load-error RED still fires (the intended pre-publish state).
-            if not _collection_exists(url) and _collection_exists(derive_url(bucket, "")):
-                url = derive_url(bucket, "")
-            sources.append(url)
+            # De-dup (below) collapses datasets that share a collection to one check.
+            sources.append(resolve_collection_url(bucket, dataset))
         if not targets:
             print("No dataset collection targets derived from the given YAML(s) — "
                   "nothing to verify.", file=sys.stderr)

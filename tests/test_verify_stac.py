@@ -711,6 +711,45 @@ class TestMcpUnavailable(unittest.TestCase):
         (f,) = self.run_verify(do_data=False)
         self.assertEqual(f.severity, vs.ADVISORY)
 
+U = "https://s3-west.nrp-nautilus.io/public-ncp"
+
+
+class ResolveCollectionUrl(unittest.TestCase):
+    """--yaml targets resolve to the nearest enclosing collection that exists (#903)."""
+
+    def resolve(self, dataset, live):
+        return vs.resolve_collection_url("public-ncp", dataset, exists=lambda u: u in live)
+
+    def test_own_collection_wins(self):
+        live = {f"{U}/a/b/stac-collection.json", f"{U}/a/stac-collection.json"}
+        self.assertEqual(self.resolve("a/b", live), f"{U}/a/b/stac-collection.json")
+
+    def test_parent_before_bucket_root(self):
+        # carbon-total is an asset of invest-peru-2019, not of the bucket collection.
+        live = {f"{U}/invest-peru-2019/stac-collection.json", f"{U}/stac-collection.json"}
+        self.assertEqual(self.resolve("invest-peru-2019/carbon-total", live),
+                         f"{U}/invest-peru-2019/stac-collection.json")
+
+    def test_bucket_root_last(self):
+        live = {f"{U}/stac-collection.json"}
+        self.assertEqual(self.resolve("a/b/c", live), f"{U}/stac-collection.json")
+
+    def test_nothing_published_keeps_dataset_url(self):
+        self.assertEqual(self.resolve("a/b", set()), f"{U}/a/b/stac-collection.json")
+
+
+class TargetsFromYaml(unittest.TestCase):
+    def test_shell_continuation_and_prose_punctuation(self):
+        text = (
+            "gdal_translate in.tif s3://public-ncp/invest-peru-2019/carbon-total-cog.tif\\\n"
+            "  --hex s3://public-ncp/invest-peru-2019/carbon-total/hex/\\\n"
+            "# see s3://public-ncp/invest-peru-2019/habitat-quality.parquet).\n"
+        )
+        self.assertEqual(vs.targets_from_yaml(text), {
+            ("public-ncp", "invest-peru-2019/carbon-total"),
+            ("public-ncp", "invest-peru-2019/habitat-quality"),
+        })
+
 
 if __name__ == "__main__":
     unittest.main()
