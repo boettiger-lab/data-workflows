@@ -1,0 +1,105 @@
+# HAND-ROLLED: the generator's preprocess-cog cannot combine two sources per granule (the loss
+# year and tree cover are masked by the Hansen data mask), and the source tiles are row-striped,
+# so they are re-tiled first (raster-hexing skill). Pattern follows
+# catalog/coastal/k8s/tidal/cogs.yaml (#792) (#434).
+#
+# One global WGS84 COG per index, from the tiles staged by stage-raw.yaml:
+#   0  loss-year        -> s3://public-forest-change/tree-cover-loss/loss-year-cog.tif
+#   1  tree-cover-2000  -> s3://public-forest-change/tree-cover-loss/tree-cover-2000-cog.tif
+# prep_tile.py (committed beside this file, mounted from a ConfigMap) masks each granule to
+# mapped land, marks permanent water 254 (loss-year only) and writes 512 x 512 ZSTD tiles:
+#   kubectl create configmap hansen-gfc-prep -n geo-workflows \
+#     --from-file=prep_tile.py=catalog/forest-change/k8s/tree-cover-loss/prep_tile.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+# The per-class pixel counts it prints go to raw/derived/hansen-gfc-2025-v1.13/checks/, the
+# reference the hex is checked against.
+# Overviews: NEAREST for the loss year (class codes), AVERAGE for tree cover (percent).
+# Ephemeral 80Gi: the tree-cover tiles (~20 GB) plus overviews plus the COG (~25 GB), measured
+# from one Peru granule (77 MB prepared). Default priority: a global mosaic runs over an hour.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hansen-gfc-cogs
+  namespace: geo-workflows
+  labels: {k8s-app: hansen-gfc-cogs}
+spec:
+  completions: 2
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels: {k8s-app: hansen-gfc-cogs}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 43200
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: prep, mountPath: /prep, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          I=$JOB_COMPLETION_INDEX
+          RAW=nrp:public-forest-change/raw/hansen-gfc-2025-v1.13
+          if [ $I -eq 0 ]; then LAYER=loss-year;       SRC=lossyear;      RS=nearest
+          else                  LAYER=tree-cover-2000; SRC=treecover2000; RS=average; fi
+          OUT=$LAYER-cog.tif
+          W=/tmp/w && mkdir -p $W/in $W/tiled && cd $W
+          rclone lsf "$RAW/datamask/" | sed -E 's/^Hansen_GFC-2025-v1\.13_datamask_(.*)\.tif$/\1/' | sort > granules.txt
+          rclone lsf "$RAW/$SRC/"     | sed -E "s/^Hansen_GFC-2025-v1\.13_${SRC}_(.*)\.tif$/\1/" | sort > have-value.txt
+          echo "$LAYER: $(wc -l < granules.txt) granules, $(wc -l < have-value.txt) with a $SRC file"
+          [ "$(wc -l < granules.txt)" -eq 504 ] || { echo "expected 504 datamask granules"; exit 1; }
+          export RAW SRC LAYER RS
+          prep() {
+            g=$1; m=in/m_$g.tif; v=-
+            rclone copyto "$RAW/datamask/Hansen_GFC-2025-v1.13_datamask_$g.tif" "$m"
+            if grep -qx "$g" have-value.txt; then
+              v=in/v_$g.tif
+              rclone copyto "$RAW/$SRC/Hansen_GFC-2025-v1.13_${SRC}_$g.tif" "$v"
+            fi
+            GDAL_CACHEMAX=256 python3 /prep/prep_tile.py "$LAYER" "$m" "$v" "tiled/$g.tif" >> counts.jsonl
+            rm -f "$m" in/v_$g.tif
+            if [ -f "tiled/$g.tif" ]; then
+              GDAL_CACHEMAX=256 gdaladdo -q -r $RS "tiled/$g.tif" 2 4 8 16 32 64 128 256
+            fi
+          }
+          export -f prep
+          time (xargs -P6 -I{} bash -c 'prep {}' < granules.txt)
+          echo "granules prepared: $(wc -l < counts.jsonl); with mapped pixels: $(ls tiled | wc -l); tiled size: $(du -sh tiled | cut -f1)"
+          [ "$(wc -l < counts.jsonl)" -eq 504 ] || { echo "a granule did not report"; exit 1; }
+          rclone copyto counts.jsonl "nrp:public-forest-change/raw/derived/hansen-gfc-2025-v1.13/checks/$LAYER-class-counts.jsonl" --s3-no-check-bucket
+          find tiled -name '*.tif' | sort > tiles.txt
+          gdalbuildvrt -q -resolution highest -srcnodata 255 -vrtnodata 255 -input_file_list tiles.txt mosaic.vrt
+          python3 -c "
+          from osgeo import gdal; gdal.UseExceptions()
+          ds = gdal.Open('mosaic.vrt', gdal.GA_Update); b = ds.GetRasterBand(1)
+          b.SetDescription('${LAYER//-/_}'); b.SetNoDataValue(255); ds = None
+          ds = gdal.Open('mosaic.vrt'); b = ds.GetRasterBand(1)
+          print('vrt size', ds.RasterXSize, ds.RasterYSize, 'pixel', ds.GetGeoTransform()[1], 'overviews', b.GetOverviewCount())
+          assert abs(ds.GetGeoTransform()[1] - 0.00025) < 1e-12, 'pixel size changed'
+          assert b.GetOverviewCount() > 0, 'VRT exposes no overviews'"
+          time GDAL_CACHEMAX=2048 gdal_translate mosaic.vrt $OUT -of COG \
+            -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co SPARSE_OK=TRUE \
+            -co NUM_THREADS=ALL_CPUS -co BIGTIFF=YES -co OVERVIEWS=FORCE_USE_EXISTING
+          rm -rf tiled mosaic.vrt
+          gdalinfo $OUT | grep -E 'Size is|Pixel Size|Origin|NoData|Description|Overviews' | head
+          ls -la $OUT
+          rclone copyto $OUT nrp:public-forest-change/tree-cover-loss/$OUT --s3-no-check-bucket
+          echo OK
+        resources:
+          requests: {cpu: '8', memory: 8Gi, ephemeral-storage: 80Gi}
+          limits:   {cpu: '8', memory: 9Gi, ephemeral-storage: 80Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: prep, configMap: {name: hansen-gfc-prep}}

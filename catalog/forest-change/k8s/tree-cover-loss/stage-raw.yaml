@@ -1,0 +1,71 @@
+# HAND-ROLLED: the generator does not stage a many-tile source (#434).
+#
+# Step 1b: copy Hansen Global Forest Change GFC-2025-v1.13 tiles (lossyear, treecover2000,
+# datamask; 10 x 10 degree, 30 m) from Google Cloud Storage to
+# s3://public-forest-change/raw/hansen-gfc-2025-v1.13/<layer>/, checking each file's MD5 against
+# the x-goog-hash header. Each index takes every 12th file of the combined list and writes its
+# lines of the manifest (file, bytes, md5, access date) to raw/hansen-gfc-2025-v1.13/manifest/.
+# Files already staged at the same size are skipped, so a rerun only fetches what is missing.
+# Short pods (a few GB each): opportunistic priority.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hansen-gfc-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: hansen-gfc-stage-raw}
+spec:
+  completions: 12
+  parallelism: 12
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 259200
+  template:
+    metadata:
+      labels: {k8s-app: hansen-gfc-stage-raw}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          I=$JOB_COMPLETION_INDEX; N=12
+          B=https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13
+          DST=nrp:public-forest-change/raw/hansen-gfc-2025-v1.13
+          TODAY=$(date -u +%F)
+          for L in lossyear treecover2000 datamask; do curl -fsS --retry 5 "$B/$L.txt"; done \
+            | tr -d '\r' | grep -v '^$' | sort > /tmp/all.txt
+          echo "files in list: $(wc -l < /tmp/all.txt)"
+          rclone lsf --format sp -R "$DST" --files-only 2>/dev/null | sed 's/;/ /' > /tmp/have.txt || true
+          : > /tmp/manifest.txt
+          awk -v i=$I -v n=$N 'NR % n == i' /tmp/all.txt | while read -r U; do
+            F=$(basename "$U"); L=$(echo "$F" | sed -E 's/^Hansen_GFC-2025-v1\.13_([a-z0-9]+)_.*/\1/')
+            H=$(curl -fsSI --retry 5 "$U" | tr -d '\r')
+            SIZE=$(echo "$H" | awk -F': ' 'tolower($1)=="content-length"{print $2}')
+            MD5=$(echo "$H" | awk -F': ' 'tolower($1)=="x-goog-hash"{print $2}' | sed -n 's/.*md5=//p' | python3 -c "import base64,sys; print(base64.b64decode(sys.stdin.read().strip()).hex())")
+            if grep -qx "$SIZE $L/$F" /tmp/have.txt; then
+              echo "skip $L/$F"
+            else
+              curl -fsS --retry 5 -o /tmp/f.tif "$U"
+              GOT=$(md5sum /tmp/f.tif | cut -d' ' -f1)
+              [ "$GOT" = "$MD5" ] || { echo "MD5 MISMATCH $F: $GOT != $MD5"; exit 1; }
+              rclone copyto /tmp/f.tif "$DST/$L/$F" --s3-no-check-bucket
+              rm -f /tmp/f.tif
+              echo "staged $L/$F $SIZE"
+            fi
+            echo "$L/$F $SIZE $MD5 $TODAY" >> /tmp/manifest.txt
+          done
+          rclone copyto /tmp/manifest.txt "$DST/manifest/part-$(printf %02d $I).txt" --s3-no-check-bucket
+          echo "index $I done: $(wc -l < /tmp/manifest.txt) files"
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
