@@ -125,8 +125,10 @@ def cog_render(doc: dict) -> tuple[str, dict, dict] | None:
 
 # ---------------------------------------------------------------------------- COG
 
-def cog_preview_url(base: str, render: dict, asset: dict, size: int) -> str:
+def cog_preview_url(base: str, render: dict, asset: dict, size: int, fresh: bool = False) -> str:
     q = [("url", absolute(base, asset["href"])), ("max_size", str(size))]
+    if fresh:  # TiTiler caches by URL; after rewriting a COG in place, ask past the cache
+        q.append(("_fresh", str(int(time.time()))))
     for rng in render.get("rescale") or []:
         q.append(("rescale", ",".join(str(v) for v in rng)))
     if render.get("colormap_name"):
@@ -224,7 +226,7 @@ def render_pmtiles(style: dict, bounds: list[float], w: int, h: int, min_zoom: i
 
 # ---------------------------------------------------------------------------- main
 
-def thumbnail(url: str, size: int) -> tuple[dict, bytes, str] | None:
+def thumbnail(url: str, size: int, fresh: bool = False) -> tuple[dict, bytes, str] | None:
     doc = json.loads(fetch(url))
     base = self_href(doc, url)
     st = default_style(doc)
@@ -243,7 +245,7 @@ def thumbnail(url: str, size: int) -> tuple[dict, bytes, str] | None:
         if not cr:
             return None
         name, render, asset = cr
-        url = cog_preview_url(base, render, asset, size)
+        url = cog_preview_url(base, render, asset, size, fresh)
         if len(url) > 6000 and render.get("colormap"):  # hundreds of classes: too long a URL
             png = colormap_locally(base, render, asset, size)
         else:
@@ -261,8 +263,10 @@ def main() -> int:
     ap.add_argument("url")
     ap.add_argument("--out", type=pathlib.Path, required=True)
     ap.add_argument("--size", type=int, default=512)
+    ap.add_argument("--fresh", action="store_true",
+                    help="bypass TiTiler's URL cache, after a COG was rewritten in place")
     a = ap.parse_args()
-    r = thumbnail(a.url, a.size)
+    r = thumbnail(a.url, a.size, a.fresh)
     if r is None:
         print(f"{a.url}: no default style or COG render; no thumbnail")
         return 2
