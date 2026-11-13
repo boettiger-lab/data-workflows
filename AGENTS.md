@@ -73,8 +73,11 @@ already-published file: **skill `job-troubleshooting`**.
 
 Canonical STAC/data live on NRP S3 (`s3://public-<bucket>/`, public URL `https://s3-west.nrp-nautilus.io/<bucket>/...`). **This repo does NOT contain STAC JSON or README files.** Never create `catalog/*/stac/`, never `git add` STAC JSON or README.
 
-- Read: `curl https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json`
-- Write: edit in `/tmp/`, then `rclone copyto /tmp/... nrp:<bucket>/...`
+- Read: `curl https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json`; list with
+  `curl "https://s3-west.nrp-nautilus.io/<bucket>/?list-type=2&prefix=<path>/"`. No key needed.
+- Write: only from a publish job in `geo-workflows`, whose `rclone-config` secret is the only write key. Patterns: `catalog/bio-oracle/k8s/licence-886/` (edit the live file in place) and `catalog/ncp/k8s/invest-peru-2019/invest-peru-2019-publish-stac.yaml` (generate it). Files built locally go in through a ConfigMap (up to 1 MiB, binary included).
+  **Your machine holds no S3 write key and never should**: keys are kept in as few places
+  as possible, so do not ask for one to be restored.
 
 ### You publish to NRP. Downstream copies are NOT your job.
 
@@ -413,15 +416,15 @@ A ~300K-feature vector run typically takes 1–2 hours.
 
 ### Step 5: Document
 
-**Write STAC/README to `/tmp/` only — never to `catalog/<dataset>/stac/`.** Upload directly:
+**Never write STAC/README into `catalog/<dataset>/stac/`.** Draft and check them in `/tmp/`, then
+publish from a job (Hard Boundary 1), which reads the live collection, runs the guard, and uploads:
 ```bash
-rclone copyto /tmp/README.md nrp:<bucket>/README.md
 rclone cat nrp:<bucket>/<dataset>/stac-collection.json > /tmp/live.json 2>/dev/null || : > /tmp/live.json
-scripts/stac-publish-guard.py /tmp/stac-collection.json /tmp/live.json   # must exit 0
+python3 guard.py /tmp/stac-collection.json /tmp/live.json   # must exit 0
 rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.json
 ```
 
-**Replacing a live collection goes through `scripts/stac-publish-guard.py`, by hand or in a job.**
+**Replacing a live collection goes through `scripts/stac-publish-guard.py`.**
 It keeps the live default styles, renders and `rel: pmtiles` links the new file lacks, and
 refuses a file that would drop the live column dictionary or revert an asset-key rename. A job
 that uploads a collection must run it (CI checks, `scripts/check-stac-publish-guard.py`); the
@@ -681,7 +684,7 @@ Request form: **https://data-requests.nrp-nautilus.io/** (per-app routes, e.g. `
 Check at session start:
 ```bash
 curl -s https://data-requests.nrp-nautilus.io/api/requests | python3 -m json.tool
-rclone ls nrp:public-requests/dataset-requests/
+curl -s "https://s3-west.nrp-nautilus.io/public-requests/?list-type=2&prefix=dataset-requests/"
 ```
 Each submission: `app`, `timestamp`, plus user fields (dataset name, description, contact).
 
