@@ -16,12 +16,23 @@ name: Verify STAC
 # The data-backed checks POST SQL to the geo-query MCP server, so they are not bound
 # by runner resources or the slow public S3 endpoint. The route needs this repo's
 # own key, the MCP_AUTH_TOKEN secret.
+#
+# GitHub withholds secrets from `pull_request` runs on PRs from forks, so there the
+# token is empty and every data check fails 401 (#903). Fork PRs are therefore verified
+# by the `verify-fork` job on `pull_request_target`, which has the secret. It runs this
+# repo's main-branch scripts and never checks out or executes the fork's code: it reads
+# the fork's changed catalog YAMLs only as text, to derive which collections to verify.
 
 on:
   pull_request:
     # sync/audit jobs aren't dataset recipes; they reference buckets via rclone (nrp:)
     # not s3://, so they derive no targets anyway — negated here for clarity/speed.
     # (GitHub forbids combining `paths` with `paths-ignore`; use `!` negation instead.)
+    paths:
+      - 'catalog/**'
+      - '!catalog/sync/**'
+      - '!catalog/audit/**'
+  pull_request_target:
     paths:
       - 'catalog/**'
       - '!catalog/sync/**'
@@ -45,11 +56,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: verify-stac-${{ github.event.pull_request.number || github.ref }}
+  # event_name keeps a fork PR's pull_request and pull_request_target runs from
+  # cancelling each other.
+  group: verify-stac-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   verify:
+    # Same-repo PRs and manual dispatch. Fork PRs go to verify-fork below.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     env:
       MCP_ENDPOINT: https://geo-query.nrp-nautilus.io/mcp
@@ -96,3 +114,58 @@ jobs:
           echo "Changed workflow YAMLs:"
           echo "$FILES"
           python3 scripts/verify-stac.py --yaml $FILES
+
+  verify-fork:
+    # Fork PRs. pull_request_target runs this file and the scripts as they are on the
+    # base branch, with secrets. Do NOT check out, install or run anything from the PR
+    # head here: the fork's YAMLs are read with `git show` as data and nothing else.
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    env:
+      MCP_ENDPOINT: https://geo-query.nrp-nautilus.io/mcp
+      MCP_AUTH_TOKEN: ${{ secrets.MCP_AUTH_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v4   # the base branch, not the PR
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify STAC for affected collection(s)
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "refs/pull/${PR_NUMBER}/head"
+          OUT="$RUNNER_TEMP/pr-yaml"
+          mkdir -p "$OUT"
+          # Copy each changed catalog YAML out of the PR head as plain text. File names
+          # come from the fork, so they are never put through the shell.
+          python3 -I - "$OUT" "origin/${BASE_REF}...FETCH_HEAD" <<'PY'
+          import re, subprocess, sys
+          out, rng = sys.argv[1], sys.argv[2]
+          names = subprocess.run(
+              ["git", "diff", "--name-only", "-z", "--diff-filter=d", rng, "--", "catalog/"],
+              check=True, capture_output=True).stdout.split(b"\0")
+          n = 0
+          for raw in names:
+              name = raw.decode("utf-8", "replace")
+              if not re.search(r"\.ya?ml$", name) or re.match(r"catalog/(sync|audit)/", name):
+                  continue
+              blob = subprocess.run(["git", "show", b"FETCH_HEAD:" + raw],
+                                    check=True, capture_output=True).stdout
+              n += 1
+              with open(f"{out}/{n:04d}.yaml", "wb") as f:
+                  f.write(blob)
+              print(name)
+          PY
+          if ! ls "$OUT"/*.yaml >/dev/null 2>&1; then
+            echo "No changed dataset workflow YAMLs under catalog/** — nothing to verify."
+            exit 0
+          fi
+          python3 scripts/verify-stac.py --yaml "$OUT"/*.yaml
