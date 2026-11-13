@@ -40,7 +40,8 @@ spec:
           B=https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13
           DST=nrp:public-forest-change/raw/hansen-gfc-2025-v1.13
           TODAY=$(date -u +%F)
-          for L in lossyear treecover2000 datamask; do curl -fsS --retry 5 "$B/$L.txt"; done \
+          # The lists do not end in a newline; echo one, or two lists' edge lines run together.
+          for L in lossyear treecover2000 datamask; do curl -fsS --retry 5 "$B/$L.txt"; echo; done \
             | tr -d '\r' | grep -v '^$' | sort > /tmp/all.txt
           echo "files in list: $(wc -l < /tmp/all.txt)"
           rclone lsf --format sp -R "$DST" --files-only 2>/dev/null | sed 's/;/ /' > /tmp/have.txt || true
@@ -50,12 +51,35 @@ spec:
             H=$(curl -fsSI --retry 5 "$U" | tr -d '\r')
             SIZE=$(echo "$H" | awk -F': ' 'tolower($1)=="content-length"{print $2}')
             MD5=$(echo "$H" | awk -F': ' 'tolower($1)=="x-goog-hash"{print $2}' | sed -n 's/.*md5=//p' | python3 -c "import base64,sys; print(base64.b64decode(sys.stdin.read().strip()).hex())")
+            CRC=$(echo "$H" | awk -F': ' 'tolower($1)=="x-goog-hash"{print $2}' | sed -n 's/.*crc32c=//p')
             if grep -qx "$SIZE $L/$F" /tmp/have.txt; then
               echo "skip $L/$F"
             else
               curl -fsS --retry 5 -o /tmp/f.tif "$U"
-              GOT=$(md5sum /tmp/f.tif | cut -d' ' -f1)
-              [ "$GOT" = "$MD5" ] || { echo "MD5 MISMATCH $F: $GOT != $MD5"; exit 1; }
+              if [ -n "$MD5" ]; then
+                GOT=$(md5sum /tmp/f.tif | cut -d' ' -f1)
+                [ "$GOT" = "$MD5" ] || { echo "MD5 MISMATCH $F: $GOT != $MD5"; exit 1; }
+              else
+                # A few objects carry only a CRC32C (composite uploads); check that instead.
+                [ -n "$CRC" ] || { echo "NO CHECKSUM for $F"; exit 1; }
+                python3 /dev/stdin /tmp/f.tif "$CRC" <<'PY'
+          import base64, sys
+          T = []
+          for i in range(256):
+              c = i
+              for _ in range(8):
+                  c = (c >> 1) ^ 0x82F63B78 if c & 1 else c >> 1
+              T.append(c)
+          crc = 0xFFFFFFFF
+          with open(sys.argv[1], "rb") as f:
+              for chunk in iter(lambda: f.read(1 << 20), b""):
+                  for b in chunk:
+                      crc = T[(crc ^ b) & 0xFF] ^ (crc >> 8)
+          got = base64.b64encode((crc ^ 0xFFFFFFFF).to_bytes(4, "big")).decode()
+          sys.exit(0 if got == sys.argv[2] else f"CRC32C MISMATCH {sys.argv[1]}: {got} != {sys.argv[2]}")
+          PY
+                MD5=$(md5sum /tmp/f.tif | cut -d' ' -f1)
+              fi
               rclone copyto /tmp/f.tif "$DST/$L/$F" --s3-no-check-bucket
               rm -f /tmp/f.tif
               echo "staged $L/$F $SIZE"
