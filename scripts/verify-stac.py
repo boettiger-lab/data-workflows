@@ -1414,6 +1414,41 @@ def check_license_consistency(docs: list[tuple[str, dict]]) -> list[tuple[str, F
     return out
 
 
+NON_DATA_ROLES = {"style", "thumbnail", "metadata", "overview"}
+
+
+def check_tree(doc: dict, fetch=_fetch_style) -> list[Finding]:
+    """Nested catalogs, flat collections (#762, PORTO-CORE-004/014/018): a node with children
+    holds no data assets itself, and a node's `parent` lists it as a child. A parent that
+    cannot be read is ADVISORY."""
+    out = []
+    links = doc.get("links", [])
+    me = next((l.get("href") for l in links if l.get("rel") == "self"), "")
+    children = [l for l in links if l.get("rel") == "child"]
+    data = sorted(k for k, a in doc.get("assets", {}).items()
+                  if not set(a.get("roles") or []) & NON_DATA_ROLES
+                  and not (a.get("href") or "").endswith(".md"))
+    if children and data:
+        out.append(Finding(HARD, "tree-mixed-node",
+                           f"node has {len(children)} children and data assets {data[:5]}; move the "
+                           f"data into a child collection so grouping nodes are Catalogs (#762)"))
+    parent = next((l.get("href") for l in links if l.get("rel") == "parent"), None)
+    if parent and me:
+        pu = urllib.parse.urljoin(me, parent)
+        p = fetch(pu)
+        if p is None:
+            out.append(Finding(ADVISORY, "tree-parent-unreadable", f"parent {pu} could not be read"))
+        else:
+            pself = next((l.get("href") for l in p.get("links", []) if l.get("rel") == "self"), pu)
+            kids = {urllib.parse.urljoin(pself, l.get("href", "")) for l in p.get("links", [])
+                    if l.get("rel") == "child"}
+            if urllib.parse.urljoin(me, me) not in kids:
+                out.append(Finding(HARD, "tree-parent-mismatch",
+                                   f"`parent` is {pu}, which does not list this node as a child; "
+                                   f"point `parent` at the node that links here (#762)"))
+    return out
+
+
 THUMBNAIL_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
 
@@ -1451,6 +1486,7 @@ STATIC_CHECKS = [
     check_parquet_columns_shape,
     check_pmtiles_link,
     check_thumbnail,
+    check_tree,
     check_cng_fid,
     check_hex_dup_warning,
     check_column_description_consistency,
