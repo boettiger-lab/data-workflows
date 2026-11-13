@@ -1,6 +1,6 @@
 # Auto-generated ConfigMap containing job definitions
 # Generated from: padus-4-1-combined-setup-bucket.yaml, padus-4-1-combined-convert.yaml, padus-4-1-combined-pmtiles.yaml, padus-4-1-combined-hex.yaml, padus-4-1-combined-repartition.yaml
-# Generation command: cng-datasets workflow --dataset padus-4-1/combined --source-url https://s3-west.nrp-nautilus.io/public-padus/raw/PADUS4_1Geodatabase.gdb --bucket public-padus --h3-resolution 10 --parent-resolutions "9,8,0"
+# Generation command: cng-datasets workflow --dataset padus-4-1/combined --source-url s3://public-padus/raw/PADUS4_1Geodatabase.gdb --bucket public-padus --h3-resolution 10 --parent-resolutions "9,8,0" --cells-per-chunk 5000000
 #
 # This ConfigMap is equivalent to running:
 #   kubectl create configmap padus-4-1-combined-yamls \
@@ -18,6 +18,7 @@ data:
     kind: Job
     metadata:
       name: padus-4-1-combined-convert
+      namespace: geo-workflows
       labels:
         k8s-app: padus-4-1-combined-convert
     spec:
@@ -30,16 +31,6 @@ data:
           labels:
             k8s-app: padus-4-1-combined-convert
         spec:
-          priorityClassName: opportunistic
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                - matchExpressions:
-                  - key: feature.node.kubernetes.io/pci-10de.present
-                    operator: NotIn
-                    values:
-                    - 'true'
           restartPolicy: Never
           containers:
           - name: convert-task
@@ -66,6 +57,8 @@ data:
               value: 'FALSE'
             - name: BUCKET
               value: public-padus
+            - name: DUCKDB_MEMORY_LIMIT
+              value: 13GiB
             volumeMounts:
             - name: rclone-config
               mountPath: /root/.config/rclone
@@ -76,26 +69,37 @@ data:
             - |
               set -e
               cng-convert-to-parquet \
-                https://s3-west.nrp-nautilus.io/public-padus/raw/PADUS4_1Geodatabase.gdb \
+                s3://public-padus/raw/PADUS4_1Geodatabase.gdb \
                 s3://public-padus/padus-4-1/combined.parquet \
-                --row-group-size 100000 \
+                --row-group-size 2000 \
                 --layer PADUS4_1Combined_Proclamation_Marine_Fee_Designation_Easement
             resources:
               requests:
                 cpu: '4'
-                memory: 32Gi
+                memory: 16Gi
               limits:
                 cpu: '4'
-                memory: 32Gi
+                memory: 16Gi
           volumes:
           - name: rclone-config
             secret:
               secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
   padus-4-1-combined-hex.yaml: |
     apiVersion: batch/v1
     kind: Job
     metadata:
       name: padus-4-1-combined-hex
+      namespace: geo-workflows
       labels:
         k8s-app: padus-4-1-combined-hex
     spec:
@@ -103,6 +107,7 @@ data:
       parallelism: 50
       completionMode: Indexed
       backoffLimitPerIndex: 3
+      maxFailedIndexes: 10
       podFailurePolicy:
         rules:
         - action: Ignore
@@ -114,16 +119,6 @@ data:
           labels:
             k8s-app: padus-4-1-combined-hex
         spec:
-          priorityClassName: opportunistic
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                - matchExpressions:
-                  - key: feature.node.kubernetes.io/pci-10de.present
-                    operator: NotIn
-                    values:
-                    - 'true'
           restartPolicy: Never
           containers:
           - name: hex-task
@@ -154,24 +149,107 @@ data:
               value: public-padus
             - name: DATASET
               value: padus-4-1-combined
+            - name: DUCKDB_MEMORY_LIMIT
+              value: 27GiB
             command:
             - bash
             - -c
             - |-
               set -e
-              cng-datasets vector --input s3://public-padus/padus-4-1/combined.parquet --output s3://public-padus/padus-4-1/combined/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 3285 --intermediate-chunk-size 3 --resolution 10 --parent-resolutions 9,8,0
+              cng-datasets vector --input s3://public-padus/padus-4-1/combined.parquet --output s3://public-padus/padus-4-1/combined/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 3285 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0 --plan s3://public-padus/padus-4-1/combined/_hex_plan.parquet
             resources:
               requests:
                 cpu: '4'
                 memory: 32Gi
+                ephemeral-storage: 10Gi
               limits:
                 cpu: '4'
                 memory: 32Gi
+                ephemeral-storage: 10Gi
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  padus-4-1-combined-plan.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: padus-4-1-combined-plan
+      namespace: geo-workflows
+      labels:
+        k8s-app: padus-4-1-combined-plan
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: padus-4-1-combined-plan
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: plan-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-padus
+            command:
+            - bash
+            - -c
+            - |-
+              set -e
+              cng-datasets vector-plan --input s3://public-padus/padus-4-1/combined.parquet --output s3://public-padus/padus-4-1/combined/_hex_plan.parquet --resolution 10 --cells-per-chunk 5000000 --max-chunks 200
+            terminationMessagePolicy: File
+            resources:
+              requests:
+                cpu: '2'
+                memory: 32Gi
+              limits:
+                cpu: '2'
+                memory: 32Gi
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
   padus-4-1-combined-pmtiles.yaml: |
     apiVersion: batch/v1
     kind: Job
     metadata:
       name: padus-4-1-combined-pmtiles
+      namespace: geo-workflows
       labels:
         k8s-app: padus-4-1-combined-pmtiles
     spec:
@@ -184,16 +262,6 @@ data:
           labels:
             k8s-app: padus-4-1-combined-pmtiles
         spec:
-          priorityClassName: opportunistic
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                - matchExpressions:
-                  - key: feature.node.kubernetes.io/pci-10de.present
-                    operator: NotIn
-                    values:
-                    - 'true'
           restartPolicy: Never
           containers:
           - name: pmtiles-task
@@ -235,10 +303,27 @@ data:
               set -e
               # Use optimized GeoParquet (has ID column) from convert job
               # GDAL can read parquet via vsicurl
-              ogr2ogr -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined.parquet -progress
+              ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/combined.parquet -progress
 
               # Generate PMTiles from GeoJSONSeq
-              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$DATASET.geojsonl
+              # TIPPECANOE_MAX_THREADS must be a power of 2; Kubernetes nodes can expose
+              # non-power-of-2 logical CPU counts which triggers an internal assertion
+              # failure "N shards not a power of 2" (felt/tippecanoe#216).
+              # Size from the pod's cgroup CPU quota, not os.cpu_count() (the node's cores),
+              # round down to a power of 2, and cap at 128: at 256+ threads tippecanoe caps
+              # its shards at 745, not a power of 2, and aborts anyway (issue #273).
+              # Must be `export`ed: tippecanoe is a child process and reads this from the
+              # environment, not the shell. A plain assignment is invisible to it, so it
+              # falls back to the raw (non-power-of-2) CPU count and crashes (issue #77).
+              export TIPPECANOE_MAX_THREADS=$(python3 -c "from cng_datasets.raster.cog import _cgroup_cpu_count as c; n=min(c() or 4, 128); print(1<<(n.bit_length()-1))")
+
+              # Raise the soft open-file limit before tippecanoe (issue #154). It opens many
+              # temp files (per-thread x per-tile shards); on high-core nodes os.cpu_count()
+              # reports the node's full core count, so the thread/shard count blows past the
+              # container's default soft nofile limit (often 1024) and aborts with
+              # "Too many open files". `|| true` keeps going if the limit can't be raised.
+              ulimit -n 65536 || true
+              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --coalesce-densest-as-needed --drop-densest-as-needed -z 13 --force /tmp/$DATASET.geojsonl
 
               # Upload to S3 using rclone
               rclone copy /tmp/$DATASET.pmtiles nrp:public-padus/padus-4-1/
@@ -254,11 +339,22 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
   padus-4-1-combined-repartition.yaml: |
     apiVersion: batch/v1
     kind: Job
     metadata:
       name: padus-4-1-combined-repartition
+      namespace: geo-workflows
       labels:
         k8s-app: padus-4-1-combined-repartition
     spec:
@@ -271,16 +367,6 @@ data:
           labels:
             k8s-app: padus-4-1-combined-repartition
         spec:
-          priorityClassName: opportunistic
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                - matchExpressions:
-                  - key: feature.node.kubernetes.io/pci-10de.present
-                    operator: NotIn
-                    values:
-                    - 'true'
           restartPolicy: Never
           containers:
           - name: repartition-task
@@ -318,23 +404,36 @@ data:
             - -c
             - |
               set -e
-              cng-datasets repartition --chunks-dir s3://public-padus/padus-4-1/combined/chunks --output-dir s3://public-padus/padus-4-1/combined/hex --source-parquet s3://public-padus/padus-4-1/combined.parquet --cleanup
+              cng-datasets repartition --chunks-dir s3://public-padus/padus-4-1/combined/chunks --output-dir s3://public-padus/padus-4-1/combined/hex --source-parquet s3://public-padus/padus-4-1/combined.parquet --cleanup --memory-limit 27GiB
             resources:
               requests:
                 cpu: '4'
                 memory: 32Gi
+                ephemeral-storage: 50Gi
               limits:
                 cpu: '4'
                 memory: 32Gi
+                ephemeral-storage: 50Gi
           volumes:
           - name: rclone-config
             secret:
               secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
   padus-4-1-combined-setup-bucket.yaml: |
     apiVersion: batch/v1
     kind: Job
     metadata:
       name: padus-4-1-combined-setup-bucket
+      namespace: geo-workflows
       labels:
         k8s-app: padus-4-1-combined-setup-bucket
     spec:
@@ -347,16 +446,6 @@ data:
           labels:
             k8s-app: padus-4-1-combined-setup-bucket
         spec:
-          priorityClassName: opportunistic
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                - matchExpressions:
-                  - key: feature.node.kubernetes.io/pci-10de.present
-                    operator: NotIn
-                    values:
-                    - 'true'
           restartPolicy: Never
           containers:
           - name: setup-bucket-task
@@ -410,7 +499,17 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
+          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
 kind: ConfigMap
 metadata:
   name: padus-4-1-combined-yamls
-  namespace: biodiversity
+  namespace: geo-workflows
