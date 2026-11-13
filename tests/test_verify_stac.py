@@ -1085,6 +1085,38 @@ class TestThumbnail(unittest.TestCase):
                          {"thumbnail-type": vs.HARD})
 
 
+class TestTree(unittest.TestCase):
+    ME = "https://h/b/x/stac-collection.json"
+
+    def doc(self, **kw):
+        d = {"type": "Collection", "links": [{"rel": "self", "href": self.ME},
+                                             {"rel": "parent", "href": "../stac-collection.json"}],
+             "assets": {}}
+        d.update(kw); return d
+
+    def parent(self, *kids):
+        return lambda u: {"links": [{"rel": "self", "href": u}] + [{"rel": "child", "href": k} for k in kids]}
+
+    def codes(self, d, fetch):
+        return {f.code: f.severity for f in vs.check_tree(d, fetch)}
+
+    def test_consistent_leaf(self):
+        self.assertEqual(self.codes(self.doc(), self.parent("./x/stac-collection.json")), {})
+
+    def test_parent_not_listing_me(self):
+        self.assertEqual(self.codes(self.doc(), self.parent("./y/stac-collection.json")),
+                         {"tree-parent-mismatch": vs.HARD})
+
+    def test_unreadable_parent_is_advisory(self):
+        self.assertEqual(self.codes(self.doc(), lambda u: None), {"tree-parent-unreadable": vs.ADVISORY})
+
+    def test_mixed_node(self):
+        d = self.doc(assets={"d": {"href": "d.parquet"}, "r": {"href": "README.md"},
+                             "s": {"href": "s.json", "roles": ["style"]}})
+        d["links"].append({"rel": "child", "href": "./c/stac-collection.json"})
+        self.assertEqual(self.codes(d, self.parent("./x/stac-collection.json")), {"tree-mixed-node": vs.HARD})
+
+
 class TestRenderUnits(unittest.TestCase):
     def codes(self, band, rescale):
         doc = {"assets": {"d-cog": {"raster:bands": [band]}},
