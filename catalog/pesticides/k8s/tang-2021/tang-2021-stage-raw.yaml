@@ -1,0 +1,73 @@
+# HAND-ROLLED: the generator has no stage-raw step; staging upstream files is per-source (#865).
+#
+# Tang et al. 2021 global pesticide pollution risk (issue #865), step 0: stage every file of
+# Figshare article 10302218 (version 1, published 2021-03-08) under raw/, which all later
+# jobs read. Each download is checked against the MD5 that Figshare publishes for the file
+# (https://api.figshare.com/v2/articles/10302218, field computed_md5); a mismatch means
+# upstream changed, so stop rather than overwrite. The log prints size and sha256 of each
+# staged file for the STAC provenance record.
+#
+# public-pesticides is a new bucket: run the setup-bucket job first, then this one.
+#
+#   kubectl apply -n geo-workflows -f catalog/pesticides/k8s/tang-2021/risk-score/tang-2021-risk-score-setup-bucket.yaml
+#   kubectl apply -n geo-workflows -f catalog/pesticides/k8s/tang-2021/tang-2021-stage-raw.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tang-2021-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: tang-2021-stage-raw}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: tang-2021-stage-raw}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      # Cluster DNS on some nodes intermittently fails to resolve external hosts.
+      dnsConfig:
+        nameservers: [8.8.8.8, 1.1.1.1]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          mkdir -p /tmp/raw && cd /tmp/raw
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          # figshare file id, name, computed_md5
+          while read -r id name md5; do
+            curl -sSL --retry 8 --retry-all-errors --retry-delay 5 -o "$name" "https://ndownloader.figshare.com/files/$id"
+            got=$(md5sum "$name" | cut -d' ' -f1)
+            if [ "$got" != "$md5" ]; then
+              echo "FATAL: $name md5 $got, expected $md5" >&2; exit 1
+            fi
+            echo "$name bytes=$(stat -c%s "$name") md5=$got sha256=$(sha256sum "$name" | cut -d' ' -f1)"
+          done <<'EOF'
+          26221673 Global_pesticide_risk_scores.tif 0fcf8b085ce1323669569f63952d923d
+          26221670 Global_active_ingredient_counts.tif c7710be0615f71b5d542254e145e3fb9
+          26221682 Global_regions_of_concern.tif 103569b6ec7d33cb46356027b777617d
+          26221676 Quality_index.tif 2664da29aca615a6c3f2d71d94ef23ff
+          26221679 Certainty_index.tif eaea4796c6be8d99cd1f8ed6a0d5abe2
+          26221667 Metadata.pdf ff705b01d48104dbe8ae5073c9fd29de
+          26209214 Code.zip 24d6047b81233d9759fb0edd2ef12f8e
+          EOF
+          rclone copy /tmp/raw nrp:public-pesticides/raw/ $R
+          rclone lsl nrp:public-pesticides/raw/
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
