@@ -14,8 +14,9 @@
 # The per-class pixel counts it prints go to raw/derived/hansen-gfc-2025-v1.13/checks/, the
 # reference the hex is checked against.
 # Overviews: NEAREST for the loss year (class codes), AVERAGE for tree cover (percent).
-# Ephemeral 80Gi: the tree-cover tiles (~20 GB) plus overviews plus the COG (~25 GB), measured
-# from one Peru granule (77 MB prepared). Default priority: a global mosaic runs over an hour.
+# Ephemeral 150Gi: the staged tree-cover tiles total 58.9 GB; prepared tiles shrank to ~0.7x on
+# a Peru granule (108 -> 77 MB), so ~40 GB of tiles, ~13 GB of overviews and a COG of similar
+# size, with margin. The loss year needs far less (9.2 GB staged); one spec serves both. Default priority: a global mosaic runs over an hour.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -98,8 +99,8 @@ spec:
           rclone copyto $OUT nrp:public-forest-change/tree-cover-loss/$OUT --s3-no-check-bucket
           echo OK
         resources:
-          requests: {cpu: '8', memory: 8Gi, ephemeral-storage: 80Gi}
-          limits:   {cpu: '8', memory: 9Gi, ephemeral-storage: 80Gi}
+          requests: {cpu: '8', memory: 8Gi, ephemeral-storage: 150Gi}
+          limits:   {cpu: '8', memory: 9Gi, ephemeral-storage: 150Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
       - {name: prep, configMap: {name: hansen-gfc-prep}}
