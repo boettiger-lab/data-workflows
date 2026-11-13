@@ -30,7 +30,7 @@ ASSETS = [
          select=cols(['Access_Dt', 'Access_Src', 'Agg_Src', 'Category', 'Comments', 'Date_Est', 'Des_Tp', 'Duration', 'EHoldTyp', 'EsmtHldr', 'GAPCdDt', 'GAPCdSrc', 'GAP_Sts', 'GIS_Acres', 'GIS_Src', 'IUCNCtDt', 'IUCNCtSrc', 'IUCN_Cat', 'Loc_Ds', 'Loc_Mang', 'Loc_Nm', 'Loc_Own', 'Mang_Name', 'Mang_Type', 'Own_Name', 'Own_Type', 'Pub_Access', 'SHAPE_Area', 'SHAPE_Length', 'Source_PAID', 'Src_Date', 'State_Nm', 'Term', 'Unit_Nm', 'WDPA_Cd'])),
     dict(bucket="public-usgs-nhd", key="nhdplus-hr/flowline.visibility.pmtiles",
          src="s3://public-usgs-nhd/nhdplus-hr/flowline.parquet", geom="geom", layer="flowline",
-         flags="-z10 --drop-densest-as-needed --simplification 10 -j '" + NHD_FILTER + "'",
+         flags="-t /ltmp -z10 --drop-densest-as-needed --simplification 10 -j '" + NHD_FILTER + "'",
          select=cols(['arbolatesu', 'areasqkm', 'divdasqkm', 'divergence', 'dnhydroseq', 'dnlevel', 'fcode', 'flowdir', 'ftype', 'gnis_id', 'gnis_name', 'hydroseq', 'innetwork', 'lengthkm', 'levelpathi', 'mainpath', 'maxelevsmo', 'minelevsmo', 'nhdplusid', 'pathlength', 'permanent_identifier', 'reachcode', 'slope', 'startflag', 'streamcalc', 'streamleve', 'streamorde', 'terminalfl', 'terminalpa', 'totdasqkm', 'uphydroseq', 'visibilityfilter', 'vpu_level', 'vpu_unit', 'vpu_vintage', 'vpuid'])),
     # IBTrACS candidate B: -r1 overflowed tiles and tippecanoe cut coordinate detail first,
     # snapping points to a coarse lattice; --minimum-detail 12 makes it drop the densest instead.
