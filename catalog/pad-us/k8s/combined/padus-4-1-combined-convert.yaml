@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: padus-4-1-combined-convert
+  namespace: geo-workflows
   labels:
     k8s-app: padus-4-1-combined-convert
 spec:
@@ -14,16 +15,6 @@ spec:
       labels:
         k8s-app: padus-4-1-combined-convert
     spec:
-      priorityClassName: opportunistic
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
-                operator: NotIn
-                values:
-                - 'true'
       restartPolicy: Never
       containers:
       - name: convert-task
@@ -50,6 +41,8 @@ spec:
           value: 'FALSE'
         - name: BUCKET
           value: public-padus
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 13GiB
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
@@ -60,18 +53,28 @@ spec:
         - |
           set -e
           cng-convert-to-parquet \
-            https://s3-west.nrp-nautilus.io/public-padus/raw/PADUS4_1Geodatabase.gdb \
+            s3://public-padus/raw/PADUS4_1Geodatabase.gdb \
             s3://public-padus/padus-4-1/combined.parquet \
-            --row-group-size 100000 \
+            --row-group-size 2000 \
             --layer PADUS4_1Combined_Proclamation_Marine_Fee_Designation_Easement
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 16Gi
           limits:
             cpu: '4'
-            memory: 32Gi
+            memory: 16Gi
       volumes:
       - name: rclone-config
         secret:
           secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: padus-4-1-fee-hex
+  namespace: geo-workflows
   labels:
     k8s-app: padus-4-1-fee-hex
 spec:
@@ -9,6 +10,7 @@ spec:
   parallelism: 50
   completionMode: Indexed
   backoffLimitPerIndex: 3
+  maxFailedIndexes: 10
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -20,16 +22,6 @@ spec:
       labels:
         k8s-app: padus-4-1-fee-hex
     spec:
-      priorityClassName: opportunistic
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
-                operator: NotIn
-                values:
-                - 'true'
       restartPolicy: Never
       containers:
       - name: hex-task
@@ -60,16 +52,30 @@ spec:
           value: public-padus
         - name: DATASET
           value: padus-4-1-fee
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 27GiB
         command:
         - bash
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-padus/padus-4-1/fee.parquet --output s3://public-padus/padus-4-1/fee/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1483 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0
+          cng-datasets vector --input s3://public-padus/padus-4-1/fee.parquet --output s3://public-padus/padus-4-1/fee/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1483 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0 --plan s3://public-padus/padus-4-1/fee/_hex_plan.parquet
         resources:
           requests:
             cpu: '4'
             memory: 32Gi
+            ephemeral-storage: 10Gi
           limits:
             cpu: '4'
             memory: 32Gi
+            ephemeral-storage: 10Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

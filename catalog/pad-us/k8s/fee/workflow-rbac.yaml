@@ -2,13 +2,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cng-datasets-workflow
-  namespace: biodiversity
+  namespace: geo-workflows
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: cng-datasets-workflow
-  namespace: biodiversity
+  namespace: geo-workflows
 rules:
 - apiGroups:
   - batch
@@ -33,7 +33,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: cng-datasets-workflow
-  namespace: biodiversity
+  namespace: geo-workflows
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
