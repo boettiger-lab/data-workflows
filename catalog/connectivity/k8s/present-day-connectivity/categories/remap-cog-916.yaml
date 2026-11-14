@@ -1,0 +1,40 @@
+# HAND-ROLLED (#916): one-off remap of fill code 0 to the declared nodata 255 in the published
+# COG; cng-datasets has no step that remaps values in an existing COG. ConfigMap:
+#   kubectl create configmap connectivity-916-remap -n geo-workflows --from-file=remap-cog-916.py
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: connectivity-916-remap
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic  # a few minutes; idempotent
+      automountServiceAccountToken: false
+      containers:
+      - name: remap
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        command: [python3, /opt/916/remap-cog-916.py]
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "NO"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        - {name: GDAL_DISABLE_READDIR_ON_OPEN, value: EMPTY_DIR}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: code, mountPath: /opt/916, readOnly: true}
+        - {name: scratch, mountPath: /scratch}
+        resources:
+          requests: {cpu: "1", memory: 2Gi, ephemeral-storage: 2Gi}
+          limits: {cpu: "1", memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: code, configMap: {name: connectivity-916-remap}}
+      - {name: scratch, emptyDir: {}}

@@ -27,6 +27,7 @@ A deliberate change of either kind sets STAC_GUARD_ALLOW=columns,keys (or one of
 job, which records the decision where a reviewer sees it.
 
 A missing or unreadable LIVE.json means a new collection: nothing to keep, nothing refused.
+A NEW.json of type Catalog (a grouping node, #762) keeps nothing: Catalogs carry no assets.
 Exit 0 means NEW.json is safe to upload.
 
 In a job (the image has no repo checkout, so fetch it; `curl -f` fails closed):
@@ -78,6 +79,8 @@ def guard(new: dict, live: dict, allow: set[str]) -> tuple[list[str], list[str]]
     if refused:
         return kept, refused
 
+    if new.get("type") == "Catalog":  # #762: a Catalog carries no assets or renders to keep
+        return kept, refused
     before = json.loads(json.dumps(new))
     assets = new.setdefault("assets", {})
     # Style keys name their PMTiles file: style-<stem>[-<variant>], style-fallback-<stem>.

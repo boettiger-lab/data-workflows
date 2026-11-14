@@ -90,8 +90,8 @@ See `catalog/census/k8s/tract/preprocess-tract.yaml` for a complete k8s job.
 
 ### PAD-US (multi-layer GDB, 5 spatial layers)
 ```bash
-# One-time raw upload
-rclone copy PADUS4_1Geodatabase.gdb nrp:public-padus/raw/PADUS4_1Geodatabase.gdb -P
+# One-time raw staging, in a job (AGENTS.md Step 1b), never from your machine:
+#   rclone copy PADUS4_1Geodatabase.gdb nrp:public-padus/raw/PADUS4_1Geodatabase.gdb
 
 # Generate per-layer workflows
 for args in \

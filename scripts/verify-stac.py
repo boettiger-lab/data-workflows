@@ -182,7 +182,9 @@ def targets_from_yaml(text: str) -> set[tuple[str, str]]:
     for bucket, rest in re.findall(r"s3://(public-[a-z0-9-]+)/([^\s'\"]+)", text):
         if bucket in INFRA_BUCKETS:
             continue
-        rest = rest.strip("/")
+        # A path inside a shell script can end in a line-continuation `\` or sit in
+        # prose ("…/report.json)."). Neither character occurs in a dataset path.
+        rest = rest.rstrip("\\,.;:)").strip("/")
         # Skip raw/staging inputs — never a dataset collection. `raw` may be a
         # top-level prefix (public-census/raw/…) OR nested under a domain prefix
         # (public-rivers/american-rivers/raw/<ds>-src.parquet, the staging layout
@@ -218,12 +220,33 @@ def derive_url(bucket: str, dataset: str) -> str:
 
 
 def _collection_exists(url: str) -> bool:
-    """True if a STAC doc loads at url (used to fall back to a bucket-level collection)."""
+    """True if a STAC doc loads at url (used to fall back to an enclosing collection)."""
     try:
         load_doc(url)
         return True
     except Exception:
         return False
+
+
+def resolve_collection_url(bucket: str, dataset: str, exists=_collection_exists) -> str:
+    """The collection that holds (bucket, dataset): the nearest one that exists.
+
+    Many datasets share an enclosing collection rather than carrying their own:
+    `public-ncp/invest-peru-2019/carbon-total` is an asset of
+    `public-ncp/invest-peru-2019/stac-collection.json`, and whole buckets such as
+    public-carbon keep one collection at the root. So try the dataset, then each parent
+    prefix, then the bucket root. Jumping straight to the bucket root skips the
+    intermediate collection that actually holds the data (#903).
+
+    If none exists (recipe not run yet at PR-open), keep the per-dataset URL so the
+    load-error RED still fires, the intended pre-publish state.
+    """
+    parts = [p for p in dataset.strip("/").split("/") if p]
+    for i in range(len(parts), -1, -1):
+        url = derive_url(bucket, "/".join(parts[:i]))
+        if exists(url):
+            return url
+    return derive_url(bucket, dataset)
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +281,7 @@ KNOWN_SPDX = {
     "CDLA-Permissive-1.0", "CDLA-Permissive-2.0", "CDLA-Sharing-1.0",
     "ODbL-1.0", "ODC-By-1.0", "PDDL-1.0",
     "Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "GPL-3.0-only",
+    "GPL-1.0-or-later",  # an unversioned GPL grant: Bio-ORACLE (#886)
     "OGL-UK-3.0",
 }
 # Sanctioned non-SPDX values (AGENTS.md): escape hatches + US federal works.
@@ -1391,6 +1415,41 @@ def check_license_consistency(docs: list[tuple[str, dict]]) -> list[tuple[str, F
     return out
 
 
+NON_DATA_ROLES = {"style", "thumbnail", "metadata", "overview"}
+
+
+def check_tree(doc: dict, fetch=_fetch_style) -> list[Finding]:
+    """Nested catalogs, flat collections (#762, PORTO-CORE-004/014/018): a node with children
+    holds no data assets itself, and a node's `parent` lists it as a child. A parent that
+    cannot be read is ADVISORY."""
+    out = []
+    links = doc.get("links", [])
+    me = next((l.get("href") for l in links if l.get("rel") == "self"), "")
+    children = [l for l in links if l.get("rel") == "child"]
+    data = sorted(k for k, a in doc.get("assets", {}).items()
+                  if not set(a.get("roles") or []) & NON_DATA_ROLES
+                  and not (a.get("href") or "").endswith(".md"))
+    if children and data:
+        out.append(Finding(HARD, "tree-mixed-node",
+                           f"node has {len(children)} children and data assets {data[:5]}; move the "
+                           f"data into a child collection so grouping nodes are Catalogs (#762)"))
+    parent = next((l.get("href") for l in links if l.get("rel") == "parent"), None)
+    if parent and me:
+        pu = urllib.parse.urljoin(me, parent)
+        p = fetch(pu)
+        if p is None:
+            out.append(Finding(ADVISORY, "tree-parent-unreadable", f"parent {pu} could not be read"))
+        else:
+            pself = next((l.get("href") for l in p.get("links", []) if l.get("rel") == "self"), pu)
+            kids = {urllib.parse.urljoin(pself, l.get("href", "")) for l in p.get("links", [])
+                    if l.get("rel") == "child"}
+            if urllib.parse.urljoin(me, me) not in kids:
+                out.append(Finding(HARD, "tree-parent-mismatch",
+                                   f"`parent` is {pu}, which does not list this node as a child; "
+                                   f"point `parent` at the node that links here (#762)"))
+    return out
+
+
 THUMBNAIL_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
 
@@ -1428,6 +1487,7 @@ STATIC_CHECKS = [
     check_parquet_columns_shape,
     check_pmtiles_link,
     check_thumbnail,
+    check_tree,
     check_cng_fid,
     check_hex_dup_warning,
     check_column_description_consistency,
@@ -2502,17 +2562,8 @@ def main():
             except OSError as e:
                 print(f"[warn] could not read {path}: {e}", file=sys.stderr)
         for bucket, dataset in sorted(targets):
-            url = derive_url(bucket, dataset)
-            # Bucket-level collections: many datasets can share ONE collection at the
-            # bucket root (e.g. public-carbon, public-nci-frontiers) instead of a
-            # per-dataset stac-collection.json. If the per-dataset STAC 404s but a
-            # bucket-level one exists, verify that instead. De-dup (below) then collapses
-            # all the bucket's datasets to the single bucket-level collection. If NEITHER
-            # exists (recipe not run yet at PR-open), keep the per-dataset URL so the
-            # load-error RED still fires (the intended pre-publish state).
-            if not _collection_exists(url) and _collection_exists(derive_url(bucket, "")):
-                url = derive_url(bucket, "")
-            sources.append(url)
+            # De-dup (below) collapses datasets that share a collection to one check.
+            sources.append(resolve_collection_url(bucket, dataset))
         if not targets:
             print("No dataset collection targets derived from the given YAML(s) — "
                   "nothing to verify.", file=sys.stderr)
