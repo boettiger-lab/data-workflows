@@ -134,8 +134,15 @@ def sql_value(column: str) -> str:
     return f"TRY_CAST({q(column)} AS DOUBLE)"
 
 
-def style_value(column: str) -> tuple[list, list]:
-    """(numeric MapLibre expression, guard that it is defined) for a column or a ratio `A/B`."""
+def style_value(column: str, string: bool = False) -> tuple[list, list]:
+    """(numeric MapLibre expression, guard that it is defined) for a column or a ratio `A/B`.
+
+    A string column (years stored as text, with entries such as "1930s") is coerced with a
+    sentinel fallback, so values that do not parse as numbers fall to No data.
+    """
+    if string and "/" not in column:
+        num = ["to-number", ["get", column], -1e30]
+        return num, [">", num, -1e30]
     if "/" in column:
         a, b = column.split("/", 1)
         return (["/", ["to-number", ["get", a], 0], ["to-number", ["get", b], 1]],
@@ -348,7 +355,7 @@ def build(doc: dict, coll: str, key: str, args) -> tuple[dict, str, dict, list[s
                 raise SystemExit(f"{key}: `{column}` has no spread to class ({lo}..{hi})")
             k = len(bks) + 1  # spread the ramp's colours over however many classes there are
             ramp = [ramp[round(i * (n - 1) / (k - 1))] for i in range(k)]
-            num, guard = style_value(column)
+            num, guard = style_value(column, attrs.get(column, {}).get("type") == "string")
             step = ["step", num, ramp[0]]
             for b, c in zip(bks, ramp[1:]):
                 step += [b, c]

@@ -1160,6 +1160,12 @@ class TestDefaultStylePaint(unittest.TestCase):
         self.assertEqual(self.run_check(self.layer(["match", ["get", "a"], "x", "#f00", "#ccc"])),
                          set())
 
+    def test_data_driven_width_passes(self):
+        sty = {"layers": [{"type": "line", "paint": {
+            "line-color": "#1E88E5",
+            "line-width": ["interpolate", ["linear"], ["get", "streamorde"], 1, 0.3, 7, 2.5]}}]}
+        self.assertEqual(self.run_check(sty), set())
+
     def test_unreadable_style_is_advisory(self):
         self.assertEqual(self.run_check(None), {(vs.ADVISORY, "style-unreadable")})
 

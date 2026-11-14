@@ -704,9 +704,12 @@ def check_default_style_paint(doc: dict, fetch=_fetch_style) -> list[Finding]:
             continue
         if (sty.get("metadata") or {}).get("glen:single_colour_reason"):
             continue
-        paints = [(l.get("paint") or {}).get(f"{l.get('type')}-color")
-                  for l in sty.get("layers", []) if l.get("type") in ("fill", "line", "circle")]
-        if paints and not any(isinstance(p, list) for p in paints):
+        # Data-driven if any colour, width, radius or opacity is an expression: a river network
+        # in one colour with width by stream order shows its variable (NHDPlus flowlines, #914).
+        layers = [l for l in sty.get("layers", []) if l.get("type") in ("fill", "line", "circle")]
+        varying = [v for l in layers for k, v in (l.get("paint") or {}).items()
+                   if k.split("-", 1)[-1] in ("color", "width", "radius", "opacity", "stroke-color")]
+        if layers and not any(isinstance(v, list) for v in varying):
             out.append(Finding(HARD, "style-single-colour-default",
                                f"default style '{key}' draws every feature in one colour. Colour "
                                f"it by the file's primary variable (scripts/default-style.py), or, "
