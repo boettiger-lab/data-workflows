@@ -1,0 +1,44 @@
+# HAND-ROLLED (#914): candidate tile builds for IBTrACS points and PAD-US easements, from their
+# published GeoParquet through catalog/pmtiles-fid/k8s/build.py; cng-datasets builds PMTiles only
+# inside a full ingest. ConfigMap overview-914:
+#   kubectl create configmap overview-914 -n geo-workflows --from-file=assets.py \
+#     --from-file=../pmtiles-fid/k8s/build.py --dry-run=client -o yaml > configmap.yaml
+# Writes nrp:<bucket>/staging/914-candidates/<key>; nothing live changes.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: overview-914-candidates
+  namespace: geo-workflows
+spec:
+  completions: 3
+  parallelism: 3
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      activeDeadlineSeconds: 14400
+      containers:
+      - name: tile
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        command: ["bash", "-c", "cd /opt/914 && python3 build.py"]
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: STAGING, value: 914-candidates}
+        - {name: TILE_THREADS, value: "4"}
+        - {name: DUCKDB_MEMORY, value: 5GB}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: code, mountPath: /opt/914, readOnly: true}
+        resources:
+          requests: {cpu: "4", memory: 8Gi, ephemeral-storage: 50Gi}
+          limits: {cpu: "4", memory: 8Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: code, configMap: {name: overview-914}}
