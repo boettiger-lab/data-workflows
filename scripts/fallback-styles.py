@@ -40,6 +40,7 @@ def _load(name, fname):
 
 apps = _load("app_styles", "app-styles.py")
 pc = _load("portolan_columns", "portolan-columns.py")
+rt = _load("render_titles", "render-titles.py")
 
 FALLBACK_PREFIX = "style-fallback-"  # the retired one-colour styles (#900); refused as defaults
 GEOM = {"polygon": "fill", "multipolygon": "fill", "linestring": "line",
@@ -61,7 +62,7 @@ def cog_render(asset_key: str, asset: dict, measured: dict | None = None) -> tup
     def real(x):
         return round(x * scale + offset, 6)
 
-    title = f"Fallback: {asset.get('title') or asset_key}"
+    title = rt.render_title(asset.get("title") or asset_key)
     nodata = band.get("nodata", asset.get("nodata"))
     classes = band.get("classification:classes") or asset.get("classification:classes")
     if classes and all(c.get("color_hint") for c in classes):
