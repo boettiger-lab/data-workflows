@@ -249,16 +249,13 @@ to the plan step's chunk count (`chunks=N` in the plan pod's termination message
 its `Complete`/`Failed` condition, not `.status.failed`, which counts a retried pod.
 
 **Hex pods fail on `Timeout was reached ... rook-ceph-rgw-nautiluss3.rook (retry quota exhausted)`**
-→ check whether one object is stuck before blaming the endpoint. Range-read it and a sibling over
-the public endpoint:
-```bash
-for k in <ds>.parquet <ds>.pmtiles; do curl -s -o /dev/null -m 30 -r 0-1023 \
-  -w "%{http_code} %{time_total}s $k\n" https://s3-west.nrp-nautilus.io/<bucket>/$k; done
-```
-On PAD-US marine (#617) `marine.parquet` hung (`000` after 30 s, HEAD too) while every other
-object answered in 0.1 s; rewriting it by rerunning convert fixed it. Then rerun the whole
-workflow, not the hex YAML alone: the orchestrator patches hex `completions` from the plan
-step's chunk count, and the committed hex YAML carries the generator's placeholder.
+→ too many hex pods reading one small source parquet at once. PAD-US marine (#617) is 1,739
+features, 82 MiB: at parallelism 50 its hex failed twice (83 and 62 of 126 indexes, ~200 pod
+deaths), and the object stopped answering even over the public endpoint while every other object
+answered in 0.1 s. At `--max-parallelism 10` the same 126 indexes finished in 12 minutes with no
+pod death. Fee, 296K features in 1 GB, ran at 50 without trouble, so suspect this when the flat
+parquet is small and the hex fan-out is wide. Regenerate with a lower `--max-parallelism` and
+rerun the workflow. If you rerun hex alone, patch it to the plan's chunk count first (above).
 
 **Values silently wrong after a warp or COG step → nodata passed as a literal.** One publication can
 use a different sentinel per file, including positive ones (255 on a UInt16 band valued 0 to 50),
