@@ -191,9 +191,14 @@ single-file scratch it exists for (a >50Gi download, a mosaic, a DuckDB `temp_di
 The same reasoning applies to a raw-download job over an unpacked directory tree: stage the
 archive, not its contents.
 
+**A repartition evicted at its ephemeral limit → regenerate with `--repartition-storage`.** The
+generator defaults it to 50Gi, which a national h10 build outgrows: PAD-US fee (5.1 GiB of chunks,
+610M hex rows) was evicted twice at 50Gi and finished in 25 minutes at 200Gi (#617). Try the
+flag first; the two options below are for scratch a node cannot spare.
+
 ⛔ **`cng-datasets repartition` stages to a hardcoded `/tmp/hex`, so a big repartition needs the PVC
 mounted AT `/tmp`, or a hand-written job.** `TMPDIR` does not move it. When the chunks are large
-enough that one `h0` partition plus the `ORDER BY` spill exceeds 50Gi ephemeral, write the
+enough that one `h0` partition plus the `ORDER BY` spill exceeds what a node can spare, write the
 repartition as a small DuckDB job instead of calling the CLI — keep the contract
 identical (one `data_0.parquet` per `h0`, attributes joined from the flat parquet, the completeness
 gate, and the UBIGINT check on the H3 columns). Worked example:
@@ -233,6 +238,18 @@ the file size or the config**: a `-N` suffix means it is not an MD5 of anything 
 **PMTiles renders blank in MapLibre → wrong `source-layer`.** It's the last path segment of `--dataset`, NOT the GDB/source layer name. For `--dataset padus-4-1/fee`, it's `fee` (not `PADUS4_1Fee`).
 
 **Workflow stuck:** `kubectl logs job/<name>-workflow` and `kubectl get jobs | grep <name>`.
+
+⛔ **A failed step makes the workflow rerun everything from setup-bucket.** The `<name>-workflow`
+Job retries its orchestrator pod (`backoffLimit: 6`), and each new pod starts the DAG over: on
+PAD-US fee (#617) a repartition eviction re-ran convert, plan and PMTiles after a 7h42m hex had
+finished. So once a child step fails, delete `<name>-workflow` (gracefully), fix the step, and
+apply the remaining step YAMLs by hand in DAG order. A script that waits on the workflow must read
+its `Complete`/`Failed` condition, not `.status.failed`, which counts a retried pod.
+
+**Hex pods fail on `Timeout was reached ... rook-ceph-rgw-nautiluss3.rook (retry quota exhausted)`**
+→ the internal S3 endpoint is struggling from some nodes, not your job. Retries on the same
+timeouts exhaust `maxFailedIndexes`; wait until S3 answers, then rerun the hex job whole (each
+index rewrites only its own chunk), then repartition.
 
 **Values silently wrong after a warp or COG step → nodata passed as a literal.** One publication can
 use a different sentinel per file, including positive ones (255 on a UInt16 band valued 0 to 50),
