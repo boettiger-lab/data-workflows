@@ -572,6 +572,11 @@ bucket/                                 bucket/
 └── stac-collection.json
 ```
 
+`raw/` holds only upstream input staged for a rebuild. The backup tier treats it as disposable,
+so **no STAC asset may point into `raw/`**. That includes an upstream file you also want to
+offer for download: publish a copy beside the dataset instead. `verify-stac.py` enforces this
+(`asset-under-raw`, #721).
+
 ## Troubleshooting
 
 **Diagnose before resubmitting.** `kubectl -n geo-workflows describe pod <pod>` first — the same

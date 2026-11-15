@@ -75,8 +75,8 @@ collection = {
     "richness. Records without a usable coordinate are also excluded.\n\n"
     "**Licensing.** This data is licensed CC BY-NC 4.0, which permits non-commercial use with "
     "attribution. That is more restrictive than most of this catalog. Per-dataset licence and "
-    "citation details for every source dataset are staged alongside the data at "
-    "s3://public-obis/raw/licenses.tsv.\n\n"
+    "citation details for every source dataset are published alongside the data at "
+    "s3://public-obis/2026-09-09/licenses.tsv.\n\n"
     "**Provenance.** OBIS publishes this export as a rolling dataset at "
     "s3://obis-open-data/occurrence/, overwritten in place, and does not attach an edition or "
     "version label to it. The date in the path of this collection is the date we read it, not an "
@@ -144,7 +144,7 @@ collection = {
       "table:columns": COLUMNS,
     },
     "obis-source-licenses": {
-      "href": f"{BASE}/raw/licenses.tsv",
+      "href": f"{BASE}/2026-09-09/licenses.tsv",
       "type": "text/tab-separated-values",
       "title": "Per-dataset licence and citation table",
       "roles": ["metadata"],

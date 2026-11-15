@@ -751,6 +751,31 @@ class TargetsFromYaml(unittest.TestCase):
         })
 
 
+
+class AssetNotUnderRaw(unittest.TestCase):
+    """#721: a published asset never resolves into a raw/ prefix."""
+
+    def codes(self, href):
+        doc = {"assets": {"x-cog": {"href": href}}}
+        return {f.code for f in vs.check_asset_not_under_raw(doc)}
+
+    def test_bucket_raw_is_hard(self):
+        self.assertEqual(self.codes(
+            "https://s3-west.nrp-nautilus.io/public-population/raw/ghs-pop-2020-cog.tif"),
+            {"asset-under-raw"})
+
+    def test_nested_raw_is_hard(self):
+        self.assertEqual(self.codes("s3://public-tpl/landvote/raw/Measures.csv"),
+                         {"asset-under-raw"})
+
+    def test_normal_location_passes(self):
+        self.assertEqual(self.codes(
+            "https://s3-west.nrp-nautilus.io/public-population/ghs-pop-2020-cog.tif"), set())
+
+    def test_raw_in_a_file_name_passes(self):
+        self.assertEqual(self.codes("s3://public-x/a/raw.parquet"), set())
+        self.assertEqual(self.codes("s3://public-x/raw-counts/a.parquet"), set())
+
 if __name__ == "__main__":
     unittest.main()
 
