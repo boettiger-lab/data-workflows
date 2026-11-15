@@ -7,7 +7,7 @@ metadata:
     k8s-app: padus-4-1-marine-hex
 spec:
   completions: 200
-  parallelism: 50
+  parallelism: 10
   completionMode: Indexed
   backoffLimitPerIndex: 3
   maxFailedIndexes: 10
