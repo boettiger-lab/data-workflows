@@ -91,6 +91,11 @@ Data-backed checks (delegated to the duckdb-geo MCP server, --no-data to skip):
     dropped feature (rfmo/rfb lost CCAMLR) that leaves schema + partitions intact and no
     other check sees (#535/#520); COUNT(DISTINCT _cng_fid) vs flat COUNT(*)
 
+  - ADVISORY: a continuous render (`colormap_name` + `rescale`) whose range sits far from the
+    COG's own 2nd–98th percentile (TiTiler `/cog/statistics`), so most pixels draw at one
+    end of the ramp: wrc-2 flame length rescaled 0–862 over data at 0–16 (#881). Read from
+    TiTiler, not the MCP, so it runs whenever data checks do
+
 Advisory passes (never block):
   - recall: candidate string-categorical columns with a low DISTINCT count and no
     `values` array — catches the recall gap that missed PAD-US IUCN_Cat / Pub_Access
@@ -773,6 +778,61 @@ def check_render_units(doc: dict) -> list[Finding]:
                         out.append(Finding(ADVISORY, "render-rescale-outside-statistics",
                                            f"render '{rkey}' rescales {lo}..{hi}, far outside the "
                                            f"statistics of asset '{akey}' ({a:g}..{b:g} in real units)."))
+    return out
+
+
+TITILER = os.environ.get("TITILER_ENDPOINT", "https://titiler.nrp-nautilus.io")
+
+
+def _titiler_stats(href: str, nodata=None) -> dict:
+    """2nd/98th percentile of band 1, read from overviews (max_size 1024) by TiTiler."""
+    q = {"url": href, "max_size": 1024, "p": [2, 98]}
+    if nodata is not None:
+        q["nodata"] = nodata
+    url = f"{TITILER}/cog/statistics?" + urllib.parse.urlencode(q, doseq=True)
+    with urllib.request.urlopen(url, timeout=180) as r:
+        return next(iter(json.load(r).values()))
+
+
+CYCLIC_COLORMAPS = {"twilight", "twilight_shifted", "hsv"}
+
+
+def check_render_range(doc: dict, stats=_titiler_stats) -> list[Finding]:
+    """A continuous render's rescale should cover where the data is (#881). Flags a range in
+    which the 2nd–98th percentile fills under 30% of the ramp, or overshoots either end by
+    more than 15%. Classed renders (`colormap`) are not stretched, and a cyclic colormap spans
+    the whole circle by design (a direction in 0–360 whose data keeps to the trade winds), so
+    both are skipped."""
+    out = []
+    base = next((l.get("href") for l in doc.get("links", []) if l.get("rel") == "self"), "")
+    assets = doc.get("assets", {})
+    for rkey, r in (doc.get("renders") or {}).items():
+        if not r.get("rescale") or not r.get("colormap_name") or not r.get("assets"):
+            continue
+        if r["colormap_name"].removesuffix("_r") in CYCLIC_COLORMAPS:
+            continue
+        akey = r["assets"][0]
+        a = assets.get(akey) or {}
+        band = (a.get("raster:bands") or [{}])[0]
+        scale, offset = band.get("scale") or 1, band.get("offset") or 0
+        lo, hi = r["rescale"][0]
+        try:
+            st = stats(urllib.parse.urljoin(base, a.get("href", "")), r.get("nodata"))
+            p2, p98 = (st[k] * scale + offset for k in ("percentile_2", "percentile_98"))
+        except Exception as e:  # noqa: BLE001
+            out.append(Finding(ADVISORY, "render-range-unchecked",
+                               f"render '{rkey}': could not read statistics of asset '{akey}' "
+                               f"from TiTiler ({e})."))
+            continue
+        if hi == lo:
+            continue
+        pa, pb = (p2 - lo) / (hi - lo), (p98 - lo) / (hi - lo)
+        if pb - pa < 0.3 or pa < -0.15 or pb > 1.15:
+            out.append(Finding(ADVISORY, "render-rescale-off-data",
+                               f"render '{rkey}' rescales {lo:g}..{hi:g}, but 96% of asset "
+                               f"'{akey}' lies in {p2:.4g}..{p98:.4g} (2nd–98th percentile, real "
+                               f"units): most pixels draw at one end of the ramp. Rescale to "
+                               f"about that range."))
     return out
 
 
@@ -2549,6 +2609,8 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
                             f"is UNVERIFIED for that check, not clean. Re-run it."))
             if do_recall:
                 findings.extend(recall_pass(doc, client))
+    if do_data:
+        findings.extend(check_render_range(doc))  # TiTiler, not the MCP (#881)
 
     return collection_id, findings
 

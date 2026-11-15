@@ -1142,6 +1142,53 @@ class TestTree(unittest.TestCase):
         self.assertEqual(self.codes(d, self.parent("./x/stac-collection.json")), {"tree-mixed-node": vs.HARD})
 
 
+class TestRenderRange(unittest.TestCase):
+    """A continuous render's rescale should cover where the data is (#881)."""
+
+    def codes(self, rescale, p2, p98, band=None, render=None):
+        doc = {"links": [{"rel": "self", "href": "https://h/b/c/stac-collection.json"}],
+               "assets": {"d-cog": {"href": "../d.tif", "raster:bands": [band or {}]}},
+               "renders": {"d": {"assets": ["d-cog"], "colormap_name": "viridis",
+                                 "rescale": [rescale], **(render or {})}}}
+        seen = []
+
+        def stats(href, nodata):
+            seen.append(href)
+            return {"percentile_2": p2, "percentile_98": p98}
+        out = {f.code for f in vs.check_render_range(doc, stats=stats)}
+        self.assertTrue(not seen or seen == ["https://h/b/d.tif"])
+        return out
+
+    def test_matching_range_passes(self):
+        self.assertEqual(self.codes([0, 17], 0, 16.2), set())
+
+    def test_range_far_too_wide(self):  # wrc-2 flame length
+        self.assertEqual(self.codes([0, 862], 0, 16.2), {"render-rescale-off-data"})
+
+    def test_top_clipped(self):
+        self.assertEqual(self.codes([0, 50], 2, 60), {"render-rescale-off-data"})
+
+    def test_bottom_clipped(self):
+        self.assertEqual(self.codes([127, 360], 19, 351), {"render-rescale-off-data"})
+
+    def test_percentiles_unscaled_before_comparing(self):
+        self.assertEqual(self.codes([0, 17], 0, 1620, band={"scale": 0.01}), set())
+
+    def test_cyclic_colormap_skipped(self):  # ww3 wind-wave direction: 0..360, data 51..127
+        self.assertEqual(self.codes([0, 360], 51, 127, render={"colormap_name": "twilight"}), set())
+
+    def test_classed_render_skipped(self):
+        doc = {"assets": {"d-cog": {"href": "d.tif"}},
+               "renders": {"d": {"assets": ["d-cog"], "colormap": {"1": "#fff"}, "rescale": [[0, 1]]}}}
+        self.assertEqual(vs.check_render_range(doc, stats=lambda *a: 1 / 0), [])
+
+    def test_unreadable_is_advisory(self):
+        doc = {"assets": {"d-cog": {"href": "d.tif"}},
+               "renders": {"d": {"assets": ["d-cog"], "colormap_name": "viridis", "rescale": [[0, 1]]}}}
+        (f,) = vs.check_render_range(doc, stats=lambda *a: 1 / 0)
+        self.assertEqual((f.severity, f.code), (vs.ADVISORY, "render-range-unchecked"))
+
+
 class TestRenderUnits(unittest.TestCase):
     def codes(self, band, rescale):
         doc = {"assets": {"d-cog": {"raster:bands": [band]}},
