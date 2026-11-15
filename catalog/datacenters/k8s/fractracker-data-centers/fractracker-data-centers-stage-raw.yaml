@@ -18,6 +18,8 @@
 #
 # The convert step asserts --expect-features 1733 (the row count on 2026-11-15). If the live sheet
 # has changed by the time this runs, convert fails on the count: regenerate with the new count.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/931
 apiVersion: batch/v1
 kind: Job
 metadata:
