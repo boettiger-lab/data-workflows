@@ -247,9 +247,16 @@ apply the remaining step YAMLs by hand in DAG order. A script that waits on the 
 its `Complete`/`Failed` condition, not `.status.failed`, which counts a retried pod.
 
 **Hex pods fail on `Timeout was reached ... rook-ceph-rgw-nautiluss3.rook (retry quota exhausted)`**
-→ the internal S3 endpoint is struggling from some nodes, not your job. Retries on the same
-timeouts exhaust `maxFailedIndexes`; wait until S3 answers, then rerun the hex job whole (each
-index rewrites only its own chunk), then repartition.
+→ check whether one object is stuck before blaming the endpoint. Range-read it and a sibling over
+the public endpoint:
+```bash
+for k in <ds>.parquet <ds>.pmtiles; do curl -s -o /dev/null -m 30 -r 0-1023 \
+  -w "%{http_code} %{time_total}s $k\n" https://s3-west.nrp-nautilus.io/<bucket>/$k; done
+```
+On PAD-US marine (#617) `marine.parquet` hung (`000` after 30 s, HEAD too) while every other
+object answered in 0.1 s; rewriting it by rerunning convert fixed it. Then rerun the whole
+workflow, not the hex YAML alone: the orchestrator patches hex `completions` from the plan
+step's chunk count, and the committed hex YAML carries the generator's placeholder.
 
 **Values silently wrong after a warp or COG step → nodata passed as a literal.** One publication can
 use a different sentinel per file, including positive ones (255 on a UInt16 band valued 0 to 50),
