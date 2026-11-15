@@ -12,6 +12,10 @@ data:
     subdivisions and American Indian / Alaska Native areas from TIGER/Line 2024 zips already
     downloaded into TIGER_DIR (tl_2024_<ss>_cousub.zip, tl_2024_us_aiannh.zip). Every input
     row is written; unmatched rows keep a null geometry.
+
+    The TIGER zips are NAD83 (EPSG:4269) and the catalog parquet is WGS84; the two differ by
+    under 2 m across the United States, so geometries are combined without their CRS tags and the
+    output is written as WGS84 longitude/latitude, the GeoParquet default.
     """
     import glob
     import os
@@ -31,20 +35,20 @@ data:
         c.execute(f"CREATE TABLE m AS SELECT * FROM read_csv('{matched}', all_varchar=true, header=true)")
 
         c.execute(f"""CREATE TABLE b AS
-            SELECT 'state' AS lvl, GEOID AS geoid, geom FROM read_parquet('{CENSUS}/state.parquet')
+            SELECT 'state' AS lvl, GEOID AS geoid, ST_GeomFromWKB(ST_AsWKB(geom)) AS geom FROM read_parquet('{CENSUS}/state.parquet')
               WHERE GEOID IN (SELECT geoid FROM m WHERE geo_level = 'state')
             UNION ALL
-            SELECT 'county', GEOID, geom FROM read_parquet('{CENSUS}/county.parquet')
+            SELECT 'county', GEOID, ST_GeomFromWKB(ST_AsWKB(geom)) FROM read_parquet('{CENSUS}/county.parquet')
               WHERE GEOID IN (SELECT geoid FROM m WHERE geo_level = 'county')
             UNION ALL
-            SELECT 'place', GEOID, geom FROM read_parquet('{CENSUS}/place.parquet')
+            SELECT 'place', GEOID, ST_GeomFromWKB(ST_AsWKB(geom)) FROM read_parquet('{CENSUS}/place.parquet')
               WHERE GEOID IN (SELECT geoid FROM m WHERE geo_level = 'place')""")
         for z in sorted(glob.glob(f'{tiger}/tl_2024_*_cousub.zip')):
-            c.execute(f"""INSERT INTO b SELECT 'county_subdivision', GEOID, geom
+            c.execute(f"""INSERT INTO b SELECT 'county_subdivision', GEOID, ST_GeomFromWKB(ST_AsWKB(geom))
                           FROM ST_Read('/vsizip/{z}')
                           WHERE GEOID IN (SELECT geoid FROM m WHERE geo_level = 'county_subdivision')""")
         # reservation (R) and off-reservation trust land (T) share an AIANNH code: union them
-        c.execute(f"""INSERT INTO b SELECT 'aiannh', AIANNHCE, ST_Union_Agg(geom)
+        c.execute(f"""INSERT INTO b SELECT 'aiannh', AIANNHCE, ST_Union_Agg(ST_GeomFromWKB(ST_AsWKB(geom)))
                       FROM ST_Read('/vsizip/{tiger}/tl_2024_us_aiannh.zip')
                       WHERE AIANNHCE IN (SELECT geoid FROM m WHERE geo_level = 'aiannh')
                       GROUP BY AIANNHCE""")
