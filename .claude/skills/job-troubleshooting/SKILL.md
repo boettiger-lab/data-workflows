@@ -243,7 +243,9 @@ the file size or the config**: a `-N` suffix means it is not an MD5 of anything 
 Job retries its orchestrator pod (`backoffLimit: 6`), and each new pod starts the DAG over: on
 PAD-US fee (#617) a repartition eviction re-ran convert, plan and PMTiles after a 7h42m hex had
 finished. So once a child step fails, delete `<name>-workflow` (gracefully), fix the step, and
-apply the remaining step YAMLs by hand in DAG order. A script that waits on the workflow must read
+apply the remaining step YAMLs by hand in DAG order. A hand-applied hex must first be patched
+to the plan step's chunk count (`chunks=N` in the plan pod's termination message), as
+`workflow.yaml` does; the committed hex YAML carries a placeholder. A script that waits on the workflow must read
 its `Complete`/`Failed` condition, not `.status.failed`, which counts a retried pod.
 
 **Hex pods fail on `Timeout was reached ... rook-ceph-rgw-nautiluss3.rook (retry quota exhausted)`**
