@@ -193,8 +193,8 @@ archive, not its contents.
 
 **A repartition evicted at its ephemeral limit → regenerate with `--repartition-storage`.** The
 generator defaults it to 50Gi, which a national h10 build outgrows: PAD-US fee (5.1 GiB of chunks,
-610M hex rows) was evicted twice at 50Gi and finished in 25 minutes at 200Gi (#617). Try the
-flag first; the two options below are for scratch a node cannot spare.
+610M hex rows) was evicted twice at 50Gi and finished in 25 minutes at 200Gi (#617). A repartition that short stays at `opportunistic`
+even with the larger scratch. Try the flag first; the two options below are for scratch a node cannot spare.
 
 ⛔ **`cng-datasets repartition` stages to a hardcoded `/tmp/hex`, so a big repartition needs the PVC
 mounted AT `/tmp`, or a hand-written job.** `TMPDIR` does not move it. When the chunks are large
