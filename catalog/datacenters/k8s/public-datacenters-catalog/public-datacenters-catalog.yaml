@@ -49,17 +49,24 @@ spec:
               ("fractracker-moratoriums", "fractracker/moratoriums"),
               ("epoch-ai-data-centers", "epoch/ai-data-centers"),
               ("epoch-ai-data-center-footprints", "epoch/ai-data-center-footprints"),
+              ("pnnl-im3-atlas-point", "pnnl-im3/atlas-point"),
+              ("pnnl-im3-atlas-building", "pnnl-im3/atlas-building"),
+              ("pnnl-im3-atlas-campus", "pnnl-im3/atlas-campus"),
+              ("pnnl-im3-projected", "pnnl-im3/projected"),
           ]
+          DESC = (
+              "Data centers and the local response to them, from several independent sources: "
+              "FracTracker Alliance's U.S. Data Centers Tracker (existing, permitted and proposed "
+              "facilities, and local moratoriums, bans and zoning restrictions); Epoch AI's "
+              "database of large AI data centers worldwide with their building footprints; and "
+              "PNNL's IM3 Open Source Data Center Atlas (existing U.S. facilities from OpenStreetMap) "
+              "with its projected U.S. data center sites to 2035. Each child collection carries its "
+              "own licence and citation.")
           live = json.load(open("live.json")) if os.path.getsize("live.json") else None
           col = live or {
               "type": "Collection", "stac_version": "1.0.0", "id": "public-datacenters",
               "title": "Data centers",
-              "description": (
-                  "Data centers and the local response to them, from several independent sources: "
-                  "FracTracker Alliance's U.S. Data Centers Tracker (existing, permitted and proposed "
-                  "facilities, and local moratoriums, bans and zoning restrictions), and Epoch AI's "
-                  "database of large AI data centers worldwide with their building footprints. Each "
-                  "child collection carries its own licence and citation."),
+              "description": DESC,
               "keywords": ["data centers", "energy", "infrastructure", "AI"],
               "license": "various",
               "providers": [{"name": "Boettiger Lab, UC Berkeley", "roles": ["processor"],
@@ -74,6 +81,8 @@ spec:
                   {"rel": "parent", "href": ROOT, "type": "application/json"},
               ],
           }
+          if live:  # the description is ours: refresh it as sources are added
+              col["description"] = DESC
           have = {l["href"] for l in col["links"] if l["rel"] == "child"}
           for cid, path in CHILDREN:
               href = f"{PUB}/{path}/stac-collection.json"
