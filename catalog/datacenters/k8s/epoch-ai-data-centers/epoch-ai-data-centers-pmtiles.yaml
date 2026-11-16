@@ -1,4 +1,4 @@
-# DEVIATION from generated output (cng-datasets issue to be filed): tippecanoe gets -r1 so no
+# DEVIATION from generated output (datasets#319): tippecanoe gets -r1 so no
 # point is dropped at low zoom. With the generated options tippecanoe thins points by 2.5x per
 # zoom below 11 (1 of 1,733 test points left at zoom 0, 97 at zoom 6; v2.72.0, tested locally).
 apiVersion: batch/v1
