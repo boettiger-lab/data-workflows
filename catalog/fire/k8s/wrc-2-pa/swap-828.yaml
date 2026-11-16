@@ -1,7 +1,9 @@
 # HAND-ROLLED: the generator has no step that replaces a live layer from a staged build (#828).
 # Replaces the live HURisk `mean` COG + hex with the staged `sum` build from staging/828/, after
 # the gates in BUILD.md (#828) pass. Per domain: the COG is streamed over the live key (rclone's
-# server-side copy of a >5 GiB multipart object stalls on Ceph, hence --disable copy), each staged
+# server-side copy of a >5 GiB multipart object stalls on Ceph, and streaming it with
+# --disable copy ran past an hour for the 8.2 GB CONUS COG, so it is downloaded to local disk and
+# uploaded from there), each staged
 # hex partition overwrites its live key one object at a time, and only then is any live partition
 # the staged build did not write removed -- so a pod dying mid-swap leaves a mixture, never an
 # empty prefix. staging/828/ is kept until the collections are republished and checked.
@@ -17,15 +19,16 @@ spec:
   template:
     spec:
       restartPolicy: Never
-      activeDeadlineSeconds: 3600
-      priorityClassName: opportunistic
+      # Runs past an hour, so default priority (an opportunistic pod would be preempted). 1 CPU and
+      # 2Gi sit at the NRP usage-policy thresholds, which check only requests above them (#804).
+      activeDeadlineSeconds: 10800
       automountServiceAccountToken: false
       containers:
       - name: swap
         image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
         resources:
-          requests: {cpu: '2', memory: 2Gi}
-          limits: {cpu: '2', memory: 2Gi}
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 20Gi}
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         command:
@@ -40,7 +43,9 @@ spec:
             rclone lsf "$st/$ds-cog.tif" | grep -q . || { echo "no staged COG for $ds"; exit 1; }
             n=$(rclone lsf -R --files-only "$st/$ds/hex/" | grep -c 'data_0.parquet$' || true)
             [ "$n" -gt 0 ] || { echo "no staged hex for $ds"; exit 1; }
-            rclone copyto "$st/$ds-cog.tif" "nrp:public-fire/$ds-cog.tif" $R
+            rclone copyto "$st/$ds-cog.tif" /tmp/cog.tif --retries 6
+            rclone copyto /tmp/cog.tif "nrp:public-fire/$ds-cog.tif" --retries 6
+            rm -f /tmp/cog.tif
             rclone copy "$st/$ds/hex/" "nrp:public-fire/$ds/hex/" $R
             rclone lsf -R --files-only "$st/$ds/hex/" | sort > /tmp/staged.txt
             rclone lsf -R --files-only "nrp:public-fire/$ds/hex/" | sort > /tmp/live.txt
