@@ -341,8 +341,10 @@ for line in sys.stdin:
   done
   # Keep each rolling collection's STAC temporal start at the oldest day still published.
   # (The ne-pacific-blob table is not pruned, so its collection keeps its own start.)
+  # $PREFIX itself is a Catalog since #762, with no extent, so only the product collections are
+  # updated; the script also skips any node that is not a Collection.
   start=$(date -u -d "$cutoff" +%F)
-  for c in "${PRODUCTS[@]/#/$PREFIX/}" "$PREFIX"; do
+  for c in "${PRODUCTS[@]/#/$PREFIX/}"; do
     stac="nrp:$BUCKET/$c/stac-collection.json"
     rclone cat "$stac" > "$WORK/stac.json" 2>/dev/null || continue
     python3 - "$WORK/stac.json" "$start" <<'EOF'
@@ -350,6 +352,8 @@ import json, sys
 from datetime import datetime, timezone
 path, start = sys.argv[1], sys.argv[2]
 d = json.load(open(path))
+if d.get("type") != "Collection":
+    sys.exit(0)
 interval = d["extent"]["temporal"]["interval"][0]
 if interval[0] and interval[0][:10] < start:
     interval[0] = f"{start}T00:00:00Z"

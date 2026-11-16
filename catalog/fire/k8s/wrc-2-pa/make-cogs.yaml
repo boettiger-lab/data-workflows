@@ -306,9 +306,9 @@ spec:
         - name: GDAL_CACHEMAX
           value: '1024'
         # Prefix inside public-fire for the uploaded COG. Empty publishes in place; a rebuild of a
-        # live layer stages first (`staging/828/` for #828) and swaps after the gates pass.
+        # live layer stages first (#828 ran with `staging/828/`) and swaps after the gates pass.
         - name: DEST_PREFIX
-          value: 'staging/828/'
+          value: ''
         # 0 unless rebuilding a single index; see the header.
         - name: INDEX_OFFSET
           value: '0'
