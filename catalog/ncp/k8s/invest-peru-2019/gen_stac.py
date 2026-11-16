@@ -274,7 +274,7 @@ HQ_RUN = "2026-11-12"
 HQ_LAYERS = {
     "habitat-quality": {
         "col": "habitat_quality", "vmax": 1.0, "hex_max": 1.0, "title": "Habitat quality",
-        "render": {"colormap_name": "viridis", "rescale": [[0, 1]]},
+        "render": {"colormap_name": "bugn", "rescale": [[0, 1]]},
         "about": ("Habitat quality score from 0 to 1: how suitable the land is as habitat, "
                   "lowered by nearby threats. 0 where the land is not habitat (cropland, "
                   "built-up land, bare ground, snow, water)."),
