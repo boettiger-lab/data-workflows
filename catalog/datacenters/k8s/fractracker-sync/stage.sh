@@ -6,8 +6,10 @@
 #
 # A changed layer is staged twice: to raw/fractracker/snapshots/<snap>/<layer>/ (kept), and over
 # the fixed raw paths the generated convert jobs read. raw/fractracker/CURRENT and
-# raw/fractracker/moratoriums/CURRENT name the snapshot behind what is published; gen_stac.py
-# cites it.
+# raw/fractracker/moratoriums/CURRENT name the snapshot behind what is published, and are what a
+# new download is compared with. This step writes PENDING beside them; publish.sh promotes it to
+# CURRENT only once the rebuilt layer is published, so a run that fails partway is redone by the
+# next one. gen_stac.py cites PENDING when present, else CURRENT.
 set -euo pipefail
 R=nrp:public-datacenters/raw/fractracker
 RC="--retries 10 --low-level-retries 20 --retries-sleep 20s --s3-no-check-bucket"
@@ -41,10 +43,18 @@ PDC=$(rows prev/dc.csv); PMO=$(rows prev/mo.csv)
 python3 -I /sync/gen_stac.py check dc/data-centers.csv mo/moratoriums.csv \
   --min-dc $((PDC * 9 / 10)) --min-mo $((PMO * 9 / 10))
 NDC=$(rows dc/data-centers.csv); NMO=$(rows mo/moratoriums.csv)
-same() { [ "$(sha256sum "$1" | cut -d' ' -f1)" = "$(sha256sum "$2" | cut -d' ' -f1)" ]; }
+published() {  # published <CURRENT path> <file> <fallback copy>: sha256 of the published snapshot's file
+  local cur snap
+  if cur=$(rclone cat "$1" 2>/dev/null) && [ -n "$cur" ]; then
+    snap=$(echo "$cur" | sed -n 's/^snapshot=//p')
+    rclone cat "nrp:public-datacenters/$snap/MANIFEST.sha256" | awk -v f="$2" '$3 == f {print $1}'
+  else  # before the first sync: the initial staging at the fixed path
+    sha256sum "$3" | cut -d' ' -f1
+  fi
+}
 DC=1; MO=1
-same dc/data-centers.csv prev/dc.csv && DC=0
-same mo/moratoriums.csv prev/mo.csv && MO=0
+[ "$(sha256sum dc/data-centers.csv | cut -d' ' -f1)" = "$(published $R/CURRENT data-centers.csv prev/dc.csv)" ] && DC=0
+[ "$(sha256sum mo/moratoriums.csv | cut -d' ' -f1)" = "$(published $R/moratoriums/CURRENT moratoriums.csv prev/mo.csv)" ] && MO=0
 echo "data centers: $NDC rows (was $PDC), changed=$DC; moratoriums: $NMO rows (was $PMO), changed=$MO"
 msg="dc=$DC ndc=$NDC mo=$MO nmo=$NMO snap=$SNAP"
 if [ $DC = 0 ] && [ $MO = 0 ]; then
@@ -76,8 +86,8 @@ if [ $DC = 1 ]; then
   cat dc/MANIFEST.sha256
   rclone copy dc nrp:public-datacenters/$D $RC
   rclone copy dc $R $RC
-  printf 'accessed=%s\nsnapshot=%s\n' "$NOW" "$D" > prev/dc-current
-  rclone copyto prev/dc-current $R/CURRENT $RC
+  printf 'accessed=%s\nsnapshot=%s\n' "$NOW" "$D" > prev/dc-pending
+  rclone copyto prev/dc-pending $R/PENDING $RC
   echo "staged -> $D"
 fi
 
@@ -100,8 +110,8 @@ if [ $MO = 1 ]; then
   for f in $SNAPFILES; do rclone copyto mo/$f nrp:public-datacenters/$D/$f $RC; done
   rclone copyto prev/mo-snap-manifest nrp:public-datacenters/$D/MANIFEST.sha256 $RC
   rclone copy mo $R/moratoriums $RC
-  printf 'accessed=%s\nsnapshot=%s\n' "$NOW" "$D" > prev/mo-current
-  rclone copyto prev/mo-current $R/moratoriums/CURRENT $RC
+  printf 'accessed=%s\nsnapshot=%s\n' "$NOW" "$D" > prev/mo-pending
+  rclone copyto prev/mo-pending $R/moratoriums/PENDING $RC
   echo "staged -> $D"
 fi
 echo "$msg" > /dev/termination-log

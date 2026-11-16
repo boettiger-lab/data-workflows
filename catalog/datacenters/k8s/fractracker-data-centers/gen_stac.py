@@ -13,7 +13,7 @@ version stays published.
 `build` writes OUT_DIR/fractracker/{data-centers,moratoriums}/{stac-collection.json,README.md}.
 Every count, range, extent and coded-value list is measured from the published GeoParquet and hex
 at build time; the provenance (access time, staged snapshot paths, sizes and sha256) is read from
-raw/fractracker/CURRENT and raw/fractracker/moratoriums/CURRENT and their snapshot manifests,
+raw/fractracker/{,moratoriums/}PENDING (else CURRENT) and their snapshot manifests,
 written by the sync's stage step (catalog/datacenters/k8s/fractracker-sync/). Queries run in DuckDB
 against s3:// when AWS_ACCESS_KEY_ID is set (in a cluster job), otherwise through the MCP query
 server (MCP_ENDPOINT; set VERIFY_STAC to scripts/verify-stac.py). --merge-live keeps the live
@@ -284,10 +284,13 @@ def listing(prefix):
 
 def provenance(layer, current_path):
     """(accessed, [(sha256, size, path)]) for FracTracker's files in the current snapshot."""
-    try:
-        cur = dict(l.split("=", 1) for l in fetch(f"{PUB}/{current_path}").split() if "=" in l)
-    except urllib.error.HTTPError:
-        cur = INITIAL[layer]
+    cur = INITIAL[layer]
+    for f in (current_path.replace("CURRENT", "PENDING"), current_path):  # PENDING: staged, not yet published
+        try:
+            cur = dict(l.split("=", 1) for l in fetch(f"{PUB}/{f}").split() if "=" in l)
+            break
+        except urllib.error.HTTPError:
+            pass
     files = []
     for line in fetch(f"{PUB}/{cur['snapshot']}/MANIFEST.sha256").splitlines():
         sha, size, name = line.split()

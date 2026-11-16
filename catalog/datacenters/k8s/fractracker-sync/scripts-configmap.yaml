@@ -16,7 +16,7 @@ data:
     `build` writes OUT_DIR/fractracker/{data-centers,moratoriums}/{stac-collection.json,README.md}.
     Every count, range, extent and coded-value list is measured from the published GeoParquet and hex
     at build time; the provenance (access time, staged snapshot paths, sizes and sha256) is read from
-    raw/fractracker/CURRENT and raw/fractracker/moratoriums/CURRENT and their snapshot manifests,
+    raw/fractracker/{,moratoriums/}PENDING (else CURRENT) and their snapshot manifests,
     written by the sync's stage step (catalog/datacenters/k8s/fractracker-sync/). Queries run in DuckDB
     against s3:// when AWS_ACCESS_KEY_ID is set (in a cluster job), otherwise through the MCP query
     server (MCP_ENDPOINT; set VERIFY_STAC to scripts/verify-stac.py). --merge-live keeps the live
@@ -287,10 +287,13 @@ data:
 
     def provenance(layer, current_path):
         """(accessed, [(sha256, size, path)]) for FracTracker's files in the current snapshot."""
-        try:
-            cur = dict(l.split("=", 1) for l in fetch(f"{PUB}/{current_path}").split() if "=" in l)
-        except urllib.error.HTTPError:
-            cur = INITIAL[layer]
+        cur = INITIAL[layer]
+        for f in (current_path.replace("CURRENT", "PENDING"), current_path):  # PENDING: staged, not yet published
+            try:
+                cur = dict(l.split("=", 1) for l in fetch(f"{PUB}/{f}").split() if "=" in l)
+                break
+            except urllib.error.HTTPError:
+                pass
         files = []
         for line in fetch(f"{PUB}/{cur['snapshot']}/MANIFEST.sha256").splitlines():
             sha, size, name = line.split()
@@ -855,6 +858,14 @@ data:
     for p in $paths; do
       python3 /tmp/v/verify-stac.py --bucket public-datacenters --dataset "$p"
     done
+    # the snapshot behind each republished layer is now the published one
+    for l in ${LAYERS//,/ }; do
+      case $l in dc) r=nrp:public-datacenters/raw/fractracker ;; mo) r=nrp:public-datacenters/raw/fractracker/moratoriums ;; esac
+      if rclone cat "$r/PENDING" > /tmp/v/pending 2>/dev/null && [ -s /tmp/v/pending ]; then
+        rclone copyto /tmp/v/pending "$r/CURRENT" $RC && rclone deletefile "$r/PENDING"
+        echo "CURRENT ($l): $(tr '\n' ' ' < /tmp/v/pending)"
+      fi
+    done
     echo OK
   stage-job.yaml: |
     # HAND-ROLLED (#931): created by sync.sh, the weekly FracTracker sync; not applied by hand.
@@ -906,8 +917,10 @@ data:
     #
     # A changed layer is staged twice: to raw/fractracker/snapshots/<snap>/<layer>/ (kept), and over
     # the fixed raw paths the generated convert jobs read. raw/fractracker/CURRENT and
-    # raw/fractracker/moratoriums/CURRENT name the snapshot behind what is published; gen_stac.py
-    # cites it.
+    # raw/fractracker/moratoriums/CURRENT name the snapshot behind what is published, and are what a
+    # new download is compared with. This step writes PENDING beside them; publish.sh promotes it to
+    # CURRENT only once the rebuilt layer is published, so a run that fails partway is redone by the
+    # next one. gen_stac.py cites PENDING when present, else CURRENT.
     set -euo pipefail
     R=nrp:public-datacenters/raw/fractracker
     RC="--retries 10 --low-level-retries 20 --retries-sleep 20s --s3-no-check-bucket"
@@ -941,10 +954,18 @@ data:
     python3 -I /sync/gen_stac.py check dc/data-centers.csv mo/moratoriums.csv \
       --min-dc $((PDC * 9 / 10)) --min-mo $((PMO * 9 / 10))
     NDC=$(rows dc/data-centers.csv); NMO=$(rows mo/moratoriums.csv)
-    same() { [ "$(sha256sum "$1" | cut -d' ' -f1)" = "$(sha256sum "$2" | cut -d' ' -f1)" ]; }
+    published() {  # published <CURRENT path> <file> <fallback copy>: sha256 of the published snapshot's file
+      local cur snap
+      if cur=$(rclone cat "$1" 2>/dev/null) && [ -n "$cur" ]; then
+        snap=$(echo "$cur" | sed -n 's/^snapshot=//p')
+        rclone cat "nrp:public-datacenters/$snap/MANIFEST.sha256" | awk -v f="$2" '$3 == f {print $1}'
+      else  # before the first sync: the initial staging at the fixed path
+        sha256sum "$3" | cut -d' ' -f1
+      fi
+    }
     DC=1; MO=1
-    same dc/data-centers.csv prev/dc.csv && DC=0
-    same mo/moratoriums.csv prev/mo.csv && MO=0
+    [ "$(sha256sum dc/data-centers.csv | cut -d' ' -f1)" = "$(published $R/CURRENT data-centers.csv prev/dc.csv)" ] && DC=0
+    [ "$(sha256sum mo/moratoriums.csv | cut -d' ' -f1)" = "$(published $R/moratoriums/CURRENT moratoriums.csv prev/mo.csv)" ] && MO=0
     echo "data centers: $NDC rows (was $PDC), changed=$DC; moratoriums: $NMO rows (was $PMO), changed=$MO"
     msg="dc=$DC ndc=$NDC mo=$MO nmo=$NMO snap=$SNAP"
     if [ $DC = 0 ] && [ $MO = 0 ]; then
@@ -976,8 +997,8 @@ data:
       cat dc/MANIFEST.sha256
       rclone copy dc nrp:public-datacenters/$D $RC
       rclone copy dc $R $RC
-      printf 'accessed=%s\nsnapshot=%s\n' "$NOW" "$D" > prev/dc-current
-      rclone copyto prev/dc-current $R/CURRENT $RC
+      printf 'accessed=%s\nsnapshot=%s\n' "$NOW" "$D" > prev/dc-pending
+      rclone copyto prev/dc-pending $R/PENDING $RC
       echo "staged -> $D"
     fi
 
@@ -1000,8 +1021,8 @@ data:
       for f in $SNAPFILES; do rclone copyto mo/$f nrp:public-datacenters/$D/$f $RC; done
       rclone copyto prev/mo-snap-manifest nrp:public-datacenters/$D/MANIFEST.sha256 $RC
       rclone copy mo $R/moratoriums $RC
-      printf 'accessed=%s\nsnapshot=%s\n' "$NOW" "$D" > prev/mo-current
-      rclone copyto prev/mo-current $R/moratoriums/CURRENT $RC
+      printf 'accessed=%s\nsnapshot=%s\n' "$NOW" "$D" > prev/mo-pending
+      rclone copyto prev/mo-pending $R/moratoriums/PENDING $RC
       echo "staged -> $D"
     fi
     echo "$msg" > /dev/termination-log
@@ -1054,13 +1075,16 @@ data:
     case "$DC$MO" in 00) echo "FracTracker unchanged; nothing to do"; exit 0 ;; 01|10|11) ;; *)
       echo "stage reported no decision ('$MSG'); refusing to guess"; exit 1 ;; esac
 
-    # ---- 2. rebuild, one hex workflow at a time (AGENTS.md): wait for any other to finish
-    for i in $(seq 1 72); do
-      busy=$(kubectl get jobs -n $NS -o jsonpath='{range .items[?(@.status.active)]}{.metadata.name}{"\n"}{end}' | grep -- '-hex$' || true)
-      [ -z "$busy" ] && break
-      [ "$i" = 72 ] && { echo "another hex job ran all along ($busy); giving up"; exit 1; }
-      echo "waiting for $busy"; sleep 300
-    done
+    # ---- 2. rebuild
+    room() {  # room <pods>: wait until the namespace stays at or under 200 pods with ours added (AGENTS.md)
+      local want=$1 used i
+      for i in $(seq 1 72); do
+        used=$(kubectl get pods -n $NS --no-headers --field-selector=status.phase!=Succeeded,status.phase!=Failed | wc -l)
+        [ $((used + want)) -le 200 ] && return 0
+        echo "$used pods in $NS; waiting for room for $want more"; sleep 300
+      done
+      echo "no room for $want pods in 6 hours; giving up"; exit 1
+    }
 
     build() {  # build <dataset job prefix> <generated yamls dir> <expected features>
       local d=$1 dir=$2 n=$3 w=/tmp/$1
@@ -1077,6 +1101,7 @@ data:
       [ -n "$chunks" ] && [ "$chunks" -ge 1 ] || { echo "plan reported no chunk count"; exit 1; }
       par=$(( chunks < 50 ? chunks : 50 ))
       echo "$d: $chunks hex chunks, parallelism $par"
+      room "$par"
       kubectl patch --local -f "$w/hex.yaml" --type merge \
         -p "{\"spec\":{\"completions\":$chunks,\"parallelism\":$par}}" -o yaml | kubectl create -n $NS -f -
       wait_job $d-hex 21600

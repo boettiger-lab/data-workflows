@@ -42,4 +42,12 @@ done
 for p in $paths; do
   python3 /tmp/v/verify-stac.py --bucket public-datacenters --dataset "$p"
 done
+# the snapshot behind each republished layer is now the published one
+for l in ${LAYERS//,/ }; do
+  case $l in dc) r=nrp:public-datacenters/raw/fractracker ;; mo) r=nrp:public-datacenters/raw/fractracker/moratoriums ;; esac
+  if rclone cat "$r/PENDING" > /tmp/v/pending 2>/dev/null && [ -s /tmp/v/pending ]; then
+    rclone copyto /tmp/v/pending "$r/CURRENT" $RC && rclone deletefile "$r/PENDING"
+    echo "CURRENT ($l): $(tr '\n' ' ' < /tmp/v/pending)"
+  fi
+done
 echo OK

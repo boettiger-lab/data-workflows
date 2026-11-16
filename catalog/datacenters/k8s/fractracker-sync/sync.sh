@@ -45,13 +45,16 @@ DC=$(get dc); MO=$(get mo); NDC=$(get ndc); NMO=$(get nmo)
 case "$DC$MO" in 00) echo "FracTracker unchanged; nothing to do"; exit 0 ;; 01|10|11) ;; *)
   echo "stage reported no decision ('$MSG'); refusing to guess"; exit 1 ;; esac
 
-# ---- 2. rebuild, one hex workflow at a time (AGENTS.md): wait for any other to finish
-for i in $(seq 1 72); do
-  busy=$(kubectl get jobs -n $NS -o jsonpath='{range .items[?(@.status.active)]}{.metadata.name}{"\n"}{end}' | grep -- '-hex$' || true)
-  [ -z "$busy" ] && break
-  [ "$i" = 72 ] && { echo "another hex job ran all along ($busy); giving up"; exit 1; }
-  echo "waiting for $busy"; sleep 300
-done
+# ---- 2. rebuild
+room() {  # room <pods>: wait until the namespace stays at or under 200 pods with ours added (AGENTS.md)
+  local want=$1 used i
+  for i in $(seq 1 72); do
+    used=$(kubectl get pods -n $NS --no-headers --field-selector=status.phase!=Succeeded,status.phase!=Failed | wc -l)
+    [ $((used + want)) -le 200 ] && return 0
+    echo "$used pods in $NS; waiting for room for $want more"; sleep 300
+  done
+  echo "no room for $want pods in 6 hours; giving up"; exit 1
+}
 
 build() {  # build <dataset job prefix> <generated yamls dir> <expected features>
   local d=$1 dir=$2 n=$3 w=/tmp/$1
@@ -68,6 +71,7 @@ build() {  # build <dataset job prefix> <generated yamls dir> <expected features
   [ -n "$chunks" ] && [ "$chunks" -ge 1 ] || { echo "plan reported no chunk count"; exit 1; }
   par=$(( chunks < 50 ? chunks : 50 ))
   echo "$d: $chunks hex chunks, parallelism $par"
+  room "$par"
   kubectl patch --local -f "$w/hex.yaml" --type merge \
     -p "{\"spec\":{\"completions\":$chunks,\"parallelism\":$par}}" -o yaml | kubectl create -n $NS -f -
   wait_job $d-hex 21600
