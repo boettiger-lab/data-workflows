@@ -1,4 +1,4 @@
-# HAND-ROLLED (#617, datasets issue to follow): re-hexes the rows of combined hex chunks 72 and 199,
+# HAND-ROLLED (#617, datasets#329): re-hexes the rows of combined hex chunks 72 and 199,
 # which fail in pass 1 with DuckDB "Parquet writer: ... uncompressed page size out of range for type
 # integer". Each chunk holds several copies of one giant monument (6 x Papahanaumokuakea in 72,
 # 4 x Pacific Remote Islands in 199, ~100M h10 cells each), and pass 1 writes all of a chunk's cell
