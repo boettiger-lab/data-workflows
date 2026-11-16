@@ -1,0 +1,98 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pnnl-im3-projected-convert
+  namespace: geo-workflows
+  labels:
+    k8s-app: pnnl-im3-projected-convert
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: pnnl-im3-projected-convert
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: convert-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: BUCKET
+          value: public-datacenters
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 6963MiB
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cng-convert-to-parquet \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/low_growth/low_growth_0_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/low_growth/low_growth_25_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/low_growth/low_growth_50_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/low_growth/low_growth_75_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/low_growth/low_growth_100_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/moderate_growth/moderate_growth_0_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/moderate_growth/moderate_growth_25_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/moderate_growth/moderate_growth_50_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/moderate_growth/moderate_growth_75_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/moderate_growth/moderate_growth_100_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/high_growth/high_growth_0_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/high_growth/high_growth_25_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/high_growth/high_growth_50_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/high_growth/high_growth_75_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/high_growth/high_growth_100_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/higher_growth/higher_growth_0_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/higher_growth/higher_growth_25_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/higher_growth/higher_growth_50_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/higher_growth/higher_growth_75_market_gravity.geojson \
+            s3://public-datacenters/raw/pnnl-im3/projected-v1.1/higher_growth/higher_growth_100_market_gravity.geojson \
+            s3://public-datacenters/pnnl-im3/projected.parquet \
+            --row-group-size 100000 \
+            --expect-features 16645
+        resources:
+          requests:
+            cpu: '4'
+            memory: 8Gi
+          limits:
+            cpu: '4'
+            memory: 8Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'
