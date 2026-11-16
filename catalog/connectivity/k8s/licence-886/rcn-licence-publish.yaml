@@ -1,0 +1,54 @@
+# HAND-ROLLED: the generator does not write STAC. Publishes Carl's image of TNC's terms of use
+# beside rcn-national and points the collection's licence link at it (#886). The image is just
+# over the 1 MiB ConfigMap limit, so it travels as two parts in two ConfigMaps and is
+# reassembled and checked against its sha256 before upload.
+#   split -b 600k tnc.png /tmp/tnc-part-   # -> tnc-part-aa, tnc-part-ab
+#   kubectl create configmap rcn-licence-886-a -n geo-workflows --from-file=part=/tmp/tnc-part-aa \
+#     --from-file=set_licence_link.py=catalog/connectivity/k8s/licence-886/set_licence_link.py \
+#     --from-file=guard.py=scripts/stac-publish-guard.py
+#   kubectl create configmap rcn-licence-886-b -n geo-workflows --from-file=part=/tmp/tnc-part-ab
+#   kubectl create -f catalog/connectivity/k8s/licence-886/rcn-licence-publish.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rcn-licence-886
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 900
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: a, mountPath: /a, readOnly: true}
+        - {name: b, mountPath: /b, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cat /a/part /b/part > /tmp/tnc-terms-of-use.png
+          echo "d71f14c2327bfa6e612e275272359107d1600813c2d833409b577dd794d1e039  /tmp/tnc-terms-of-use.png" | sha256sum -c -
+          rclone copyto /tmp/tnc-terms-of-use.png nrp:public-connectivity/rcn-national/tnc-terms-of-use.png \
+            --header-upload "Content-Type: image/png" --retries 6
+          p=public-connectivity/rcn-national/stac-collection.json
+          rclone cat "nrp:$p" > /tmp/live.json
+          cp /tmp/live.json /tmp/c.json
+          python3 /a/set_licence_link.py /tmp/c.json
+          python3 /a/guard.py /tmp/c.json /tmp/live.json
+          rclone copyto /tmp/c.json "nrp:$p" --retries 6
+          echo DONE
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: a, configMap: {name: rcn-licence-886-a}}
+      - {name: b, configMap: {name: rcn-licence-886-b}}
