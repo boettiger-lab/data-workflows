@@ -1,4 +1,4 @@
-# DEVIATION from generated output (cng-datasets issue to be filed): tippecanoe gets -r1 so no
+# DEVIATION from generated output (datasets#319): tippecanoe gets -r1 so no
 # point is dropped at low zoom. With the generated options, 1 of 1,733 points survives at zoom 0
 # and 97 at zoom 6, so a national map shows almost nothing (tippecanoe v2.72.0, tested locally).
 apiVersion: batch/v1
