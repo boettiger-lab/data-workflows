@@ -1,0 +1,89 @@
+# HAND-ROLLED: the generator does not write STAC; this follows the publish-stac pattern of
+# catalog/ncp/k8s/invest-peru-2019/invest-peru-2019-publish-stac.yaml (#932).
+#
+# Step 5: publish the four PNNL IM3 collections (pnnl-im3-atlas-point, -atlas-building, -atlas-campus,
+# -projected), their READMEs, default styles and (once drawn) thumbnails. The bucket-level collection
+# public-datacenters that lists them as children is published by
+# catalog/datacenters/k8s/public-datacenters-catalog/, not here.
+#
+# The files are built outside the repo (STAC JSON and READMEs are never committed) and shipped in
+# the pnnl-im3-stac ConfigMap, keyed <short>.json / <short>-README.md / <short>-style.json /
+# <short>-thumbnail.png with short = point, building, campus, projected:
+#   python3 catalog/datacenters/k8s/pnnl-im3/gen_stac.py $OUT
+#   scripts/default-style.py build <collection> --asset <name>-pmtiles --column ... --out $OUT
+#   (after a first publish) scripts/thumbnail.py <live collection url> --out $OUT
+#   kubectl create configmap pnnl-im3-stac -n geo-workflows --from-file=point.json=... ... \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/datacenters/k8s/pnnl-im3/pnnl-im3-publish-stac.yaml
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/932
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pnnl-im3-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: pnnl-im3-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: pnnl-im3-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: stac, mountPath: /stac, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          mkdir -p /tmp/stac && cp -L /stac/* /tmp/stac/ && ls -l /tmp/stac
+          python3 - <<'PY'
+          import json
+          for f, lic in (("point", "ODbL-1.0"), ("building", "ODbL-1.0"), ("campus", "ODbL-1.0"),
+                         ("projected", "CC-BY-4.0")):
+              c = json.load(open(f"/tmp/stac/{f}.json"))
+              cid = "pnnl-im3-projected" if f == "projected" else f"pnnl-im3-atlas-{f}"
+              assert c["id"] == cid and c["license"] == lic, (c["id"], c["license"])
+              assert any(l["rel"] == "license" for l in c["links"]), "no license link"
+              assert sum("default" in a.get("roles", []) for a in c["assets"].values()) == 1, "default styles"
+              print("gate OK:", cid, len(c["assets"]), "assets")
+          PY
+          put() {  # put <file in /tmp/stac> <nrp path>; skips an optional file that is absent
+            [ -f "/tmp/stac/$1" ] || { echo "skip $1"; return 0; }
+            case "$2" in */stac-collection.json) guard_stac "/tmp/stac/$1" "$2" ;; esac
+            rclone copyto "/tmp/stac/$1" "$2" $R --s3-no-check-bucket
+            echo "put $1 -> $2"
+          }
+          for s in point building campus projected; do
+            if [ "$s" = projected ]; then n=projected; else n=atlas-$s; fi
+            D=nrp:public-datacenters/pnnl-im3/$n
+            style=$(python3 -c "import json,sys; c=json.load(open('/tmp/stac/$s.json')); print([a['href'].rsplit('/',1)[1] for a in c['assets'].values() if 'default' in a.get('roles',[])][0])")
+            put $s-style.json     $D/styles/$style
+            put $s-thumbnail.png  $D/thumbnail.png
+            put $s-README.md      $D/README.md
+            put $s.json           $D/stac-collection.json
+          done
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: stac, configMap: {name: pnnl-im3-stac}}

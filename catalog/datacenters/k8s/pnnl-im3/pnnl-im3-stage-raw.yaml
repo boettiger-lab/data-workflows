@@ -1,0 +1,91 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step, and MSD-LIVE serves record files only through
+# its own S3 access points (the files API returns a placeholder), so this job fetches them with
+# msdlive_fetch.py before the generated workflows convert them (#932).
+#
+# Stage both PNNL IM3 records from MSD-LIVE, every file of each, with the upstream tree kept:
+#   s3://public-datacenters/raw/pnnl-im3/atlas-v2026.11.02/     IM3 Open Source Data Center Atlas
+#       v2026.11.02, doi:10.57931/17054299, record qxpk8-yae09 (gpkg, csv, README.pdf, DISCLAIMER.pdf)
+#   s3://public-datacenters/raw/pnnl-im3/projected-v1.1/        IM3 Projected US Data Center Locations
+#       v1.1, doi:10.57931/3020186, record r0cga-34g05 (20 scenario GeoJSONs, README.pdf, changelog.txt)
+# Each directory gets a MANIFEST.sha256 (sha256, byte size, path) and ACCESSED.txt (UTC access time).
+# msdlive_fetch.py checks every file's MD5 against its S3 ETag and its size before anything is copied.
+#
+#   Landing pages: https://data.msdlive.org/records/qxpk8-yae09
+#                  https://data.msdlive.org/records/r0cga-34g05
+#
+# Run:
+#   kubectl create configmap pnnl-im3-scripts -n geo-workflows \
+#     --from-file=msdlive_fetch.py=catalog/datacenters/k8s/pnnl-im3/msdlive_fetch.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/datacenters/k8s/pnnl-im3/pnnl-im3-stage-raw.yaml
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/932
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pnnl-im3-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: pnnl-im3-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: pnnl-im3-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 1800
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scripts
+          mountPath: /scripts
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          pip install --quiet boto3
+          stage() {  # stage <record id> <raw subdirectory>
+            local rec="$1" sub="$2" dir="/work/$2"
+            mkdir -p "$dir"
+            date -u +%Y-%m-%dT%H:%M:%SZ > /tmp/accessed
+            python3 /scripts/msdlive_fetch.py "$rec" /tmp/dl-"$rec"
+            # the record's files sit under one top-level folder (e.g. im3_projected_data_centers_v1.1/)
+            top=$(find /tmp/dl-"$rec" -mindepth 1 -maxdepth 1 -type d)
+            [ "$(echo "$top" | wc -l)" = 1 ] || { echo "expected one top-level folder in $rec"; ls /tmp/dl-"$rec"; exit 1; }
+            cp -r "$top"/. "$dir"/
+            cd "$dir"
+            { echo "record $rec ($(basename "$top")) accessed $(cat /tmp/accessed) from https://data.msdlive.org/records/$rec"; } > ACCESSED.txt
+            find . -type f ! -name MANIFEST.sha256 ! -name ACCESSED.txt -printf '%P\n' | sort | while read -r f; do
+              echo "$(sha256sum "$f" | cut -d' ' -f1)  $(stat -c %s "$f")  $f"
+            done > MANIFEST.sha256
+            cat ACCESSED.txt MANIFEST.sha256
+            rclone copy . "nrp:public-datacenters/raw/pnnl-im3/$sub" --s3-no-check-bucket
+            echo "staged -> s3://public-datacenters/raw/pnnl-im3/$sub/"
+            cd /
+          }
+          stage qxpk8-yae09 atlas-v2026.11.02
+          stage r0cga-34g05 projected-v1.1
+          rclone lsl nrp:public-datacenters/raw/pnnl-im3/
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 2Gi}
+          limits: {cpu: '1', memory: 1Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scripts
+        configMap:
+          name: pnnl-im3-scripts
