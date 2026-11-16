@@ -634,6 +634,12 @@ class SelfHostedLicenseTerms(unittest.TestCase):
         self.assertEqual([x.code for x in f], ["license-terms-self-hosted"])
         self.assertEqual(f[0].severity, vs.ADVISORY)
 
+    def test_copy_beside_upstream_link_is_silent(self):
+        # #886: a published copy of the publisher's terms, alongside the publisher's own link.
+        d = self._doc(f"{self.NRP}/public-x/d/terms.png")
+        d["links"].append({"rel": "license", "href": "https://tnc.app.box.com/s/x"})
+        self.assertEqual(vs.check_license(d), [])
+
     def test_upstream_terms_link_is_silent(self):
         # The ordinary case: terms hosted by the publisher. No finding at all.
         self.assertEqual(vs.check_license(self._doc("https://example.gov/terms")), [])

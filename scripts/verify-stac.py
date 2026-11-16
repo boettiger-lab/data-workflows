@@ -396,8 +396,12 @@ def check_license(doc: dict) -> list[Finding]:
     # forbids. Reported as ADVISORY so the special case stays visible in every audit
     # rather than being re-litigated, and so a self-authored note can never be mistaken
     # for verified upstream terms.
+    # A copy of upstream terms published beside the data, next to a link to the publisher's own
+    # page, is a mirror of an upstream grant rather than terms we wrote (rcn-national, #886:
+    # TNC's Box share blocks downloads), so the advisory fires only when no upstream link exists.
+    upstream = any(NRP not in (l.get("href") or "") for l in license_links)
     for l in license_links:
-        if NRP in (l.get("href") or ""):
+        if NRP in (l.get("href") or "") and not upstream:
             out.append(Finding(ADVISORY, "license-terms-self-hosted",
                                 f"the {{'rel':'license'}} link points at our own bucket "
                                 f"({l.get('href')}), so these are terms WE stated, not an "
