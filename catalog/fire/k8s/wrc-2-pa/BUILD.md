@@ -878,3 +878,56 @@ case it does not distinguish.
 All four collections published via `publish-stac.yaml`, and the `public-fire` bucket collection
 gained their four child links (30 -> 34). HUImpact and the Alaska clip text were republished
 2026-10-31. `verify-stac.py --bucket public-fire` passes with no hard findings.
+
+## #828: HURisk rebuilt as an amount
+
+HURisk is HUImpact × burn probability (metadata Process step 13), and HUImpact is housing units per
+pixel × cRPS × Exposure Type (step 12), so HURisk is a per-pixel amount like HUImpact. #611
+published it as an index (`-r near` warp, `mean` hex); #828 rebuilt both domains with a `-r sum`
+warp to Float32 and a `sum` hex, in place under the same dataset ids. Scope is recorded on #828.
+Built 2026-11-16.
+
+The rebuild was staged so the live layer was never half `mean`, half `sum`:
+
+```bash
+kubectl apply -n geo-workflows -f make-cogs.yaml   # INDEX_OFFSET 0, DEST_PREFIX staging/828/
+./stage-hex-828.sh                                 # committed hex jobs, input/output under staging/828/
+# gates below, then:
+kubectl create -f swap-828.yaml
+# collections, patched in place (see the header of patch-stac-828.yaml):
+kubectl create -f patch-stac-828.yaml
+```
+
+### COGs
+
+| dataset | source sum | COG sum | relative | COG max | warp |
+|---|---:|---:|---:|---:|---|
+| `hurisk-conus` | 1,659,303,050,581 | 1,659,302,742,258.41 | −1.9e-7 | 8,500,093 | `sum`, 39 min |
+| `hurisk-ak` | 12,498,413,361 | 12,498,437,093.10 | +1.9e-6 | 311,670.8 | `sum`, 5 min |
+
+The `-r near` COGs they replace were −14.4% (CONUS) and +42.2% (Alaska) off the source sum. The COG
+is now Float32 (CONUS 8.2 GB, was 3.3 GB as Int32).
+
+### Hex
+
+| dataset | rows | = distinct h10 | populated h0 | SUM vs COG | zeros | wall |
+|---|---:|---|---:|---:|---:|---|
+| `hurisk-conus` | 134,660,430 | yes | 6 | −2.3e-12 | 10,750,084 | 3h28m, 12 pods, 13-16 GiB at 30 min |
+| `hurisk-ak` | 389,755 | yes | 4 | −2.7e-11 | 3,152 | 2h02m |
+
+Row counts equal HUImpact's exactly (both are defined where housing-unit density is above zero).
+Zero NULL `h9`/`h8`, no negative or NaN values. The zeros are measured: housing units with no
+modelled risk.
+
+### Swap and STAC
+
+`swap-828.yaml` first streamed the COG with `--disable copy`, and the 8.2 GB CONUS COG ran past
+the 1 h deadline; nothing had been replaced. It now downloads the COG and uploads it, with a 3 h
+deadline at default priority (1 CPU / 2 GiB, under the usage-policy thresholds), and finished in
+about 15 min. The live hex then matched the staged build exactly.
+
+`patch_hurisk_828.py` rewrites only what the rebuild changed (reducer wording, COG and hex asset
+descriptions, `raster:bands`, row count, `hurisk` column description, render bound), through the
+publish guard. Render bounds are the new COGs' 98th percentiles: CONUS 0-4,500, Alaska 0-5,800.
+`verify-stac.py --bucket public-fire --dataset wrc-2-pa-hurisk-{conus,ak}` passes with no hard
+findings. `staging/828/` holds a copy of the published COGs and hex until this PR merges.
