@@ -1,3 +1,6 @@
+# DEVIATION from generated output (cng-datasets issue to be filed): tippecanoe gets -r1 so no
+# point is dropped at low zoom. With the generated options tippecanoe thins points by 2.5x per
+# zoom below 11 (1 of 1,733 test points left at zoom 0, 97 at zoom 6; v2.72.0, tested locally).
 # Auto-generated ConfigMap containing job definitions
 # Generated from: epoch-ai-data-centers-setup-bucket.yaml, epoch-ai-data-centers-convert.yaml, epoch-ai-data-centers-pmtiles.yaml, epoch-ai-data-centers-hex.yaml, epoch-ai-data-centers-repartition.yaml
 # Generation command: cng-datasets workflow --dataset epoch/ai-data-centers --source-url s3://public-datacenters/raw/epoch/derived/ai-data-centers.parquet --bucket public-datacenters --h3-resolution 8 --parent-resolutions "0" --cells-per-chunk 5000000
@@ -323,7 +326,7 @@ data:
               # container's default soft nofile limit (often 1024) and aborts with
               # "Too many open files". `|| true` keeps going if the limit can't be raised.
               ulimit -n 65536 || true
-              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --coalesce-densest-as-needed --drop-densest-as-needed -z 11 --force /tmp/$DATASET.geojsonl
+              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --coalesce-densest-as-needed --drop-densest-as-needed -z 11 -r1 --force /tmp/$DATASET.geojsonl
 
               # Upload to S3 using rclone
               rclone copy /tmp/$DATASET.pmtiles nrp:public-datacenters/epoch/
