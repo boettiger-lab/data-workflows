@@ -1,9 +1,11 @@
 # HAND-ROLLED: the generator does not write STAC. After the cng-datasets 0.12.0 rebuild (#617)
 # the PAD-US layers lose the `bbox` column and keep OBJECTID; fix_columns.py (committed beside
 # this file) edits each LIVE collection's table:columns to match, so nothing else is touched.
+# For marine, marine_columns.py also documents its 14 marine-only columns.
 # Set LAYERS to the layers whose rebuild has landed.
 #   kubectl create configmap padus-stac-columns-script -n geo-workflows \
 #     --from-file=fix_columns.py=catalog/pad-us/k8s/stac-columns-617/fix_columns.py \
+#     --from-file=marine_columns.py=catalog/pad-us/k8s/stac-columns-617/marine_columns.py \
 #     --dry-run=client -o yaml | kubectl apply -f -
 #   kubectl apply -n geo-workflows -f catalog/pad-us/k8s/stac-columns-617/padus-stac-columns-publish.yaml
 apiVersion: batch/v1
@@ -51,6 +53,7 @@ spec:
             p="nrp:public-padus/padus-4-1/$d/stac-collection.json"
             rclone cat "$p" > /tmp/c.json
             python3 /script/fix_columns.py /tmp/c.json
+            if [ "$d" = marine ]; then python3 /script/marine_columns.py /tmp/c.json; fi
             guard_stac /tmp/c.json "$p"
             rclone copyto /tmp/c.json "$p" $R
           done
