@@ -22,6 +22,8 @@
 #   Sheet:        https://docs.google.com/spreadsheets/d/1OLJ-EkkxLfX6l4dTBHsIdtn_zRSyOraS02vd3LMfbEI
 # The sheet is updated continuously and has no edition label: the staged files plus their sha256
 # are the provenance. Convert asserts --expect-features 841 (the row count on 2026-11-15).
+# This job made the first staging; the weekly sync (catalog/datacenters/k8s/fractracker-sync/)
+# restages each change and passes convert the new count.
 #
 #   Issue: https://github.com/boettiger-lab/data-workflows/issues/931
 apiVersion: batch/v1

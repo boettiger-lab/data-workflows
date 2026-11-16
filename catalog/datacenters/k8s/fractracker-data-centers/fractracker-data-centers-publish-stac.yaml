@@ -7,7 +7,8 @@
 #
 # The files are built outside the repo (STAC JSON and READMEs are never committed) and shipped in
 # the fractracker-data-centers-stac ConfigMap:
-#   python3 catalog/datacenters/k8s/fractracker-data-centers/gen_stac.py $OUT
+#   python3 catalog/datacenters/k8s/fractracker-data-centers/gen_stac.py build $OUT --merge-live
+# The weekly sync (catalog/datacenters/k8s/fractracker-sync/) republishes without this job.
 #   scripts/default-style.py build <collection> --asset data-centers-pmtiles --column status ...
 #   scripts/default-style.py build <collection> --asset moratoriums-pmtiles --column action ...
 #   (after a first publish) scripts/thumbnail.py <live collection url> --out $OUT/thumbs
