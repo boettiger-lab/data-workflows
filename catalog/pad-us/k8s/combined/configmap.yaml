@@ -1,5 +1,6 @@
 # Auto-generated ConfigMap containing job definitions
 # Generated from: padus-4-1-combined-setup-bucket.yaml, padus-4-1-combined-convert.yaml, padus-4-1-combined-pmtiles.yaml, padus-4-1-combined-hex.yaml, padus-4-1-combined-repartition.yaml
+# DEVIATION from generated output (#617, datasets#315): image pinned to datasets:0.12.1, the first release that repairs the invalid antimeridian crosser (FID 868); the generator has no image-tag option.
 # Generation command: cng-datasets workflow --dataset padus-4-1/combined --source-url s3://public-padus/raw/PADUS4_1Geodatabase.gdb --bucket public-padus --h3-resolution 10 --parent-resolutions "9,8,0" --cells-per-chunk 5000000
 #
 # This ConfigMap is equivalent to running:
@@ -34,7 +35,7 @@ data:
           restartPolicy: Never
           containers:
           - name: convert-task
-            image: ghcr.io/boettiger-lab/datasets:latest
+            image: ghcr.io/boettiger-lab/datasets:0.12.1
             imagePullPolicy: Always
             env:
             - name: AWS_ACCESS_KEY_ID
@@ -122,7 +123,7 @@ data:
           restartPolicy: Never
           containers:
           - name: hex-task
-            image: ghcr.io/boettiger-lab/datasets:latest
+            image: ghcr.io/boettiger-lab/datasets:0.12.1
             imagePullPolicy: Always
             env:
             - name: AWS_ACCESS_KEY_ID
@@ -197,7 +198,7 @@ data:
           restartPolicy: Never
           containers:
           - name: plan-task
-            image: ghcr.io/boettiger-lab/datasets:latest
+            image: ghcr.io/boettiger-lab/datasets:0.12.1
             imagePullPolicy: Always
             env:
             - name: AWS_ACCESS_KEY_ID
@@ -265,7 +266,7 @@ data:
           restartPolicy: Never
           containers:
           - name: pmtiles-task
-            image: ghcr.io/boettiger-lab/datasets:latest
+            image: ghcr.io/boettiger-lab/datasets:0.12.1
             imagePullPolicy: Always
             env:
             - name: AWS_ACCESS_KEY_ID
@@ -370,7 +371,7 @@ data:
           restartPolicy: Never
           containers:
           - name: repartition-task
-            image: ghcr.io/boettiger-lab/datasets:latest
+            image: ghcr.io/boettiger-lab/datasets:0.12.1
             imagePullPolicy: Always
             env:
             - name: AWS_ACCESS_KEY_ID
@@ -449,7 +450,7 @@ data:
           restartPolicy: Never
           containers:
           - name: setup-bucket-task
-            image: ghcr.io/boettiger-lab/datasets:latest
+            image: ghcr.io/boettiger-lab/datasets:0.12.1
             imagePullPolicy: Always
             env:
             - name: AWS_ACCESS_KEY_ID

@@ -1,3 +1,4 @@
+# DEVIATION from generated output (#617, datasets#315): image pinned to datasets:0.12.1, the first release that repairs the invalid antimeridian crosser (FID 868); the generator has no image-tag option.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -18,7 +19,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: plan-task
-        image: ghcr.io/boettiger-lab/datasets:latest
+        image: ghcr.io/boettiger-lab/datasets:0.12.1
         imagePullPolicy: Always
         env:
         - name: AWS_ACCESS_KEY_ID
