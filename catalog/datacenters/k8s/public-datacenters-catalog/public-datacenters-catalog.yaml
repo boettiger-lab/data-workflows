@@ -60,8 +60,10 @@ spec:
               "facilities, and local moratoriums, bans and zoning restrictions); Epoch AI's "
               "database of large AI data centers worldwide with their building footprints; and "
               "PNNL's IM3 Open Source Data Center Atlas (existing U.S. facilities from OpenStreetMap) "
-              "with its projected U.S. data center sites to 2035. Each child collection carries its "
-              "own licence and citation.")
+              "with its projected U.S. data center sites to 2035. The sources differ in scope and none "
+              "is a complete inventory of U.S. data centers: their totals range from 128 mapped facility "
+              "points (PNNL) to 1,733 facilities (FracTracker). Each child collection states its own "
+              "coverage, snapshot or edition date, licence and citation.")
           live = json.load(open("live.json")) if os.path.getsize("live.json") else None
           col = live or {
               "type": "Collection", "stac_version": "1.0.0", "id": "public-datacenters",

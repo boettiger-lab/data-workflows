@@ -301,6 +301,8 @@ def main(out):
             cols_of(DC_COLS, [c for c in DC_FLAT if c != "geom"] + ["h8", "h0"])),
     }
     desc = (
+        "A snapshot of FracTracker's sheet taken 15 November 2026. FracTracker updates the sheet continuously, so records "
+        "and statuses may have changed since.\n\n"
         "FracTracker Alliance's U.S. Data Centers Tracker: 1,733 existing, permitted and proposed data centers "
         "in 48 states, with each facility's development status, operator and tenant, power capacity and size "
         "class, power and cooling sources, and the community response to the project (pushback, organising, "
@@ -361,12 +363,17 @@ def main(out):
     }
     unmatched = "; ".join(f"{st}: {names}" for st, names in UNMATCHED)
     desc = (
+        "A snapshot of FracTracker's sheet taken 15 November 2026. FracTracker updates the sheet continuously, so records "
+        "and statuses may have changed since.\n\n"
         "FracTracker Alliance's list of local data center moratoriums, bans and zoning restrictions: 841 records "
         "in 48 states (571 moratoriums, 149 zoning restrictions, 86 bans, 32 Pennsylvania curative amendments "
         "and 3 other actions), each with its status, enactment and expiration dates, duration, sources and notes. "
         "Status on the snapshot date: 659 enacted, 45 active, 46 proposed, 26 pending, 8 in development, 1 "
         "adopted but not yet effective, 28 expired, 22 failed and 6 retracted. FracTracker's sheet names each "
-        "jurisdiction but carries no geometry.\n\n"
+        "jurisdiction but carries no geometry. FracTracker compiles the list from news reports and government "
+        "records, so it is not an exhaustive record of local action: for scale, Grounded Compute's moratorium "
+        "tracker (https://groundedcompute.com/us/moratoriums) counted at least 799 local pauses in force and 71 "
+        "bans on 31 October 2026.\n\n"
         "Boundaries: each record was matched by name and state to a U.S. Census 2024 geography and takes that "
         "geography's TIGER/Line 2024 boundary: 18 states, 300 counties, 327 incorporated places, 166 county "
         "subdivisions (townships and New England, New York and Wisconsin towns) and 4 American Indian areas "
