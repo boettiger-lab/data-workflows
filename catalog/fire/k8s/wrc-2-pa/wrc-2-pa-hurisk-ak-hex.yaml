@@ -1,21 +1,19 @@
-# HAND-ROLLED: emitted by gen_hex_yaml.py with an explicit h0 index list instead of the 122-completion fan-out (#611)
-# WRC v2 populated areas: Housing Unit Risk, Alaska -- res-10 `mean` hex.
+# HAND-ROLLED: emitted by gen_hex_yaml.py with an explicit h0 index list instead of the 122-completion fan-out (#828)
+# WRC v2 populated areas: Housing Unit Risk, Alaska -- res-10 `sum` hex.
 #
 # Source publication RDS-2020-0060-2 (*Spatial datasets of wildfire risk for populated areas*).
 # ⚠️ A DIFFERENT DOI from `catalog/fire/k8s/wrc-2/` (RDS-2020-0016-2, the landscape-wide risk
 # components). The `-pa-` in this dataset id marks the split.
 #
-# Reducer `mean`: HURisk is a unitless INDEX combining all four elements of wildfire risk
-# (likelihood, intensity, susceptibility, exposure), defined on pixels where housing-unit density
-# is greater than zero. An index is an intensity, not an amount integrated over the pixel, so a
-# `sum` would be a meaningless sum of intensities -- the error class that made the carbon layer
-# ~7x low (#171/#202). There is no meaningful "total HURisk"; consumers compare means across land
-# classes.
+# Reducer `sum`: HURisk is a per-pixel AMOUNT. The file index calls it a unitless index, but the
+# producer's lineage (metadata Process step 13) builds it as HUImpact x burn probability, and
+# HUImpact is housing units per pixel x cRPS x Exposure Type (step 12), so it scales with the number
+# of housing units in the pixel. It was published with `mean` and a `-r near` warp in #611; #828
+# rebuilds it with `sum` and a `-r sum` warp, as HUImpact was in #692. hex SUM(hurisk) must equal
+# the COG pixel sum.
 #
-# ⚠️ Its three near-siblings in this same publication do NOT take `mean`. `HUExposure` is an
-# expected COUNT per pixel and takes `sum`; so do BuildingCount, PopCount and HUCount. Do not
-# generalise one reducer across this publication -- `BuildingCount`, `BuildingDensity` and
-# `BuildingCover` differ only in a suffix and take `sum`, `mean`, `mean`.
+# ⚠️ `BuildingDensity`, `BuildingCover`, `PopDen` and `HUDen` in this publication are densities or
+# percentages and take `mean`. Do not generalise one reducer across this publication.
 #
 # Resolution 10 with parents 9, 8, 0: the source is 30 m and `h10` (0.0150 km^2) is the catalog's
 # finest, and native 10 -> 9, 8, 0 matches `roadless-areas-2001` (public-usfs), `silvis-wui-2020`
@@ -108,20 +106,18 @@ spec:
           # selects with `WHERE i = <h0-index>`. See the header.
           H0S=(12 28 50 59 98 104 105)
           H0=${H0S[${JOB_COMPLETION_INDEX}]}
-          echo "=== Housing Unit Risk Alaska res-10 mean, completion ${JOB_COMPLETION_INDEX} -> h0-index ${H0} ==="
+          echo "=== Housing Unit Risk Alaska res-10 sum, completion ${JOB_COMPLETION_INDEX} -> h0-index ${H0} ==="
           cng-datasets raster \
             --input "s3://public-fire/wrc-2-pa-hurisk-ak-cog.tif" \
             --output-parquet "s3://public-fire/wrc-2-pa-hurisk-ak/hex/" \
             --h0-index ${H0} \
             --resolution 10 --parent-resolutions 9,8,0 \
-            --value-column hurisk --hex-resampling mean --nodata -9999
+            --value-column hurisk --hex-resampling sum --nodata -9999
         resources:
-          # 192Gi is what #611 ran with, before datasets#248's windowed h0 reads. Then every h0
-          # enumerated all 282,475,249 res-10 children and the sibling wrc-2 CONUS pods sat at
-          # 132-134 GiB. With the windowed reads #692's pods peaked at 2-16 GiB, so measure and
-          # resize (#804) before re-running this job.
-          requests: {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
-          limits:   {cpu: '8', memory: 192Gi, ephemeral-storage: 50Gi}
+          # DEVIATION (#828): 28Gi request, 32Gi limit, the size HUImpact's `sum` run needed
+          # (#692): the same grid, coverage and reducer. Check `kubectl top pod` at 30 min.
+          requests: {cpu: '8', memory: 28Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
       affinity:

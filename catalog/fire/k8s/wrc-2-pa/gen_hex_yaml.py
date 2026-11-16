@@ -130,17 +130,15 @@ CLIP = """#
 # antimeridian was handled rather than seam-inflated.
 """
 
-MEAN_NOTE = """# Reducer `mean`: HURisk is a unitless INDEX combining all four elements of wildfire risk
-# (likelihood, intensity, susceptibility, exposure), defined on pixels where housing-unit density
-# is greater than zero. An index is an intensity, not an amount integrated over the pixel, so a
-# `sum` would be a meaningless sum of intensities -- the error class that made the carbon layer
-# ~7x low (#171/#202). There is no meaningful "total HURisk"; consumers compare means across land
-# classes.
+HURISK_NOTE = """# Reducer `sum`: HURisk is a per-pixel AMOUNT. The file index calls it a unitless index, but the
+# producer's lineage (metadata Process step 13) builds it as HUImpact x burn probability, and
+# HUImpact is housing units per pixel x cRPS x Exposure Type (step 12), so it scales with the number
+# of housing units in the pixel. It was published with `mean` and a `-r near` warp in #611; #828
+# rebuilds it with `sum` and a `-r sum` warp, as HUImpact was in #692. hex SUM(hurisk) must equal
+# the COG pixel sum.
 #
-# ⚠️ Its three near-siblings in this same publication do NOT take `mean`. `HUExposure` is an
-# expected COUNT per pixel and takes `sum`; so do BuildingCount, PopCount and HUCount. Do not
-# generalise one reducer across this publication -- `BuildingCount`, `BuildingDensity` and
-# `BuildingCover` differ only in a suffix and take `sum`, `mean`, `mean`.
+# ⚠️ `BuildingDensity`, `BuildingCover`, `PopDen` and `HUDen` in this publication are densities or
+# percentages and take `mean`. Do not generalise one reducer across this publication.
 """
 
 SUM_NOTE = """# Reducer `sum`: HUExposure is the expected number of housing units WITHIN A 30 m PIXEL exposed
@@ -155,8 +153,8 @@ SUM_NOTE = """# Reducer `sum`: HUExposure is the expected number of housing unit
 # within rounding. That invariant is #611's acceptance criterion for the amount layers and is the
 # thing to check first if this layer ever looks wrong.
 #
-# ⚠️ Its near-sibling `HURisk` in this same publication takes `mean`, not `sum` -- it is a unitless
-# index. Do not generalise one reducer across this publication.
+# ⚠️ `BuildingDensity`, `BuildingCover`, `PopDen` and `HUDen` in this publication are densities or
+# percentages and take `mean`. Do not generalise one reducer across this publication.
 """
 
 BUILDINGCOUNT_NOTE = """# Reducer `sum`: BuildingCount is the number of buildings WITHIN A 30 m PIXEL (0-50) -- an amount,
@@ -179,8 +177,7 @@ HUIMPACT_NOTE = """# Reducer `sum`: HUImpact is a per-pixel AMOUNT, not an inten
 # density is above zero, giving a one-populated-pixel cell that pixel's full value (#692 review).
 # make-cogs.yaml warps it with `-r sum`, so hex SUM(huimpact) must equal the COG pixel sum.
 #
-# ⚠️ HURisk (= HUImpact x burn probability) has the same lineage and was published as `mean` in
-# #611; tracked separately.
+# HURisk (= HUImpact x burn probability) has the same lineage and takes `sum` too (#828).
 """
 
 # #611's requests stand as they ran, before datasets#248. #692's are sized to the 2026-10-13/14
@@ -192,7 +189,9 @@ MEM_611 = """          # 192Gi is what #611 ran with, before datasets#248's wind
           # resize (#804) before re-running this job.
 """
 MEM = {
-    "wrc-2-pa-hurisk": ("192Gi", "192Gi", MEM_611),
+    "wrc-2-pa-hurisk": ("28Gi", "32Gi",
+        "          # DEVIATION (#828): 28Gi request, 32Gi limit, the size HUImpact's `sum` run needed\n"
+        "          # (#692): the same grid, coverage and reducer. Check `kubectl top pod` at 30 min.\n"),
     "wrc-2-pa-huexposure": ("192Gi", "192Gi", MEM_611),
     "wrc-2-pa-buildingcount": ("16Gi", "19Gi",
         "          # DEVIATION (#692): 16Gi request, 19Gi limit. Measured on the 2026-10-13/14 run\n"
@@ -206,7 +205,7 @@ MEM = {
 }
 
 for ds, title, col, reducer, note in [
-    ("wrc-2-pa-hurisk", "Housing Unit Risk", "hurisk", "mean", MEAN_NOTE),
+    ("wrc-2-pa-hurisk", "Housing Unit Risk", "hurisk", "sum", HURISK_NOTE),
     ("wrc-2-pa-huexposure", "Housing Unit Exposure", "huexposure", "sum", SUM_NOTE),
     ("wrc-2-pa-buildingcount", "Building Count", "buildingcount", "sum", BUILDINGCOUNT_NOTE),
     ("wrc-2-pa-huimpact", "Housing Unit Impact", "huimpact", "sum", HUIMPACT_NOTE),
@@ -219,7 +218,7 @@ for ds, title, col, reducer, note in [
         hdr = HDR_COMMON.format(saved=122 - n, orig=122)
         rerun = (f"# ⛔ Re-run order: this job leaves zero-fill rows (datasets#232). Run coverage-mask-{domain}.yaml"
                  f" then repair-zero-fill-{domain}.yaml after it; see BUILD.md.\n") if ds == "wrc-2-pa-huexposure" else ""
-        issue = "#611" if ds in ("wrc-2-pa-hurisk", "wrc-2-pa-huexposure") else "#692"
+        issue = {"wrc-2-pa-hurisk": "#828", "wrc-2-pa-huexposure": "#611"}.get(ds, "#692")
         body = TMPL.format(rerun=rerun,
             title=title, domain_long=long, domain_short=short, domain=domain,
             reducer=reducer, reducer_note=note, clip_note=clip, hdr_common=hdr,
