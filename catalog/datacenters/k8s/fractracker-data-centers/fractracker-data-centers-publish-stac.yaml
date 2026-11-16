@@ -1,0 +1,89 @@
+# HAND-ROLLED: the generator does not write STAC; this follows the publish-stac pattern of
+# catalog/ncp/k8s/invest-peru-2019/invest-peru-2019-publish-stac.yaml (#931).
+#
+# Step 5: publish the fractracker/data-centers and fractracker/moratoriums collections, their
+# READMEs, default styles and (once drawn) thumbnails. The bucket-level collection is published by
+# catalog/datacenters/k8s/public-datacenters-catalog/.
+#
+# The files are built outside the repo (STAC JSON and READMEs are never committed) and shipped in
+# the fractracker-data-centers-stac ConfigMap:
+#   python3 catalog/datacenters/k8s/fractracker-data-centers/gen_stac.py $OUT
+#   scripts/default-style.py build <collection> --asset data-centers-pmtiles --column status ...
+#   scripts/default-style.py build <collection> --asset moratoriums-pmtiles --column action ...
+#   (after a first publish) scripts/thumbnail.py <live collection url> --out $OUT/thumbs
+#   kubectl create configmap fractracker-data-centers-stac -n geo-workflows \
+#     --from-file=dc.json=... --from-file=dc-README.md=... --from-file=dc-style.json=... [--from-file=dc-thumbnail.png=...] \
+#     --from-file=mo.json=... --from-file=mo-README.md=... --from-file=mo-style.json=... [--from-file=mo-thumbnail.png=...] \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/datacenters/k8s/fractracker-data-centers/fractracker-data-centers-publish-stac.yaml
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/931
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fractracker-data-centers-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: fractracker-data-centers-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: fractracker-data-centers-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: stac, mountPath: /stac, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          mkdir -p /tmp/stac && cp -L /stac/* /tmp/stac/ && ls -l /tmp/stac
+          python3 - <<'PY'
+          import json
+          for f, cid in (("dc", "fractracker-data-centers"), ("mo", "fractracker-moratoriums")):
+              c = json.load(open(f"/tmp/stac/{f}.json"))
+              assert c["id"] == cid and c["license"] == "other", (c["id"], c["license"])
+              assert any(l["rel"] == "license" for l in c["links"]), "no license link"
+              assert sum("default" in a.get("roles", []) for a in c["assets"].values()) == 1, "default styles"
+              print("gate OK:", cid, len(c["assets"]), "assets")
+          PY
+          put() {  # put <file in /tmp/stac> <nrp path>; skips an optional file that is absent
+            [ -f "/tmp/stac/$1" ] || { echo "skip $1"; return 0; }
+            case "$2" in */stac-collection.json) guard_stac "/tmp/stac/$1" "$2" ;; esac
+            rclone copyto "/tmp/stac/$1" "$2" $R --s3-no-check-bucket
+            echo "put $1 -> $2"
+          }
+          D=nrp:public-datacenters/fractracker/data-centers
+          M=nrp:public-datacenters/fractracker/moratoriums
+          put dc-style.json     $D/styles/data-centers-status.json
+          put dc-thumbnail.png  $D/thumbnail.png
+          put dc-README.md      $D/README.md
+          put dc.json           $D/stac-collection.json
+          put mo-style.json     $M/styles/moratoriums-action.json
+          put mo-thumbnail.png  $M/thumbnail.png
+          put mo-README.md      $M/README.md
+          put mo.json           $M/stac-collection.json
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: stac, configMap: {name: fractracker-data-centers-stac}}

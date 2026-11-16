@@ -1,3 +1,6 @@
+# DEVIATION from generated output (cng-datasets issue to be filed): tippecanoe gets -r1 so no
+# point is dropped at low zoom. With the generated options, 1 of 1,733 points survives at zoom 0
+# and 97 at zoom 6, so a national map shows almost nothing (tippecanoe v2.72.0, tested locally).
 # Auto-generated ConfigMap containing job definitions
 # Generated from: fractracker-data-centers-setup-bucket.yaml, fractracker-data-centers-convert.yaml, fractracker-data-centers-pmtiles.yaml, fractracker-data-centers-hex.yaml, fractracker-data-centers-repartition.yaml
 # Generation command: cng-datasets workflow --dataset fractracker/data-centers --source-url s3://public-datacenters/raw/fractracker/data-centers.csv --bucket public-datacenters --h3-resolution 8 --parent-resolutions "0" --cells-per-chunk 5000000
@@ -323,7 +326,7 @@ data:
               # container's default soft nofile limit (often 1024) and aborts with
               # "Too many open files". `|| true` keeps going if the limit can't be raised.
               ulimit -n 65536 || true
-              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --coalesce-densest-as-needed --drop-densest-as-needed -z 11 --force /tmp/$DATASET.geojsonl
+              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --coalesce-densest-as-needed --drop-densest-as-needed -z 11 -r1 --force /tmp/$DATASET.geojsonl
 
               # Upload to S3 using rclone
               rclone copy /tmp/$DATASET.pmtiles nrp:public-datacenters/fractracker/
