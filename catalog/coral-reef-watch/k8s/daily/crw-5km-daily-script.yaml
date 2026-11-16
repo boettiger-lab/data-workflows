@@ -589,6 +589,7 @@ data:
       # $PREFIX itself is a Catalog since #762, with no extent, so only the product collections are
       # updated; the script also skips any node that is not a Collection.
       start=$(date -u -d "$cutoff" +%F)
+      # STAC-PUBLISH-GUARD: not needed: reads each live collection and changes only its temporal start
       for c in "${PRODUCTS[@]/#/$PREFIX/}"; do
         stac="nrp:$BUCKET/$c/stac-collection.json"
         rclone cat "$stac" > "$WORK/stac.json" 2>/dev/null || continue
