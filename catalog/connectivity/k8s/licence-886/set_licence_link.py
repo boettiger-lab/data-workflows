@@ -5,14 +5,14 @@
 
 TNC's terms ("TNC Geospatial Data Terms of Use: sublicensing", revised 2023-01-12) live on a Box
 share with downloads disabled, so the `.docx` cannot be copied. Carl supplied an image of the full
-four-page document, published unchanged as tnc-terms-of-use.png. That copy becomes the first
-`license` link; the Box share stays as a second one for readers who can open it. Changes the
-`license` links only, and is idempotent.
+four-page document; tnc-terms-of-use.txt (beside this script) is its transcription, published
+beside the data. That copy becomes the first `license` link; the Box share stays as a second one
+for readers who can open it. Changes the `license` links only, and is idempotent.
 """
 import json
 import sys
 
-COPY = "https://s3-west.nrp-nautilus.io/public-connectivity/rcn-national/tnc-terms-of-use.png"
+COPY = "https://s3-west.nrp-nautilus.io/public-connectivity/rcn-national/tnc-terms-of-use.txt"
 TITLE = "TNC Geospatial Data Terms of Use: sublicensing (non-commercial, revised 2023-01-12)"
 
 path = sys.argv[1]
@@ -21,7 +21,7 @@ links = [l for l in doc["links"] if l.get("rel") != "license"]
 box = [l for l in doc["links"] if l.get("rel") == "license" and "box.com" in l.get("href", "")]
 if not box:
     sys.exit(f"{path}: no Box licence link found, refusing to change the licence links")
-new = [{"rel": "license", "href": COPY, "type": "image/png",
+new = [{"rel": "license", "href": COPY, "type": "text/plain",
         "title": TITLE + ", copy published with the data"},
        {**box[0], "title": TITLE + ", TNC's Box share"}]
 doc["links"] = links + new
