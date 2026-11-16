@@ -1,0 +1,80 @@
+# HAND-ROLLED: cng-datasets cannot read coordinates out of a web page. This job builds the two
+# GeoParquet workflow inputs and the five companion tables from the staged raw snapshot, using
+# extract_epoch.py (shipped in the epoch-ai-data-centers-derive ConfigMap).
+#
+# Reads  s3://public-datacenters/raw/epoch/{data_centers.zip,ai-data-centers-map.html} and checks
+#        them against MANIFEST.sha256.
+# Writes s3://public-datacenters/raw/epoch/derived/ai-data-centers.parquet            (sites, points)
+#        s3://public-datacenters/raw/epoch/derived/ai-data-center-footprints.parquet  (polygons)
+#        s3://public-datacenters/epoch/<table>.parquet  (published, non-spatial):
+#          ai-data-center-timelines, ai-data-center-chip-quantities, ai-chip-types,
+#          ai-data-center-chillers, ai-data-center-cooling-towers
+# The two derived GeoParquets are the --source-url of the generated epoch-ai-data-centers and
+# epoch-ai-data-center-footprints workflows.
+#
+# ConfigMap:
+#   kubectl create configmap epoch-ai-data-centers-derive -n geo-workflows \
+#     --from-file=catalog/datacenters/k8s/epoch-ai-data-centers/extract_epoch.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/933
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: epoch-ai-data-centers-derive
+  namespace: geo-workflows
+  labels:
+    k8s-app: epoch-ai-data-centers-derive
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: epoch-ai-data-centers-derive
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 1800
+      containers:
+      - name: derive
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: scripts
+          mountPath: /scripts
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /work/raw /work/out && cd /work
+          rclone copy nrp:public-datacenters/raw/epoch/ raw/ --include data_centers.zip \
+            --include ai-data-centers-map.html --include MANIFEST.sha256
+          cd raw
+          while read -r sum size f; do
+            echo "$sum  $f" | sha256sum -c -
+            [ "$(stat -c %s "$f")" = "$size" ] || { echo "size mismatch: $f"; exit 1; }
+          done < MANIFEST.sha256
+          cd /work
+          python3 -I /scripts/extract_epoch.py raw/data_centers.zip raw/ai-data-centers-map.html out
+          rclone copy out/ nrp:public-datacenters/raw/epoch/derived/ --include '/*.parquet' --s3-no-check-bucket
+          rclone copy out/tables/ nrp:public-datacenters/epoch/ --s3-no-check-bucket
+          rclone lsl nrp:public-datacenters/raw/epoch/derived/
+          rclone lsl nrp:public-datacenters/epoch/ --max-depth 1
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: scripts
+        configMap:
+          name: epoch-ai-data-centers-derive
