@@ -120,7 +120,8 @@ covers ephemeral. On 2026-11-17 a server-side dry-run admitted pods requesting 8
 both (`kubectl -n <ns> create --dry-run=server -f pod.yaml`). The real ceiling is node free disk.
 
 **Sizing.** Generator defaults: hex 10Gi (vector) / 20Gi (raster, `--hex-storage`),
-preprocess-cog 50Gi (`--cog-storage`), repartition 50Gi, raster merge 100Gi (`--merge-storage`).
+preprocess-cog 50Gi (`--cog-storage`), repartition 50Gi (`--repartition-storage`; a national h10
+vector build needs ~200Gi, #617), raster merge 100Gi (`--merge-storage`).
 50Gi is what most jobs need. Go above it only with a reason recorded in the manifest (`wrc-2`
 warps a striped CONUS source at 60Gi, #592), and stay courteous on shared nodes. Size hex
 ephemeral from the localized COG plus margin: since datasets#209 an **integer** source with
@@ -139,7 +140,8 @@ died at 21–23 GiB of a 128 GiB limit and memory was raised twice for nothing.
 the total limit of containers <N>`) means the pod passed its own limit: raise it. A *node
 DiskPressure* eviction means the node ran short, and the kubelet evicts in **priority order**, so a
 large ephemeral request at `priorityClassName: opportunistic` compounds badly. If you raise
-ephemeral, run at default priority (skill `pod-preemption`).
+ephemeral on a long pod, run it at default priority (skill `pod-preemption`). A short one may stay
+at opportunistic: the 200Gi PAD-US repartitions finish in about 25 minutes (#617).
 
 **DuckDB sort jobs need both big RAM and big ephemeral-storage.** `ORDER BY` over large data spills to disk; low RAM spills more. For 1–15 GB compressed partitions: 120Gi RAM, 50Gi ephemeral-storage, more when the spill needs it.
 
