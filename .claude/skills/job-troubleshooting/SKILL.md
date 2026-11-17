@@ -120,7 +120,8 @@ covers ephemeral. On 2026-11-17 a server-side dry-run admitted pods requesting 8
 both (`kubectl -n <ns> create --dry-run=server -f pod.yaml`). The real ceiling is node free disk.
 
 **Sizing.** Generator defaults: hex 10Gi (vector) / 20Gi (raster, `--hex-storage`),
-preprocess-cog 50Gi (`--cog-storage`), repartition 50Gi, raster merge 100Gi (`--merge-storage`).
+preprocess-cog 50Gi (`--cog-storage`), repartition 50Gi (`--repartition-storage`; see below for
+national h10), raster merge 100Gi (`--merge-storage`).
 50Gi is what most jobs need. Go above it only with a reason recorded in the manifest (`wrc-2`
 warps a striped CONUS source at 60Gi, #592), and stay courteous on shared nodes. Size hex
 ephemeral from the localized COG plus margin: since datasets#209 an **integer** source with
@@ -139,7 +140,8 @@ died at 21–23 GiB of a 128 GiB limit and memory was raised twice for nothing.
 the total limit of containers <N>`) means the pod passed its own limit: raise it. A *node
 DiskPressure* eviction means the node ran short, and the kubelet evicts in **priority order**, so a
 large ephemeral request at `priorityClassName: opportunistic` compounds badly. If you raise
-ephemeral, run at default priority (skill `pod-preemption`).
+ephemeral on a long pod, run it at default priority (skill `pod-preemption`). A short one may stay
+at opportunistic: the 200Gi PAD-US repartitions finish in about 25 minutes (#617).
 
 **DuckDB sort jobs need both big RAM and big ephemeral-storage.** `ORDER BY` over large data spills to disk; low RAM spills more. For 1–15 GB compressed partitions: 120Gi RAM, 50Gi ephemeral-storage, more when the spill needs it.
 
@@ -191,9 +193,13 @@ single-file scratch it exists for (a >50Gi download, a mosaic, a DuckDB `temp_di
 The same reasoning applies to a raw-download job over an unpacked directory tree: stage the
 archive, not its contents.
 
+**A repartition evicted at its ephemeral limit → regenerate with `--repartition-storage`.** The
+generator defaults it to 50Gi, which a national h10 build outgrows: PAD-US fee (5.1 GiB of chunks,
+610M hex rows) was evicted twice at 50Gi and finished in 25 minutes at 200Gi (#617). Try the flag first; the two options below are for scratch a node cannot spare.
+
 ⛔ **`cng-datasets repartition` stages to a hardcoded `/tmp/hex`, so a big repartition needs the PVC
 mounted AT `/tmp`, or a hand-written job.** `TMPDIR` does not move it. When the chunks are large
-enough that one `h0` partition plus the `ORDER BY` spill exceeds 50Gi ephemeral, write the
+enough that one `h0` partition plus the `ORDER BY` spill exceeds what a node can spare, write the
 repartition as a small DuckDB job instead of calling the CLI — keep the contract
 identical (one `data_0.parquet` per `h0`, attributes joined from the flat parquet, the completeness
 gate, and the UBIGINT check on the H3 columns). Worked example:
@@ -233,6 +239,24 @@ the file size or the config**: a `-N` suffix means it is not an MD5 of anything 
 **PMTiles renders blank in MapLibre → wrong `source-layer`.** It's the last path segment of `--dataset`, NOT the GDB/source layer name. For `--dataset padus-4-1/fee`, it's `fee` (not `PADUS4_1Fee`).
 
 **Workflow stuck:** `kubectl logs job/<name>-workflow` and `kubectl get jobs | grep <name>`.
+
+⛔ **A failed step makes the workflow rerun everything from setup-bucket.** The `<name>-workflow`
+Job retries its orchestrator pod (`backoffLimit: 6`), and each new pod starts the DAG over: on
+PAD-US fee (#617) a repartition eviction re-ran convert, plan and PMTiles after a 7h42m hex had
+finished. So once a child step fails, delete `<name>-workflow` (gracefully), fix the step, and
+apply the remaining step YAMLs by hand in DAG order. A hand-applied hex must first be patched
+to the plan step's chunk count (`chunks=N` in the plan pod's termination message), as
+`workflow.yaml` does; the committed hex YAML carries a placeholder. A script that waits on the workflow must read
+its `Complete`/`Failed` condition, not `.status.failed`, which counts a retried pod.
+
+**Hex pods fail on `Timeout was reached ... rook-ceph-rgw-nautiluss3.rook (retry quota exhausted)`**
+→ too many hex pods reading one small source parquet at once. PAD-US marine (#617) is 1,739
+features, 82 MiB: at parallelism 50 its hex failed twice (83 and 62 of 126 indexes, ~200 pod
+deaths), and the object stopped answering even over the public endpoint while every other object
+answered in 0.1 s. At `--max-parallelism 10` the same 126 indexes finished in 12 minutes with no
+pod death. Fee, 296K features in 1 GB, ran at 50 without trouble, so suspect this when the flat
+parquet is small and the hex fan-out is wide. Regenerate with a lower `--max-parallelism` and
+rerun the workflow. If you rerun hex alone, patch it to the plan's chunk count first (above).
 
 **Values silently wrong after a warp or COG step → nodata passed as a literal.** One publication can
 use a different sentinel per file, including positive ones (255 on a UInt16 band valued 0 to 50),
