@@ -420,6 +420,11 @@ query parameters so there is nothing to escape at all.
 - **Armada** — right when the work microslices into thousands of small units, or when the ~200
   completion cap forces artificial batching that inflates per-pod RAM and runtime. Budget for a
   gap-fill pass: nothing retries, so a fan-out of a few thousand will lose one or two units.
+  - **NRP's Armada kills every pod at 6 hours.** Its executor sets `activeDeadlineSeconds: 21600`
+    on every pod, overriding whatever the job asks for, so a pod still running at 6 h ends with
+    `DeadlineExceeded` and exit 137 (tested 2026-11-17). Keep Armada units well under 6 h, make
+    long loops resumable (for example with claim markers on S3), and run anything longer as a k8s
+    Job. Queue waits of ~30 min before a pod starts are normal.
 
 `--backend auto` makes that choice on chunk count alone (~200), which is a reasonable proxy but
 only a proxy — it does not know how long a unit runs or how expensive losing one is. Override it
