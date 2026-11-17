@@ -353,7 +353,7 @@ def main(out):
             **{"vector:layers": ["moratoriums"], "table:columns": tile_cols(MOR_COLS, MOR_FLAT)}),
         "moratoriums-hex": hexa(p, "Moratoriums and local actions (H3 hex)",
             "Each jurisdiction boundary filled with H3 cells at resolution 8 (about 0.74 square kilometres), with "
-            "the resolution 0 parent as the partition key: one row per (record, cell) pair, 5,062,361 rows for the "
+            "the resolution 0 parent as the partition key: one row per (record, cell) pair, 5,062,496 rows for the "
             "816 records with a boundary (the 18 statewide records alone cover most of them). Every column is "
             "repeated on every cell a jurisdiction covers, so count records with COUNT(DISTINCT _cng_fid), not "
             "COUNT(*). Jurisdictions overlap (a state, its counties and its towns can all have records), so one "
