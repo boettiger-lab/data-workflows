@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render a collection's thumbnail from its default style or render (#889, PORTO-CORE-067).
 
-    scripts/thumbnail.py <collection-url> --out DIR [--size 512]
+    scripts/thumbnail.py <collection-url> --out DIR [--size 512] [--bbox W,S,E,N]
 
 Writes DIR/<bucket>/<path>/thumbnail.png and DIR/<bucket>/<path>/stac-collection.json, the
 collection with a `thumbnail` asset (role `thumbnail`, image/png) pointing at it. A collection
@@ -11,7 +11,8 @@ with the usual guard (AGENTS.md Step 5); the guard keeps a live thumbnail the ne
 What it draws, in order of preference:
   * PMTiles: the collection's first default style (by asset key), drawn by MapLibre GL JS in
     headless Chromium (Playwright) over the collection's bounding box, or a crop at the
-    tiles' minimum zoom when the box would fit below it. Symbol layers are
+    tiles' minimum zoom when the box would fit below it, or over --bbox when the features are
+    too small to see at the collection's scale. Symbol layers are
     dropped, so a thumbnail needs no glyphs or sprites.
   * COG: the collection's first render whose asset is a GeoTIFF (the newest year, for a series
     of renders keyed by year), drawn by TiTiler's
@@ -226,7 +227,8 @@ def render_pmtiles(style: dict, bounds: list[float], w: int, h: int, min_zoom: i
 
 # ---------------------------------------------------------------------------- main
 
-def thumbnail(url: str, size: int, fresh: bool = False) -> tuple[dict, bytes, str] | None:
+def thumbnail(url: str, size: int, fresh: bool = False,
+              view: list[float] | None = None) -> tuple[dict, bytes, str] | None:
     doc = json.loads(fetch(url))
     base = self_href(doc, url)
     st = default_style(doc)
@@ -237,9 +239,11 @@ def thumbnail(url: str, size: int, fresh: bool = False) -> tuple[dict, bytes, st
         tiles = next((src["url"][len("pmtiles://"):] for src in style.get("sources", {}).values()
                       if str(src.get("url", "")).startswith("pmtiles://")), None)
         head = pmtiles_header(tiles) if tiles else None
-        png = render_pmtiles(style, bbox(doc, head and head[0]), size, round(size * 3 / 4),
-                             min_zoom=head[1] if head else 0)
+        png = render_pmtiles(style, view or bbox(doc, head and head[0]), size, round(size * 3 / 4),
+                             min_zoom=0 if view else (head[1] if head else 0))
         how = f"default style {key}"
+        if view:
+            how += f", over a part of its extent ({', '.join(f'{v:g}' for v in view)})"
     else:
         cr = cog_render(doc)
         if not cr:
@@ -265,8 +269,13 @@ def main() -> int:
     ap.add_argument("--size", type=int, default=512)
     ap.add_argument("--fresh", action="store_true",
                     help="bypass TiTiler's URL cache, after a COG was rewritten in place")
+    ap.add_argument("--bbox", help="W,S,E,N: draw this part of the extent instead of all of it, for "
+                    "features too small to see at the collection's scale (building footprints)")
     a = ap.parse_args()
-    r = thumbnail(a.url, a.size, a.fresh)
+    view = [float(v) for v in a.bbox.split(",")] if a.bbox else None
+    if view and len(view) != 4:
+        ap.error("--bbox takes W,S,E,N")
+    r = thumbnail(a.url, a.size, a.fresh, view)
     if r is None:
         print(f"{a.url}: no default style or COG render; no thumbnail")
         return 2
