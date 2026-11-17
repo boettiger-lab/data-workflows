@@ -1147,6 +1147,17 @@ class TestTree(unittest.TestCase):
         d["links"].append({"rel": "child", "href": "./c/stac-collection.json"})
         self.assertEqual(self.codes(d, self.parent("./x/stac-collection.json")), {"tree-mixed-node": vs.HARD})
 
+    def test_grouping_node_typed_collection(self):  # #957: public-datacenters, public-pesticides
+        d = self.doc()
+        d["links"].append({"rel": "child", "href": "./c/stac-collection.json"})
+        self.assertEqual(self.codes(d, self.parent("./x/stac-collection.json")),
+                         {"tree-inner-collection": vs.HARD})
+
+    def test_grouping_catalog_passes(self):
+        d = self.doc(type="Catalog")
+        d["links"].append({"rel": "child", "href": "./c/stac-collection.json"})
+        self.assertEqual(self.codes(d, self.parent("./x/stac-collection.json")), {})
+
 
 class TestRenderRange(unittest.TestCase):
     """A continuous render's rescale should cover where the data is (#881)."""
