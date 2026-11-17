@@ -112,9 +112,38 @@ kubectl -n geo-workflows describe pod <pod-name> | grep -A5 "Reason:\|Message:\|
 | `OOMKilled` | Insufficient RAM | Raise memory |
 | `ContainerStatusUnknown` on shared nodes | Preemption | Pin to Berkeley node |
 
-**DuckDB sort jobs need both big RAM and big ephemeral-storage.** `ORDER BY` over large data spills to disk; low RAM spills more. For 1–15 GB compressed partitions: 120Gi RAM, 50Gi ephemeral-storage. 50Gi is the namespace *default* ephemeral limit, not a cap — request more when the spill needs it (see below).
+### Ephemeral storage
 
-**When scratch outgrows a shared node, mount a PVC.** Ephemeral-storage in `geo-workflows` has a LimitRange *default* of 50Gi and no `max`, and no ResourceQuota covers it (checked 2026-10-26: `kubectl -n geo-workflows get limitrange,resourcequota`), so a larger request is admitted — the real ceiling is node free disk (AGENTS.md, *What NOT To Do*). Raise ephemeral for scratch of tens of GB above 50Gi; for scratch a shared node cannot reasonably spare — a `raster --local-cache-dir` localization of a very large COG — use a **PersistentVolumeClaim**. A shared scratch PVC already exists: **`rechunk-scratch`** (2Ti, `RWX` rook-cephfs) — list with `kubectl -n geo-workflows get pvc`.
+**50Gi is the default, not a cap, in `geo-workflows` and `biodiversity` alike.** Both carry the
+same LimitRange (`default: 50Gi`, `defaultRequest: 0`, no `max`), and no ResourceQuota in either
+covers ephemeral. On 2026-11-17 a server-side dry-run admitted pods requesting 80Gi and 1Ti in
+both (`kubectl -n <ns> create --dry-run=server -f pod.yaml`). The real ceiling is node free disk.
+
+**Sizing.** Generator defaults: hex 10Gi (vector) / 20Gi (raster, `--hex-storage`),
+preprocess-cog 50Gi (`--cog-storage`), repartition 50Gi, raster merge 100Gi (`--merge-storage`).
+50Gi is what most jobs need. Go above it only with a reason recorded in the manifest (`wrc-2`
+warps a striped CONUS source at 60Gi, #592), and stay courteous on shared nodes. Size hex
+ephemeral from the localized COG plus margin: since datasets#209 an **integer** source with
+several `--nodata` codes is collapsed as a VRT lookup table (no raster written), only a **float**
+source materialises a ZSTD-compressed copy, and a single nodata code needs no collapse. Since
+0.11.3 the multi-tile mosaic writes compressed, sparse intermediates (datasets#277). Over-asking
+costs too: a request no node can meet leaves the job unschedulable (skill `hex-tuning`).
+
+⛔ **An ephemeral eviction is indistinguishable from an OOM in `kubectl get pods`.** Both report
+**exit 137** with `ContainerStatusUnknown` or `Error`. Only `kubectl describe pod` shows `Reason:
+Evicted` / `Pod ephemeral local storage usage exceeds the total limit of containers`. **If pods die
+at 137 far below their memory limit, check ephemeral before touching memory**: on #515 five pods
+died at 21–23 GiB of a 128 GiB limit and memory was raised twice for nothing.
+
+**Two eviction modes; only one is fixed by raising the limit.** A *limit* eviction (`usage exceeds
+the total limit of containers <N>`) means the pod passed its own limit: raise it. A *node
+DiskPressure* eviction means the node ran short, and the kubelet evicts in **priority order**, so a
+large ephemeral request at `priorityClassName: opportunistic` compounds badly. If you raise
+ephemeral, run at default priority (skill `pod-preemption`).
+
+**DuckDB sort jobs need both big RAM and big ephemeral-storage.** `ORDER BY` over large data spills to disk; low RAM spills more. For 1–15 GB compressed partitions: 120Gi RAM, 50Gi ephemeral-storage, more when the spill needs it.
+
+**When scratch outgrows a shared node, mount a PVC.** Raise ephemeral for scratch of tens of GB above 50Gi; for scratch a shared node cannot reasonably spare — a `raster --local-cache-dir` localization of a very large COG — use a **PersistentVolumeClaim**. A shared scratch PVC already exists: **`rechunk-scratch`** (2Ti, `RWX` rook-cephfs) — list with `kubectl -n geo-workflows get pvc`.
 - Mount it and redirect the tool's scratch onto it; keep ephemeral small (~10Gi):
   ```yaml
   volumeMounts:
