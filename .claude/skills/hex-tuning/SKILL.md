@@ -93,18 +93,11 @@ controller-less pods.
 Size cpu honestly as well — a 2.4x core over-ask is real waste — but if you must be wrong in one
 direction, be tight on memory.
 
-⚠️ **Do not infer which resource is binding from a small concurrency change**, and read the
-scheduler's own view rather than a pod count:
-
-```bash
-armadactl get queue-report <queue>   # Total allocated resources after scheduling: (cpu=..., memory=...)
-kubectl describe node | grep -A5 'Allocated resources'
-```
-
-We briefly concluded "CPU binds, not memory" because right-sizing 32 Gi → 8 Gi moved concurrency
-only 28 → 31 pods. Both numbers turned out to have been sampled during Armada's lease ramp, which
-later reached 128 pods — so the comparison never supported the claim. A snapshot taken while a
-scheduler is still leasing tells you nothing about a ceiling.
+⚠️ **Do not infer which resource is binding from a small concurrency change.** Read the
+scheduler's own view, never a pod count taken while Armada is still leasing (skill
+`armada-pipeline`, "You cannot measure Armada concurrency with `kubectl`"): right-sizing
+32 Gi → 8 Gi once appeared to move concurrency only 28 → 31, but both counts were taken during
+the ramp, which later reached 128.
 
 ### The profile is bimodal — size for the common case, handle the few
 
