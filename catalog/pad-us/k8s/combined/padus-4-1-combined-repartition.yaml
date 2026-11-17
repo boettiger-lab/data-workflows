@@ -1,4 +1,4 @@
-# DEVIATION from generated output (#617): repartition memory raised to 64Gi (DuckDB 40GiB). At 32Gi/27GiB both attempts were OOM-killed writing h0=577727389698621439, 700M hex rows (794 features); the generator has no repartition-memory option.
+# DEVIATION from generated output (#617): repartition memory raised to 64Gi (DuckDB 40GiB); at 32Gi it was OOM-killed on h0=577727389698621439 (700M hex rows). At 64Gi that partition then passed 200Gi of sort scratch and was evicted, so the remaining partitions were written by combined-repartition-617/. The generator has no repartition-memory option.
 # DEVIATION from generated output (#617, datasets#315): image pinned to datasets:0.12.1, the first release that repairs the invalid antimeridian crosser (FID 868); the generator has no image-tag option.
 apiVersion: batch/v1
 kind: Job
