@@ -173,10 +173,10 @@ kubectl -n geo-workflows get jobs | grep <name>
 - Orchestrator SAs `cng-datasets-workflow` / `workflow-runner` (create/watch/delete child Jobs).
 - Child job pods run as the `default` SA, **hardened to mount no k8s token** (they need only S3).
 - `rechunk-scratch` PVC (2Ti RWX) for >50Gi scratch (binds once Ceph is healthy).
-- **No enforced ResourceQuota** — but keep the good-practice targets anyway:
-  **≤200 simultaneous pods** and **~50Gi ephemeral per job** (a default, not an enforced
-  max; skill `job-troubleshooting`),
-  especially on large-completion fan-out jobs. Oversubscribing is antisocial on shared nodes.
+- **A 300-pod ResourceQuota** (`reached-quota`; `biodiversity`'s is 200). Keep to the
+  good-practice targets below it anyway: **≤200 simultaneous pods** and **~50Gi ephemeral per
+  job** (a default, not an enforced max; skill `job-troubleshooting`), especially on
+  large-completion fan-out jobs. Oversubscribing is antisocial on shared nodes.
 
 **Credentials you have, and the only two you ever need:**
 - **Public buckets (almost everything).** Build jobs read and write **NRP only**, with the
@@ -310,7 +310,7 @@ cng-datasets workflow \
 
 Add `--layer <LayerName>` for multi-layer sources (one workflow per layer). The `/` in `--dataset` creates hierarchical S3 paths; `-` is used in k8s job names.
 
-**Prefer `--backend armada` for hex-heavy workflows.** k8s backend caps at 200 indexed completions and 200 pods namespace-wide. Armada removes both and allows `--chunk-size 1` (one feature per job), critical when polygon sizes vary wildly (a single Russia/China chunk can run for hours while 199 others finish in minutes):
+**Prefer `--backend armada` for hex-heavy workflows.** k8s backend caps at 200 indexed completions, and the namespace quota caps pods (300 in `geo-workflows`). Armada removes both and allows `--chunk-size 1` (one feature per job), critical when polygon sizes vary wildly (a single Russia/China chunk can run for hours while 199 others finish in minutes):
 ```bash
 cng-datasets workflow ... --h3-resolution 8 --parent-resolutions "0" \
   --max-completions <N-features> --backend armada ...
@@ -529,15 +529,17 @@ Full memory model, resolution and parent-set decision tables, vector/raster work
 and reprocessing failed chunks: **skill `hex-tuning`** (raster specifics: **`raster-hexing`**).
 ## Pod-count good practice (`geo-workflows`)
 
-**Keep ≤200 simultaneous pods** across all your jobs. `geo-workflows` has **no enforced
-ResourceQuota** (unlike the legacy `biodiversity` namespace, which hard-capped at 200), but
-≤200 is the good-practice target — oversubscribing is antisocial on shared nodes. Applies to
+**Keep ≤200 simultaneous pods** across all your jobs. `geo-workflows` enforces a
+ResourceQuota of **300 pods** (`reached-quota`; `biodiversity`'s is 200, checked 2026-11-17 with
+`kubectl -n <ns> get resourcequota`), so past 300 new pods are refused with `exceeded quota:
+reached-quota`. ≤200 is the good-practice target below that — oversubscribing is antisocial on
+shared nodes. Applies to
 the **k8s backend only** — armada queues externally and is not constrained.
 
 **Rule: never submit more than one k8s hex workflow at a time.** With `--max-parallelism 50`, a
 single hex job can take 50 pods; on the legacy `biodiversity` namespace concurrent hex workflows
-tripped its quota (`exceeded quota: reached-quota, used: pods=200`); on `geo-workflows` there is
-no wall, so self-limit. Run sequentially:
+tripped its quota (`exceeded quota: reached-quota, used: pods=200`); `geo-workflows` refuses
+pods past 300, and self-limiting well below that keeps the namespace usable for others. Run sequentially:
 ```bash
 for d in dataset-a dataset-b dataset-c; do
   kubectl apply -n geo-workflows -f catalog/.../k8s/$d/configmap.yaml -f catalog/.../k8s/$d/workflow.yaml
