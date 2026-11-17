@@ -114,11 +114,10 @@ kubectl -n geo-workflows describe pod <pod-name> | grep -A5 "Reason:\|Message:\|
 
 ### Ephemeral storage
 
-**50Gi is the default, not a cap.** The `geo-workflows` LimitRange sets `default: 50Gi` with no
-`max`, and no ResourceQuota covers ephemeral (`kubectl -n geo-workflows get
-limitrange,resourcequota`, checked 2026-10-26; 80Gi, 200Gi and 1Ti were all admitted on
-2026-09-13). The real ceiling is node free disk. The 50Gi *clamp* was the legacy `biodiversity`
-namespace.
+**50Gi is the default, not a cap, in `geo-workflows` and `biodiversity` alike.** Both carry the
+same LimitRange (`default: 50Gi`, `defaultRequest: 0`, no `max`), and no ResourceQuota in either
+covers ephemeral. On 2026-11-17 a server-side dry-run admitted pods requesting 80Gi and 1Ti in
+both (`kubectl -n <ns> create --dry-run=server -f pod.yaml`). The real ceiling is node free disk.
 
 **Sizing.** Generator defaults: hex 10Gi (vector) / 20Gi (raster, `--hex-storage`),
 preprocess-cog 50Gi (`--cog-storage`), repartition 50Gi, raster merge 100Gi (`--merge-storage`).
@@ -141,10 +140,6 @@ the total limit of containers <N>`) means the pod passed its own limit: raise it
 DiskPressure* eviction means the node ran short, and the kubelet evicts in **priority order**, so a
 large ephemeral request at `priorityClassName: opportunistic` compounds badly. If you raise
 ephemeral, run at default priority (skill `pod-preemption`).
-
-**Coming: Armada on 4x GB10 nodes with ~4 TB of largely free local disk each.** There the
-shared-node constraint largely disappears and Armada becomes the natural home for scratch-heavy and
-finely-chunked work (datasets#173). Until then, size ephemeral from the intermediate.
 
 **DuckDB sort jobs need both big RAM and big ephemeral-storage.** `ORDER BY` over large data spills to disk; low RAM spills more. For 1–15 GB compressed partitions: 120Gi RAM, 50Gi ephemeral-storage, more when the spill needs it.
 
