@@ -1,3 +1,5 @@
+# DEVIATION from generated output (#944): memory 12Gi request / 14Gi limit, not 32Gi. The first run
+# used 4.2 GiB at 30 min (13% of 32Gi, under NRP's 20% usage floor, #804).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -88,10 +90,10 @@ spec:
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 12Gi
           limits:
             cpu: '4'
-            memory: 32Gi
+            memory: 14Gi
       volumes:
       - name: rclone-config
         secret:

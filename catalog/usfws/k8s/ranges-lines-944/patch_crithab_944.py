@@ -11,7 +11,9 @@ crithab_all_layers.zip (2026-08-31). This rewrites what the rebuild changed and 
   * the column dictionary and per-asset column lists, to the rebuilt schema: the service-only
     OGC_FID, OBJECTID, GlobalID, SHAPE_Leng and SHAPE_Area are gone, objectid_1 is OBJECTID_1, the
     geometry column is `geometry`, and `geometry_bbox` is new;
-  * the hex note on per-feature columns, which named SHAPE_Area and SHAPE_Leng.
+  * the hex note on per-feature columns, which named SHAPE_Area and SHAPE_Leng;
+  * the vipcode description: its letter is the taxonomic group (V/I/P), not a verification code,
+    measured against FAMILY on the species-ranges table (P: Asteraceae, I: Unionidae, V: Cyprinidae).
 Every number is measured on the rebuilt files (duckdb-geo, 2026-11-17).
 """
 import json
@@ -73,6 +75,10 @@ for c in doc.get("table:columns", []):
     c["name"] = RENAME.get(c["name"], c["name"])
     if c["name"] == "comname":
         c["description"] = "Common name of the listed species (free text)."
+    if c["name"] == "vipcode":
+        c["description"] = ("Taxonomic group and population number: the first letter is V=vertebrate, "
+                            "I=invertebrate, P=plant; the digits number the listed populations of one "
+                            "species (01 for the first). Values: " + ", ".join(c.get("values", [])) + ".")
     if c["name"] == "OBJECTID_1":
         c["description"] = "Object ID carried over from FWS's aggregation of the species shapefiles."
     dic.append(c)
