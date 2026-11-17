@@ -549,12 +549,13 @@ done
 
 With armada, submit freely — chunk-size 1 (one pod per feature) eliminates "one slow pod blocks everything."
 
-⛔ **Pod count is not what decides whether those pods survive.** At `opportunistic` priority a
-long pod is preempted rather than finished, and retries hide it — a job reports `Complete=True`
-while indexes are killed and restarted, and a retry-exhausted index leaves *stale* data, not
-missing data. Before submitting anything whose pods run over an hour: **skill `pod-preemption`**.
-
-⛔ **Default priority has its own cost: NRP's usage policy (#804).** Every default-priority pod over 30 minutes old must use a set share of its request, and **zero pods may be out of range, at any time**; violations lock Carl's account and can get it banned. Pods under ~1 hour run at `opportunistic`; pods that must run long are sized to measured use. The ranges and the full rule: **skill `pod-preemption`**.
+⛔ **Pod count is not what decides whether those pods survive; priority and runtime do.** Pods
+under ~1 hour run at `opportunistic`. At that priority a long pod is preempted and silently
+retried, and a retry-exhausted index leaves *stale* data, not missing data. Pods that must run
+long run at default priority (omit `priorityClassName`), where NRP's usage policy (#804) requires
+**zero out-of-range pods at any time**: size them to measured use, or Carl's account is locked
+and can be banned. Before submitting anything whose pods run over an hour: **skill
+`pod-preemption`**.
 
 ## S3 Bucket Layout
 

@@ -98,13 +98,15 @@ Weigh both every time.
 **The rule:**
 
 1. **Pods expected to run under about an hour use `priorityClassName: opportunistic`.** This covers setup-bucket jobs, daily CronJob runs, and fan-outs whose units are short. These pods are exempt from the usage check, and their preemption exposure is small.
-2. **Split long work into short units where that is practical**, so it can run at `opportunistic`. This is the same advice as "shorten the pods" below, now with a second reason.
-3. **Pods that must run long use default priority, sized to measured use.**
+2. **Split long work into short units where that is practical**, so it can run at `opportunistic`. Preemption exposure is roughly proportional to runtime, so pods of ~30–60 min instead of 3+ hours cut losses proportionally; weigh that against the merge step splitting usually reintroduces.
+3. **Pods that must run long use default priority, sized to measured use.** Default priority is `0`, two billion points above `opportunistic`, and generated manifests already omit `priorityClassName` unless `--priority-class` is passed (datasets#201).
    - Default priority means **leaving `priorityClassName` out**. Writing `priorityClassName: default` is refused at submission (`exceeded quota: high-priority-ban`, checked 2026-11-17 by server-side dry-run in `geo-workflows`), and NRP's ban quotas list other classes too (`kubectl -n geo-workflows get resourcequota high-priority-ban low-priority-ban -o yaml`).
    - Keep use within the ranges above, with the limit no more than 1.2× the request.
    - Measure first: run one unit, or watch `kubectl top pod` on the first pods.
    - Check again about 30 minutes after launch, before the portal's first check.
    - No pod may fall outside the ranges. Other sessions on the same account count too, so check the whole account, not only your job.
+   - Lower parallelism as priority rises, so the total claim on shared nodes does not grow. Halving parallelism is a fair trade: per-pod runtime *improved* from 3h32m to 117 min for identical work, because there was less contention.
+   - `backoffLimitPerIndex` is a supplement, not the fix: each retry re-runs the whole pod, so a preempted 3-hour pod costs 3 hours again.
 4. **Do not trust a generated memory request.** `cng-datasets` defaults are sized for the worst case, not measured. If the peak is a short spike far above the average, as in #802 where DuckDB peaked above 4.5 GiB while the pod averaged 2 GiB, shrink the peak rather than the request. In #802 that meant splitting the step into `--h0-subset` batches, which brought it to a 3Gi request with a 3.5Gi limit.
 
 ## Do not misread it as a data problem
@@ -127,43 +129,8 @@ succeeds unchanged, it was environmental.
 GBIF #662 job the failing indexes *were* special — they were the densest cells on Earth, and the
 single-pod re-run would have OOMed again. "Usually not special" is a prior, not a finding.
 
-## Fixes, in order of preference
-
-1. **Do not run long pods at `opportunistic`.** Omitting `priorityClassName` gives default
-   priority `0` — two billion points higher — and is admitted in `geo-workflows` (verified). Pair
-   it with **lower parallelism** so the total claim on shared nodes does not grow; halving
-   parallelism while raising priority is a fair trade, and observed runtime per pod *improved*
-   (117 min vs 3h32m for identical work) because there is less contention. Default priority
-   brings the pod under NRP's usage policy, so **size the request to measured use** (see the
-   section above). An oversized default-priority request blocks the whole account.
-2. **Shorten the pods.** Preemption exposure is roughly proportional to runtime. Splitting work so
-   pods run ~30-60 min instead of 3+ hours cuts losses proportionally — but weigh it against the
-   merge step that splitting usually reintroduces.
-3. **Raise `backoffLimitPerIndex`.** Cheap insurance, but each retry re-runs the whole pod, so a
-   preempted 3-hour pod costs 3 hours again. Treat this as a supplement, never the fix.
-
-**Armada offers non-preemptible classes**, per the
-[NRP scheduling docs](https://nrp.ai/documentation/userdocs/running/scheduling/):
-
-| Armada priority class | preemptible | value |
-|---|---|---|
-| `armada-default` | no | 100 |
-| `armada-preemptible` | **yes** | 50 |
-| `armada-high-priority` | no | 1000 |
-
-Two things the docs make explicit, both easy to get backwards:
-
-- **A preempted Armada job is NOT automatically rescheduled.** Armada does not soften the cost
-  of a death — losing a multi-hour job still loses the work. Do not reach for Armada expecting
-  requeue-on-preemption.
-- **Armada preemption acts only within Armada.** Once its pods are in the k8s cluster they are
-  neither preempted by normal pods nor preempt them. So an `armada-default` job is well
-  insulated — but that is a property of the class, not of Armada itself.
-
-`cng_datasets/k8s/armada.py` now defaults to `armada-default` (non-preemptible) and no longer maps
-k8s `opportunistic` to `armada-preemptible`; opt in with `--armada-priority-class preemptible`.
-Generated k8s manifests likewise omit `priorityClassName` (default 0) unless `--priority-class` is
-passed (datasets#201).
+**On Armada**, priority classes and preemption work differently: a preempted Armada job is not
+rescheduled, and Armada preemption acts only within Armada. See the `armada-pipeline` skill.
 
 ## ⛔ Keep failed pods inspectable
 
