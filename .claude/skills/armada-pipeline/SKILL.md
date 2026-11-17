@@ -414,9 +414,7 @@ query parameters so there is nothing to escape at all.
 
 - **k8s** — the standard route here. Right when the work is naturally a few hundred units and each
   is short.
-  - **Units under ~1 hour:** run at `opportunistic`. They are exempt from NRP's usage policy and barely exposed to preemption.
-  - **Units over ~1 hour:** run at default priority, with requests sized to measured use under NRP's usage policy (`pod-preemption` skill, #804).
-  - `cng-datasets` omits `priorityClassName` by default, so a generated job runs at default priority. It also gives hex fan-outs `backoffLimitPerIndex`. Its memory defaults are not measured, so check them. See the `pod-preemption` skill.
+  - Choose the priority class by unit runtime (short units at `opportunistic`, long ones at default priority sized to measured use) per the `pod-preemption` skill.
 - **Armada** — right when the work microslices into thousands of small units, or when the ~200
   completion cap forces artificial batching that inflates per-pod RAM and runtime. Budget for a
   gap-fill pass: nothing retries, so a fan-out of a few thousand will lose one or two units.
