@@ -17,12 +17,14 @@ spec:
       containers:
       - name: cleanup
         image: ghcr.io/boettiger-lab/datasets:0.12.1
-        command: [bash, -c, |
+        command:
+        - bash
+        - -c
+        - |
           set -e
           rclone size nrp:public-padus/padus-4-1/combined/chunks
           rclone purge nrp:public-padus/padus-4-1/combined/chunks
           echo "purged"
-        ]
         resources:
           requests: {cpu: "1", memory: 1Gi}
           limits: {cpu: "1", memory: 1Gi}
