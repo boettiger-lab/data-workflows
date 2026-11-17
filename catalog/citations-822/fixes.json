@@ -1,0 +1,253 @@
+[
+ {
+  "collection": "public-carbon/stac-collection.json",
+  "sci:citation": "Noon, M. L., Goldstein, A., Ledezma, J. C., Roehrdanz, P. R., Cook-Patton, S. C., Spawn-Lee, S. A., Wright, T. M., Gonzalez-Roglich, M., Hole, D. G., Rockström, J., & Turner, W. R. (2021). Mapping the irrecoverable carbon in Earth’s ecosystems. Nature Sustainability, 5(1), 37–46. https://doi.org/10.1038/s41893-021-00803-6",
+  "source": "doi.org formatted citation for 10.1038/s41893-021-00803-6"
+ },
+ {
+  "collection": "public-wetlands/glwd/stac-collection.json",
+  "sci:citation": "Lehner, B., Anand, M., Fluet-Chouinard, E., Tan, F., Aires, F., Allen, G. H., Bousquet, P., Canadell, J. G., Davidson, N., Ding, M., Finlayson, C. M., Gumbricht, T., Hilarides, L., Hugelius, G., Jackson, R. B., Korver, M. C., Liu, L., McIntyre, P. B., Nagy, S., et al. (2025). Mapping the world’s inland surface waters: an upgrade to the Global Lakes and Wetlands Database (GLWD v2). Earth System Science Data, 17(6), 2277–2329. https://doi.org/10.5194/essd-17-2277-2025",
+  "source": "doi.org formatted citation for 10.5194/essd-17-2277-2025"
+ },
+ {
+  "collection": "public-ecoregion/wwf-ecoregions-2017/stac-collection.json",
+  "sci:citation": "Dinerstein, E., Olson, D., Joshi, A., Vynne, C., Burgess, N. D., Wikramanayake, E., Hahn, N., Palminteri, S., Hedao, P., Noss, R., Hansen, M., Locke, H., Ellis, E. C., Jones, B., Barber, C. V., Hayes, R., Kormos, C., Martin, V., Crist, E., et al. (2017). An Ecoregion-Based Approach to Protecting Half the Terrestrial Realm. BioScience, 67(6), 534–545. https://doi.org/10.1093/biosci/bix014",
+  "source": "doi.org formatted citation for 10.1093/biosci/bix014"
+ },
+ {
+  "collection": "public-fire/whp-2023-classified-conus/stac-collection.json",
+  "sci:citation": "Dillon, Gregory K. 2023. Wildfire Hazard Potential for the United States (270-m), version 2023. 4th Edition. Updated 17 July 2024. Fort Collins, CO: Forest Service Research Data Archive. https://doi.org/10.2737/RDS-2015-0047-4",
+  "source": "https://www.fs.usda.gov/rds/archive/catalog/RDS-2015-0047-4"
+ },
+ {
+  "collection": "public-fire/whp-2023-classified-ak/stac-collection.json",
+  "sci:citation": "Dillon, Gregory K. 2023. Wildfire Hazard Potential for the United States (270-m), version 2023. 4th Edition. Updated 17 July 2024. Fort Collins, CO: Forest Service Research Data Archive. https://doi.org/10.2737/RDS-2015-0047-4",
+  "source": "https://www.fs.usda.gov/rds/archive/catalog/RDS-2015-0047-4"
+ },
+ {
+  "collection": "public-fire/whp-2023-continuous-conus/stac-collection.json",
+  "sci:citation": "Dillon, Gregory K. 2023. Wildfire Hazard Potential for the United States (270-m), version 2023. 4th Edition. Updated 17 July 2024. Fort Collins, CO: Forest Service Research Data Archive. https://doi.org/10.2737/RDS-2015-0047-4",
+  "source": "https://www.fs.usda.gov/rds/archive/catalog/RDS-2015-0047-4"
+ },
+ {
+  "collection": "public-fire/whp-2023-continuous-ak/stac-collection.json",
+  "sci:citation": "Dillon, Gregory K. 2023. Wildfire Hazard Potential for the United States (270-m), version 2023. 4th Edition. Updated 17 July 2024. Fort Collins, CO: Forest Service Research Data Archive. https://doi.org/10.2737/RDS-2015-0047-4",
+  "source": "https://www.fs.usda.gov/rds/archive/catalog/RDS-2015-0047-4"
+ },
+ {
+  "collection": "public-high-seas/ecs/stac-collection.json",
+  "sci:citation": "Flanders Marine Institute (VLIZ), Belgium. (2024). Maritime Boundaries Geodatabase: Extended Continental Shelves, version 2 [Dataset]. MDA. https://doi.org/10.14284/697",
+  "source": "doi.org formatted citation for 10.14284/697"
+ },
+ {
+  "collection": "public-ca30x30/ca-climate-zones/stac-collection.json",
+  "sci:citation": "Kling, M., & Ackerly Lab. (2026). matthewkling/climclust: v0.1.0 (Version v0.1.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.21890022",
+  "source": "doi.org formatted citation for 10.5281/zenodo.21890022"
+ },
+ {
+  "collection": "public-hazard/mid-century-habitat-climate-exposure/stac-collection.json",
+  "sci:citation": "Harrison, S., Franklin, J., Hernandez, R. R., Ikegami, M., Safford, H. D., & Thorne, J. H. (2024). Climate change and California’s terrestrial biodiversity. Proceedings of the National Academy of Sciences, 121(32). https://doi.org/10.1073/pnas.2310074121",
+  "source": "doi.org formatted citation for 10.1073/pnas.2310074121"
+ },
+ {
+  "collection": "public-connectivity/climate-migration-routes/stac-collection.json",
+  "sci:citation": "Schloss, C. A., Cameron, D. R., McRae, B. H., Theobald, D. M., & Jones, A. (2021). “No‐regrets” pathways for navigating climate change: planning for connectivity with land use, topography, and climate. Ecological Applications, 32(1). https://doi.org/10.1002/eap.2468",
+  "source": "doi.org formatted citation for 10.1002/eap.2468"
+ },
+ {
+  "collection": "public-connectivity/present-day-connectivity/flow/stac-collection.json",
+  "sci:citation": "Cameron, D. R., Schloss, C. A., Theobald, D. M., & Morrison, S. A. (2022). A framework to select strategies for conserving and restoring habitat connectivity in complex landscapes. Conservation Science and Practice, 4(6). https://doi.org/10.1111/csp2.12698",
+  "source": "doi.org formatted citation for 10.1111/csp2.12698"
+ },
+ {
+  "collection": "public-connectivity/present-day-connectivity/categories/stac-collection.json",
+  "sci:citation": "Cameron, D. R., Schloss, C. A., Theobald, D. M., & Morrison, S. A. (2022). A framework to select strategies for conserving and restoring habitat connectivity in complex landscapes. Conservation Science and Practice, 4(6). https://doi.org/10.1111/csp2.12698",
+  "source": "doi.org formatted citation for 10.1111/csp2.12698"
+ },
+ {
+  "collection": "public-bioclimate/chelsa-2-1/baseline-1981-2010/stac-collection.json",
+  "sci:citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2021). Climatologies at high resolution for the earth’s land surface areas (Version 2.1) [Dataset]. EnviDat. https://doi.org/10.16904/ENVIDAT.228",
+  "sci:doi": "10.16904/envidat.228",
+  "replace_doi": "10.1038/sdata.2017.122",
+  "sci:publications": [
+   {
+    "citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2017). Climatologies at high resolution for the earth’s land surface areas. Scientific Data, 4(1). https://doi.org/10.1038/sdata.2017.122",
+    "doi": "10.1038/sdata.2017.122"
+   }
+  ],
+  "source": "#822: CHELSA 2.1 is Karger et al. 2021 (EnviDat); the 2017 paper describes version 1"
+ },
+ {
+  "collection": "public-bioclimate/chelsa-2-1/ssp126-2011-2040/stac-collection.json",
+  "sci:citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2021). Climatologies at high resolution for the earth’s land surface areas (Version 2.1) [Dataset]. EnviDat. https://doi.org/10.16904/ENVIDAT.228",
+  "sci:doi": "10.16904/envidat.228",
+  "replace_doi": "10.1038/sdata.2017.122",
+  "sci:publications": [
+   {
+    "citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2017). Climatologies at high resolution for the earth’s land surface areas. Scientific Data, 4(1). https://doi.org/10.1038/sdata.2017.122",
+    "doi": "10.1038/sdata.2017.122"
+   }
+  ],
+  "source": "#822: CHELSA 2.1 is Karger et al. 2021 (EnviDat); the 2017 paper describes version 1"
+ },
+ {
+  "collection": "public-bioclimate/chelsa-2-1/ssp126-2041-2070/stac-collection.json",
+  "sci:citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2021). Climatologies at high resolution for the earth’s land surface areas (Version 2.1) [Dataset]. EnviDat. https://doi.org/10.16904/ENVIDAT.228",
+  "sci:doi": "10.16904/envidat.228",
+  "replace_doi": "10.1038/sdata.2017.122",
+  "sci:publications": [
+   {
+    "citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2017). Climatologies at high resolution for the earth’s land surface areas. Scientific Data, 4(1). https://doi.org/10.1038/sdata.2017.122",
+    "doi": "10.1038/sdata.2017.122"
+   }
+  ],
+  "source": "#822: CHELSA 2.1 is Karger et al. 2021 (EnviDat); the 2017 paper describes version 1"
+ },
+ {
+  "collection": "public-bioclimate/chelsa-2-1/ssp126-2071-2100/stac-collection.json",
+  "sci:citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2021). Climatologies at high resolution for the earth’s land surface areas (Version 2.1) [Dataset]. EnviDat. https://doi.org/10.16904/ENVIDAT.228",
+  "sci:doi": "10.16904/envidat.228",
+  "replace_doi": "10.1038/sdata.2017.122",
+  "sci:publications": [
+   {
+    "citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2017). Climatologies at high resolution for the earth’s land surface areas. Scientific Data, 4(1). https://doi.org/10.1038/sdata.2017.122",
+    "doi": "10.1038/sdata.2017.122"
+   }
+  ],
+  "source": "#822: CHELSA 2.1 is Karger et al. 2021 (EnviDat); the 2017 paper describes version 1"
+ },
+ {
+  "collection": "public-bioclimate/chelsa-2-1/ssp370-2011-2040/stac-collection.json",
+  "sci:citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2021). Climatologies at high resolution for the earth’s land surface areas (Version 2.1) [Dataset]. EnviDat. https://doi.org/10.16904/ENVIDAT.228",
+  "sci:doi": "10.16904/envidat.228",
+  "replace_doi": "10.1038/sdata.2017.122",
+  "sci:publications": [
+   {
+    "citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2017). Climatologies at high resolution for the earth’s land surface areas. Scientific Data, 4(1). https://doi.org/10.1038/sdata.2017.122",
+    "doi": "10.1038/sdata.2017.122"
+   }
+  ],
+  "source": "#822: CHELSA 2.1 is Karger et al. 2021 (EnviDat); the 2017 paper describes version 1"
+ },
+ {
+  "collection": "public-bioclimate/chelsa-2-1/ssp370-2041-2070/stac-collection.json",
+  "sci:citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2021). Climatologies at high resolution for the earth’s land surface areas (Version 2.1) [Dataset]. EnviDat. https://doi.org/10.16904/ENVIDAT.228",
+  "sci:doi": "10.16904/envidat.228",
+  "replace_doi": "10.1038/sdata.2017.122",
+  "sci:publications": [
+   {
+    "citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2017). Climatologies at high resolution for the earth’s land surface areas. Scientific Data, 4(1). https://doi.org/10.1038/sdata.2017.122",
+    "doi": "10.1038/sdata.2017.122"
+   }
+  ],
+  "source": "#822: CHELSA 2.1 is Karger et al. 2021 (EnviDat); the 2017 paper describes version 1"
+ },
+ {
+  "collection": "public-bioclimate/chelsa-2-1/ssp370-2071-2100/stac-collection.json",
+  "sci:citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2021). Climatologies at high resolution for the earth’s land surface areas (Version 2.1) [Dataset]. EnviDat. https://doi.org/10.16904/ENVIDAT.228",
+  "sci:doi": "10.16904/envidat.228",
+  "replace_doi": "10.1038/sdata.2017.122",
+  "sci:publications": [
+   {
+    "citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2017). Climatologies at high resolution for the earth’s land surface areas. Scientific Data, 4(1). https://doi.org/10.1038/sdata.2017.122",
+    "doi": "10.1038/sdata.2017.122"
+   }
+  ],
+  "source": "#822: CHELSA 2.1 is Karger et al. 2021 (EnviDat); the 2017 paper describes version 1"
+ },
+ {
+  "collection": "public-bioclimate/chelsa-2-1/ssp585-2011-2040/stac-collection.json",
+  "sci:citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2021). Climatologies at high resolution for the earth’s land surface areas (Version 2.1) [Dataset]. EnviDat. https://doi.org/10.16904/ENVIDAT.228",
+  "sci:doi": "10.16904/envidat.228",
+  "replace_doi": "10.1038/sdata.2017.122",
+  "sci:publications": [
+   {
+    "citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2017). Climatologies at high resolution for the earth’s land surface areas. Scientific Data, 4(1). https://doi.org/10.1038/sdata.2017.122",
+    "doi": "10.1038/sdata.2017.122"
+   }
+  ],
+  "source": "#822: CHELSA 2.1 is Karger et al. 2021 (EnviDat); the 2017 paper describes version 1"
+ },
+ {
+  "collection": "public-bioclimate/chelsa-2-1/ssp585-2041-2070/stac-collection.json",
+  "sci:citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2021). Climatologies at high resolution for the earth’s land surface areas (Version 2.1) [Dataset]. EnviDat. https://doi.org/10.16904/ENVIDAT.228",
+  "sci:doi": "10.16904/envidat.228",
+  "replace_doi": "10.1038/sdata.2017.122",
+  "sci:publications": [
+   {
+    "citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2017). Climatologies at high resolution for the earth’s land surface areas. Scientific Data, 4(1). https://doi.org/10.1038/sdata.2017.122",
+    "doi": "10.1038/sdata.2017.122"
+   }
+  ],
+  "source": "#822: CHELSA 2.1 is Karger et al. 2021 (EnviDat); the 2017 paper describes version 1"
+ },
+ {
+  "collection": "public-bioclimate/chelsa-2-1/ssp585-2071-2100/stac-collection.json",
+  "sci:citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2021). Climatologies at high resolution for the earth’s land surface areas (Version 2.1) [Dataset]. EnviDat. https://doi.org/10.16904/ENVIDAT.228",
+  "sci:doi": "10.16904/envidat.228",
+  "replace_doi": "10.1038/sdata.2017.122",
+  "sci:publications": [
+   {
+    "citation": "Karger, D. N., Conrad, O., Böhner, J., Kawohl, T., Kreft, H., Soria-Auza, R. W., Zimmermann, N. E., Linder, H. P., & Kessler, M. (2017). Climatologies at high resolution for the earth’s land surface areas. Scientific Data, 4(1). https://doi.org/10.1038/sdata.2017.122",
+    "doi": "10.1038/sdata.2017.122"
+   }
+  ],
+  "source": "#822: CHELSA 2.1 is Karger et al. 2021 (EnviDat); the 2017 paper describes version 1"
+ },
+ {
+  "collection": "public-human-modification/stac-collection.json",
+  "sci:citation": "Kennedy, C. M., Oakleaf, J., Theobald, D. M., Baruch-Mordo, S., & Kiesecker, J. (2018). Global Human Modification [Dataset]. figshare. https://doi.org/10.6084/M9.FIGSHARE.7283087",
+  "sci:publications": [
+   {
+    "citation": "Kennedy, C. M., Oakleaf, J. R., Theobald, D. M., Baruch‐Mordo, S., & Kiesecker, J. (2019). Managing the middle: A shift in conservation priorities based on the global human modification gradient. Global Change Biology, 25(3), 811–826. https://doi.org/10.1111/gcb.14549",
+    "doi": "10.1111/gcb.14549"
+   }
+  ],
+  "provider_rename": {
+   "David M. Theobald et al.": "The Nature Conservancy (Kennedy, Oakleaf, Theobald, Baruch-Mordo and Kiesecker)"
+  },
+  "source": "figshare record; #822"
+ },
+ {
+  "collection": "public-dem/copernicus-glo90/stac-collection.json",
+  "sci:citation": "European Space Agency. (2022). Copernicus DEM: Copernicus Global Digital Elevation Model (GLO-90) [Data set]. https://doi.org/10.5270/ESA-c5d3d65",
+  "constructed": true,
+  "source": "DataCite record for 10.5270/ESA-c5d3d65 (no author list)"
+ },
+ {
+  "collection": "public-storms/ibtracs-v04r01/points/stac-collection.json",
+  "sci:citation": "Gahtan, J., K. R. Knapp, C. J. Schreck, H. J. Diamond, J. P. Kossin, M. C. Kruk, 2024: International Best Track Archive for Climate Stewardship (IBTrACS) Project, Version 4r01. NOAA National Centers for Environmental Information. doi:10.25921/82ty-9e16",
+  "sci:publications": [
+   {
+    "citation": "Knapp, K. R., M. C. Kruk, D. H. Levinson, H. J. Diamond, and C. J. Neumann, 2010: The International Best Track Archive for Climate Stewardship (IBTrACS): Unifying tropical cyclone best track data. Bulletin of the American Meteorological Society, 91, 363-376.",
+    "doi": "10.1175/2009BAMS2755.1"
+   }
+  ],
+  "source": "https://www.ncei.noaa.gov/products/international-best-track-archive"
+ },
+ {
+  "collection": "public-storms/ibtracs-v04r01/lines/stac-collection.json",
+  "sci:citation": "Gahtan, J., K. R. Knapp, C. J. Schreck, H. J. Diamond, J. P. Kossin, M. C. Kruk, 2024: International Best Track Archive for Climate Stewardship (IBTrACS) Project, Version 4r01. NOAA National Centers for Environmental Information. doi:10.25921/82ty-9e16",
+  "sci:publications": [
+   {
+    "citation": "Knapp, K. R., M. C. Kruk, D. H. Levinson, H. J. Diamond, and C. J. Neumann, 2010: The International Best Track Archive for Climate Stewardship (IBTrACS): Unifying tropical cyclone best track data. Bulletin of the American Meteorological Society, 91, 363-376.",
+    "doi": "10.1175/2009BAMS2755.1"
+   }
+  ],
+  "source": "https://www.ncei.noaa.gov/products/international-best-track-archive"
+ },
+ {
+  "collection": "public-ncp/biodiversity-indicators/stac-collection.json",
+  "sci:citation": "Chaplin-Kramer, R., Sharp, R. P., Weil, C., Bennett, E. M., Pascual, U., Arkema, K. K., Brauman, K. A., Bryant, B. P., Guerry, A. D., Haddad, N. M., Hamann, M., Hamel, P., Johnson, J. A., Mandle, L., Pereira, H. M., Polasky, S., Ruckelshaus, M., Shaw, M. R., Silver, J. M., et al. (2019). Global modeling of nature’s contributions to people. Science, 366(6462), 255–258. https://doi.org/10.1126/science.aaw3372",
+  "sci:publications": [
+   {
+    "citation": "Chaplin-Kramer, R., Sharp, R. P., Weil, C., Bennett, E. M., Pascual, U., Arkema, K. K., Brauman, K. A., Bryant, B. P., Guerry, A. D., Haddad, N. M., Hamann, M., Hamel, P., Johnson, J. A., Mandle, L., Pereira, H. M., Polasky, S., Ruckelshaus, M., Shaw, M. R., Silver, J. M., et al. (2019). Global modeling of nature’s contributions to people. Science, 366(6462), 255–258. https://doi.org/10.1126/science.aaw3372",
+    "doi": "10.1126/science.aaw3372"
+   }
+  ],
+  "link_href_fix": {
+   "https://doi.org/10.1126/science.awx9597": "https://doi.org/10.1126/science.aaw3372"
+  },
+  "source": "#822: the source link's DOI 10.1126/science.awx9597 returns 404; the paper is 10.1126/science.aaw3372"
+ }
+]
