@@ -20,8 +20,9 @@
 # is the land plus the territorial sea (China: 9.73M km2 maritime, 9.39M km2 land), so without
 # it the maritime fill covers the land. The style and asset descriptions say so. Fill opacity is 1, so the land is not tinted by the blue beneath it.
 #   (after the first publish) scripts/thumbnail.py <live collection url> --out $OUT
+#   kubectl delete configmap default-styles-881 -n geo-workflows --ignore-not-found   # apply overflows the annotation limit with PNGs
 #   kubectl create configmap default-styles-881 -n geo-workflows --from-file=paths.txt=... --from-file=<key>=<file> ... \
-#     --from-file=guard.py=scripts/stac-publish-guard.py --dry-run=client -o yaml | kubectl apply -f -
+#     --from-file=guard.py=scripts/stac-publish-guard.py
 #   kubectl delete job -n geo-workflows default-styles-881 --ignore-not-found
 #   kubectl create -f catalog/default-styles-881/publish-job.yaml
 apiVersion: batch/v1
