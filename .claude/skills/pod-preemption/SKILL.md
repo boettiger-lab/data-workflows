@@ -100,6 +100,7 @@ Weigh both every time.
 1. **Pods expected to run under about an hour use `priorityClassName: opportunistic`.** This covers setup-bucket jobs, daily CronJob runs, and fan-outs whose units are short. These pods are exempt from the usage check, and their preemption exposure is small.
 2. **Split long work into short units where that is practical**, so it can run at `opportunistic`. This is the same advice as "shorten the pods" below, now with a second reason.
 3. **Pods that must run long use default priority, sized to measured use.**
+   - Default priority means **leaving `priorityClassName` out**. Writing `priorityClassName: default` is refused at submission (`exceeded quota: high-priority-ban`, checked 2026-11-17 by server-side dry-run in `geo-workflows`), and NRP's ban quotas list other classes too (`kubectl -n geo-workflows get resourcequota high-priority-ban low-priority-ban -o yaml`).
    - Keep use within the ranges above, with the limit no more than 1.2× the request.
    - Measure first: run one unit, or watch `kubectl top pod` on the first pods.
    - Check again about 30 minutes after launch, before the portal's first check.
