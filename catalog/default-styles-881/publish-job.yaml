@@ -14,7 +14,7 @@
 #     --labels '{"true":"Montreux Record","false":"Not listed"}' --why "..." --out $OUT
 #   scripts/default-style.py build .../public-overturemaps/2026-02-18.0/{countries,regions}/stac-collection.json \
 #     --asset {countries,regions}-pmtiles --column class --kind categorical \
-#     --colors '{"land":"#a6bddb","maritime":"#d0e6f5"}' --labels '{"land":"Land","maritime":"Territorial waters"}' --why "..." --out $OUT
+#     --colors '{"land":"#e3d5b0","maritime":"#9ecae1"}' --labels '{"land":"Land","maritime":"Territorial waters"}' --why "..." --out $OUT
 #   (after the first publish) scripts/thumbnail.py <live collection url> --out $OUT
 #   kubectl create configmap default-styles-881 -n geo-workflows --from-file=paths.txt=... --from-file=<key>=<file> ... \
 #     --from-file=guard.py=scripts/stac-publish-guard.py --dry-run=client -o yaml | kubectl apply -f -
