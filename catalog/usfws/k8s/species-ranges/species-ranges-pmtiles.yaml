@@ -1,5 +1,6 @@
-# DEVIATION from generated output (#944): memory 12Gi request / 14Gi limit, not 32Gi. The first run
-# used 4.2 GiB at 30 min (13% of 32Gi, under NRP's 20% usage floor, #804).
+# DEVIATION from generated output (#944): memory 12Gi request / 14Gi limit and 1 CPU, not 32Gi and 4.
+# Measured: 4.2 GiB at 30 min (13% of 32Gi) and 0.3 of 4 cores (8%) while ogr2ogr reads the source,
+# both under NRP's 20% usage floor (#804); a request of 1 CPU is not checked.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -89,10 +90,10 @@ spec:
           rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles
         resources:
           requests:
-            cpu: '4'
+            cpu: '1'
             memory: 12Gi
           limits:
-            cpu: '4'
+            cpu: '1'
             memory: 14Gi
       volumes:
       - name: rclone-config
