@@ -1,0 +1,40 @@
+[
+ {
+  "path": "public-barred-owl/README.md",
+  "replace": [
+   [
+    "# Barred Owl Prioritization Tool — cloud-native mirror",
+    "# Barred Owl Prioritization Platform — cloud-native mirror"
+   ],
+   [
+    "Cloud-native mirror of the **Barred Owl Tool**",
+    "Cloud-native mirror of the **Barred Owl Prioritization Platform**"
+   ],
+   [
+    "**Zonation** systematic-conservation-planning algorithm.",
+    "**prioritizr** R package for systematic conservation planning."
+   ],
+   [
+    "The Zonation **priority score**",
+    "The prioritizr **priority score**"
+   ],
+   [
+    "| `prio_score` | Zonation priority rank for the cell under this scenario |",
+    "| `prio_score` | prioritizr relative importance (0–1, from `eval_rank_importance`) for the cell under this scenario |"
+   ]
+  ]
+ },
+ {
+  "path": "public-calenviroscreen/README.md",
+  "replace": [
+   [
+    "indicators (Children's Lead Risk from Housing and Small Air Toxic Sites) compared to\nversion 4.1.",
+    "indicators (Small Air Toxic Sites and Diabetes Prevalence) compared to version 4.0.\n\n**Draft, not final:** OEHHA published the final CalEnviroScreen 5.0 on 2026-06-16\n(<https://data.ca.gov/dataset/calenviroscreen-5-0>). This is the January 2026 draft, whose\nscores may differ from the final."
+   ]
+  ]
+ },
+ {
+  "path": "public-rivers/american-rivers/ira-watersheds/README.md",
+  "content": "# Drinking Water Watersheds Influenced by Inventoried Roadless Areas\n\nHUC12 watersheds that supply surface drinking water and are influenced by USDA Forest Service\nInventoried Roadless Areas (IRAs, the areas covered by the 2001 Roadless Area Conservation\nRule), compiled by American Rivers. Here IRA means Inventoried Roadless Area, not the Inflation\nReduction Act.\n\n**9,991 HUC12 watersheds** | Polygon | 37 states (7 records have no state)\n\nSource: American Rivers, ArcGIS item\n<https://www.arcgis.com/home/item.html?id=6d74d3f1f8d047dd9295467d7671b774>, published with the\n2001 roadless areas, national forests and wilderness areas.\n\n## Files\n\n| Format | URL |\n|--------|-----|\n| GeoParquet | `https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/ira-watersheds.parquet` |\n| PMTiles | `https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/ira-watersheds.pmtiles` |\n| H3 hex (res 8) | `https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/ira-watersheds/hex/h0=*/data_0.parquet` |\n\n**PMTiles source-layer name:** `ira-watersheds`\n\n## Columns\n\nAmerican Rivers publishes no field definitions. Five columns carry the names of USDA Forest\nService Forests to Faucets 2.0 fields\n([field definitions](https://data.fs.usda.gov/geodata/edw/edw_resources/meta/Hydro_F2F2_HUC12.xml));\nwhether American Rivers carried their values over unchanged is not documented.\n\n| Column | Forests to Faucets 2.0 meaning |\n|--------|--------------------------------|\n| HUC12 | 12-digit Hydrologic Unit Code |\n| APCW | Ability to Produce Clean Water (values here run 4 to 64) |\n| IMP | Important Areas for Surface Drinking Water, raw value |\n| POP_DS | Surface drinking-water population downstream of the HUC12; cannot be summed across watersheds |\n| SUM_POP | Surface-water consumers served by intakes in the HUC12 |\n\n`HUC_12_NPR` holds the HUC12 code as text. **BG, BW, FF, MB, SR, IDX**, and the `_NR` and `_SR`\nvariants of every score, are not defined by either source; their meaning is unknown.\n\n## DuckDB example\n\n```sql\nINSTALL httpfs; LOAD httpfs;\nSELECT STATE, COUNT(*) AS watersheds\nFROM read_parquet('https://s3-west.nrp-nautilus.io/public-rivers/american-rivers/ira-watersheds.parquet')\nGROUP BY STATE ORDER BY watersheds DESC;\n```\n"
+ }
+]
