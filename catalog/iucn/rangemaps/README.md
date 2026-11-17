@@ -2,6 +2,11 @@
 
 Raw polygon range map data from the IUCN Red List.
 
+**Superseded.** This layout (`raw/rangemaps/`, downloaded 2026-01-23) was removed on 2026-05-28.
+The range maps now come from Red List 2025-2 and BirdLife 2025, staged under `raw/ranges/`; see
+`https://s3-west.nrp-nautilus.io/public-iucn/raw/ranges/README.md`. The edition below is what the
+removed files were recorded as.
+
 ## Location
 
 **S3 Bucket:** `nrp:public-iucn/raw/rangemaps/`  
