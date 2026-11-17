@@ -1508,7 +1508,7 @@ NON_DATA_ROLES = {"style", "thumbnail", "metadata", "overview"}
 
 def check_tree(doc: dict, fetch=_fetch_style) -> list[Finding]:
     """Nested catalogs, flat collections (#762, PORTO-CORE-004/014/018): a node with children
-    holds no data assets itself, and a node's `parent` lists it as a child. A parent that
+    holds no data assets itself and is typed Catalog, and a node's `parent` lists it as a child. A parent that
     cannot be read is ADVISORY."""
     out = []
     links = doc.get("links", [])
@@ -1521,6 +1521,10 @@ def check_tree(doc: dict, fetch=_fetch_style) -> list[Finding]:
         out.append(Finding(HARD, "tree-mixed-node",
                            f"node has {len(children)} children and data assets {data[:5]}; move the "
                            f"data into a child collection so grouping nodes are Catalogs (#762)"))
+    elif children and doc.get("type") != "Catalog":
+        out.append(Finding(HARD, "tree-inner-collection",
+                           f"node has {len(children)} children but type {doc.get('type')!r}; a "
+                           f"grouping node is a Catalog (#762, #957): run scripts/to-catalog.py"))
     parent = next((l.get("href") for l in links if l.get("rel") == "parent"), None)
     if parent and me:
         pu = urllib.parse.urljoin(me, parent)
