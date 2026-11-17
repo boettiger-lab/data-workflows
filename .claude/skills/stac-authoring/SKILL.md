@@ -132,23 +132,49 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
 
 **stac-collection.json MUST include:**
 
-- **License — REQUIRED on every collection.** Set the top-level STAC `license` field to the **SPDX identifier** of the upstream data license (e.g. `CC-BY-4.0`, `CC-BY-NC-4.0`, `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`). Use `"other"` **only** when no SPDX id applies, and `"various"` **only** for a meta-collection whose children genuinely differ — never as a lazy default. For `other`/`various` (and recommended for all), add a license link: `{"rel": "license", "href": "<canonical terms URL>", "type": "text/html"}`. **Exception — a meta-collection (one with `child` links) may use `various`/`other` WITHOUT a license link:** its real licenses live on the child collections (each carrying + verified for its own license), and redistribution gating (source.coop excludes, etc.) keys on those per-child licenses, not the parent. A single parent-level link would misrepresent genuinely mixed children. `verify-stac.py` enforces the link only on **leaf** collections (and always for `proprietary`). **Verify the real upstream terms — do not guess `proprietary`.** The license drives redistribution decisions (e.g. whether a dataset may be mirrored to source.coop); a wrong value is a compliance risk. NonCommercial / ShareAlike licenses are fine but MUST be recorded as such (`CC-BY-NC-*`, `CC-BY-SA-*`) so downstream users aren't misled. US federal works = `public-domain`.
-
-- **Directly contributed data with no published terms — you are the one who states them.** A
-  dataset handed over by a colleague with **no citation, no attribution, and no URL** has a
-  *complete* provenance: there is nothing upstream to find. Do not treat it as missing metadata
-  to backfill, and do not invent a terms URL to clear the gate. But `proprietary` without a
-  `{"rel": "license"}` link is a HARD finding, and no upstream page exists to link — the rule
-  assumes one always does, so the gate is otherwise unsatisfiable. The resolution: **publish the
-  terms statement beside the data** (`s3://<bucket>/<dataset>/LICENSE.md`) and link that, exactly
-  as #417 treats a stored raw + checksum as the provenance when no stable public link exists.
-  The document must **grant nothing** — it records what was and was not given: contributed
-  directly, no public source, no citation, no named attribution, no redistribution right, reuse
-  elsewhere needs the owner's permission. Keep `license: "proprietary"`, which is the correct
-  advisory signal to the mirror-scope auditor (no grant → not mirrored). `verify-stac.py` reports
-  `license-terms-self-hosted` (ADVISORY) whenever a license link resolves to our own bucket, so
-  the special case stays visible and is never mistaken for a verified upstream grant. Worked
-  example: `high-seas/mpa-candidates` (#579).
+- **License — REQUIRED on every collection: an accurate SPDX `license` plus a `{"rel": "license"}` link.**
+  The licence is the whole of this repo's say in redistribution: the mirror tier routes on it, so a
+  wrong value over- or under-publishes data.
+  - **Use the SPDX id upstream actually granted, with evidence** (`CC-BY-4.0`, `CC-BY-NC-4.0`,
+    `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`; US federal works are `public-domain`).
+    NonCommercial and ShareAlike are fine but must be recorded as such. Never guess `proprietary`.
+  - **The test is decidability:** a reader must be able to tell whether we may redistribute, and
+    under what restrictions. An SPDX id settles it alone. A placeholder (`other`, `various`,
+    `proprietary`) settles nothing alone: it needs a licence link that IS the terms document
+    (WDPA's `protectedplanet.net/en/legal`) or a description that states the terms
+    (`license-terms-not-stated`, ADVISORY, #651). Use `other` only when no SPDX id applies, and
+    `various` only for a meta-collection whose children genuinely differ. A meta-collection (one
+    with `child` links) may omit the link, since each child carries its own; `verify-stac.py`
+    requires it on leaf collections, and always for `proprietary`.
+  - **Unconfirmed or ungranted terms are stated plainly**, including "no grant has been located".
+    Never assert an SPDX id upstream did not grant, and never name a `licensor` when no licence was
+    granted (`rivers/american-rivers/*` asserted `CC-BY-4.0` with no licensor;
+    `hazard/mid-century-habitat-climate-exposure` asserts it while its description says the terms
+    "require confirmation"). Do not invent a terms URL to clear the gate: if no public terms page
+    exists, the finding stands, and the facts go in the description and the issue.
+  - **One terms page grants one thing.** Two collections citing the same licence URL declare the
+    same `license` (`license-inconsistent-for-terms`, ADVISORY; `wdpa` and `wdoecm-may-2026` cite
+    the same Protected Planet page as `proprietary` and `other`).
+  - **Match the provider's access model; never exceed it.** "No redistribution", "non-commercial
+    only" or "academic use only" are not reasons to keep data out of a public bucket. If the
+    provider serves open downloads under written terms alone (UNEP-WCMC, Protected Planet/WDPA),
+    host it in an ordinary `public-*` bucket and let the licence travel with the data (field, link,
+    terms in the description). If the provider requires a login before the first download, the data
+    goes behind an equivalent gate here, and that is a scoping question for the issue.
+  - **Obligations on the licensee are Carl's, as PI** ("notify the Director", "request permission
+    for commercial use", "cite as …"). State them in the description and note them in the issue
+    for Carl. Do not block the build on them or treat a published layer as a breach.
+  - **One exception: data contributed directly to us, where no terms were ever published.** No
+    citation, no attribution and no URL is a complete provenance, not missing metadata, and the
+    link rule would otherwise be unsatisfiable. Publish a terms statement beside the data
+    (`s3://<bucket>/<dataset>/LICENSE.md`) and link it. It must **grant nothing**: it records that
+    the data was contributed directly, with no public source, citation or named attribution, no
+    redistribution right, and reuse elsewhere needing the owner's permission. Keep
+    `license: "proprietary"` (no grant, so not mirrored). `verify-stac.py` reports
+    `license-terms-self-hosted` (ADVISORY) for any licence link into our own bucket, so this is
+    never mistaken for an upstream grant. Worked example: `high-seas/mpa-candidates` (#579). This
+    licenses no guessing elsewhere: for data with a real publisher, an absent terms page leaves
+    the finding standing.
 
 - **Provenance — record the access date and the staged raw's fingerprint (#417).** A provenance
   *chain* (`rel: about` to the landing page, `rel: source` to where you actually read it,
