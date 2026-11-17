@@ -174,8 +174,8 @@ kubectl -n geo-workflows get jobs | grep <name>
 - Child job pods run as the `default` SA, **hardened to mount no k8s token** (they need only S3).
 - `rechunk-scratch` PVC (2Ti RWX) for >50Gi scratch (binds once Ceph is healthy).
 - **No enforced ResourceQuota** — but keep the good-practice targets anyway:
-  **≤200 simultaneous pods** and **~50Gi ephemeral per job** (`limits.ephemeral-storage`;
-  a default, not an enforced max — see below),
+  **≤200 simultaneous pods** and **~50Gi ephemeral per job** (a default, not an enforced
+  max; skill `job-troubleshooting`),
   especially on large-completion fan-out jobs. Oversubscribing is antisocial on shared nodes.
 
 **Credentials you have, and the only two you ever need:**
@@ -640,36 +640,12 @@ the whole point.
 
 - **Do not process data locally.** CLI generates YAML; the cluster does the work.
 - **Do not modify `cng_datasets/` source.** File an issue (see Hard Boundary 2).
-- **Ephemeral is requestable well past the 50Gi default, but the two eviction modes differ —
-  only one is fixed by raising it.** A *limit* eviction (`usage exceeds the total limit of
-  containers <N>`) means the pod passed its own declared limit: unconditional, priority
-  irrelevant, raise the limit. A *node DiskPressure* eviction means the node ran short, and
-  the kubelet picks victims in **priority order** — so a large ephemeral request and
-  `priorityClassName: opportunistic` compound badly. If you raise ephemeral, do not also run
-  at opportunistic (see the pod-preemption skill). Verified 2026-09-13 by server-side
-  admission: 80Gi, 200Gi and 1Ti are all admitted in **both** `geo-workflows` and
-  `biodiversity`; neither namespace's LimitRange carries a `max`, and no ResourceQuota in
-  either mentions ephemeral. The real ceiling is node free space, not policy.
-- **Coming: Armada on 4x GB10 nodes, each with ~4 TB of local/ephemeral storage, largely
-  free.** That changes the calculus recorded here. Today, scratch-heavy raster work is
-  constrained by shared-node disk and must be sized carefully; on that hardware the
-  constraint largely disappears, and Armada becomes the natural home for scratch-heavy and
-  finely-chunked work (datasets#173) rather than a way to escape the k8s completion cap.
-  Until then, size ephemeral from the intermediate and keep priority at default.
-- ⛔ **An ephemeral eviction is indistinguishable from an OOM in `kubectl get pods`.** Both
-  report **exit 137** with `ContainerStatusUnknown` or `Error`. Only `kubectl describe pod`
-  reveals it: `Reason: Evicted` / `Pod ephemeral local storage usage exceeds the total limit
-  of containers`. **If pods die at 137 while sitting far below their memory limit, check
-  ephemeral before touching memory** — on #515 five fvc pods died at 21–23 GiB of a 128 GiB
-  limit and the memory request was raised twice for nothing.
-  **Size hex ephemeral from the localized COG plus margin.** The full-grid fill-collapse
-  intermediate that evicted #515 (34 GB per pod on a 4.3 GB LANDFIRE COG) is gone since
-  datasets#209: with several `--nodata` codes an **integer** source is collapsed as a VRT
-  lookup table (no raster written), and only a **float** source materialises a
-  ZSTD-compressed copy; a single nodata code needs no collapse
-  (`_collapsed_aggregation_input`, `cng_datasets/raster/cog.py`). The multi-tile mosaic
-  (preprocess-cog) has written compressed, sparse intermediates since 0.11.3 (datasets#277).
-- **Keep ephemeral-storage modest.** Generator defaults: hex 10Gi (vector) / 20Gi (raster, `--hex-storage`), preprocess-cog 50Gi (`--cog-storage`), repartition 50Gi, raster merge 100Gi (`--merge-storage`). 50Gi is a good default and what most jobs need. It is **not a hard cap** in `geo-workflows`: the LimitRange there sets `default: 50Gi` with `max` empty, so a larger request is legal and passes validation. (The 50Gi *clamp* was the legacy `biodiversity` namespace, which these jobs no longer run in.) Go above 50Gi only with a reason recorded in the manifest — `wrc-2` warps a striped CONUS source at 60Gi (#592) — and keep it courteous on shared nodes.
+- **Ephemeral storage defaults to 50Gi, and that is not a cap.** A larger request is admitted;
+  the real ceiling is node free disk. Go above 50Gi only with a reason recorded in the manifest.
+  ⛔ **An ephemeral eviction looks exactly like an OOM** (exit 137) in `kubectl get pods`: if pods
+  die far below their memory limit, `kubectl describe pod` and check ephemeral before touching
+  memory. Sizing, the two eviction modes, and when to use the scratch PVC: **skill
+  `job-troubleshooting`**.
 - **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
 - **Do not record operational/how-to-work lessons in agent memory (`~/.claude/.../memory`).** This repo is cloned and run by students — and soon by always-on headless agents (Hermes/openclaw). Anything that should shape how tasks run here belongs in **this AGENTS.md or a local skill (`.claude/skills/`)**, so every clone and headless run behaves the same. A lesson saved only to one VM's memory silently diverges your experience from everyone else's. (Memory remains fine for genuinely personal, non-shareable session context.)
 
