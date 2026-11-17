@@ -90,7 +90,7 @@ Weigh both every time.
 - A running pod is outside the policy when its use falls outside these ranges of its request: memory 20–150%, CPU 20–200%, GPU above 40%.
 - Memory is checked only on pods requesting more than 2 GiB. CPU is checked only on pods requesting more than 1 core.
 - **Exempt:** opportunistic (negative-priority) pods, JupyterHub pods, and pods younger than 30 minutes. The portal checks every 10 minutes.
-- A user may have **at most 4 pods outside the ranges, across all namespaces**. Over that, NRP's admission webhook `deployment.nrp-nautilus.io` denies every Deployment change on the account with `Your pods resources utilization is too low for account …`. Namespaces that keep over-requesting risk a ban.
+- **Our rule is zero pods outside the ranges, at all times.** NRP tolerates up to 4 across the account as a grace, not an allowance: over 4, its admission webhook `deployment.nrp-nautilus.io` denies every Deployment change on the account with `Your pods resources utilization is too low for account …`, and violating regularly, even within the grace, can get the account banned. Any out-of-range pod is an incident to fix at once.
 - A separate admission policy, `container-must-meet-memory-and-cpu-ratio`, caps limit/request at **1.2** for CPU and for memory. A memory limit of 1.5× the request was rejected, and 1.2× passed.
 
 **What it cost.** On 2026-10-26, `crw-5km-daily-backfill` (#802) ran 10 default-priority pods requesting 16Gi each and using 0.9–2.5Gi, which is 6–16% of the request. That blocked a global-30x30 rollout until the job was suspended. The 16Gi came straight from the generator's default.
@@ -240,8 +240,8 @@ makes the audit unnecessary.
 - [ ] Estimate pod runtime. Under ~1 hour → `opportunistic`. Over ~1 hour → default priority,
       or split the work so it fits under an hour.
 - [ ] At default priority: size memory and CPU requests to measured use (memory 20–150%, CPU
-      20–200%, limit ≤ 1.2× request), and check `kubectl top pod` ~30 min after launch. Keep
-      under 4 pods outside those ranges across the account.
+      20–200%, limit ≤ 1.2× request), and check `kubectl top pod` ~30 min after launch. No pod
+      may be outside those ranges; fix any that is at once.
 - [ ] Set parallelism to keep the total node claim reasonable as priority rises.
 - [ ] `backoffLimitPerIndex` + `maxFailedIndexes` so a partial run surfaces as `Failed`
       (AGENTS.md #409) — never `backoffLimit: 0` on a fan-out.
