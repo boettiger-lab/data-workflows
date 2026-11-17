@@ -315,30 +315,13 @@ Add `--layer <LayerName>` for multi-layer sources (one workflow per layer). The 
 cng-datasets workflow ... --h3-resolution 8 --parent-resolutions "0" \
   --max-completions <N-features> --backend armada ...
 ```
-With `--backend armada` the CLI emits armada YAMLs for all steps alongside k8s manifests. Submit in order manually (no orchestrator):
-```bash
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-setup-bucket.yaml
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-convert.yaml
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-plan.yaml      # if emitted (cells-per-chunk plan, #124)
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-pmtiles.yaml
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml
-# wait for hex, then:
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-repartition.yaml
-```
-Monitor: **https://armada-lookout.nrp-nautilus.io**
+With `--backend armada` (or `auto`) the CLI emits `armada-<name>-<step>.yaml` for every step
+alongside the k8s manifests, and you submit them in order by hand.
 
-⛔ **Load this before your first `armadactl` command, not after it hangs** — auth is a device-code
-flow, not the documented PKCE one, and the code expires in 60 seconds. That, install/config, the
-queue-to-namespace mapping, priority classes, and when to microslice: **skill `armada-pipeline`**.
-
-Convert an existing k8s hex YAML to Armada (for rechunking):
-```python
-from cng_datasets.k8s.armada import k8s_indexed_job_to_armada, save_armada_yaml
-import yaml
-with open('<name>-hex.yaml') as f: job_spec = yaml.safe_load(f)
-armada_spec = k8s_indexed_job_to_armada(job_spec, queue='geo-workflows', job_set_id='<name>-hex')
-save_armada_yaml(armada_spec, 'armada-<name>-hex.yaml')
-```
+⛔ **Load skill `armada-pipeline` before your first `armadactl` command, not after it hangs** —
+auth is a device-code flow, not the documented PKCE one, and the code expires in 60 seconds. It
+also has the submit order, converting an existing manifest, priority classes, NRP's 6-hour pod
+limit, gap-fill, and when to microslice.
 
 #### Raster
 
@@ -546,8 +529,6 @@ for d in dataset-a dataset-b dataset-c; do
   kubectl wait -n geo-workflows job/$d-workflow --for=condition=complete --timeout=7200s
 done
 ```
-
-With armada, submit freely — chunk-size 1 (one pod per feature) eliminates "one slow pod blocks everything."
 
 ⛔ **Pod count is not what decides whether those pods survive; priority and runtime do.** Pods
 under ~1 hour run at `opportunistic`. At that priority a long pod is preempted and silently

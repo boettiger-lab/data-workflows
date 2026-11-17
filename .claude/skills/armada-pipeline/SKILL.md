@@ -263,7 +263,17 @@ credential into a submitted spec.
 
 **Preferred: generate it.** `--backend armada` (or `--backend auto`) on `workflow` /
 `raster-workflow` converts every step as it generates, emitting `armada-<name>-<step>.yaml`
-alongside the k8s manifests. Submit each in order with `armadactl submit`.
+alongside the k8s manifests. There is no orchestrator; submit each in order, waiting for hex
+before repartition:
+
+```bash
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-setup-bucket.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-convert.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-plan.yaml      # if emitted (cells-per-chunk plan, #124)
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-pmtiles.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-repartition.yaml   # after hex finishes
+```
 
 **Converting a manifest you already have:**
 
@@ -340,25 +350,9 @@ Unschedulable jobs:
 Actual usage was **peak 5.2 Gi** and a **mean of 3.3 cores**. Right-size both dimensions — see
 the `hex-tuning` skill for the measurement recipe and the bimodal-profile caveat.
 
-**Treat memory as the resource to be most conservative about.** Cores are comparatively elastic:
-a node with spare CPU can usually take another pod, and a slice that wants fewer cores simply runs
-a little longer. Memory is not elastic — a node either has the gigabytes free or it cannot host
-the pod at all, so the memory request is what decides how many placement slots exist for your work
-at all. Size cpu honestly too, but if you have to be wrong in one direction, be tight on memory.
-
-Two forward-looking reasons this matters beyond today's cluster:
-
-- **Federation.** Armada can schedule across clusters, and another cluster may have no large-RAM
-  nodes even if its Armada limits are configured differently. A slice that needs 8 Gi is portable
-  to anywhere; one that needs 64 Gi is placeable only where big nodes exist, which forfeits the
-  main thing Armada offers.
-- **The controller-less cap.** NRP already refuses anything over 32 GB (above), so memory is the
-  dimension with a hard wall, not merely a soft contention cost.
-
-⚠️ Do **not** conclude "cpu binds, not memory" from a small change in concurrency after
-right-sizing memory. We briefly drew that inference from concurrency moving 28 → 31 pods, then
-found both figures had been sampled during Armada's lease ramp, which later reached 128. Ramp
-noise is not a ceiling — see the next section.
+Memory is the dimension to be tightest on: it is not elastic the way cores are, and it decides
+where a slice can be placed at all (skill `hex-tuning`). And do not read a concurrency change
+taken during Armada's lease ramp as a ceiling — see the next section.
 
 ## ⛔ You cannot measure Armada concurrency with `kubectl`
 
