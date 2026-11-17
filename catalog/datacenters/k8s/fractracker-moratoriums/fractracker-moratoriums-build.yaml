@@ -14,7 +14,8 @@
 # Matching (match_jurisdictions.py): "State of X" -> state; "X County/Parish" -> county;
 # "X Township" and New England / New York / Wisconsin towns -> county subdivision; others ->
 # incorporated place, then county subdivision; same-named townships are told apart by the county
-# named in the record's notes or source links; four tribal areas are mapped by hand to TIGER
+# named in the record's notes or source links ("<name> County", whole words, the township's own
+# name removed), or by a hand-checked local source site (SOURCE_COUNTY); four tribal areas are mapped by hand to TIGER
 # AIANNH codes. Records with no unique match keep a null geometry. State, county and place
 # boundaries come from s3://public-census/census-2024/ (TIGER/Line 2024).
 #

@@ -161,7 +161,7 @@ UNMATCHED = [
     ("NJ", "Monroe Township, Washington Township"),
     ("NV", "Humboldt"),
     ("OH", "Jackson Township, Lake Township, Madison Township, Monroe Township, Plain Township, Scioto Township"),
-    ("PA", "Gregg Township, Lancaster Township, Londonderry Township, Madison Township, Pine Creek Township, "
+    ("PA", "Gregg Township, Londonderry Township, Madison Township, Pine Creek Township, "
      "Smithfield Township, Warrington Township"),
     ("WI", "Waterloo Township"),
 ]
@@ -193,7 +193,7 @@ MOR_COLS = [
     col("notes", "string", "FracTracker's notes on the action."),
     col("geo_level", "string", "Kind of Census 2024 geography the jurisdiction was matched to: state, county, "
         "place (an incorporated city, town, village or borough), county_subdivision (a township or New England, "
-        "New York or Wisconsin town), or aiannh (an American Indian area). Blank for the 26 records with no "
+        "New York or Wisconsin town), or aiannh (an American Indian area). Blank for the 25 records with no "
         "boundary.", ["place", "county", "county_subdivision", "state", "aiannh"]),
     col("geoid", "string", "Census 2024 GEOID of the matched geography (state 2 digits, county 5, place 7, "
         "county subdivision 10), or the 4-digit AIANNH code for an American Indian area. Joins to the "
@@ -201,7 +201,7 @@ MOR_COLS = [
     col("census_name", "string", "Census 2024 name of the matched geography (for example 'Caledonia charter "
         "township')."),
     col("geom", "geometry", "Boundary of the matched jurisdiction from Census TIGER/Line 2024 (WGS84 "
-        "longitude/latitude); null for the 26 records with no boundary."),
+        "longitude/latitude); null for the 25 records with no boundary."),
     col("h8", "uint64", H8_NOTE),
     col("h0", "int64", H0_NOTE),
 ]
@@ -344,7 +344,7 @@ def main(out):
     ma = {
         "moratoriums-parquet": asset(f"{p}.parquet", "application/vnd.apache.parquet",
             "Moratoriums and local actions (GeoParquet)",
-            "One row per record (841), carrying its jurisdiction's boundary; 26 records have no boundary.",
+            "One row per record (841), carrying its jurisdiction's boundary; 25 records have no boundary.",
             **{"table:columns": cols_of(MOR_COLS, MOR_FLAT)}),
         "moratoriums-pmtiles": asset(f"{p}.pmtiles", "application/vnd.pmtiles",
             "Moratoriums and local actions (PMTiles)",
@@ -354,10 +354,10 @@ def main(out):
         "moratoriums-hex": hexa(p, "Moratoriums and local actions (H3 hex)",
             "Each jurisdiction boundary filled with H3 cells at resolution 8 (about 0.74 square kilometres), with "
             "the resolution 0 parent as the partition key: one row per (record, cell) pair, 5,062,361 rows for the "
-            "815 records with a boundary (the 18 statewide records alone cover most of them). Every column is "
+            "816 records with a boundary (the 18 statewide records alone cover most of them). Every column is "
             "repeated on every cell a jurisdiction covers, so count records with COUNT(DISTINCT _cng_fid), not "
             "COUNT(*). Jurisdictions overlap (a state, its counties and its towns can all have records), so one "
-            "cell can carry several records. The 26 records with no boundary have no hex cell and are absent from the "
+            "cell can carry several records. The 25 records with no boundary have no hex cell and are absent from the "
             "hex.",
             cols_of(MOR_COLS, [c for c in MOR_FLAT if c != "geom"] + ["h8", "h0"])),
     }
@@ -375,11 +375,11 @@ def main(out):
         "tracker (https://groundedcompute.com/us/moratoriums) counted at least 799 local pauses in force and 71 "
         "bans on 31 October 2026.\n\n"
         "Boundaries: each record was matched by name and state to a U.S. Census 2024 geography and takes that "
-        "geography's TIGER/Line 2024 boundary: 18 states, 300 counties, 327 incorporated places, 166 county "
+        "geography's TIGER/Line 2024 boundary: 18 states, 300 counties, 327 incorporated places, 167 county "
         "subdivisions (townships and New England, New York and Wisconsin towns) and 4 American Indian areas "
         "(Fort Peck, Eastern Cherokee, and the Cherokee and Seminole Oklahoma Tribal Statistical Areas). "
         "Townships that share a name within a state were told apart by the county named in the record's notes "
-        "or sources. The 26 records that could not be matched to one geography keep every attribute and a null "
+        "or sources. The 25 records that could not be matched to one geography keep every attribute and a null "
         "geometry: " + unmatched + ". geo_level, geoid and census_name record the match, so a record can be "
         "checked or joined to the census-2024 collections. The boundary is the jurisdiction's whole area; an "
         "action can apply to only part of it (a zoning district, for instance), which the notes describe. "
@@ -405,7 +405,7 @@ def main(out):
                       "title": "U.S. Census TIGER/Line 2024 (source of boundaries)"}])
     write(out / p, mo, readme(p, "FracTracker data center moratoriums and local actions", "moratoriums", "fill",
                               "841 local data center moratoriums, bans and zoning restrictions, each drawn as its "
-                              "jurisdiction's Census 2024 boundary (26 records have none).",
+                              "jurisdiction's Census 2024 boundary (25 records have none).",
                               "SELECT state, action, count(*) AS n\n"
                               f"FROM read_parquet('{PUB}/{p}.parquet')\n"
                               "WHERE lower(status) IN ('enacted', 'active')\nGROUP BY ALL ORDER BY n DESC;",

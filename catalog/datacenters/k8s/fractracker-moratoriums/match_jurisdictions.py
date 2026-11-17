@@ -38,7 +38,20 @@ ALIASES = {
     ('Nashville', 'TN'): 'nashville davidson',
 }
 
-SUFFIXES = r'(city|town|village|borough|township|charter township|cdp|municipality|plantation|city and borough|consolidated government.*|metro government.*|unified government.*|metropolitan government.*|urban county)'
+# Local sources whose county settles which of several same-named townships a row means, when
+# the row does not name the county itself (county FIPS). Each checked by hand.
+SOURCE_COUNTY = {
+    'timesleader.com': '42079',            # Times Leader, Wilkes-Barre: Luzerne County, PA
+    'uniontwp.com': '42125',               # Union Township, Finleyville: Washington County, PA
+    'butlereagle.com': '42019',            # Butler Eagle: Butler County, PA
+    'lowerbuckstimes.com': '42017',        # Lower Bucks Times: Bucks County, PA
+    'lctberrien.org': '26021',             # Lincoln Charter Township: Berrien County, MI
+    'wash-twp-stark-oh.us': '39151',       # Washington Township: Stark County, OH
+    'oh-pleasant-township-franklin': '39049',  # Pleasant Township: Franklin County, OH
+    'tapinto.net/towns/union/': '34039',   # TAPinto Union: Union Township, Union County, NJ
+}
+
+SUFFIXES =r'(city|town|village|borough|township|charter township|cdp|municipality|plantation|city and borough|consolidated government.*|metro government.*|unified government.*|metropolitan government.*|urban county)'
 
 
 def norm(s):
@@ -93,10 +106,17 @@ def main(src, gaz, out):
     county_name = {r['GEOID']: base(r['NAME']).replace(' county', '').replace(' parish', '')
                    for r in counties}
 
-    def by_county(cands, text):
-        """Several same-named townships in one state: keep the one whose county the row names."""
-        t = text.lower()
-        hits = [c for c in cands if county_name.get(c['GEOID'][:5], '#') in t]
+    def by_county(cands, text, name):
+        """Several same-named townships in one state: keep the one whose county the row names
+        ("<county> County" as whole words, after removing the jurisdiction's own name, so Butler
+        Township is not read as Butler County), or whose source site is in SOURCE_COUNTY."""
+        for site, fips in SOURCE_COUNTY.items():
+            if site in text.lower():
+                hits = [c for c in cands if c['GEOID'][:5] == fips]
+                return hits[0] if len(hits) == 1 else None
+        t = re.sub(r'\b' + re.escape(name) + r'\b', ' ', norm(text))
+        hits = [c for c in cands if c['GEOID'][:5] in county_name and
+                re.search(r'\b' + re.escape(county_name[c['GEOID'][:5]]) + r' (county|parish)(s)?\b', t)]
         return hits[0] if len(hits) == 1 else None
 
     def match(j, st, text=''):
@@ -145,7 +165,7 @@ def main(src, gaz, out):
                 cands = [c for c in cands if re.search(r'\b' + kind + r'\b', c['NAME'].lower())] or cands
             h = pick(cands)
             if h is None and len(cands) > 1:
-                h = by_county(cands, text)
+                h = by_county(cands, text, name)
             if h:
                 return ('place' if lvl == 'place' else 'county_subdivision'), h['GEOID'], h['NAME']
             if lvl == 'cousub' and order[0] == 'cousub' and kind is not None:
