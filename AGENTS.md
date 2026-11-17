@@ -442,56 +442,13 @@ Only touch the root when adding a **new** top-level sub-catalog. Procedure: **sk
 `stac-authoring`**.
 ### Step 7: Get the licence right
 
-**This is a metadata step and nothing else.** Every collection carries an accurate SPDX
-`license` plus a `{"rel": "license"}` link in its STAC (Step 5). Getting it wrong is how data
-ends up over- or under-published.
-
-- Record what upstream actually granted, with evidence.
-- **The test is decidability: a reader must be able to tell whether we may redistribute, and
-  under what restrictions.** An accurate SPDX id (`CC-BY-4.0`, `CC-BY-NC-4.0`, `public-domain`)
-  settles it by itself. A placeholder (`other` / `various` / `proprietary`) names no terms, so it
-  settles nothing on its own — it needs either a licence link that IS the terms document (WDPA's
-  `protectedplanet.net/en/legal`) or a description that states the terms. Either satisfies the
-  rule; boilerplate for its own sake does not. `verify-stac.py` reports
-  `license-terms-not-stated` (ADVISORY) when neither is present (#651).
-- If the terms are genuinely unconfirmed or no licence was granted, say so plainly in the
-  description — including "no grant has been located", when that is the honest answer. Never
-  assert an SPDX id upstream did not grant, and never name a provider as `licensor` when no
-  licence was granted. This has gone wrong in both directions — `rivers/american-rivers/*`
-  asserted `CC-BY-4.0` with no `licensor` behind it, and
-  `hazard/mid-century-habitat-climate-exposure` asserts `CC-BY-4.0` while its own description
-  says the terms "require confirmation".
-- **One terms page grants one thing.** Two collections citing the same licence URL must declare
-  the same `license`; `verify-stac.py` reports `license-inconsistent-for-terms` (ADVISORY) when
-  they do not — `wdpa` (`proprietary`) and `wdoecm-may-2026` (`other`) cite the same
-  Protected Planet legal page.
-- Do not invent a terms URL to clear the gate. If no public terms page exists, the finding
-  stands; record the facts in the description and say so in the issue.
-- **Restrictive terms are enforced by policy, not by access control. Match the provider's
-  access model; never exceed it.** Licence clauses such as "no redistribution", "not
-  downloadable", "non-commercial only" or "academic use only" are not a reason to keep data out
-  of a public bucket. If the provider serves open downloads and relies on its written terms
-  alone (no login, no credential check — UNEP-WCMC, Protected Planet/WDPA), we host it in an
-  ordinary `public-*` bucket and enforce the same way: the licence travels with the data (the
-  `license` field, the licence link, and the terms written into the description). We never
-  build a stronger gate than the provider uses. When the provider itself requires a login or
-  authorisation before the first download, the data goes behind an equivalent gate here, and
-  that is a scoping question for the issue. Whether such data may go on an open-reuse mirror like source.coop is the mirror
-  agent's decision, not yours (see "You publish to NRP" above).
-- **Obligations a licence places on the licensee are Carl's, as PI.** Examples are "notify the
-  Director", "request permission for commercial use" and "cite as …". State the obligation in
-  the collection description so users see it. Do not raise it as a blocker on the build, treat
-  a published layer as a breach, or ask whether "the ingest" triggers it. Note it in the issue
-  for Carl.
-- **One sanctioned exception, and only this one: data contributed directly to us, where no terms
-  were ever published.** Here "no public terms page" is not a gap to be researched — it is the
-  complete answer, so a permanently-red finding would be recording a fact as a defect. Publish the
-  statement of terms beside the data (`s3://<bucket>/<dataset>/LICENSE.md`) and link it. The
-  document must **grant nothing**: it records what was and was not given. `verify-stac.py` reports
-  `license-terms-self-hosted` (ADVISORY) whenever a licence link resolves to our own bucket, so this
-  can never be mistaken for a verified upstream grant. Worked example: `high-seas/mpa-candidates`
-  (#579). This does **not** licence guessing anywhere else — for data with a real publisher, an
-  absent terms page still leaves the finding standing.
+Every collection carries an accurate SPDX `license` and a `{"rel": "license"}` link, recording
+what upstream actually granted. A placeholder (`other`, `proprietary`) needs the terms linked or
+written out; never invent a grant, a licensor or a terms URL. Match the provider's access model,
+never exceed it: restrictive terms on openly downloadable data travel with the data in a
+`public-*` bucket. Obligations on the licensee are Carl's, as PI: state them, do not block on
+them. The full rules, and the one exception for directly contributed data: **skill
+`stac-authoring`**.
 
 ## Hex sizing and resolution
 
