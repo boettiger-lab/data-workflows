@@ -1,8 +1,9 @@
 # HAND-ROLLED: the generator does not write STAC (#931, #932, #933).
 #
-# Step 6: the bucket-level collection for public-datacenters, and its child link in the root
-# catalog. Read-modify-write runs here, beside the write, so a child added by another build in the
-# meantime is kept. Idempotent: a child link already present is left alone, and the root catalog is
+# Step 6: the bucket-level Catalog for public-datacenters, and its child link in the root
+# catalog. The bucket node groups child collections and holds no data, so it is a Catalog (#762,
+# #957); scripts/to-catalog.py retypes a live node that is still a Collection. Read-modify-write
+# runs here, beside the write, so a child added by another build in the meantime is kept. Idempotent: a child link already present is left alone, and the root catalog is
 # written only when the bucket is not yet registered.
 #
 # To add a dataset to the bucket, add its collection to CHILDREN below and re-apply. A child whose
@@ -37,6 +38,7 @@ spec:
           set -euo pipefail
           R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
           curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/guard.py
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/to-catalog.py -o /tmp/to-catalog.py
           mkdir -p /tmp/w && cd /tmp/w
           rclone cat nrp:public-datacenters/stac-collection.json > live.json 2>/dev/null || : > live.json
           rclone copyto nrp:public-data/stac/catalog.json root.json $R
@@ -66,17 +68,14 @@ spec:
               "coverage, snapshot or edition date, licence and citation.")
           live = json.load(open("live.json")) if os.path.getsize("live.json") else None
           col = live or {
-              "type": "Collection", "stac_version": "1.0.0", "id": "public-datacenters",
+              "type": "Catalog", "stac_version": "1.0.0", "id": "public-datacenters",
               "title": "Data centers",
               "description": DESC,
               "keywords": ["data centers", "energy", "infrastructure", "AI"],
-              "license": "various",
               "providers": [{"name": "Boettiger Lab, UC Berkeley", "roles": ["processor"],
                              "url": "https://github.com/boettiger-lab/data-workflows"},
                             {"name": "National Research Platform", "roles": ["host"],
                              "url": "https://nationalresearchplatform.org"}],
-              "extent": {"spatial": {"bbox": [[-180, -90, 180, 90]]},
-                         "temporal": {"interval": [["2018-12-18T00:00:00Z", None]]}},
               "links": [
                   {"rel": "self", "href": f"{PUB}/stac-collection.json", "type": "application/json"},
                   {"rel": "root", "href": ROOT, "type": "application/json"},
@@ -114,9 +113,10 @@ spec:
               json.dump(new, open("root.new.json", "w"), indent=2)
               print("root: child link prepared")
           PY
+          python3 /tmp/to-catalog.py bucket.json bucket.json  # a live Collection node becomes a Catalog
           python3 /tmp/guard.py bucket.json live.json
           rclone copyto bucket.json nrp:public-datacenters/stac-collection.json $R --s3-no-check-bucket
-          echo "put bucket collection"
+          echo "put bucket catalog"
           if [ -f root.new.json ]; then
             rclone copyto root.new.json nrp:public-data/stac/catalog.json $R
             rclone cat nrp:public-data/stac/catalog.json | grep -q 'public-datacenters/stac-collection.json'
