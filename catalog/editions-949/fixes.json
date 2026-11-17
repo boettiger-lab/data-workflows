@@ -1,0 +1,132 @@
+[
+ {
+  "collection": "public-iucn/stac-collection.json",
+  "evidence": "s3://public-iucn/raw/richness/*_2025.tif, staged 2025-12-19; file names carry the year only; the description said Version 2025.1 and the citation Version 2025-2, with no record of either",
+  "description_replace": [
+   [
+    "IUCN Red List of Threatened Species (Version 2025.1)",
+    "IUCN Red List of Threatened Species (IUCN's 2025 richness maps, staged 2025-12-19; the files carry the year only, and the Red List version they were built from is not recorded)"
+   ]
+  ],
+  "set": {
+   "sci:citation": "IUCN. 2025. The IUCN Red List of Threatened Species. https://www.iucnredlist.org."
+  }
+ },
+ {
+  "collection": "public-land-cover/nlcd/stac-collection.json",
+  "evidence": "https://www.sciencebase.gov/catalog/item/655ceb8ad34ee4b6e05cc51a (citation field; revision 2026-06-30); doi.org/10.5066/P143HE8T resolves to the Collection 1 Land Cover page",
+  "set": {
+   "sci:citation": "U.S. Geological Survey, 2024, Annual NLCD Collection 1 Science Products (ver. 1.2, June 2026): U.S. Geological Survey data release, https://doi.org/10.5066/P94UXNTS."
+  },
+  "links_add": [
+   {
+    "rel": "related",
+    "href": "https://doi.org/10.5066/P143HE8T",
+    "type": "text/html",
+    "title": "Annual NLCD Collection 1 Land Cover, Conterminous United States (product DOI)"
+   }
+  ]
+ },
+ {
+  "collection": "public-wui/stac-collection.json",
+  "evidence": "https://silvis.forest.wisc.edu/data/wui-change/ ('Version 4 – last updated February 2025', 'United States (50 States) FileGDB'); our source zip Last-Modified 2025-02-21; https://geoserver.silvis.forest.wisc.edu/geodata/wui_change_2020_v4/CONUS_WUI_block_1990_2020_change_v4_FGDC_MetadataUpdate.xml (useconst 'None. Acknowledgment ... would be appreciated.'); RDS-2015-0012-4 metadata (bounding box conterminous US; useconst 'can be used without additional permissions or fees')",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://geoserver.silvis.forest.wisc.edu/geodata/wui_change_2020_v4/CONUS_WUI_block_1990_2020_change_v4_FGDC_MetadataUpdate.xml",
+    "type": "application/xml",
+    "title": "SILVIS WUI v4 metadata: use constraints 'None'"
+   },
+   {
+    "rel": "license",
+    "href": "https://doi.org/10.2737/RDS-2015-0012-4",
+    "type": "text/html",
+    "title": "Forest Service Research Data Archive: usable without additional permissions or fees"
+   }
+  ],
+  "links_add": [
+   {
+    "rel": "via",
+    "href": "https://silvis.forest.wisc.edu/data/wui-change/",
+    "type": "text/html",
+    "title": "SILVIS Lab WUI change 1990-2020 downloads (v4, last updated February 2025)"
+   }
+  ],
+  "description_append": "**Edition and coverage:** this is SILVIS Lab's 50-state v4 geodatabase (US_WUI_block_1990_2020_change_v4_gdb.zip, \"last updated February 2025\"). The Forest Service archive cited here (RDS-2015-0012-4, 2023) holds the same v4 method for the conterminous US only; blocks outside it come from the SILVIS release.\n\n**Terms:** no licence is granted. The SILVIS metadata states use constraints \"None\" and asks that the USDA Forest Service Northern Research Station be acknowledged; the Forest Service archive says the data \"can be used without additional permissions or fees\" and asks that the citation be used."
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/parks/stac-collection.json",
+  "evidence": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf (Last-Modified 2026-05-18); retrieved 2026-07 from the ParkServe FeatureServer",
+  "description_append": "**Edition:** this is Trust for Public Land's 2026 ParkServe release (documentation https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf). The \"2025\" in the collection id and path is a naming artifact, kept so existing links keep working."
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/service-areas/stac-collection.json",
+  "evidence": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf (Last-Modified 2026-05-18); retrieved 2026-07 from the ParkServe FeatureServer",
+  "description_append": "**Edition:** this is Trust for Public Land's 2026 ParkServe release (documentation https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf). The \"2025\" in the collection id and path is a naming artifact, kept so existing links keep working."
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/places/stac-collection.json",
+  "evidence": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf (Last-Modified 2026-05-18); retrieved 2026-07 from the ParkServe FeatureServer",
+  "description_append": "**Edition:** this is Trust for Public Land's 2026 ParkServe release (documentation https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf). The \"2025\" in the collection id and path is a naming artifact, kept so existing links keep working."
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/urban-areas/stac-collection.json",
+  "evidence": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf (Last-Modified 2026-05-18); retrieved 2026-07 from the ParkServe FeatureServer",
+  "description_append": "**Edition:** this is Trust for Public Land's 2026 ParkServe release (documentation https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf). The \"2025\" in the collection id and path is a naming artifact, kept so existing links keep working."
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/priority-areas-place/stac-collection.json",
+  "evidence": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf (Last-Modified 2026-05-18); retrieved 2026-07 from the ParkServe FeatureServer",
+  "description_append": "**Edition:** this is Trust for Public Land's 2026 ParkServe release (documentation https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf). The \"2025\" in the collection id and path is a naming artifact, kept so existing links keep working."
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/priority-areas-urban-area/stac-collection.json",
+  "evidence": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf (Last-Modified 2026-05-18); retrieved 2026-07 from the ParkServe FeatureServer",
+  "description_append": "**Edition:** this is Trust for Public Land's 2026 ParkServe release (documentation https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf). The \"2025\" in the collection id and path is a naming artifact, kept so existing links keep working."
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/parkscore/stac-collection.json",
+  "evidence": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf (Last-Modified 2026-05-18); retrieved 2026-07 from the ParkServe FeatureServer",
+  "description_append": "**Edition:** this is Trust for Public Land's 2026 ParkServe release (documentation https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf). The \"2025\" in the collection id and path is a naming artifact, kept so existing links keep working."
+ },
+ {
+  "collection": "public-swap/california/swap-2025/sgcn-ranges/stac-collection.json",
+  "evidence": "services2.arcgis.com/Uq9r85Potqm3MfRV/.../SWAP_SGCN_V4_gdb/FeatureServer returns 499 Token Required (2026-11-17); https://www.arcgis.com/home/item.html?id=ab68287bb4b2492ea39a313b52746a2b (SGCN_Final_red_gdb, created 2026-06-24, 1,436 ranges, CC BY 4.0)",
+  "description_append": "**Edition:** built from CDFW's SGCN v4 service (SWAP_SGCN_V4_gdb), which is no longer public. CDFW now publishes SGCN_Final_red_gdb (June 2026; 1,436 range polygons that add plants and invertebrates; https://www.arcgis.com/home/item.html?id=ab68287bb4b2492ea39a313b52746a2b). This collection does not yet reflect that final release.",
+  "links_add": [
+   {
+    "rel": "related",
+    "href": "https://www.arcgis.com/home/item.html?id=ab68287bb4b2492ea39a313b52746a2b",
+    "type": "text/html",
+    "title": "CDFW SWAP 2025 SGCN ranges, final release (SGCN_Final_red_gdb)"
+   }
+  ]
+ },
+ {
+  "collection": "public-swap/california/swap-2025/sgcn-species/stac-collection.json",
+  "evidence": "services2.arcgis.com/Uq9r85Potqm3MfRV/.../SWAP_SGCN_V4_gdb/FeatureServer returns 499 Token Required (2026-11-17); https://www.arcgis.com/home/item.html?id=ab68287bb4b2492ea39a313b52746a2b (SGCN_Final_red_gdb, created 2026-06-24, 1,436 ranges, CC BY 4.0)",
+  "description_append": "**Edition:** built from CDFW's SGCN v4 service (SWAP_SGCN_V4_gdb), which is no longer public. CDFW now publishes SGCN_Final_red_gdb (June 2026; 1,436 range polygons that add plants and invertebrates; https://www.arcgis.com/home/item.html?id=ab68287bb4b2492ea39a313b52746a2b). This collection does not yet reflect that final release.",
+  "links_add": [
+   {
+    "rel": "related",
+    "href": "https://www.arcgis.com/home/item.html?id=ab68287bb4b2492ea39a313b52746a2b",
+    "type": "text/html",
+    "title": "CDFW SWAP 2025 SGCN ranges, final release (SGCN_Final_red_gdb)"
+   }
+  ]
+ },
+ {
+  "collection": "public-swap/california/swap-2025/sgcn-species-units/stac-collection.json",
+  "evidence": "services2.arcgis.com/Uq9r85Potqm3MfRV/.../SWAP_SGCN_V4_gdb/FeatureServer returns 499 Token Required (2026-11-17); https://www.arcgis.com/home/item.html?id=ab68287bb4b2492ea39a313b52746a2b (SGCN_Final_red_gdb, created 2026-06-24, 1,436 ranges, CC BY 4.0)",
+  "description_append": "**Edition:** built from CDFW's SGCN v4 service (SWAP_SGCN_V4_gdb), which is no longer public. CDFW now publishes SGCN_Final_red_gdb (June 2026; 1,436 range polygons that add plants and invertebrates; https://www.arcgis.com/home/item.html?id=ab68287bb4b2492ea39a313b52746a2b). This collection does not yet reflect that final release.",
+  "links_add": [
+   {
+    "rel": "related",
+    "href": "https://www.arcgis.com/home/item.html?id=ab68287bb4b2492ea39a313b52746a2b",
+    "type": "text/html",
+    "title": "CDFW SWAP 2025 SGCN ranges, final release (SGCN_Final_red_gdb)"
+   }
+  ]
+ }
+]
