@@ -1,11 +1,13 @@
 # HAND-ROLLED: the generator does not write STAC. After the cng-datasets 0.12.0 rebuild (#617)
 # the PAD-US layers lose the `bbox` column and keep OBJECTID; fix_columns.py (committed beside
 # this file) edits each LIVE collection's table:columns to match, so nothing else is touched.
-# For marine, marine_columns.py also documents its 14 marine-only columns.
+# For marine, marine_columns.py also documents its 14 marine-only columns. For the rebuilt
+# layers (combined, fee, marine), hex_text.py also updates the hex metadata to the h10 build.
 # Set LAYERS to the layers whose rebuild has landed.
 #   kubectl create configmap padus-stac-columns-script -n geo-workflows \
 #     --from-file=fix_columns.py=catalog/pad-us/k8s/stac-columns-617/fix_columns.py \
 #     --from-file=marine_columns.py=catalog/pad-us/k8s/stac-columns-617/marine_columns.py \
+#     --from-file=hex_text.py=catalog/pad-us/k8s/stac-columns-617/hex_text.py \
 #     --dry-run=client -o yaml | kubectl apply -f -
 #   kubectl apply -n geo-workflows -f catalog/pad-us/k8s/stac-columns-617/padus-stac-columns-publish.yaml
 apiVersion: batch/v1
@@ -33,7 +35,7 @@ spec:
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
-        - {name: LAYERS, value: fee}
+        - {name: LAYERS, value: combined}
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         - {name: script, mountPath: /script, readOnly: true}
@@ -54,6 +56,7 @@ spec:
             rclone cat "$p" > /tmp/c.json
             python3 /script/fix_columns.py /tmp/c.json
             if [ "$d" = marine ]; then python3 /script/marine_columns.py /tmp/c.json; fi
+            case "$d" in combined|fee|marine) python3 /script/hex_text.py /tmp/c.json ;; esac
             guard_stac /tmp/c.json "$p"
             rclone copyto /tmp/c.json "$p" $R
           done
