@@ -1,0 +1,50 @@
+# HAND-ROLLED: preprocess (AGENTS.md Step 1c). The FWS bulk critical-habitat zip (2026-08-31) holds final
+# and proposed designations in one shapefile, CRITHAB_POLY (803 Final, 70 Proposed). Splits it by
+# `status` into one GeoParquet each under raw/, the sources of the final and proposed workflows (#944).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: usfws-944-split-crithab
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              # gpu-05 pulled a 2.7 GB object from internal S3 at ~1.2 MB/s on 2026-11-17.
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [gpu-05.nrp.mghpcc.org]}
+      containers:
+      - name: merge
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '2', memory: 8Gi, ephemeral-storage: 20Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          rclone copyto nrp:public-usfws/raw/crithab_all_layers.zip c.zip
+          unzip -q c.zip && rm c.zip
+          for st in Final Proposed; do
+            lc=$(echo $st | tr A-Z a-z)
+            ogr2ogr -f Parquet -t_srs EPSG:4326 -nln critical_habitat_$lc -where "status = '$st'" \
+              -lco ROW_GROUP_SIZE=200 -lco COMPRESSION=ZSTD $lc.parquet crithab_all_layers/CRITHAB_POLY.shp
+            ogrinfo -so -al $lc.parquet | grep -E 'Feature Count'
+            rclone copyto $lc.parquet nrp:public-usfws/raw/critical-habitat-$lc-2026-08-31.parquet --retries 6
+          done
+          echo DONE
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

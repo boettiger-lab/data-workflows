@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: critical-habitat-final-convert
+  namespace: geo-workflows
   labels:
     k8s-app: critical-habitat-final-convert
 spec:
@@ -40,6 +41,8 @@ spec:
           value: 'FALSE'
         - name: BUCKET
           value: public-usfws
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 6963MiB
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
@@ -50,21 +53,20 @@ spec:
         - |
           set -e
           cng-convert-to-parquet \
-            https://s3-west.nrp-nautilus.io/public-usfws/raw/critical-habitat-final.zip \
+            https://s3-west.nrp-nautilus.io/public-usfws/raw/critical-habitat-final-2026-08-31.parquet \
             s3://public-usfws/critical-habitat/final.parquet \
-            --row-group-size 100000
+            --row-group-size 2000
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 8Gi
           limits:
             cpu: '4'
-            memory: 32Gi
+            memory: 8Gi
       volumes:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
