@@ -1,6 +1,7 @@
-# DEVIATION from generated output (#944): memory 12Gi request / 14Gi limit and 1 CPU, not 32Gi and 4.
-# Measured: 4.2 GiB at 30 min (13% of 32Gi) and 0.3 of 4 cores (8%) while ogr2ogr reads the source,
-# both under NRP's 20% usage floor (#804); a request of 1 CPU is not checked.
+# DEVIATION from generated output (#944): priorityClassName opportunistic and backoffLimit 3.
+# The step has two phases: ogr2ogr to GeoJSON peaked above 14Gi (OOMKilled twice at a 14Gi limit),
+# then tippecanoe ran at 4-8 GiB on 1 core of 4. No default-priority request fits both phases within
+# NRP's 20% usage floor (#804), and an opportunistic pod is not checked. Resources as generated.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -11,7 +12,7 @@ metadata:
 spec:
   completions: 1
   parallelism: 1
-  backoffLimit: 1
+  backoffLimit: 3
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
@@ -19,6 +20,7 @@ spec:
         k8s-app: species-ranges-pmtiles
     spec:
       restartPolicy: Never
+      priorityClassName: opportunistic
       containers:
       - name: pmtiles-task
         image: ghcr.io/boettiger-lab/datasets:latest
@@ -90,11 +92,11 @@ spec:
           rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles
         resources:
           requests:
-            cpu: '1'
-            memory: 12Gi
+            cpu: '4'
+            memory: 32Gi
           limits:
-            cpu: '1'
-            memory: 14Gi
+            cpu: '4'
+            memory: 32Gi
       volumes:
       - name: rclone-config
         secret:
