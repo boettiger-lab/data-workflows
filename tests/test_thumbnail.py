@@ -97,5 +97,26 @@ class Bbox(unittest.TestCase):
                          [-180, -20, 180, 10])
 
 
+class View(unittest.TestCase):
+    """--bbox draws a part of the extent, at its own zoom, and says so on the asset."""
+    def test_bbox_overrides_extent_and_min_zoom(self):
+        doc = {"links": [{"rel": "self", "href": BASE}], "extent": {"spatial": {"bbox": [[-125, 18, -66, 49]]}},
+               "assets": {"style-d": {"href": "styles/d.json", "roles": ["style", "default"]}}}
+        style = {"version": 8, "sources": {"d": {"type": "vector", "url": "pmtiles://https://x/d.pmtiles"}},
+                 "layers": []}
+        calls = []
+        saved = th.fetch, th.pmtiles_header, th.render_pmtiles
+        th.fetch = lambda u: (__import__("json").dumps(doc if u == BASE else style)).encode()
+        th.pmtiles_header = lambda u: ([-125, 18, -66, 49], 3)
+        th.render_pmtiles = lambda st, b, w, h, min_zoom=0: calls.append((b, min_zoom)) or b"png"
+        try:
+            new, _, how = th.thumbnail(BASE, 512, view=[-77.5, 38.9, -77.4, 39.1])
+            th.thumbnail(BASE, 512)
+        finally:
+            th.fetch, th.pmtiles_header, th.render_pmtiles = saved
+        self.assertEqual(calls, [([-77.5, 38.9, -77.4, 39.1], 0), ([-125, 18, -66, 49], 3)])
+        self.assertIn("part of its extent (-77.5, 38.9, -77.4, 39.1)", new["assets"]["thumbnail"]["description"])
+
+
 if __name__ == "__main__":
     unittest.main()

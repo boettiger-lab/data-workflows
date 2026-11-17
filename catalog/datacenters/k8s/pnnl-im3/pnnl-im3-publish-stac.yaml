@@ -12,6 +12,17 @@
 #   python3 catalog/datacenters/k8s/pnnl-im3/gen_stac.py $OUT
 #   scripts/default-style.py build <collection> --asset <name>-pmtiles --column ... --out $OUT
 #   (after a first publish) scripts/thumbnail.py <live collection url> --out $OUT
+# The defaults as published (MCP_ENDPOINT=https://tpl.nrp-nautilus.io/api/mcp for default-style.py):
+#   point     --single-colour: no measured attribute, operator on 71 of 128 points (38 operators);
+#             the earlier operator style stays as a non-default style.
+#   building, campus  --column operator --kind categorical
+#   projected --column growth_scenario --kind categorical, then edited by hand: a filter on
+#             market_gravity_weight == 50 and fill-sort-key low > moderate > high > higher. The
+#             scenarios nest (every low site is also a moderate, high and higher site, at every
+#             weight), so each site shows the lowest scenario that builds it.
+#   thumbnails: building --bbox=-77.52,38.97,-77.42,39.05 (Ashburn, VA) and projected
+#             --bbox=-97.4,32.7,-96.8,33.15 (Dallas-Fort Worth): their features are too small to
+#             see at national scale.
 #   kubectl create configmap pnnl-im3-stac -n geo-workflows --from-file=point.json=... ... \
 #     --dry-run=client -o yaml | kubectl apply -f -
 #   kubectl apply -n geo-workflows -f catalog/datacenters/k8s/pnnl-im3/pnnl-im3-publish-stac.yaml
