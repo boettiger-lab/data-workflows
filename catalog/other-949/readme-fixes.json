@@ -1,0 +1,73 @@
+[
+ {
+  "path": "public-blm/acquisitions/README.md",
+  "replace": [
+   [
+    "https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Acquisitions/FeatureServer/1",
+    "https://nlsdbpubgis.blm.gov/arcgishub/rest/services/HUB/BLM_Natl_MLRS_Acquisitions/FeatureServer/1"
+   ]
+  ]
+ },
+ {
+  "path": "public-blm/locatable-operations/README.md",
+  "replace": [
+   [
+    "https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Locatable_Notices/FeatureServer/0",
+    "https://nlsdbpubgis.blm.gov/arcgishub/rest/services/HUB/BLM_Natl_MLRS_Locatable_Notices/FeatureServer/0"
+   ],
+   [
+    "https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Locatable_Plans_Of_Operations/FeatureServer/0",
+    "https://nlsdbpubgis.blm.gov/arcgishub/rest/services/HUB/BLM_Natl_MLRS_Locatable_Plans_Of_Operations/FeatureServer/0"
+   ]
+  ]
+ },
+ {
+  "path": "public-blm/lua-row/README.md",
+  "replace": [
+   [
+    "https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_LUA_ROW/FeatureServer/0",
+    "https://nlsdbpubgis.blm.gov/arcgishub/rest/services/HUB/BLM_Natl_MLRS_LUA_ROW/FeatureServer/0"
+   ]
+  ]
+ },
+ {
+  "path": "public-blm/lua-leases-permits-easements/README.md",
+  "replace": [
+   [
+    "https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_LUA_Leases_Permits_Esmts/FeatureServer/0",
+    "https://nlsdbpubgis.blm.gov/arcgishub/rest/services/HUB/BLM_Natl_MLRS_LUA_Leases_Permits_Esmts/FeatureServer/0"
+   ]
+  ]
+ },
+ {
+  "path": "public-blm/mining-claims/README.md",
+  "replace": [
+   [
+    "https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Mining_Claims_Not_Closed/FeatureServer/0",
+    "https://nlsdbpubgis.blm.gov/arcgishub/rest/services/HUB/BLM_Natl_MLRS_Mining_Claims_Not_Closed/FeatureServer/0"
+   ],
+   [
+    "https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Mining_Claims_Closed/FeatureServer/0",
+    "https://nlsdbpubgis.blm.gov/arcgishub/rest/services/HUB/BLM_Natl_MLRS_Mining_Claims_Closed/FeatureServer/0"
+   ]
+  ]
+ },
+ {
+  "path": "public-blm/oil-gas-leases/README.md",
+  "replace": [
+   [
+    "https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Oil_and_Gas_Leases/FeatureServer/0",
+    "https://nlsdbpubgis.blm.gov/arcgishub/rest/services/HUB/BLM_Natl_MLRS_Oil_and_Gas_Leases/FeatureServer/0"
+   ]
+  ]
+ },
+ {
+  "path": "public-blm/utah-federal-mineral-estate/README.md",
+  "replace": [
+   [
+    "current as of\n2026-03-01.\n\nThe raw GeoJSON",
+    "current as of\n2026-03-01. That service now requires a sign-in; BLM's public service is\n[BLM_UT_Federal_Minerals](https://www.arcgis.com/home/item.html?id=a9059e4665fe4a8190c6d90fd767a591).\n\nThe raw GeoJSON"
+   ]
+  ]
+ }
+]
