@@ -6,7 +6,7 @@
 Each fix (keyed by `collection`, the path inside the bucket host) may set `sci:citation`,
 `sci:doi` and `sci:publications`, and carries the `source` its text came from. Optional repairs:
 `replace_doi` (a wrong dataset DOI: its cite-as links move to the new `sci:doi`),
-`provider_rename` and `link_href_fix`. Adds the scientific extension when missing.
+`provider_rename`, `link_href_fix` and `set_title`. Adds the scientific extension when missing.
 
 Touches nothing else. An existing `sci:citation` that differs is left alone and reported, so a
 citation someone wrote by hand is never overwritten; a second run changes nothing.
@@ -46,6 +46,9 @@ for p in f.get("sci:publications", []):
         did.append("publication")
 if pubs:
     doc["sci:publications"] = pubs
+if f.get("set_title") and doc.get("title") != f["set_title"]:
+    doc["title"] = f["set_title"]
+    did.append("title")
 for p in doc.get("providers", []):
     new = (f.get("provider_rename") or {}).get(p.get("name"))
     if new:
