@@ -36,6 +36,9 @@ Static checks (no data; just the STAC JSON):
     unless the style says why in `glen:single_colour_reason` (scripts/default-style.py).
     ADVISORY: a PMTiles collection with no style asset (catalog-wide debt being
     retrofitted from the GLEN app configs, #881)
+  - ADVISORY: a collection with no `sci:citation`, `sci:doi` or `cite-as` link
+    (`citation-missing`), or a DOI with no `sci:citation` text (`citation-text-missing`);
+    apps cite datasets from these fields (#822)
   - a render's `rescale` is in real units: a map app unscales a band that declares a scale or
     offset before TiTiler applies `rescale`. HARD when the range lies outside what the band's
     data type can hold after unscaling (a range in stored units); ADVISORY when it lies far
@@ -1558,6 +1561,25 @@ def check_thumbnail(doc: dict) -> list[Finding]:
     return out
 
 
+def check_citation(doc: dict) -> list[Finding]:
+    """Apps cite a dataset from `sci:citation`, then `sci:doi`, then a `cite-as` link (the
+    geo-agent report generator, the Wallacea explorer), and print "no formal citation" when all
+    three are missing (#822). ADVISORY until the backfill is done. A DOI with no `sci:citation`
+    is noted too: doi.org returns the formatted text, so it is a cheap gap to close."""
+    links = doc.get("links", [])
+    cite_as = [l for l in links if l.get("rel") == "cite-as"]
+    if not (doc.get("sci:citation") or doc.get("sci:doi") or cite_as):
+        return [Finding(ADVISORY, "citation-missing",
+                        "no `sci:citation`, `sci:doi` or `cite-as` link: apps cannot cite this "
+                        "dataset. Add the citation in the form its producer asks for (#822).")]
+    if not doc.get("sci:citation"):
+        return [Finding(ADVISORY, "citation-text-missing",
+                        "a DOI or `cite-as` link but no `sci:citation` text; for a DOI, "
+                        "`curl -LH 'Accept: text/x-bibliography; style=apa' https://doi.org/<doi>` "
+                        "gives it (#822).")]
+    return []
+
+
 STATIC_CHECKS = [
     check_license,
     check_nav_links,
@@ -1573,6 +1595,7 @@ STATIC_CHECKS = [
     check_parquet_columns_shape,
     check_pmtiles_link,
     check_thumbnail,
+    check_citation,
     check_tree,
     check_cng_fid,
     check_hex_dup_warning,
