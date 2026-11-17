@@ -1,4 +1,4 @@
-# HAND-ROLLED (#617): writes the 11 combined h0 partitions the tool's repartition could not.
+# HAND-ROLLED (#617, datasets#339): writes the 11 combined h0 partitions the tool's repartition could not.
 # `cng-datasets repartition` sorts a whole h0 partition at once; h0=577727389698621439 (700M rows)
 # was OOM-killed at 32Gi and evicted at 200Gi of scratch. repartition_ranges.py sorts in _cng_fid
 # ranges and streams them into the same data_0.parquet (tested equal to the tool's output, rows and
