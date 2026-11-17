@@ -18,7 +18,7 @@
 # DEVIATION from default-style.py output: the two Overture styles get a fill-sort-key and
 # line-sort-key that draw class='land' above class='maritime'. Overture's maritime polygon
 # is the land plus the territorial sea (China: 9.73M km2 maritime, 9.39M km2 land), so without
-# it the maritime fill covers the land. The style and asset descriptions say so.
+# it the maritime fill covers the land. The style and asset descriptions say so. Fill opacity is 1, so the land is not tinted by the blue beneath it.
 #   (after the first publish) scripts/thumbnail.py <live collection url> --out $OUT
 #   kubectl create configmap default-styles-881 -n geo-workflows --from-file=paths.txt=... --from-file=<key>=<file> ... \
 #     --from-file=guard.py=scripts/stac-publish-guard.py --dry-run=client -o yaml | kubectl apply -f -
