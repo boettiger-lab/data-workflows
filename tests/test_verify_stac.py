@@ -1395,3 +1395,23 @@ class PmtilesLink(unittest.TestCase):
     def test_wrong_link_type_is_hard(self):
         link = {"rel": "pmtiles", "href": TILES_HREF, "type": "application/octet-stream"}
         self.assertEqual(self.codes(self.doc([link])), {"pmtiles-link-type": vs.HARD})
+
+
+class TestCitation(unittest.TestCase):
+    """Apps cite a dataset from sci:citation, sci:doi or a cite-as link (#822)."""
+
+    def codes(self, **kw):
+        return [(f.severity, f.code) for f in vs.check_citation({"links": [], **kw})]
+
+    def test_nothing_is_advisory(self):
+        self.assertEqual(self.codes(), [(vs.ADVISORY, "citation-missing")])
+
+    def test_doi_without_text(self):
+        self.assertEqual(self.codes(**{"sci:doi": "10.1/x"}), [(vs.ADVISORY, "citation-text-missing")])
+
+    def test_cite_as_without_text(self):
+        d = {"links": [{"rel": "cite-as", "href": "https://doi.org/10.1/x"}]}
+        self.assertEqual([f.code for f in vs.check_citation(d)], ["citation-text-missing"])
+
+    def test_citation_text_passes(self):
+        self.assertEqual(self.codes(**{"sci:citation": "A. 2020. Data."}), [])
