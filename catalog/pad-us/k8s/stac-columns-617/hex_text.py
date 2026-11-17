@@ -26,11 +26,14 @@ EVERY_FEATURE = ("Every source feature has at least one hex row: a feature small
 REPLACE = [
     ("Most features are at resolution 10 (~15m² cells), with 20 extremely complex geometries "
      "at resolution 8 (~0.74 km² cells).",
-     "Features are indexed at H3 resolution 10 (~15m² cells), with parent cells at resolutions "
+     "Features are indexed at H3 resolution 10 (~0.015 km² cells), with parent cells at resolutions "
      "9, 8 and 0."),
     ("use SELECT DISTINCT h8, h0 before joining", "use SELECT DISTINCT h10, h0 before joining"),
     ("at resolution 10 (15m²) and resolution 8 (0.74 km²) for 20 complex features.",
-     "at resolution 10 (~15m²)."),
+     "at resolution 10 (~0.015 km²)."),
+    # An H3 resolution-10 cell averages ~15,000 m² (0.015 km²), not 15 m².
+    ("(~15m² cells)", "(~0.015 km² cells)"),
+    ("(~15m²)", "(~0.015 km²)"),
 ]
 ABSENT = re.compile(r"[\d,]+ of [\d,]+ source features are smaller than one native H3 cell and "
                     r"polyfill to zero cells, so they are absent from the hex; query the flat "

@@ -35,7 +35,7 @@ spec:
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
-        - {name: LAYERS, value: combined}
+        - {name: LAYERS, value: combined fee marine}
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         - {name: script, mountPath: /script, readOnly: true}
