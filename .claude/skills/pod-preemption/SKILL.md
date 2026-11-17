@@ -103,7 +103,7 @@ Weigh both every time.
    - Keep memory at 20–150% of the request and CPU at 20–200%, with the limit no more than 1.2× the request.
    - Measure first: run one unit, or watch `kubectl top pod` on the first pods.
    - Check again about 30 minutes after launch, before the portal's first check.
-   - Keep the number of pods that could fall outside the ranges under 4. Remember that other sessions on the same account count too.
+   - No pod may fall outside the ranges. Other sessions on the same account count too, so check the whole account, not only your job.
 4. **Do not trust a generated memory request.** `cng-datasets` defaults are sized for the worst case, not measured. If the peak is a short spike far above the average, as in #802 where DuckDB peaked above 4.5 GiB while the pod averaged 2 GiB, shrink the peak rather than the request. In #802 that meant splitting the step into `--h0-subset` batches, which brought it to a 3Gi request with a 3.5Gi limit.
 
 ## Do not misread it as a data problem
