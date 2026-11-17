@@ -1,0 +1,64 @@
+# HAND-ROLLED: the generator does not write STAC. A metadata-only fix: the Overture regions
+# collection described a maritime area as the territorial waters, but each of the 798 maritime
+# polygons contains its region's land polygon (the land plus the territorial sea); and both regions
+# and countries described is_territorial wrongly (it marks the polygon that is a division's full
+# territory: the maritime polygon if coastal, the land polygon if inland). fix_maritime.py
+# (committed beside this file) edits each LIVE collection, so nothing else on it is touched.
+#   kubectl create configmap om-2026-regions-maritime-text -n geo-workflows \
+#     --from-file=fix_maritime.py=catalog/overturemaps/k8s/2026-02-18.0/regions/maritime-text/fix_maritime.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/overturemaps/k8s/2026-02-18.0/regions/maritime-text/regions-maritime-text-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: om-2026-regions-maritime-text
+  namespace: geo-workflows
+  labels: {k8s-app: om-2026-regions-maritime-text}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: om-2026-regions-maritime-text}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+
+          for w in regions countries; do
+            C=nrp:public-overturemaps/2026-02-18.0/$w/stac-collection.json
+            rclone cat "$C" > /tmp/c.json
+            python3 /script/fix_maritime.py "$w" /tmp/c.json
+            guard_stac /tmp/c.json "$C"
+            rclone copyto /tmp/c.json "$C" $R
+          done
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: om-2026-regions-maritime-text}}
