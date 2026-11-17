@@ -1,0 +1,13 @@
+public-high-seas/ecs/stac-collection.json
+public-swap/missouri/ccs-2022/cave-karst-coa/stac-collection.json
+public-swap/missouri/ccs-2022/forest-woodland-coa/stac-collection.json
+public-swap/missouri/ccs-2022/glade-coa/stac-collection.json
+public-swap/missouri/ccs-2022/grassland-prairie-savanna-coa/stac-collection.json
+public-swap/missouri/ccs-2022/priority-geographies/stac-collection.json
+public-swap/missouri/ccs-2022/stream-reach-coa/stac-collection.json
+public-swap/missouri/ccs-2022/wetland-coa/stac-collection.json
+public-high-seas/rfmo/stac-collection.json
+public-blm/utah-federal-mineral-estate/stac-collection.json
+public-wdpa/wdoecm-may-2026/stac-collection.json
+public-utah/bears-ears/stac-collection.json
+public-utah/grand-staircase-escalante/stac-collection.json
