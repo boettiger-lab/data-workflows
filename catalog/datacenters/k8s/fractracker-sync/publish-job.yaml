@@ -1,0 +1,39 @@
+# HAND-ROLLED (#931): created by sync.sh, the weekly FracTracker sync; not applied by hand.
+# Short (minutes), so opportunistic. sync.sh fills in __DATASETS_IMAGE__ and __LAYERS__.
+# The data checks in verify-stac.py go through the TPL MCP proxy, which needs no token.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fractracker-sync-publish
+  namespace: geo-workflows
+  labels: {k8s-app: fractracker-sync}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: fractracker-sync}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 1500
+      automountServiceAccountToken: false
+      containers:
+      - name: publish
+        image: __DATASETS_IMAGE__
+        imagePullPolicy: IfNotPresent
+        command: [bash, /sync/publish.sh]
+        env:
+        - {name: LAYERS, value: "__LAYERS__"}
+        - {name: MCP_ENDPOINT, value: "https://tpl.nrp-nautilus.io/api/mcp"}
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: sync, mountPath: /sync, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: sync, configMap: {name: fractracker-sync-scripts}}
