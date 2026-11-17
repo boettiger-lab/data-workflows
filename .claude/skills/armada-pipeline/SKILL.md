@@ -251,8 +251,7 @@ cluster pods.
 All three Armada classes have **positive** priority, so NRP's usage policy checks every Armada pod
 once it has run 30 minutes, `armada-preemptible` included. Only negative-priority (k8s
 `opportunistic`) pods are exempt. Size Armada requests to measured use exactly as for
-default-priority k8s pods: memory 20–150%, CPU 20–200%, limit ≤ 1.2× request. Across the whole
-account, no more than 4 pods may be outside those ranges (#804, `pod-preemption` skill).
+default-priority k8s pods, under the zero-violation rule in the `pod-preemption` skill (#804).
 
 ## ⛔ Job specs are world-readable
 
@@ -416,7 +415,7 @@ query parameters so there is nothing to escape at all.
 - **k8s** — the standard route here. Right when the work is naturally a few hundred units and each
   is short.
   - **Units under ~1 hour:** run at `opportunistic`. They are exempt from NRP's usage policy and barely exposed to preemption.
-  - **Units over ~1 hour:** run at default priority, with requests sized to measured use (memory 20–150% of request, CPU 20–200%, limit ≤ 1.2× request). Otherwise more than 4 out-of-range pods block every Deployment change on the account (#804).
+  - **Units over ~1 hour:** run at default priority, with requests sized to measured use under NRP's usage policy (`pod-preemption` skill, #804).
   - `cng-datasets` omits `priorityClassName` by default, so a generated job runs at default priority. It also gives hex fan-outs `backoffLimitPerIndex`. Its memory defaults are not measured, so check them. See the `pod-preemption` skill.
 - **Armada** — right when the work microslices into thousands of small units, or when the ~200
   completion cap forces artificial batching that inflates per-pod RAM and runtime. Budget for a

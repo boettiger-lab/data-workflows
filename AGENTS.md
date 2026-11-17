@@ -552,12 +552,7 @@ long pod is preempted rather than finished, and retries hide it — a job report
 while indexes are killed and restarted, and a retry-exhausted index leaves *stale* data, not
 missing data. Before submitting anything whose pods run over an hour: **skill `pod-preemption`**.
 
-⛔ **Default priority has its own cost: NRP's usage policy (#804).** NRP checks every non-opportunistic pod older than 30 minutes against its request. Memory is checked when the request is over 2 GiB and must be 20–150% used. CPU is checked when the request is over 1 core and must be 20–200% used. More than **4 out-of-range pods across the account** makes NRP deny every Deployment change on Carl's account. On 2026-10-26, a 16Gi-request backfill using 1–2.5Gi blocked a production rollout this way. A separate policy caps limit/request at **1.2**. So:
-- Pods under ~1 hour (setup-bucket, daily CronJob runs, short fan-out units) use `priorityClassName: opportunistic`.
-- Split long work into short units where practical.
-- Pods that must run long use default priority, sized to measured use, not to the generator's defaults. Check `kubectl top pod` ~30 minutes after launch.
-
-Full rule: **skill `pod-preemption`**.
+⛔ **Default priority has its own cost: NRP's usage policy (#804).** Every default-priority pod over 30 minutes old must use a set share of its request, and **zero pods may be out of range, at any time**; violations lock Carl's account and can get it banned. Pods under ~1 hour run at `opportunistic`; pods that must run long are sized to measured use. The ranges and the full rule: **skill `pod-preemption`**.
 
 ## S3 Bucket Layout
 
