@@ -18,6 +18,14 @@
    "style-ecs": [
     "style"
    ]
+  },
+  "asset_text_replace": {
+   "thumbnail": [
+    [
+     "default style style-ecs.",
+     "default style style-ecs-pol-type."
+    ]
+   ]
   }
  },
  {

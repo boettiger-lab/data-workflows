@@ -22,6 +22,7 @@ F.append({
         "description": "Features coloured by POL_TYPE, 8 values.",
         "roles": ["style", "default"]}},
     "asset_roles": {"style-ecs": ["style"]},
+    "asset_text_replace": {"thumbnail": [["default style style-ecs.", "default style style-ecs-pol-type."]]},
 })
 
 # Missouri CCS: the licence link and the strategy PDF are 404. No data licence exists; the PI
@@ -118,7 +119,11 @@ for coll, proc, fr, title in (
 
 json.dump(F, open("fixes.json", "w"), indent=1, ensure_ascii=False)
 open("collections.txt", "w").write("".join(x["collection"] + "\n" for x in F))
-open("files.txt", "w").write("ecs-pol-type.json public-high-seas/ecs/styles/ecs-pol-type.json\n")
+# ecs-thumbnail.png is not committed: render it after the style is live with
+#   scripts/thumbnail.py https://s3-west.nrp-nautilus.io/public-high-seas/ecs/stac-collection.json --out DIR
+# and add it to the ConfigMap as ecs-thumbnail.png.
+open("files.txt", "w").write("ecs-pol-type.json public-high-seas/ecs/styles/ecs-pol-type.json\n"
+                             "ecs-thumbnail.png public-high-seas/ecs/thumbnail.png\n")
 
 # BLM READMEs: gis.blm.gov/nlsdb/.../HUB moved to nlsdbpubgis.blm.gov/arcgishub/.../HUB.
 OLD, NEW = "https://gis.blm.gov/nlsdb/rest/services/HUB/", "https://nlsdbpubgis.blm.gov/arcgishub/rest/services/HUB/"

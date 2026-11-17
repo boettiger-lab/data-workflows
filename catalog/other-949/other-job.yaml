@@ -10,6 +10,7 @@
 #     --from-file=readme-fixes.json=catalog/other-949/readme-fixes.json \
 #     --from-file=files.txt=catalog/other-949/files.txt \
 #     --from-file=ecs-pol-type.json=catalog/other-949/ecs-pol-type.json \
+#     --from-file=ecs-thumbnail.png=DIR/public-high-seas/ecs/thumbnail.png \
 #     --from-file=guard.py=scripts/stac-publish-guard.py
 #   kubectl create -f catalog/other-949/other-job.yaml
 apiVersion: batch/v1
@@ -43,7 +44,7 @@ spec:
           R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
           while read -r key dest; do
             [ -n "$key" ] || continue
-            if rclone cat "nrp:$dest" 2>/dev/null | cmp -s - "/in/$key"; then echo "unchanged $dest"; else rclone copyto "/in/$key" "nrp:$dest" $R; echo "uploaded $dest"; fi
+            if rclone cat "nrp:$dest" 2>/dev/null | cmp -s - "/in/$key"; then echo "unchanged $dest"; else cp -L "/in/$key" /tmp/upload && rclone copyto /tmp/upload "nrp:$dest" $R; echo "uploaded $dest"; fi
           done < /in/files.txt
           n=0
           while read -r p; do
