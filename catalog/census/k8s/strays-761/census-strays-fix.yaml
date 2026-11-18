@@ -1,4 +1,5 @@
 # HAND-ROLLED (#761): one-off bucket cleanup, not a build step the generator emits.
+# STAC-PUBLISH-GUARD: not needed: uploads no collection; it only deletes stray copies stored under <x>/stac-collection.json/, which nothing links to.
 # The Portolan dry run found objects that earlier uploads wrote *inside* a key named like the
 # target (rclone copy to a file path creates <path>/<file>). This moves the four census-2024
 # READMEs to the keys their collections link (`describedby`), and deletes the stale
