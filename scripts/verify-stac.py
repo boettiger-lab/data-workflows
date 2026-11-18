@@ -62,6 +62,11 @@ Static checks (no data; just the STAC JSON):
   - point datasets: a processing-resolution note in description/processing:notes
   - categorical column completeness (values + inline CODE=Name)  [reuses lint-stac-categorical]
   - PMTiles tile-accurate table:columns                          [reuses lint-stac-pmtiles-fields]
+  - ADVISORY: Portolan metadata that is additive (#761, matched to rashid 0.4.0):
+    stac_version 1.1.0, a Portolan schema URI, the web-map-links extension beside a
+    `rel: pmtiles` link, the `visual` role on PMTiles, a title and description on every
+    asset, file:size + file:checksum on every single-file asset, and on a mirror a
+    `rel: via` text/html link and a top-level `updated`
   - ADVISORY: a title naming one US state whose bbox reaches well outside it, with no
     footprint sentence in the description — a set of whole units is not a state extent
     and a state-shaped title is what a consumer trusts instead of masking (#528)
@@ -1584,6 +1589,88 @@ def check_citation(doc: dict) -> list[Finding]:
     return []
 
 
+PORTOLAN_SCHEMA_URI = re.compile(
+    r"^https://schemas\.portolan-sdi\.org/portolan/v\d+\.\d+\.\d+/schema\.json$")
+PORTOLAN_SCHEMA_EXAMPLE = "https://schemas.portolan-sdi.org/portolan/v0.3.0/schema.json"
+WEB_MAP_LINKS_PREFIX = "https://stac-extensions.github.io/web-map-links/"
+
+
+def _is_mirror(doc: dict) -> bool:
+    """rashid's provenance test (rules/provenance.py): a collection with a producer and
+    exactly one host is a mirror unless a producer has the host's name. Anything else
+    is undecidable, and the mirror rules skip it."""
+    providers = [p for p in doc.get("providers") or [] if isinstance(p, dict)]
+    name = lambda p: " ".join(str(p.get("name") or "").split()).casefold()
+    producers = [p for p in providers if "producer" in (p.get("roles") or [])]
+    hosts = [p for p in providers if "host" in (p.get("roles") or [])]
+    if not producers or len(hosts) != 1 or not name(hosts[0]):
+        return False
+    return all(name(p) != name(hosts[0]) for p in producers)
+
+
+def check_portolan_metadata(doc: dict) -> list[Finding]:
+    """Portolan metadata that is additive and cheap to carry (#761 dry run, rashid 0.4.0).
+    Every finding is ADVISORY until the catalog is backfilled: no collection carries these
+    yet, so HARD would fail every PR. One finding per rule, naming the assets it covers.
+    The rashid rule each mirrors is in the message."""
+    out = []
+    collection = doc.get("type") == "Collection"
+    exts = [e for e in doc.get("stac_extensions") or [] if isinstance(e, str)]
+    links = [l for l in doc.get("links") or [] if isinstance(l, dict)]
+    assets = doc.get("assets") or {}
+
+    if doc.get("stac_version") != "1.1.0":
+        out.append(Finding(ADVISORY, "portolan-stac-version",
+                           f"stac_version is {doc.get('stac_version')!r}; Portolan requires "
+                           f"'1.1.0' (rashid PTL-STR-001)."))
+    if not any(PORTOLAN_SCHEMA_URI.match(e) for e in exts):
+        out.append(Finding(ADVISORY, "portolan-schema-uri",
+                           f"stac_extensions declares no Portolan schema URI; add "
+                           f"{PORTOLAN_SCHEMA_EXAMPLE} (rashid PTL-CNF-001)."))
+    if not collection:
+        return out
+
+    if (any(l.get("rel") == "pmtiles" for l in links)
+            and not any(e.startswith(WEB_MAP_LINKS_PREFIX) for e in exts)):
+        out.append(Finding(ADVISORY, "portolan-web-map-links",
+                           "a `rel: pmtiles` link without the web-map-links extension in "
+                           "stac_extensions; add https://stac-extensions.github.io/web-map-links/"
+                           "v1.3.0/schema.json (rashid PTL-VIZ-003)."))
+    no_visual = sorted(k for k, a in assets.items()
+                       if is_pmtiles(a) and "visual" not in (a.get("roles") or []))
+    if no_visual:
+        out.append(Finding(ADVISORY, "portolan-pmtiles-visual",
+                           f"PMTiles asset(s) {no_visual} lack the `visual` role "
+                           f"(rashid PTL-AST-009)."))
+    if _is_mirror(doc):
+        if not any(l.get("rel") == "via"
+                   and (l.get("type") or "").split(";")[0].strip() == "text/html"
+                   for l in links):
+            out.append(Finding(ADVISORY, "portolan-via-link",
+                               "a mirror (producer is not the host) with no `rel: via` link of "
+                               "type text/html to the upstream landing page (rashid PTL-PRO-001)."))
+        if not doc.get("updated"):
+            out.append(Finding(ADVISORY, "portolan-updated",
+                               "a mirror with no top-level `updated` (RFC 3339) recording when "
+                               "it was last synced from upstream (rashid PTL-PRO-003)."))
+    untexted = sorted(k for k, a in assets.items()
+                      if not all(isinstance(a.get(f), str) and a[f].strip()
+                                 for f in ("title", "description")))
+    if untexted:
+        out.append(Finding(ADVISORY, "portolan-asset-text",
+                           f"asset(s) {untexted} lack a title or description "
+                           f"(rashid PTL-AST-010)."))
+    # A glob href names many files, so it cannot carry one size or checksum.
+    unfiled = sorted(k for k, a in assets.items()
+                     if "*" not in str(a.get("href") or "")
+                     and not ("file:size" in a and "file:checksum" in a))
+    if unfiled:
+        out.append(Finding(ADVISORY, "portolan-file-metadata",
+                           f"asset(s) {unfiled} lack file:size or file:checksum (a multihash); "
+                           f"best written at build time (rashid PTL-AST-003)."))
+    return out
+
+
 STATIC_CHECKS = [
     check_license,
     check_nav_links,
@@ -1600,6 +1687,7 @@ STATIC_CHECKS = [
     check_pmtiles_link,
     check_thumbnail,
     check_citation,
+    check_portolan_metadata,
     check_tree,
     check_cng_fid,
     check_hex_dup_warning,

@@ -1426,3 +1426,65 @@ class TestCitation(unittest.TestCase):
 
     def test_citation_text_passes(self):
         self.assertEqual(self.codes(**{"sci:citation": "A. 2020. Data."}), [])
+
+
+class TestPortolanMetadata(unittest.TestCase):
+    SCHEMA = "https://schemas.portolan-sdi.org/portolan/v0.3.0/schema.json"
+    WML = "https://stac-extensions.github.io/web-map-links/v1.3.0/schema.json"
+    MIRROR = [{"name": "US Census Bureau", "roles": ["producer", "licensor"]},
+              {"name": "Boettiger Lab", "roles": ["host", "processor"]}]
+
+    def clean(self, **over):
+        d = {"type": "Collection", "stac_version": "1.1.0",
+             "stac_extensions": [self.SCHEMA, self.WML], "providers": self.MIRROR,
+             "updated": "2026-11-18T00:00:00Z",
+             "links": [{"rel": "via", "href": "https://example.org/", "type": "text/html"},
+                       {"rel": "pmtiles", "href": "d.pmtiles", "type": "application/vnd.pmtiles"}],
+             "assets": {
+                 "d-pmtiles": {"href": "d.pmtiles", "type": "application/vnd.pmtiles",
+                               "roles": ["visual"], "title": "T", "description": "D",
+                               "file:size": 1, "file:checksum": "1220ab"},
+                 "d-hex": {"href": "d/hex/h0=*/data_0.parquet", "roles": ["data"],
+                           "title": "T", "description": "D"}}}
+        d.update(over)
+        return d
+
+    def codes(self, doc):
+        return {f.code: f.severity for f in vs.check_portolan_metadata(doc)}
+
+    def test_compliant_collection_is_clean(self):
+        self.assertEqual(self.codes(self.clean()), {})
+
+    def test_every_gap_is_advisory(self):
+        doc = self.clean(stac_version="1.0.0", stac_extensions=[], updated=None)
+        doc["links"] = [l for l in doc["links"] if l["rel"] != "via"]
+        a = doc["assets"]["d-pmtiles"]
+        a["roles"] = ["data"]
+        del a["description"], a["file:checksum"]
+        self.assertEqual(self.codes(doc), {
+            "portolan-stac-version": vs.ADVISORY, "portolan-schema-uri": vs.ADVISORY,
+            "portolan-web-map-links": vs.ADVISORY, "portolan-pmtiles-visual": vs.ADVISORY,
+            "portolan-via-link": vs.ADVISORY, "portolan-updated": vs.ADVISORY,
+            "portolan-asset-text": vs.ADVISORY, "portolan-file-metadata": vs.ADVISORY})
+
+    def test_glob_asset_needs_no_file_metadata(self):
+        # the hex asset in clean() has a glob href and no file:* fields
+        self.assertNotIn("portolan-file-metadata", self.codes(self.clean()))
+
+    def test_via_and_updated_only_for_mirrors(self):
+        own = [{"name": "Boettiger Lab", "roles": ["producer", "host"]}]
+        doc = self.clean(providers=own, updated=None)
+        doc["links"] = [l for l in doc["links"] if l["rel"] != "via"]
+        self.assertEqual(self.codes(doc), {})
+        # undecidable provenance (no host) is skipped, as rashid does
+        self.assertEqual(self.codes(self.clean(providers=self.MIRROR[:1], updated=None)), {})
+
+    def test_via_link_must_be_html(self):
+        doc = self.clean()
+        doc["links"][0]["type"] = "application/json"
+        self.assertEqual(self.codes(doc), {"portolan-via-link": vs.ADVISORY})
+
+    def test_catalog_gets_only_version_and_schema(self):
+        self.assertEqual(self.codes({"type": "Catalog", "stac_version": "1.0.0", "links": []}),
+                         {"portolan-stac-version": vs.ADVISORY,
+                          "portolan-schema-uri": vs.ADVISORY})
