@@ -115,8 +115,17 @@ DESC = (
     "```sql\nSELECT TaxGroup, COUNT(DISTINCT _cng_fid) AS species\nFROM hex\n"
     "WHERE h8 IN (...) AND Range <> 'No Range'\nGROUP BY TaxGroup\n```\n\n"
     "On the hex asset, ranges up to 0.75 square degrees (about 7,400 km²) are indexed at H3 "
-    "resolution 10 and larger ranges at resolution 8, so h10 and h9 are empty for the 263 largest "
-    "ranges while h8 is set for every range. Join and compare species at h8.\n\n"
+    "resolution 10 and larger ranges at resolution 8, so h10 and h9 are null for the 263 largest "
+    "ranges while h8 is set for every range. To measure a range's area or its overlap with "
+    "another layer, use each range's finest cell: h10 where it is set, and h8 only where h10 is "
+    "null, matching the other layer's cells with h3_cell_to_parent(h10, 8). Grouping every range "
+    "at h8 credits it with whole resolution 8 cells it may only touch, which overstates "
+    "coverage:\n\n"
+    "```sql\nSELECT s._cng_fid, COUNT(DISTINCT p.h10) AS cells_in_area\n"
+    "FROM hex s JOIN area p\n"
+    "  ON (s.h10 IS NOT NULL AND s.h10 = p.h10)\n"
+    "  OR (s.h10 IS NULL AND s.h8 = h3_cell_to_parent(p.h10, 8))\n"
+    "WHERE s.Range <> 'No Range'\nGROUP BY s._cng_fid\n```\n\n"
     "This is CDFW's final SGCN release. It replaces the earlier v4 service (SWAP_SGCN_V4_gdb, "
     "422 ranges of vertebrates only), from which this collection and two species tables were "
     "built before; the species attributes are now part of each range record. CDFW publishes "
@@ -187,8 +196,10 @@ def ranges(live, hex_created):
             "description": "One row per (species range, H3 cell), partitioned by h0. Ranges up to "
                            "0.75 square degrees are indexed at resolution 10 with parents 9, 8 and "
                            "0; the 263 larger ranges at resolution 8 with h10 and h9 empty "
-                           "(native_res says which). h8 is set on every row, so count species per "
-                           "area at h8 with COUNT(DISTINCT _cng_fid). Every attribute, including "
+                           "(native_res says which). h8 is set on every row. For area or overlap, "
+                           "use each range's finest cell: h10 where set, h8 only where h10 is null "
+                           "(match other layers with h3_cell_to_parent); grouping every range at "
+                           "h8 overstates coverage. Every attribute, including "
                            "Shape__Area and Shape__Length, is a per-range value repeated on every "
                            "cell the range covers: none is safe to SUM on the hex rows. Records "
                            "with Range = 'No Range' sit on a placeholder in the Pacific Ocean; "
@@ -245,8 +256,11 @@ Base URL: `https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/`
 | H3 hex Parquet | `sgcn-ranges/hex/h0={cell}/data_0.parquet` | One row per (range, H3 cell) |
 
 Ranges up to 0.75 square degrees (about 7,400 km²) are indexed at H3 resolution 10 (with
-parents 9, 8, 0); the 263 larger ranges at resolution 8, with `h10` and `h9` empty. `h8` is set
-for every range: join and count species at `h8`.
+parents 9, 8, 0); the 263 larger ranges at resolution 8, with `h10` and `h9` null. `h8` is set
+for every range. To measure a range's area or its overlap with another layer, use each range's
+finest cell: `h10` where it is set, and `h8` only where `h10` is null (match the other layer's
+cells with `h3_cell_to_parent(h10, 8)`). Grouping every range at `h8` credits it with whole
+resolution 8 cells it may only touch, which overstates coverage.
 
 ## MapLibre GL JS
 
@@ -283,7 +297,7 @@ FROM read_parquet('https://s3-west.nrp-nautilus.io/public-swap/california/swap-2
 WHERE CalList <> 'No State Listing Status'
 GROUP BY TaxGroup ORDER BY species DESC;
 
--- SGCN richness per H3 resolution 8 cell, without the placeholder records
+-- species whose range touches each H3 resolution 8 cell, without the placeholder records
 SELECT h8, COUNT(DISTINCT _cng_fid) AS species
 FROM read_parquet('https://s3-west.nrp-nautilus.io/public-swap/california/swap-2025/sgcn-ranges/hex/h0=*/data_0.parquet')
 WHERE Range <> 'No Range'
