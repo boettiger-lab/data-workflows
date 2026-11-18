@@ -37,7 +37,15 @@
      "#BDBDBD"
     ],
     "fill-opacity": 0.3
-   }
+   },
+   "filter": [
+    "!=",
+    [
+     "get",
+     "Range"
+    ],
+    "No Range"
+   ]
   },
   {
    "id": "sgcn-ranges-outline",
@@ -48,11 +56,19 @@
     "line-color": "#555555",
     "line-width": 0.3,
     "line-opacity": 0.5
-   }
+   },
+   "filter": [
+    "!=",
+    [
+     "get",
+     "Range"
+    ],
+    "No Range"
+   ]
   }
  ],
  "metadata": {
-  "description": "Species ranges coloured by taxonomic group (7 groups, most ranges first: plants, invertebrates, birds, mammals, fish, amphibians, reptiles).",
+  "description": "Species ranges coloured by taxonomic group (7 groups, most ranges first: plants, invertebrates, birds, mammals, fish, amphibians, reptiles). The 183 species without a range map (a placeholder polygon in the Pacific) are not drawn.",
   "glen:legend": {
    "type": "categorical",
    "label": "taxonomic group",

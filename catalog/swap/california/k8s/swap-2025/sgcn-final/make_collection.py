@@ -202,7 +202,7 @@ def ranges(live, hex_created):
             "title": "SGCN ranges by taxonomic group",
             "description": "Species ranges coloured by taxonomic group: plants yellow, "
                            "invertebrates tan, birds orange, mammals pink, fish blue, amphibians "
-                           "teal, reptiles green."},
+                           "teal, reptiles green. Species without a range map are not drawn."},
         "thumbnail": a["thumbnail"],
     }
     return c
