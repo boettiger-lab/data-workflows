@@ -1,0 +1,107 @@
+# HAND-ROLLED (#617, datasets#339): writes the 11 combined h0 partitions the tool's repartition could not.
+# `cng-datasets repartition` sorts a whole h0 partition at once; h0=577727389698621439 (700M rows)
+# was OOM-killed at 32Gi and evicted at 200Gi of scratch. repartition_ranges.py sorts in _cng_fid
+# ranges and streams them into the same data_0.parquet (tested equal to the tool's output, rows and
+# order). The first 12 h0 partitions were written by the tool on 2026-11-17. Chunks are left in place.
+# Rebuild the ConfigMap from repartition_ranges.py if the script changes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: padus-4-1-combined-repartition-ranges
+  namespace: geo-workflows
+data:
+  repartition_ranges.py: "\"\"\"Repartition the remaining PAD-US combined h0 partitions with bounded scratch (#617).\n\nSame output as `cng-datasets repartition` (cng_datasets/vector/repartition.py):\nattributes joined from the source parquet, one h0=<cell>/data_0.parquet per h0,\nrows ordered by (_cng_fid, h10), provenance key-value metadata. The difference:\nthe tool sorts a whole h0 partition at once, and h0=577727389698621439\n(700M rows) spills past 200Gi of scratch. Here each partition is sorted in\n_cng_fid ranges of about RANGE_ROWS rows, each range is written to a small\ncompressed file, and the ranges are streamed in order into data_0.parquet.\n\nUsage: python3 repartition_ranges.py <h0> [<h0> ...]\n\"\"\"\nimport os\nimport shutil\nimport subprocess\nimport sys\n\nimport duckdb\nfrom cng_datasets.hex_checks import assert_h3_columns_unsigned\nfrom cng_datasets.provenance import kv_metadata_sql\nfrom cng_datasets.storage.s3 import configure_s3_credentials\n\nCHUNKS = os.environ.get(\"\
+    CHUNKS\", \"s3://public-padus/padus-4-1/combined/chunks\")\nSOURCE = os.environ.get(\"SOURCE\", \"s3://public-padus/padus-4-1/combined.parquet\")\nOUTPUT = os.environ.get(\"OUTPUT\", \"s3://public-padus/padus-4-1/combined/hex\")\nRCLONE_OUT = os.environ.get(\"RCLONE_OUT\", \"nrp:public-padus/padus-4-1/combined/hex\")\nID, FINEST = \"_cng_fid\", \"h10\"\nRANGE_ROWS = int(os.environ.get(\"RANGE_ROWS\", 50_000_000))\nWORK = os.environ.get(\"WORK\", \"/tmp/rp\")\n\ncon = duckdb.connect()\nconfigure_s3_credentials(con)\ncon.execute(f\"SET memory_limit='{os.environ.get('DUCKDB_MEMORY_LIMIT', '40GiB')}'\")\ncon.execute(f\"SET temp_directory='{WORK}_duckdb_tmp'\")\ncon.execute(\"SET http_timeout=1200\")\ncon.execute(\"SET http_retries=30\")\ncon.execute(\"SET arrow_large_buffer_size=true\")\n\ndesc = con.execute(f\"DESCRIBE SELECT * FROM read_parquet('{SOURCE}')\").fetchall()\nattr = [c for c, t, *_ in desc if not t.upper().startswith(\"GEOMETRY\")]\nquoted = \", \".join(f'\"{c}\"' for c in\
+    \ attr)\ncon.execute(f\"CREATE VIEW _source_attrs AS SELECT {quoted} FROM read_parquet('{SOURCE}')\")\ncon.execute(f\"CREATE VIEW _chunks AS SELECT * FROM read_parquet('{CHUNKS}/*.parquet')\")\njoin = (f'SELECT s.*, c.* EXCLUDE (\"{ID}\") FROM _chunks c '\n        f'INNER JOIN _source_attrs s ON c.\"{ID}\" = s.\"{ID}\"')\n\nfor h0 in sys.argv[1:]:\n    h0 = int(h0)\n    shutil.rmtree(WORK, ignore_errors=True)\n    os.makedirs(f\"{WORK}/parts\")\n    os.makedirs(f\"{WORK}/h0={h0}\")\n    # Rows per feature in this partition, in id order, cut into ranges.\n    counts = con.execute(\n        f'SELECT \"{ID}\", count(*) FROM _chunks WHERE h0 = {h0} GROUP BY 1 ORDER BY 1'\n    ).fetchall()\n    expected = sum(n for _, n in counts)\n    ranges, lo, acc = [], counts[0][0], 0\n    for fid, n in counts:\n        if acc and acc + n > RANGE_ROWS:\n            ranges.append((lo, prev))\n            lo, acc = fid, 0\n        acc += n\n        prev = fid\n    ranges.append((lo, prev))\n    print(f\"\
+    h0={h0}: {expected:,} rows, {len(counts):,} features, {len(ranges)} ranges\", flush=True)\n\n    con.execute(\"SET preserve_insertion_order=false\")\n    parts = []\n    for i, (a, b) in enumerate(ranges):\n        part = f\"{WORK}/parts/part_{i:05d}.parquet\"\n        con.execute(\n            f'COPY (SELECT * FROM ({join} WHERE c.h0 = {h0} AND c.\"{ID}\" BETWEEN {a} AND {b}) '\n            f'ORDER BY \"{ID}\", \"{FINEST}\") TO \\'{part}\\' (FORMAT PARQUET, COMPRESSION ZSTD)'\n        )\n        parts.append(part)\n        print(f\"  range {i + 1}/{len(ranges)} ids {a}-{b} written\", flush=True)\n\n    # Stream the sorted ranges, in order, into one file.\n    out = f\"{WORK}/h0={h0}/data_0.parquet\"\n    con.execute(\"SET preserve_insertion_order=true\")\n    plist = \", \".join(f\"'{p}'\" for p in parts)\n    con.execute(f\"COPY (SELECT * FROM read_parquet([{plist}])) TO '{out}' \"\n                f\"(FORMAT PARQUET, COMPRESSION ZSTD{kv_metadata_sql()})\")\n\n    # Checks before upload:\
+    \ row count, and the file is ordered by id\n    # (each row group's min id >= the previous row group's max id).\n    n = con.execute(f\"SELECT count(*) FROM read_parquet('{out}')\").fetchone()[0]\n    assert n == expected, f\"h0={h0}: wrote {n:,} rows, expected {expected:,}\"\n    bad = con.execute(f\"\"\"\n        WITH rg AS (\n          SELECT row_group_id, min(stats_min_value::BIGINT) mn, max(stats_max_value::BIGINT) mx\n          FROM parquet_metadata('{out}') WHERE path_in_schema = '{ID}' GROUP BY 1),\n        w AS (SELECT mn, lag(mx) OVER (ORDER BY row_group_id) prev_mx FROM rg)\n        SELECT count(*) FROM w WHERE mn < prev_mx\"\"\").fetchone()[0]\n    assert bad == 0, f\"h0={h0}: {bad} row groups out of id order\"\n\n    subprocess.run([\"rclone\", \"copy\", f\"{WORK}/h0={h0}\", f\"{RCLONE_OUT}/h0={h0}/\",\n                    \"--transfers\", \"32\", \"--s3-upload-concurrency\", \"16\",\n                    \"--s3-chunk-size\", \"64M\"], check=True)\n    shutil.rmtree(WORK)\n\
+    \    print(f\"  h0={h0} done ({n:,} rows)\", flush=True)\n\nhex_glob = f\"{OUTPUT}/h0=*/data_0.parquet\"\nprint(f\"Asserting H3 columns are UBIGINT via {hex_glob}...\", flush=True)\nassert_h3_columns_unsigned(lambda sql: con.execute(sql).fetchall(), hex_glob)\nprint(\"All done. Chunks are left in place; remove them after verification.\", flush=True)\n"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: padus-4-1-combined-repartition-ranges
+  namespace: geo-workflows
+  labels:
+    k8s-app: padus-4-1-combined-repartition-ranges
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        k8s-app: padus-4-1-combined-repartition-ranges
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: repartition-task
+        image: ghcr.io/boettiger-lab/datasets:0.12.1
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-padus
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 40GiB
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        - name: script
+          mountPath: /script
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - 'set -e
+
+          python3 /script/repartition_ranges.py 577727389698621439 577762574070710271 577832942814887935 577868127186976767 578079233419509759 578114417791598591 578290339652042751 578466261512486911 578501445884575743 578888473977552895 579205133326352383
+
+          '
+        resources:
+          requests:
+            cpu: '4'
+            memory: 64Gi
+            ephemeral-storage: 150Gi
+          limits:
+            cpu: '4'
+            memory: 64Gi
+            ephemeral-storage: 150Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      - name: script
+        configMap:
+          name: padus-4-1-combined-repartition-ranges
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

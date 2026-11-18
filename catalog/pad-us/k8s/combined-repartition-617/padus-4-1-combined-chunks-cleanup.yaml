@@ -1,0 +1,38 @@
+# HAND-ROLLED (#617, datasets#339): the tool's repartition --cleanup would have removed the
+# combined chunks, but the range repartition (padus-4-1-combined-repartition-ranges.yaml) leaves
+# them in place until the hex is verified. Verified 2026-11-17 (2,304,610,953 rows, 656,986
+# features), so this removes them.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: padus-4-1-combined-chunks-cleanup
+  namespace: geo-workflows
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: cleanup
+        image: ghcr.io/boettiger-lab/datasets:0.12.1
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          rclone size nrp:public-padus/padus-4-1/combined/chunks
+          rclone purge nrp:public-padus/padus-4-1/combined/chunks
+          echo "purged"
+        resources:
+          requests: {cpu: "1", memory: 1Gi}
+          limits: {cpu: "1", memory: 1Gi}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
