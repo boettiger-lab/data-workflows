@@ -1,0 +1,97 @@
+{
+ "version": 8,
+ "name": "CA \u00b7 SGCN Species Ranges",
+ "sources": {
+  "data": {
+   "type": "vector",
+   "url": "pmtiles://../../sgcn-ranges.pmtiles"
+  }
+ },
+ "layers": [
+  {
+   "id": "sgcn-ranges-fill",
+   "type": "fill",
+   "source": "data",
+   "source-layer": "sgcn-ranges",
+   "paint": {
+    "fill-color": [
+     "match",
+     [
+      "get",
+      "TaxGroup"
+     ],
+     "Plants",
+     "#FFD92F",
+     "Invertebrates",
+     "#E5C494",
+     "Birds",
+     "#FC8D62",
+     "Mammals",
+     "#E78AC3",
+     "Fish",
+     "#8DA0CB",
+     "Amphibians",
+     "#66C2A5",
+     "Reptiles",
+     "#A6D854",
+     "#BDBDBD"
+    ],
+    "fill-opacity": 0.3
+   }
+  },
+  {
+   "id": "sgcn-ranges-outline",
+   "type": "line",
+   "source": "data",
+   "source-layer": "sgcn-ranges",
+   "paint": {
+    "line-color": "#555555",
+    "line-width": 0.3,
+    "line-opacity": 0.5
+   }
+  }
+ ],
+ "metadata": {
+  "description": "Species ranges coloured by taxonomic group (7 groups, most ranges first: plants, invertebrates, birds, mammals, fish, amphibians, reptiles).",
+  "glen:legend": {
+   "type": "categorical",
+   "label": "taxonomic group",
+   "classes": [
+    {
+     "label": "Plants",
+     "color": "#FFD92F"
+    },
+    {
+     "label": "Invertebrates",
+     "color": "#E5C494"
+    },
+    {
+     "label": "Birds",
+     "color": "#FC8D62"
+    },
+    {
+     "label": "Mammals",
+     "color": "#E78AC3"
+    },
+    {
+     "label": "Fish",
+     "color": "#8DA0CB"
+    },
+    {
+     "label": "Amphibians",
+     "color": "#66C2A5"
+    },
+    {
+     "label": "Reptiles",
+     "color": "#A6D854"
+    }
+   ]
+  },
+  "glen:tooltip_fields": [
+   "SWAP_Common",
+   "SWAP_Scientific",
+   "TaxGroup",
+   "ListingStatus"
+  ]
+ }
+}
