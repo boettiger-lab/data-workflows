@@ -1,0 +1,78 @@
+{
+ "version": 8,
+ "name": "CalEnviroScreen 5.0",
+ "sources": {
+  "data": {
+   "type": "vector",
+   "url": "pmtiles://../calenviroscreen-5-0/ces5.pmtiles"
+  }
+ },
+ "layers": [
+  {
+   "id": "ces5-fill",
+   "type": "fill",
+   "source": "data",
+   "source-layer": "ces5",
+   "paint": {
+    "fill-color": [
+     "case",
+     [
+      "==",
+      [
+       "typeof",
+       [
+        "get",
+        "CIscoreP"
+       ]
+      ],
+      "number"
+     ],
+     [
+      "interpolate",
+      [
+       "linear"
+      ],
+      [
+       "get",
+       "CIscoreP"
+      ],
+      0,
+      "#1A9641",
+      25,
+      "#A6D96A",
+      50,
+      "#FFFFBF",
+      75,
+      "#FDAE61",
+      100,
+      "#D7191C"
+     ],
+     "#cccccc"
+    ],
+    "fill-opacity": 0.7
+   }
+  },
+  {
+   "id": "ces5-outline",
+   "type": "line",
+   "source": "data",
+   "source-layer": "ces5",
+   "paint": {
+    "line-color": "#555555",
+    "line-width": 0.5
+   }
+  }
+ ],
+ "metadata": {
+  "description": "Census tracts shaded by CalEnviroScreen 5.0 percentile, from green (lowest cumulative burden) through yellow to red (highest). Grey tracts have no score.",
+  "glen:tooltip_fields": [
+   "tract",
+   "county",
+   "ZIP",
+   "CIscore",
+   "CIscoreP",
+   "Pollution_Pctl",
+   "PopCharPctl"
+  ]
+ }
+}
