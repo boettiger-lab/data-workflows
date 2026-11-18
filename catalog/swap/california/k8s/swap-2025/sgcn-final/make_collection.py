@@ -20,6 +20,8 @@ RAW = ("s3://public-swap/california/raw/swap-2025-sgcn-final-ranges.geojson", 45
        "2316d5b390ee47d77d4e12f071c8bed86ee6d692b97fd3bd9b6afbde5b6e31d6")
 RETIRED = ("sgcn-species", "sgcn-species-units")
 NO_RANGE = "Range = 'No Range'"
+PLAN = ("California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action "
+        "Plan, 2025 Update: A Conservation Legacy for Californians.")
 LIST = "A comma-separated list; filter with LIKE, e.g. {}."
 
 C = [
@@ -154,7 +156,7 @@ def ranges(live, hex_created):
     c["sci:citation"] = ("California Department of Fish and Wildlife. SWAP 2025 Species of "
                          f"Greatest Conservation Need (SGCN_Final_red_gdb) [Data set]. {ITEM} "
                          f"(accessed {ACCESSED})")
-    c["sci:publications"] = [{"citation": live["sci:citation"]}]
+    c["sci:publications"] = [{"citation": PLAN}]
     c["created"] = live.get("created", "2026-03-01T00:00:00Z")
     c["updated"] = "2026-11-18T00:00:00Z"
     c["table:columns"] = [col(x) for x in C]
