@@ -57,6 +57,7 @@ data:
               limits:
                 cpu: '4'
                 memory: 2Gi
+          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -128,7 +129,7 @@ data:
             - name: CNG_POD_CPU
               value: '4'
             - name: DUCKDB_MEMORY_LIMIT
-              value: 13GiB
+              value: 17GiB
             - name: GDAL_CACHEMAX
               value: '512'
             command:
@@ -141,11 +142,11 @@ data:
             resources:
               requests:
                 cpu: '4'
-                memory: 16Gi
+                memory: 20Gi
                 ephemeral-storage: 20Gi
               limits:
                 cpu: '4'
-                memory: 16Gi
+                memory: 20Gi
                 ephemeral-storage: 20Gi
             volumeMounts:
             - name: rclone-config
@@ -155,6 +156,7 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
+          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -239,6 +241,7 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
+          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -319,6 +322,7 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
+          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:

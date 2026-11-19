@@ -52,6 +52,7 @@ spec:
           limits:
             cpu: '4'
             memory: 2Gi
+      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
