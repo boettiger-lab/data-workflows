@@ -430,6 +430,7 @@ and rescale (Portolan, #881). Reuse the paint the GLEN apps already use (`script
 for a layer no app shows, examine the data, pick its primary variable and build the default on
 it with `scripts/default-style.py`. A one-colour default is refused unless the style says why
 the data has no variable worth showing. Then draw its thumbnail with `scripts/thumbnail.py`.
+In a job, cng-datasets 0.16.0 does both: `cng-datasets style` and `cng-datasets vector-thumbnail`.
 
 Everything about *what to write* — the user-facing description register, `table:columns`
 placement, SPDX license rules, categorical `values`, hex per-feature duplication notes, `h3:*`
