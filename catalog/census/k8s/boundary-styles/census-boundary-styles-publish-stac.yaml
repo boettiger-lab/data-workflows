@@ -1,0 +1,55 @@
+# HAND-ROLLED: the generator does not write STAC or styles. A metadata-only fix: the default
+# styles of seven national census boundary layers carried California app names and no
+# glen:single_colour_reason. set_style.py (committed beside this file) renames each live style
+# and its collection asset and records the reason; the paint and everything else are kept.
+#   kubectl create configmap census-boundary-styles -n geo-workflows \
+#     --from-file=set_style.py=catalog/census/k8s/boundary-styles/set_style.py \
+#     --from-file=guard.py=scripts/stac-publish-guard.py
+#   kubectl create -f catalog/census/k8s/boundary-styles/census-boundary-styles-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-boundary-styles-publish
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: in, mountPath: /in, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          for p in census-2024/state census-2024/county census-2024/tract census-2024/cd \
+                   census-2024/place census-2025/sldl census-2025/sldu; do
+            k=${p#*/}
+            S=public-census/$p/styles/$k.json
+            C=public-census/$p/stac-collection.json
+            rclone cat "nrp:$S" > /tmp/s.json
+            python3 /in/set_style.py style "$k" /tmp/s.json
+            rclone copyto /tmp/s.json "nrp:$S" $R
+            rclone cat "nrp:$C" > /tmp/live.json
+            cp /tmp/live.json /tmp/c.json
+            python3 /in/set_style.py collection "$k" /tmp/c.json
+            python3 /in/guard.py /tmp/c.json /tmp/live.json
+            rclone copyto /tmp/c.json "nrp:$C" $R
+            echo "updated $p"
+          done
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: in, configMap: {name: census-boundary-styles}}
