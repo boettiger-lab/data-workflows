@@ -2,7 +2,8 @@
 name: pod-preemption
 description: >-
   Diagnose and prevent preemption of long-running Kubernetes jobs: reading the succeeded-vs-failed
-  gap that reveals pod mortality, how to tell it apart from by-design OOM-and-reroute which
+  gap that reveals pod mortality, why generated jobs (podFailurePolicy Ignore on DisruptionTarget)
+  never count preemption in failed, how to tell it apart from by-design OOM-and-reroute which
   produces the same shape, why priorityClassName opportunistic (-2000000000) is unsafe for
   multi-hour pods, choosing a priority class and parallelism against NRP's pod usage policy
   (default-priority pods must be sized to measured use or the whole account is blocked; short
@@ -38,6 +39,43 @@ killed underneath it.
 **A job can even report `Complete=True` while this is happening.** Retries hide it. Check the gap
 on every long job, not just failing ones.
 
+## ⛔ Generated jobs do not count preemption in `failed`
+
+`cng-datasets` writes this into every indexed Job it generates:
+
+```yaml
+podFailurePolicy:
+  rules:
+  - action: Ignore
+    onPodConditions:
+    - type: DisruptionTarget
+```
+
+A pod killed by preemption or a node drain carries `DisruptionTarget`. Under this rule it is
+replaced without being counted in `.status.failed` or against `backoffLimitPerIndex`. The gap above
+therefore only works on jobs without the rule. CHELSA (#564) had none. On a generated job,
+`failed=0` says nothing about preemption, and neither does a sibling stage's `failed=0`.
+
+In #792, `tidal-marsh-2020-staging-2020-hex` (opportunistic, 122 indexes) showed no `failed` key at
+all while four indexes were running on replacement pods. Check for the rule first:
+
+```bash
+kubectl -n geo-workflows get job <name> -o jsonpath='{.spec.podFailurePolicy}{"\n"}'
+```
+
+Where it is set, read deaths from the pods and events instead, while the job is still running:
+
+```bash
+# a replacement pod starts later than its index's first wave
+kubectl -n geo-workflows get pods -l job-name=<name> --sort-by=.metadata.creationTimestamp \
+  -o custom-columns='POD:.metadata.name,INDEX:.metadata.annotations.batch\.kubernetes\.io/job-completion-index,CREATED:.metadata.creationTimestamp'
+# kills without OOMKilled or Evicted; events expire after about an hour
+kubectl -n geo-workflows get events --field-selector involvedObject.kind=Pod | grep <name> | grep -E 'Killing|Preempt'
+```
+
+The rule's upside: a preempted pod does not use up its index's retries, so preemption alone does
+not exhaust an index. A long pod still loses its work each time it is killed.
+
 ## ⛔ The gap is necessary, not sufficient — OOM-and-reroute looks identical
 
 A wide `failed` vs `failedIndexes` gap says *pods died and retried*. It does **not** say why. A
@@ -52,9 +90,10 @@ you into the wrong answer; it cost a session here exactly that.
 
 Two checks settle it before you touch the data:
 
-- **A clean earlier stage in the same window rules preemption out.** Stage 1 of that job ran
-  `succeeded=200 failed=0` at default priority, same namespace, same node pool, same window as
-  Stage 2's 47 deaths. Preemption does not selectively spare one stage.
+- **A clean earlier stage is weak evidence.** Stage 1 of that job ran `succeeded=200 failed=0` at
+  default priority in the same window as Stage 2's 47 deaths. That rules preemption out only on a
+  job without the `DisruptionTarget` Ignore rule (section above); with it, a preempted stage also
+  reads `failed=0`.
 - **Size correlation is the positive tell for OOM.** Every failed index was among the largest
   partitions — the seven held 2.6B of 3.57B rows. Preemption hits indexes without regard to size;
   OOM hits the big ones and only the big ones.
@@ -212,7 +251,9 @@ makes the audit unnecessary.
 - [ ] Set parallelism to keep the total node claim reasonable as priority rises.
 - [ ] `backoffLimitPerIndex` + `maxFailedIndexes` so a partial run surfaces as `Failed`
       (AGENTS.md #409) — never `backoffLimit: 0` on a fan-out.
-- [ ] After it finishes, check the `succeeded` vs `failed` gap, not just the condition.
+- [ ] After it finishes, check the `succeeded` vs `failed` gap, not just the condition. If the job
+      ignores `DisruptionTarget` (every generated job does), read replacement pods and `Killing`
+      events while it runs instead; `failed` will not show preemption.
 - [ ] Before calling a gap preemption, check a sibling stage and whether failures track partition
       size — an expected-OOM tier produces the same signature.
 - [ ] Build any re-run list from `completions` minus `completedIndexes` minus `failedIndexes`,
