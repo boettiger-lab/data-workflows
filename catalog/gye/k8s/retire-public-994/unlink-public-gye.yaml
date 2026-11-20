@@ -3,6 +3,7 @@
 # (wyoming#100) and the copy there was verified byte for byte (#999). Read-modify-write inside
 # the job, idempotent. Deleting the public-gye bucket itself is run by hand, outside agents.
 #   kubectl create -f catalog/gye/k8s/retire-public-994/unlink-public-gye.yaml
+# STAC-PUBLISH-GUARD: not needed: edits the live root catalog (a Catalog, not a collection) in place, removing one child link.
 apiVersion: batch/v1
 kind: Job
 metadata:
