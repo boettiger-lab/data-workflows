@@ -115,6 +115,26 @@ jobs:
           echo "$FILES"
           python3 scripts/verify-stac.py --yaml $FILES
 
+      # Portolan validator, ADVISORY until the #761 findings are sorted (#1003): it
+      # never fails the job. Findings go to the step summary.
+      - name: Portolan validator (rashid, advisory)
+        if: always()
+        continue-on-error: true
+        env:
+          MCP_AUTH_TOKEN: ""   # third-party code; it needs no secret
+        run: |
+          pip install --quiet rashid==0.4.0
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.collection }}" ]; then
+            python3 scripts/rashid-advisory.py "${{ inputs.collection }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.bucket }}" ]; then
+            python3 scripts/rashid-advisory.py --bucket "${{ inputs.bucket }}" --dataset "${{ inputs.dataset }}"
+          else
+            BASE="origin/${{ github.base_ref || github.event.repository.default_branch }}"
+            FILES=$(git diff --name-only "$BASE" HEAD -- catalog/ \
+              | grep -E '\.ya?ml$' | grep -vE '^catalog/(sync|audit)/' || true)
+            [ -z "$FILES" ] || python3 scripts/rashid-advisory.py --yaml $FILES
+          fi
+
   verify-fork:
     # Fork PRs. pull_request_target runs this file and the scripts as they are on the
     # base branch, with secrets. Do NOT check out, install or run anything from the PR
@@ -169,3 +189,15 @@ jobs:
             exit 0
           fi
           python3 scripts/verify-stac.py --yaml "$OUT"/*.yaml
+
+      # Portolan validator, advisory (#1003). Reads the YAML copies made above as text.
+      - name: Portolan validator (rashid, advisory)
+        if: always()
+        continue-on-error: true
+        env:
+          MCP_AUTH_TOKEN: ""   # third-party code; it needs no secret
+        run: |
+          OUT="$RUNNER_TEMP/pr-yaml"
+          ls "$OUT"/*.yaml >/dev/null 2>&1 || exit 0
+          pip install --quiet rashid==0.4.0
+          python3 scripts/rashid-advisory.py --yaml "$OUT"/*.yaml
