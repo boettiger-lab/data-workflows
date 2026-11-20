@@ -1,0 +1,99 @@
+# HAND-ROLLED: cng-datasets has no step for enriching a table from a REST API; this job calls
+# the IUCN Red List v4 API to fill the empty assessment fields of the taxonomy table (#825).
+#
+# Runs in `biodiversity`, not geo-workflows, because that is where the `iucn-api-key` secret
+# lives (precedent: catalog/iucn/audit/k8s/iucn-master-job.yaml). The key is not copied into
+# geo-workflows (Hard Boundary 3). S3 goes through the `aws` secret already in biodiversity,
+# as an env-defined rclone remote on the internal endpoint; no secret is added anywhere.
+#
+# Output goes to a STAGING prefix only; the published parquet is never written here:
+#   s3://public-iucn/taxonomy/staging-825/iucn-taxonomy.parquet         (+ .report.json)
+#   s3://public-iucn/taxonomy/staging-825/api-cache/<sis_taxon_id>.json (resume cache)
+# A rerun reuses the cache and fetches only what is missing. Swap + STAC publish:
+# taxonomy-backfill-publish.yaml (geo-workflows).
+#
+# Pod: ~36k API calls at ~0.7 s each, about 7 h single-threaded on purpose (be polite to the
+# API). Default priority, because an opportunistic pod would be preempted over that span;
+# requests stay at <=1 core and <=2Gi, so NRP's small-pod exemption applies to the usage check.
+#
+#   kubectl create configmap iucn-taxonomy-backfill-script -n biodiversity \
+#     --from-file=backfill_taxonomy.py=catalog/iucn/k8s/taxonomy-backfill-825/backfill_taxonomy.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n biodiversity delete job iucn-taxonomy-backfill --ignore-not-found
+#   kubectl apply -f catalog/iucn/k8s/taxonomy-backfill-825/taxonomy-backfill-job.yaml
+#   kubectl -n biodiversity logs -f job/iucn-taxonomy-backfill
+#
+# Test on a few taxa first: set ONLY_IDS to a comma list and STAGE to staging-825-test.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-taxonomy-backfill
+  namespace: biodiversity
+  labels: {k8s-app: iucn-taxonomy-backfill}
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 86400
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: iucn-taxonomy-backfill}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: backfill
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 4Gi}
+        env:
+        - name: STAGE
+          value: staging-825
+        - name: ONLY_IDS
+          value: ""
+        - name: IUCN_REQUEST_DELAY
+          value: "0.3"
+        - name: REGIONAL
+          value: fill
+        - name: BOOL_FLAGS
+          value: "null"
+        - name: IUCN_API_KEY
+          valueFrom: {secretKeyRef: {name: iucn-api-key, key: IUCN_API_KEY}}
+        - {name: RCLONE_CONFIG_NRP_TYPE, value: s3}
+        - {name: RCLONE_CONFIG_NRP_PROVIDER, value: Ceph}
+        - {name: RCLONE_CONFIG_NRP_ENDPOINT, value: "http://rook-ceph-rgw-nautiluss3.rook"}
+        - name: RCLONE_CONFIG_NRP_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: RCLONE_CONFIG_NRP_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          python -c "import requests, duckdb, pyarrow" 2>/dev/null || pip install --quiet requests duckdb pyarrow
+          R="--retries 10 --low-level-retries 20"
+          DEST=nrp:public-iucn/taxonomy/$STAGE
+          mkdir -p /work/src /work/api-cache /work/out
+          # Fail fast if the S3 key cannot write the staging prefix.
+          date -u +%FT%TZ > /work/started.txt && rclone copyto /work/started.txt $DEST/started.txt $R
+          rclone copy nrp:public-iucn/taxonomy/iucn-taxonomy.parquet /work/src/ $R
+          rclone md5sum /work/src/iucn-taxonomy.parquet | tee /work/out/source-md5.txt
+          rclone copy $DEST/api-cache/ /work/api-cache/ --transfers 32 $R || true
+          export SRC_PARQUET=/work/src/iucn-taxonomy.parquet CACHE_DIR=/work/api-cache \
+                 OUT_PARQUET=/work/out/iucn-taxonomy.parquet \
+                 SYNC_CMD="rclone copy /work/api-cache/ $DEST/api-cache/ --transfers 32 $R"
+          python /scripts/backfill_taxonomy.py fetch
+          python /scripts/backfill_taxonomy.py build
+          rclone copy /work/out/ $DEST/ $R
+          echo Done.
+        volumeMounts:
+        - {name: scripts, mountPath: /scripts, readOnly: true}
+        - {name: work, mountPath: /work}
+      volumes:
+      - {name: scripts, configMap: {name: iucn-taxonomy-backfill-script}}
+      - {name: work, emptyDir: {sizeLimit: 4Gi}}
