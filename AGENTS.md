@@ -81,7 +81,7 @@ Canonical STAC/data live on NRP S3 (`s3://public-<bucket>/`, public URL `https:/
 
 ### You publish to NRP. Downstream copies are NOT your job.
 
-NRP is where your work ends. **Backup and mirror tiers — source.coop, MinIO, and any other copy of
+NRP is where your work ends. **Backup and mirror tiers — source.coop, the office store, and any other copy of
 this data anywhere — are owned by a different agent, and nothing about them is in scope for this
 repo.** You do not add buckets to a mirror list, decide which prefixes are excluded from one,
 record a redistribution verdict in an inventory, or open a PR against the repo that holds those
@@ -185,11 +185,14 @@ kubectl -n geo-workflows get jobs | grep <name>
   A workflow-namespace `rclone-config` holding only `[nrp]` is **correct, not a
   missing-remote bug** (internal endpoint `http://rook-ceph-rgw-nautiluss3.rook`,
   `upload_concurrency=16`, `chunk_size=64Mi`).
-- **Private buckets** (`private-wyoming`, `private-tpl`) live only on MinIO. Mount a
-  **scoped, single-bucket, on-demand EXPIRING mint** for that one bucket
-  (`mc admin user svcacct add <parent> --policy <one-bucket> --expiry …`; the
-  `wyoming-publish` model) — never a standing broad key. This is the only MinIO access a
-  build job ever has.
+- **Private buckets** (`private-wyoming`, `private-tpl`) live only on the office RustFS store,
+  `s3.carlboettiger.info` (path-style; it replaced MinIO on 2026-11-18, #985). Carl mints a
+  **scoped, single-bucket, on-demand EXPIRING key** for that one bucket by hand
+  (`rc admin service-account create <alias> <AK> <SK> --user <parent> --policy <one-bucket>
+  --expiry …`; the `wyoming-publish` model), and revokes it with `rc admin service-account rm`
+  after the job, since expiry enforcement is untested. Never a standing broad key. The job runs
+  in the consuming app's namespace (`biodiversity` for wyoming), not `geo-workflows`. This is
+  the only office-store access a build job ever has.
 
 ⛔ **Never add any other remote or secret to a workflow namespace.** If a job appears to need
 one, it is out of scope — stop and ask.
