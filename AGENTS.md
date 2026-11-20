@@ -268,8 +268,8 @@ External downloads are slow/rate-limited; restart from S3 if conversion fails. S
 access date is the field that makes a provenance chain resolvable to an actual edition, and it is
 unrecoverable after the fact: publishers overwrite in place (FWS republishes the NWI every May and
 October at the same URL, with no dated archive) and links rot (the CAL FIRE FRAP raster has *no*
-stable public download URL at all). When either happens, **your staged copy plus its checksum ARE
-the provenance** — there is nothing else left to point at. Capture, on the collection: the upstream
+stable public download URL at all). When either happens, **the checksum and access date you
+recorded ARE the provenance** — the staged copy is deleted after the build (below). Capture, on the collection: the upstream
 **landing page** (stable, not a fragile direct-download link), the **edition label** if upstream
 publishes one, the **access date**, and the staged raw's **path + size + checksum**. Recompute the
 checksum from the object, never transcribe it. Worked examples: `wetlands/nwi` and `cwhr`/`cwhr13`
@@ -294,6 +294,16 @@ command: [bash, -c, |
   rclone copy /tmp/data.zip nrp:<bucket>/raw/
 ]
 ```
+
+⛔ **Delete the staged raw once the build is done.** When the published outputs are verified
+(`verify-stac.py` exits 0 on the post-cluster run) and the provenance above is in the STAC, the
+last job of the task removes `s3://<bucket>/raw/<dataset>/`. Raw is a build cache: upstream
+still serves it, and we do not hold copies of other people's data on shared storage. A rebuild
+re-stages from upstream.
+
+**So an empty `raw/` is evidence of nothing.** Never conclude from a missing raw file that a
+source was never received, never processed or never staged. Ask the published data, the STAC
+and the issue instead.
 
 ### Step 1c: Preprocessing multi-file zipped datasets
 
@@ -512,7 +522,8 @@ bucket/                                 bucket/
 └── stac-collection.json
 ```
 
-`raw/` holds only upstream input staged for a rebuild. The backup tier treats it as disposable,
+`raw/` holds only upstream input staged for a build in progress, and is emptied when the build
+is done (Step 1b). The backup tier treats it as disposable,
 so **no STAC asset may point into `raw/`**. That includes an upstream file you also want to
 offer for download: publish a copy beside the dataset instead. `verify-stac.py` enforces this
 (`asset-under-raw`, #721).
