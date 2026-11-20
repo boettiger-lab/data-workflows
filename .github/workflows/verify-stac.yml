@@ -189,15 +189,3 @@ jobs:
             exit 0
           fi
           python3 scripts/verify-stac.py --yaml "$OUT"/*.yaml
-
-      # Portolan validator, advisory (#1003). Reads the YAML copies made above as text.
-      - name: Portolan validator (rashid, advisory)
-        if: always()
-        continue-on-error: true
-        env:
-          MCP_AUTH_TOKEN: ""   # third-party code; it needs no secret
-        run: |
-          OUT="$RUNNER_TEMP/pr-yaml"
-          ls "$OUT"/*.yaml >/dev/null 2>&1 || exit 0
-          pip install --quiet rashid==0.4.0
-          python3 scripts/rashid-advisory.py --yaml "$OUT"/*.yaml
