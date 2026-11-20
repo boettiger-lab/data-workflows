@@ -1,0 +1,58 @@
+# HAND-ROLLED: replaces published hex files from a validated staging prefix, which no generator
+# step does (#634). Run only after the staged output in staging-mche-634/final/hex/ has been
+# validated. MODE=swap copies it over cnrm/hex/ (same two h0 partitions, same file names, so no
+# stale file can remain) and checks the copy; MODE=cleanup deletes the staging prefix.
+#   kubectl apply -n geo-workflows -f catalog/hazard/k8s/mid-century-habitat-climate-exposure/rehex-634/mche-634-swap.yaml
+#   (then, after checking the published hex, set MODE=cleanup and apply again under a new name)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mche-634-swap
+  namespace: geo-workflows
+  labels: {k8s-app: mche-634-swap}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: mche-634-swap}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: swap
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: MODE, value: swap}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          S=nrp:public-hazard/staging-mche-634
+          P=nrp:public-hazard/mid-century-habitat-climate-exposure/cnrm/hex
+          case "$MODE" in
+            swap)
+              rclone copy "$S/final/hex" "$P" $R
+              rclone check "$S/final/hex" "$P" --one-way
+              rclone ls "$P" ;;
+            cleanup)
+              rclone purge "$S" $R
+              rclone lsf nrp:public-hazard/ ;;
+            *) echo "MODE must be swap or cleanup" >&2; exit 1 ;;
+          esac
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
