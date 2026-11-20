@@ -71,11 +71,11 @@ completionMode: Indexed # Each job gets unique index 0-121
 **Command execution (processes both layers):**
 ```bash
 python -u ncp/raster.py --i $INDEX --zoom 8 \
-  --input-url https://minio.carlboettiger.info/public-ncp/NCP_biod_nathab_cog.tif \
+  --input-url https://s3.carlboettiger.info/public-ncp/NCP_biod_nathab_cog.tif \
   --output-url s3://public-ncp/hex/ncp_biod_nathab
 
 python -u ncp/raster.py --i $INDEX --zoom 8 \
-  --input-url https://minio.carlboettiger.info/public-ncp/NCP_only_cog.tif \
+  --input-url https://s3.carlboettiger.info/public-ncp/NCP_only_cog.tif \
   --output-url s3://public-ncp/hex/ncp_only
 ```
 
@@ -123,7 +123,7 @@ kubectl logs -l k8s-app=wetlands -f
 Process a specific hex locally:
 ```bash
 python raster.py --i 42 --zoom 8 \
-  --input-url https://minio.carlboettiger.info/public-ncp/NCP_biod_nathab_cog.tif \
+  --input-url https://s3.carlboettiger.info/public-ncp/NCP_biod_nathab_cog.tif \
   --output-url s3://public-ncp/hex/ncp_biod_nathab
 ```
 
