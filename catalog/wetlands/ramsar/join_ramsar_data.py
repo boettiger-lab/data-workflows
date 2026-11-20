@@ -22,7 +22,7 @@ def setup_duckdb():
     
     # Configure S3 credentials using DuckDB secret manager
     print("Configuring S3 credentials...")
-    endpoint = os.environ.get('AWS_S3_ENDPOINT', 'minio.carlboettiger.info')
+    endpoint = os.environ.get('AWS_S3_ENDPOINT', 's3.carlboettiger.info')
     use_ssl = 'false' if 'rook' in endpoint else 'true'
     
     conn.execute(f"""

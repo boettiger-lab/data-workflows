@@ -256,6 +256,30 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   - ❌ `.../census-2025/sldl/hex/`
   - ✅ `.../census-2025/sldl/hex/h0=*/data_0.parquet`
 
+- **Hex partitions: add the partition extension fields beside the hex asset, never instead of
+  it** (Carl, 2026-11-19, datasets#340). Portolan describes partitioned data with collection-level
+  `partition:*` fields. Add them, and keep the hex asset: consumers find hex by its asset key, a
+  collection can hold several hex outputs, and only the asset carries `h3:*`, its own
+  `table:columns` and `created`.
+
+  ```json
+  "stac_extensions": [..., "https://schemas.portolan-sdi.org/incubating/partition/v1.0.0/schema.json"],
+  "partition:scheme": "hive",
+  "partition:strategy": "h3",
+  "partition:keys": [{"name": "h0", "type": "int64", "description": "H3 resolution-0 cell id"}],
+  "partition:glob": "s3://<bucket>/<dataset>/hex/h0=*/data_0.parquet",
+  "partition:file_count": 122
+  ```
+
+  Each key is an object, not a bare string; a per-year raster hex has `year` (`int32`) before
+  `h0`, with the glob `hex/year=*/h0=*/data_0.parquet`. The glob is `s3://`, because HTTPS
+  cannot be listed. Take `partition:file_count` from `prefixes` in `<dataset>.checksums.json`,
+  which cng-datasets writes beside the data (or `cng-datasets checksums` backfills). rashid still
+  reports the hex asset's glob href (PTL-AST-012) and its missing `file:checksum` (PTL-AST-003).
+  These two findings are a known deviation, raised with Portolan in
+  [portolan-spec#278](https://github.com/portolan-sdi/portolan-spec/issues/278); do not drop the
+  asset to clear them.
+
 - **Any vector asset with named layers** (PMTiles, GDB, GPKG, etc.) MUST include `"vector:layers": ["<name>"]`. For PMTiles the layer name = last segment of `--dataset`.
 
 - **`table:columns`: one column dictionary on the collection (Portolan PORTO-FMT-046/048, glen#441).**
@@ -473,6 +497,13 @@ same values the apps pass to titiler:
 
 A categorical COG whose colours are embedded as a colour table needs no entry.
 
+`raster-workflow` (cng-datasets 0.16.0 and later) writes `s3://<bucket>/<dataset>.render.json`
+with one render per COG it wrote: the colour table when the COG has one, otherwise `viridis`
+over the 2nd-98th percentile in real units. Add `title` and `assets` to each entry and put it
+under `renders`. It is a default, not the answer: diverging data, a categorical raster without a
+colour table, or log-scaled data needs `cng-datasets cog-render ... --colormap`, `--rescale` or
+`--colormap-json`, run in a job.
+
 **Where the colours come from.** When any GLEN app already shows the layer, reuse its paint:
 `scripts/app-styles.py` reads every app's `layers-input.json` (the list is glen-ops `APPS.md`),
 picks one style when apps disagree (most apps wins, then the app named for the bucket), and writes
@@ -510,6 +541,12 @@ server), labelled from the column's `CODE=Definition` description, the rest as O
 order. Continuous shades quantile classes of the real range, with missing values in no-data
 grey. `A/B` as the column shades a ratio of two columns. Both write `glen:legend` classes.
 
+`cng-datasets style-profile` and `cng-datasets style` (0.16.0) are the same profile and build
+with the same flags, run in a job. They read the GeoParquet directly instead of through the MCP,
+and write only the style JSON (`--output s3://.../styles/<stem>-<column>.json`), so the job
+still adds the style asset to the collection and runs the guard. Pass `--collection` and
+`--asset` for `CODE=meaning` labels.
+
 A one-colour default is refused (`stac-publish-guard.py` and `verify-stac.py`) unless the data
 really has no variable worth showing, such as an outline with no attributes or tiles that carry
 only identifiers. Then `--single-colour "why"` records the reason as the style's description
@@ -538,6 +575,12 @@ scripts/thumbnail.py <collection-url> --out /tmp/thumbs   # writes thumbnail.png
 It draws the first default style (PMTiles, MapLibre in headless Chromium via Playwright) or
 the newest COG render (TiTiler `/cog/preview.png`, unscaled like the apps), and adds a
 `thumbnail` asset (`image/png`). The guard keeps a live thumbnail the new file lacks.
+
+In a job, without Chromium, use cng-datasets 0.16.0 instead. `cng-datasets vector-thumbnail
+--style <style json> --parquet <gpq> --output <png>` draws the style with GDAL. It applies each
+layer's `filter` and frames the drawn features, so a filtered-out placeholder does not widen the
+view. A COG's thumbnail comes with its render (`<cog stem>.thumbnail.png`, named in
+`render.json`). Either way, add the `thumbnail` asset yourself.
 `verify-stac.py` fails a thumbnail that is not an image and advises `thumbnail-missing`.
 
 ## Step 6: Register in the parent sub-catalog

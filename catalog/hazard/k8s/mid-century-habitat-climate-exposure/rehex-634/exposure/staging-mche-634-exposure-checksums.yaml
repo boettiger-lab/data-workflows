@@ -1,23 +1,23 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: priority-areas-repartition
+  name: staging-mche-634-exposure-checksums
   namespace: geo-workflows
   labels:
-    k8s-app: priority-areas-repartition
+    k8s-app: staging-mche-634-exposure-checksums
 spec:
   completions: 1
   parallelism: 1
-  backoffLimit: 1
+  backoffLimit: 2
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
       labels:
-        k8s-app: priority-areas-repartition
+        k8s-app: staging-mche-634-exposure-checksums
     spec:
       restartPolicy: Never
       containers:
-      - name: repartition-task
+      - name: checksums-task
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
@@ -39,33 +39,20 @@ spec:
           value: 'false'
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
-        - name: TMPDIR
-          value: /tmp
-        - name: BUCKET
-          value: public-gye
-        volumeMounts:
-        - name: rclone-config
-          mountPath: /root/.config/rclone
-          readOnly: true
         command:
         - bash
         - -c
         - |
           set -e
-          cng-datasets repartition --chunks-dir s3://public-gye/priority-areas/chunks --output-dir s3://public-gye/priority-areas/hex --source-parquet s3://public-gye/priority-areas.parquet --cleanup --memory-limit 27GiB
+          cng-datasets checksums s3://public-hazard/staging-mche-634/exposure/hex/ --output s3://public-hazard/staging-mche-634/exposure.checksums.json --workers 8
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
-            ephemeral-storage: 50Gi
+            memory: 2Gi
           limits:
             cpu: '4'
-            memory: 32Gi
-            ephemeral-storage: 50Gi
-      volumes:
-      - name: rclone-config
-        secret:
-          secretName: rclone-config
+            memory: 2Gi
+      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

@@ -81,7 +81,7 @@ Canonical STAC/data live on NRP S3 (`s3://public-<bucket>/`, public URL `https:/
 
 ### You publish to NRP. Downstream copies are NOT your job.
 
-NRP is where your work ends. **Backup and mirror tiers — source.coop, MinIO, and any other copy of
+NRP is where your work ends. **Backup and mirror tiers — source.coop, the office store, and any other copy of
 this data anywhere — are owned by a different agent, and nothing about them is in scope for this
 repo.** You do not add buckets to a mirror list, decide which prefixes are excluded from one,
 record a redistribution verdict in an inventory, or open a PR against the repo that holds those
@@ -185,11 +185,14 @@ kubectl -n geo-workflows get jobs | grep <name>
   A workflow-namespace `rclone-config` holding only `[nrp]` is **correct, not a
   missing-remote bug** (internal endpoint `http://rook-ceph-rgw-nautiluss3.rook`,
   `upload_concurrency=16`, `chunk_size=64Mi`).
-- **Private buckets** (`private-wyoming`, `private-tpl`) live only on MinIO. Mount a
-  **scoped, single-bucket, on-demand EXPIRING mint** for that one bucket
-  (`mc admin user svcacct add <parent> --policy <one-bucket> --expiry …`; the
-  `wyoming-publish` model) — never a standing broad key. This is the only MinIO access a
-  build job ever has.
+- **Private buckets** (`private-wyoming`, `private-tpl`) live only on the office RustFS store,
+  `s3.carlboettiger.info` (path-style; it replaced MinIO on 2026-11-18, #985). Carl mints a
+  **scoped, single-bucket, on-demand EXPIRING key** for that one bucket by hand
+  (`rc admin service-account create <alias> <AK> <SK> --user <parent> --policy <one-bucket>
+  --expiry …`; the `wyoming-publish` model), and revokes it with `rc admin service-account rm`
+  after the job, since expiry enforcement is untested. Never a standing broad key. The job runs
+  in the consuming app's namespace (`biodiversity` for wyoming), not `geo-workflows`. This is
+  the only office-store access a build job ever has.
 
 ⛔ **Never add any other remote or secret to a workflow namespace.** If a job appears to need
 one, it is out of scope — stop and ask.
@@ -265,8 +268,8 @@ External downloads are slow/rate-limited; restart from S3 if conversion fails. S
 access date is the field that makes a provenance chain resolvable to an actual edition, and it is
 unrecoverable after the fact: publishers overwrite in place (FWS republishes the NWI every May and
 October at the same URL, with no dated archive) and links rot (the CAL FIRE FRAP raster has *no*
-stable public download URL at all). When either happens, **your staged copy plus its checksum ARE
-the provenance** — there is nothing else left to point at. Capture, on the collection: the upstream
+stable public download URL at all). When either happens, **the checksum and access date you
+recorded ARE the provenance** — the staged copy is deleted after the build (below). Capture, on the collection: the upstream
 **landing page** (stable, not a fragile direct-download link), the **edition label** if upstream
 publishes one, the **access date**, and the staged raw's **path + size + checksum**. Recompute the
 checksum from the object, never transcribe it. Worked examples: `wetlands/nwi` and `cwhr`/`cwhr13`
@@ -291,6 +294,16 @@ command: [bash, -c, |
   rclone copy /tmp/data.zip nrp:<bucket>/raw/
 ]
 ```
+
+⛔ **Delete the staged raw once the build is done.** When the published outputs are verified
+(`verify-stac.py` exits 0 on the post-cluster run) and the provenance above is in the STAC, the
+last job of the task removes `s3://<bucket>/raw/<dataset>/`. Raw is a build cache: upstream
+still serves it, and we do not hold copies of other people's data on shared storage. A rebuild
+re-stages from upstream.
+
+**So an empty `raw/` is evidence of nothing.** Never conclude from a missing raw file that a
+source was never received, never processed or never staged. Ask the published data, the STAC
+and the issue instead.
 
 ### Step 1c: Preprocessing multi-file zipped datasets
 
@@ -430,6 +443,7 @@ and rescale (Portolan, #881). Reuse the paint the GLEN apps already use (`script
 for a layer no app shows, examine the data, pick its primary variable and build the default on
 it with `scripts/default-style.py`. A one-colour default is refused unless the style says why
 the data has no variable worth showing. Then draw its thumbnail with `scripts/thumbnail.py`.
+In a job, cng-datasets 0.16.0 does both: `cng-datasets style` and `cng-datasets vector-thumbnail`.
 
 Everything about *what to write* — the user-facing description register, `table:columns`
 placement, SPDX license rules, categorical `values`, hex per-feature duplication notes, `h3:*`
@@ -508,7 +522,8 @@ bucket/                                 bucket/
 └── stac-collection.json
 ```
 
-`raw/` holds only upstream input staged for a rebuild. The backup tier treats it as disposable,
+`raw/` holds only upstream input staged for a build in progress, and is emptied when the build
+is done (Step 1b). The backup tier treats it as disposable,
 so **no STAC asset may point into `raw/`**. That includes an upstream file you also want to
 offer for download: publish a copy beside the dataset instead. `verify-stac.py` enforces this
 (`asset-under-raw`, #721).

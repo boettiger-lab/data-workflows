@@ -99,8 +99,8 @@ spec:
             - -lc
             - |
               echo "Running index ${INDEX}";
-              python -u ncp/raster.py --i ${INDEX} --zoom 8 --input-url https://minio.carlboettiger.info/public-ncp/NCP_biod_nathab_cog.tif --output-url s3://public-ncp/hex/ncp_biod_nathab
-              # python -u ncp/raster.py --i ${INDEX} --zoom 8 --input-url https://minio.carlboettiger.info/public-ncp/NCP_only_cog.tif --output-url s3://public-ncp/hex/ncp_only
+              python -u ncp/raster.py --i ${INDEX} --zoom 8 --input-url https://s3.carlboettiger.info/public-ncp/NCP_biod_nathab_cog.tif --output-url s3://public-ncp/hex/ncp_biod_nathab
+              # python -u ncp/raster.py --i ${INDEX} --zoom 8 --input-url https://s3.carlboettiger.info/public-ncp/NCP_only_cog.tif --output-url s3://public-ncp/hex/ncp_only
       volumes:
         - name: repo
           emptyDir: {}
