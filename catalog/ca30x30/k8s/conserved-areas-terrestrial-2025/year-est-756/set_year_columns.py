@@ -46,13 +46,7 @@ PARAGRAPH = (
     "units covering 90.7% of GAP 1+2 acres. `year_est` and `date_est` are when a "
     "conservation easement was established (from CCED) and are set only on easement units "
     "(`Easement` = 1), 5.6% of GAP 1+2 acres. A value of 0 in either year column means "
-    "unknown or not applicable. For one year per unit, take the easement year on easements "
-    "and the park year elsewhere, which covers 95.6% of GAP 1+2 acres:\n\n"
-    "```sql\n"
-    "SELECT SUM(Acres) FROM …\n"
-    "WHERE CASE WHEN Easement = 1 AND year_est > 0 THEN year_est\n"
-    "           WHEN YR_EST > 0 THEN YR_EST END >= 2020\n"
-    "```"
+    "unknown or not applicable. On an easement inside a park, the two years can differ."
 )
 
 path = sys.argv[1]
