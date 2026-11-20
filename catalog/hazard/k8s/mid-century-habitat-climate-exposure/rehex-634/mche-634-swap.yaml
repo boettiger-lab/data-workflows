@@ -3,7 +3,8 @@
 # validated. MODE=swap copies it over cnrm/hex/ (same two h0 partitions, same file names, so no
 # stale file can remain) and checks the copy; MODE=cleanup deletes the staging prefix.
 #   kubectl apply -n geo-workflows -f catalog/hazard/k8s/mid-century-habitat-climate-exposure/rehex-634/mche-634-swap.yaml
-#   (then, after checking the published hex, set MODE=cleanup and apply again under a new name)
+#   then, after checking the published hex, the same job as mche-634-cleanup with MODE=cleanup:
+#   sed -e 's/mche-634-swap/mche-634-cleanup/g; s/value: swap}/value: cleanup}/' <this file> | kubectl apply -n geo-workflows -f -
 apiVersion: batch/v1
 kind: Job
 metadata:
