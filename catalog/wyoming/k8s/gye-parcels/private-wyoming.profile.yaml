@@ -1,3 +1,4 @@
+# HAND-ROLLED: a cluster profile is input to the generator (--profile), which never emits one (#985).
 # Cluster profile: private office store (RustFS, s3.carlboettiger.info), bucket-scoped write creds.
 #
 # Retargets the standard `cng-datasets workflow` generator at a PRIVATE bucket on the office
