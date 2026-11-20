@@ -4,6 +4,9 @@
 # ranges and streams them into the same data_0.parquet (tested equal to the tool's output, rows and
 # order). The first 12 h0 partitions were written by the tool on 2026-11-17. Chunks are left in place.
 # Rebuild the ConfigMap from repartition_ranges.py if the script changes.
+# SUPERSEDED by cng-datasets >= 0.17.0 (datasets#356, #1001): `repartition` now sorts in _cng_fid
+# ranges itself. Kept as the record of how the published partitions were written; the next PAD-US
+# build uses the generated workflow's repartition step, not this job.
 apiVersion: v1
 kind: ConfigMap
 metadata:
