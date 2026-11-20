@@ -1,0 +1,51 @@
+# HAND-ROLLED: the generator has no retire step. Drops the public-gye child link from the root
+# catalog (#994) now that the wyoming app reads gye-priority-areas from private-wyoming
+# (wyoming#100) and the copy there was verified byte for byte (#999). Read-modify-write inside
+# the job, idempotent. Deleting the public-gye bucket itself is run by hand, outside agents.
+#   kubectl create -f catalog/gye/k8s/retire-public-994/unlink-public-gye.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: unlink-public-gye
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: unlink
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          rclone copyto nrp:public-data/stac/catalog.json /tmp/catalog.json
+          python3 - <<'PY'
+          import json
+          p = "/tmp/catalog.json"
+          d = json.load(open(p))
+          url = "https://s3-west.nrp-nautilus.io/public-gye/stac-collection.json"
+          before = len(d["links"])
+          d["links"] = [l for l in d["links"] if l.get("href") != url]
+          removed = before - len(d["links"])
+          assert removed in (0, 1), removed
+          assert "public-gye" not in json.dumps(d)
+          json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+          print(f"removed {removed} link(s); {len(d['links'])} remain")
+          PY
+          rclone copyto /tmp/catalog.json nrp:public-data/stac/catalog.json $R
+          echo unlinked
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
