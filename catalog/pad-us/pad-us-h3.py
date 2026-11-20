@@ -9,7 +9,7 @@ con = ibis.duckdb.connect(extensions = ["spatial", "h3"])
 import streamlit as st
 set_secrets(con, st.secrets["MINIO_KEY"], st.secrets["MINIO_SECRET"])
 
-parquet = "https://minio.carlboettiger.info/public-biodiversity/pad-us-4/pad-us-4.parquet"
+parquet = "https://s3.carlboettiger.info/public-biodiversity/pad-us-4/pad-us-4.parquet"
 con.raw_sql(f"CREATE  OR REPLACE VIEW pad4 AS SELECT Unit_Nm, row_n, geom FROM '{parquet}'")
 
 zoom = 10
