@@ -2,17 +2,20 @@
 # per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
 # hex_overlap.py in this directory (#1000; tool feature request drafted there).
 #
-# Phase 1 probe: three chunks of the FULL plan (staging-1000/full/plan.parquet)
-# that the sample cannot represent: the most features (27: 28,551), the most
-# vertices (40: 44.8M) and a 2M-vertex parcel among 20,887 others (67). Times
-# the real chunking. Output only to s3://public-wdpa/wdpa/staging-1000/probe/.
+# Phase 1 probe: the three heaviest chunks of the FULL plan
+# (staging-1000/full/plan.parquet, 165 chunks) that the sample cannot
+# represent: the most vertices (80: 5.2M; 141: 4.7M, each with a ~1.95M-vertex
+# parcel) and the most features (42: 9,519). Times the real chunking. Output
+# only to s3://public-wdpa/wdpa/staging-1000/probe-b/. (A first probe, on an
+# 8M-cell-only plan, took 7-11+ min per chunk at 20-45M vertices, which is why
+# the plan now also caps vertices.)
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: wdpa-overlap-1000-probe
+  name: wdpa-overlap-1000-probe-b
   namespace: geo-workflows
   labels:
-    k8s-app: wdpa-overlap-1000-probe
+    k8s-app: wdpa-overlap-1000-probe-b
 spec:
   completions: 3
   parallelism: 3
@@ -28,7 +31,7 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: wdpa-overlap-1000-probe
+        k8s-app: wdpa-overlap-1000-probe-b
     spec:
       restartPolicy: Never
       priorityClassName: opportunistic
@@ -45,13 +48,13 @@ spec:
         - {name: AWS_HTTPS, value: 'false'}
         - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
         - {name: PLAN, value: s3://public-wdpa/wdpa/staging-1000/full/plan.parquet}
-        - {name: OUT, value: s3://public-wdpa/wdpa/staging-1000/probe}
+        - {name: OUT, value: s3://public-wdpa/wdpa/staging-1000/probe-b}
         command:
         - bash
         - -c
         - |
           set -euo pipefail
-          MAP=(27 40 67)
+          MAP=(80 141 42)
           CHUNK=${MAP[$JOB_COMPLETION_INDEX]}
           python3 /opt/script/hex_overlap.py hex \
             --source s3://public-wdpa/wdpa.parquet --plan "$PLAN" \

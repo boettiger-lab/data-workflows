@@ -3,9 +3,9 @@
 # hex_overlap.py in this directory (#1000; tool feature request drafted there).
 #
 # PHASE 2 (plan only is run in Phase 1, to size the hex job; it writes only the plan file).
-# Full plan: every parcel of wdpa.parquet assigned to a chunk of ~8M
-# estimated h9 cells (larger parcels get a chunk each). Set the hex job's
-# completions to the chunk count it logs. ConfigMap: see
+# Full plan: every parcel of wdpa.parquet assigned to a chunk of at most ~8M
+# estimated h9 cells plus ~4M vertices, in weight (heavier parcels get a chunk
+# each). Set the hex job's completions to the chunk count it logs. ConfigMap: see
 # wdpa-overlap-sample-plan.yaml.
 apiVersion: batch/v1
 kind: Job
@@ -43,7 +43,8 @@ spec:
           set -euo pipefail
           python3 /opt/script/hex_overlap.py plan \
             --source s3://public-wdpa/wdpa.parquet \
-            --plan-out s3://public-wdpa/wdpa/staging-1000/full/plan.parquet --target-cells 8000000
+            --plan-out s3://public-wdpa/wdpa/staging-1000/full/plan.parquet \
+            --target-cells 8000000 --target-vertices 4000000
         volumeMounts:
         - {name: script, mountPath: /opt/script, readOnly: true}
         resources:

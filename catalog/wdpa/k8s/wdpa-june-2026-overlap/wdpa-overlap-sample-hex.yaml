@@ -7,9 +7,9 @@
 # goes only to s3://public-wdpa/wdpa/staging-1000/sample/chunks/. ConfigMap: see the
 # header of wdpa-overlap-sample-plan.yaml.
 #
-# Sizing (measured in a dev pod, 4 threads): the largest parcel (Tainui Atea,
-# 4.5M km2, 41M rows) ran in 54 s at 3.6 GiB peak RSS. Pods are short, so
-# opportunistic priority.
+# Sizing (measured on this run, 4 threads): the largest parcel (Tainui Atea,
+# 4.5M km2, 41M rows) ran in 40 s at 3.5 GiB peak RSS; the slowest chunk (a
+# 2M-vertex parcel) 3.6 min. Pods are short, so opportunistic priority.
 apiVersion: batch/v1
 kind: Job
 metadata:

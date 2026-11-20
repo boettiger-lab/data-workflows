@@ -88,21 +88,25 @@ EST_SQL = """
 def write_plan(con, src_sql, a):
     """Chunk the features of src_sql (which must carry a `tag` column).
 
-    Features estimated at >= target cells get a chunk each (largest first);
-    the rest are packed in id order until a chunk's estimate reaches target."""
+    A feature weighs est/target_cells + vertices/target_vertices: rows drive
+    the output and the fraction step, vertices drive the polyfill (a probe
+    chunk of 44.8M vertices filled for >10 min on 4 cores). Features weighing
+    >= 1 get a chunk each (heaviest first); the rest are packed in id order
+    (contiguous ids, so each chunk reads few row groups) until a chunk's
+    weight reaches 1."""
     est = EST_SQL.format(cell=CELL_KM2[a.res], area=a.area_col)
-    t = a.target_cells
+    w = f"(est / {a.target_cells} + npts / {a.target_vertices})"
     con.execute(f"""
       CREATE TEMP TABLE b AS
       WITH f AS (SELECT {a.id} AS fid, tag, {a.area_col} AS area_km2, ST_NPoints(SHAPE) AS npts,
                         {est} AS est FROM ({src_sql})),
-      o AS (SELECT *, sum(est) FILTER (WHERE est < {t})
+      o AS (SELECT *, {w} AS weight, sum({w}) FILTER (WHERE {w} < 1)
                         OVER (ORDER BY fid ROWS UNBOUNDED PRECEDING) AS cum FROM f)
-      SELECT *, CASE WHEN est >= {t} THEN NULL ELSE floor(cum / {t}) END AS bucket FROM o
+      SELECT *, CASE WHEN weight >= 1 THEN NULL ELSE floor(cum) END AS bucket FROM o
     """)
     con.execute("""
       CREATE TEMP TABLE plan AS
-      WITH g AS (SELECT * EXCLUDE (cum, bucket), row_number() OVER (ORDER BY est DESC) - 1 AS chunk
+      WITH g AS (SELECT * EXCLUDE (cum, bucket), row_number() OVER (ORDER BY weight DESC) - 1 AS chunk
                  FROM b WHERE bucket IS NULL),
            r AS (SELECT * EXCLUDE (cum, bucket),
                         (SELECT count(*) FROM g) + dense_rank() OVER (ORDER BY bucket) - 1 AS chunk
@@ -160,7 +164,7 @@ def mode_sample(a):
 # that straddles a box edge is a boundary cell of each box it meets and gets
 # its fraction from each, summed per feature below, so cutting changes no
 # result.
-PIECE_WORK = 20_000_000
+PIECE_WORK = 2_000_000  # 2e7 left chunk 80 of the full plan at 304 s of fill; 2e6 took 117 s
 CUT_MAX_BOXES = 1024
 CUT_ROUNDS = 8
 CUT_CLIP_WORK = 4_000_000  # boxes x vertices clipped per piece per round
@@ -201,7 +205,7 @@ def mode_hex(a):
     # 0. Pieces: cut parts whose fill would be slow into boxes, repeatedly.
     con.execute("CREATE TABLE pc AS SELECT row_number() OVER () AS qid, pid, fid, g, npts, est FROM parts")
     for rnd in range(CUT_ROUNDS):
-        heavy = f"est * npts > {PIECE_WORK}"
+        heavy = f"est * npts > {a.piece_work}"
         n_heavy = con.execute(f"SELECT count(*) FROM pc WHERE {heavy}").fetchone()[0]
         if not n_heavy:
             break
@@ -209,7 +213,7 @@ def mode_hex(a):
           CREATE OR REPLACE TABLE boxes AS
           WITH h AS (SELECT qid, pid, fid, g, ST_XMin(g) AS x0, ST_XMax(g) AS x1, ST_YMin(g) AS y0, ST_YMax(g) AS y1,
                             greatest(sqrt((ST_XMax(g) - ST_XMin(g)) * (ST_YMax(g) - ST_YMin(g))
-                                          / least(ceil(est * npts / {PIECE_WORK}),
+                                          / least(ceil(est * npts / {a.piece_work}),
                                                 greatest(ceil({CUT_CLIP_WORK} / npts), 4), {CUT_MAX_BOXES})),
                                      {MIN_SIDE}) AS sd
                      FROM pc WHERE {heavy}),
@@ -232,6 +236,10 @@ def mode_hex(a):
         """)
         log(f"cut round {rnd + 1}: {n_heavy} heavy pieces -> {con.execute('SELECT count(*) FROM pc').fetchone()[0]:,} pieces")
     con.execute("DROP TABLE IF EXISTS boxes; DROP TABLE IF EXISTS pc2")
+    # Deal pieces to threads heaviest first (qid % threads), so one thread
+    # does not end up holding most of the work.
+    con.execute("""CREATE OR REPLACE TABLE pc AS
+                   SELECT row_number() OVER (ORDER BY est * npts DESC) AS qid, pid, fid, g, npts, est FROM pc""")
     n_pc, pc_pts = con.execute("SELECT count(*), sum(ST_NPoints(g)) FROM pc").fetchone()
     log(f"{n_pc:,} pieces, {pc_pts:,} vertices")
 
@@ -349,7 +357,8 @@ def main():
     ap.add_argument("--parents", default="8,0")
     ap.add_argument("--plan")
     ap.add_argument("--plan-out")
-    ap.add_argument("--target-cells", type=int, default=4_000_000)
+    ap.add_argument("--target-cells", type=int, default=8_000_000)
+    ap.add_argument("--target-vertices", type=int, default=4_000_000)
     ap.add_argument("--per-stratum", type=int, default=60)
     ap.add_argument("--top", type=int, default=8)
     ap.add_argument("--area-col", default="GIS_AREA", help="feature area in km2, used only to plan chunks")
@@ -359,6 +368,8 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--memory-limit")
     ap.add_argument("--threads")
+    ap.add_argument("--piece-work", type=float, default=PIECE_WORK,
+                    help="cut a part whose est. cells x vertices exceeds this")
     ap.add_argument("--row-group-size", type=int, default=100_000)
     a = ap.parse_args()
     {"plan": mode_plan, "sample": mode_sample, "hex": mode_hex}[a.mode](a)

@@ -3,9 +3,15 @@
 # hex_overlap.py in this directory (#1000; tool feature request drafted there).
 #
 # PHASE 2, NOT YET RUN: apply only after Carl approves the full-run cost in #1000.
-# Full hex: one index per chunk of plan.parquet; chunks go to the staging
-# prefix, then wdpa-overlap-repartition.yaml builds wdpa/hex/. Sizing from the
-# Phase 1 sample: see #1000.
+# Full hex: one index per chunk of full/plan.parquet (165 chunks as planned
+# 2026-11-20; re-plan if wdpa.parquet changes and set completions to the
+# count the plan job logs). Chunks go to the staging prefix, then
+# wdpa-overlap-repartition.yaml builds wdpa/hex/.
+#
+# Sizing measured in Phase 1 (#1000, wdpa-overlap-probe.yaml): the three
+# heaviest planned chunks took 4.3-7.3 min on 4 cores at peak RSS <= 2.7 GiB
+# with --piece-work 2e7; chunk 80 at the current default (2e6) took 4.5 min at
+# 4.2 GiB. The largest parcel (41M rows) took 40 s at 3.5 GiB. Pods stay under ~10 min, so opportunistic priority.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -14,11 +20,11 @@ metadata:
   labels:
     k8s-app: wdpa-overlap-1000-hex
 spec:
-  completions: 26
+  completions: 165
   parallelism: 50
   completionMode: Indexed
   backoffLimitPerIndex: 2
-  maxFailedIndexes: 26
+  maxFailedIndexes: 165
   podFailurePolicy:
     rules:
     - action: Ignore
