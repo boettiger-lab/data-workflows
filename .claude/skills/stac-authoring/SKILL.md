@@ -276,8 +276,9 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   cannot be listed. Take `partition:file_count` from `prefixes` in `<dataset>.checksums.json`,
   which cng-datasets writes beside the data (or `cng-datasets checksums` backfills). rashid still
   reports the hex asset's glob href (PTL-AST-012) and its missing `file:checksum` (PTL-AST-003).
-  These two findings are a known deviation, raised with Portolan; do not drop the asset to clear
-  them.
+  These two findings are a known deviation, raised with Portolan in
+  [portolan-spec#278](https://github.com/portolan-sdi/portolan-spec/issues/278); do not drop the
+  asset to clear them.
 
 - **Any vector asset with named layers** (PMTiles, GDB, GPKG, etc.) MUST include `"vector:layers": ["<name>"]`. For PMTiles the layer name = last segment of `--dataset`.
 
