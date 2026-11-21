@@ -16,10 +16,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: wdpa-overlap-1000-hex
+  name: wdpa-overlap-1000-hex-r2
   namespace: geo-workflows
   labels:
-    k8s-app: wdpa-overlap-1000-hex
+    k8s-app: wdpa-overlap-1000-hex-r2
 spec:
   completions: 165
   parallelism: 50
@@ -35,7 +35,7 @@ spec:
   template:
     metadata:
       labels:
-        k8s-app: wdpa-overlap-1000-hex
+        k8s-app: wdpa-overlap-1000-hex-r2
     spec:
       restartPolicy: Never
       priorityClassName: opportunistic
@@ -52,7 +52,7 @@ spec:
         - {name: AWS_HTTPS, value: 'false'}
         - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
         - {name: PLAN, value: s3://public-wdpa/wdpa/staging-1000/full/plan.parquet}
-        - {name: OUT, value: s3://public-wdpa/wdpa/staging-1000/full/chunks}
+        - {name: OUT, value: s3://public-wdpa/wdpa/staging-1000/full-r2/chunks}
         command:
         - bash
         - -c

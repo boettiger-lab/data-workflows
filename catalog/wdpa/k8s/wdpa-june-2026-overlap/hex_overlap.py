@@ -169,6 +169,7 @@ CUT_MAX_BOXES = 1024
 CUT_ROUNDS = 8
 CUT_CLIP_WORK = 4_000_000  # boxes x vertices clipped per piece per round
 MIN_SIDE = 0.02  # degrees
+REPAIR_ROUNDS = 6
 SNAP = 1e-6                  # summed fractions within SNAP of 1 are written as 1
 
 
@@ -260,49 +261,78 @@ def mode_hex(a):
     n_fu = con.execute("SELECT count(*) FROM fu").fetchone()[0]
     log(f"polyfill: overlap {n_ov:,} (piece, cell) pairs, full {n_fu:,}")
 
-    # 2. Boundary cells = overlap minus full, with each cell's polygon,
-    #    unwrapped if it crosses the antimeridian.
-    con.execute(f"""
-      CREATE TABLE bnd AS
-      WITH b AS (SELECT qid, cell FROM ov ANTI JOIN fu USING (qid, cell)),
-      g AS (SELECT qid, cell, ST_GeomFromWKB(h3_cell_to_boundary_wkb(cell)) AS cg FROM b)
-      SELECT qid, cell, h3_cell_to_parent(cell, {C}) AS grp,
-             CASE WHEN ST_XMax(cg) - ST_XMin(cg) > 180 THEN
-               ST_MakePolygon(ST_MakeLine(list_transform(
-                 range(1, ST_NPoints(ST_ExteriorRing(cg)) + 1),
-                 lambda i: ST_Point(
-                   CASE WHEN ST_X(ST_PointN(ST_ExteriorRing(cg), i::INTEGER)) < 0
-                        THEN ST_X(ST_PointN(ST_ExteriorRing(cg), i::INTEGER)) + 360
-                        ELSE ST_X(ST_PointN(ST_ExteriorRing(cg), i::INTEGER)) END,
-                   ST_Y(ST_PointN(ST_ExteriorRing(cg), i::INTEGER))))))
-             ELSE cg END AS cg,
-             ST_XMax(cg) - ST_XMin(cg) > 180 AS am
-      FROM g
-    """)
-    con.execute("DROP TABLE ov")
-    n_b, n_am = con.execute("SELECT count(*), count(*) FILTER (WHERE am) FROM bnd").fetchone()
-    log(f"boundary (piece, cell) pairs {n_b:,} ({n_am} cross the antimeridian)")
-
-    # 3. Clip each piece to the bbox of each group of its boundary cells
-    #    (shared h<R-4> ancestor), then intersect each cell with its group's
+    # 2. Boundary cells = overlap minus full. fractions() gives each
+    #    (piece, cell) pair its cell polygon (unwrapped if it crosses the
+    #    antimeridian), clips the piece to the bbox of each group of cells that
+    #    share an h<R-4> ancestor, and intersects each cell with its group's
     #    clip only. Crossing cells also meet the piece shifted by +360.
-    con.execute("""
-      CREATE TABLE clip AS
-      WITH e AS (SELECT qid, grp, am, ST_GeomFromWKB(ST_AsWKB(ST_Extent_Agg(cg))) AS env
-                 FROM bnd GROUP BY qid, grp, am)
-      SELECT e.qid, e.grp, e.am, ST_Intersection(p.g, e.env) AS c0,
-             CASE WHEN e.am THEN ST_Intersection(ST_Translate(p.g, 360, 0), e.env) END AS c1
-      FROM e JOIN pc p USING (qid)
-    """)
-    log("clipped pieces to boundary groups")
-    con.execute("""
-      CREATE TABLE bfrac AS
-      SELECT b.qid, b.cell,
-             (ST_Area(ST_Intersection(b.cg, c.c0))
-              + coalesce(ST_Area(ST_Intersection(b.cg, c.c1)), 0)) / ST_Area(b.cg) AS frac
-      FROM bnd b JOIN clip c USING (qid, grp, am)
-    """)
-    log("boundary fractions done")
+    def fractions(src, dst):
+        con.execute(f"""
+          CREATE OR REPLACE TABLE fx AS
+          WITH g AS (SELECT qid, cell, ST_GeomFromWKB(h3_cell_to_boundary_wkb(cell)) AS cg FROM {src})
+          SELECT qid, cell, h3_cell_to_parent(cell, {C}) AS grp,
+                 CASE WHEN ST_XMax(cg) - ST_XMin(cg) > 180 THEN
+                   ST_MakePolygon(ST_MakeLine(list_transform(
+                     range(1, ST_NPoints(ST_ExteriorRing(cg)) + 1),
+                     lambda i: ST_Point(
+                       CASE WHEN ST_X(ST_PointN(ST_ExteriorRing(cg), i::INTEGER)) < 0
+                            THEN ST_X(ST_PointN(ST_ExteriorRing(cg), i::INTEGER)) + 360
+                            ELSE ST_X(ST_PointN(ST_ExteriorRing(cg), i::INTEGER)) END,
+                       ST_Y(ST_PointN(ST_ExteriorRing(cg), i::INTEGER))))))
+                 ELSE cg END AS cg,
+                 ST_XMax(cg) - ST_XMin(cg) > 180 AS am
+          FROM g
+        """)
+        con.execute("""
+          CREATE OR REPLACE TABLE clip AS
+          WITH e AS (SELECT qid, grp, am, ST_GeomFromWKB(ST_AsWKB(ST_Extent_Agg(cg))) AS env
+                     FROM fx GROUP BY qid, grp, am)
+          SELECT e.qid, e.grp, e.am, ST_Intersection(p.g, e.env) AS c0,
+                 CASE WHEN e.am THEN ST_Intersection(ST_Translate(p.g, 360, 0), e.env) END AS c1
+          FROM e JOIN pc p USING (qid)
+        """)
+        con.execute(f"""
+          CREATE OR REPLACE TABLE {dst} AS
+          SELECT f.qid, f.cell, f.am,
+                 (ST_Area(ST_Intersection(f.cg, c.c0))
+                  + coalesce(ST_Area(ST_Intersection(f.cg, c.c1)), 0)) / ST_Area(f.cg) AS frac
+          FROM fx f JOIN clip c USING (qid, grp, am)
+        """)
+        return con.execute(f"SELECT count(*), count(*) FILTER (WHERE am) FROM {dst}").fetchone()
+
+    con.execute("CREATE TABLE bnd AS SELECT qid, cell FROM ov ANTI JOIN fu USING (qid, cell)")
+    n_b, n_am = fractions("bnd", "bfrac")
+    log(f"boundary (piece, cell) pairs {n_b:,} ({n_am} cross the antimeridian); fractions done")
+
+    # 3. Repair. H3's 'overlap' mode can omit a cell the piece overlaps: in
+    #    the full WDPA build 202 parcels came out more than 1% short, each
+    #    missing one cell that was 90-97% inside it (#1000). So test every
+    #    neighbour of a boundary cell that H3 did not return, keep those with
+    #    area inside the piece, and repeat from the cells kept until none is
+    #    added.
+    con.execute("CREATE TABLE seen AS SELECT qid, cell FROM ov")
+    con.execute("DROP TABLE ov")
+    con.execute("CREATE TABLE frontier AS SELECT qid, cell FROM bnd")
+    n_rep = 0
+    for rnd in range(REPAIR_ROUNDS):
+        con.execute("""
+          CREATE OR REPLACE TABLE cand AS
+          SELECT DISTINCT qid, UNNEST(h3_grid_disk(cell, 1)) AS cell FROM frontier
+        """)
+        con.execute("CREATE OR REPLACE TABLE cand AS SELECT * FROM cand ANTI JOIN seen USING (qid, cell)")
+        n_c = con.execute("SELECT count(*) FROM cand").fetchone()[0]
+        if not n_c:
+            break
+        con.execute("INSERT INTO seen SELECT qid, cell FROM cand")
+        fractions("cand", "rfrac")
+        con.execute("CREATE OR REPLACE TABLE frontier AS SELECT qid, cell FROM rfrac WHERE frac > 0")
+        n_new = con.execute("SELECT count(*) FROM frontier").fetchone()[0]
+        con.execute("INSERT INTO bfrac SELECT * FROM rfrac WHERE frac > 0")
+        n_rep += n_new
+        log(f"repair round {rnd + 1}: {n_c:,} neighbours tested, {n_new:,} cells added")
+        if not n_new:
+            break
+    log(f"repair: {n_rep:,} (piece, cell) pairs added that H3 'overlap' omitted")
 
     # 4. Per feature: sum pieces per cell, snap/cap at 1, drop zero area.
     pcols = ", ".join(f"h3_cell_to_parent(cell, {p}) AS h{p}" for p in parents)
