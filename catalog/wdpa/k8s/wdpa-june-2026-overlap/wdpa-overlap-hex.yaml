@@ -2,7 +2,8 @@
 # per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
 # hex_overlap.py in this directory (#1000; tool feature request drafted there).
 #
-# PHASE 2, NOT YET RUN: apply only after Carl approves the full-run cost in #1000.
+# PHASE 2: approved by Carl on 2026-11-21, option (a), every parcel at h9 (#1000,
+# comment 7053766663). Writes only to staging; wdpa-overlap-swap.yaml publishes.
 # Full hex: one index per chunk of full/plan.parquet (165 chunks as planned
 # 2026-11-20; re-plan if wdpa.parquet changes and set completions to the
 # count the plan job logs). Chunks go to the staging prefix, then

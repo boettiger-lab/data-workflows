@@ -2,7 +2,8 @@
 # per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
 # hex_overlap.py in this directory (#1000; tool feature request drafted there).
 #
-# PHASE 2 (plan only is run in Phase 1, to size the hex job; it writes only the plan file).
+# PHASE 2: approved by Carl on 2026-11-21, option (a), every parcel at h9 (#1000,
+# comment 7053766663). Writes only the plan file.
 # Full plan: every parcel of wdpa.parquet assigned to a chunk of at most ~8M
 # estimated h9 cells plus ~4M vertices, in weight (heavier parcels get a chunk
 # each). Set the hex job's completions to the chunk count it logs. ConfigMap: see

@@ -2,11 +2,12 @@
 # per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
 # hex_overlap.py in this directory (#1000; tool feature request drafted there).
 #
-# PHASE 2, NOT YET RUN: apply only after Carl approves the full-run cost in #1000.
-# Full repartition into the published path, attributes joined from
-# wdpa.parquet, completeness checked against every parcel (no skip).
-# Replaces the centre-mode hex at wdpa/hex/; the STAC hex asset must be
-# updated in the same change (cover_frac column, h3 notes).
+# PHASE 2: approved by Carl on 2026-11-21, option (a), every parcel at h9 (#1000,
+# comment 7053766663). Writes only to staging; wdpa-overlap-swap.yaml publishes.
+# Full repartition into staging (staging-1000/full/hex), attributes joined from
+# wdpa.parquet, completeness checked against every parcel (no skip). The
+# chunks are removed once written. wdpa-overlap-swap.yaml later replaces
+# wdpa/hex/ with it, together with the STAC update.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -44,7 +45,7 @@ spec:
           set -euo pipefail
           cng-datasets repartition \
             --chunks-dir s3://public-wdpa/wdpa/staging-1000/full/chunks \
-            --output-dir s3://public-wdpa/wdpa/hex \
+            --output-dir s3://public-wdpa/wdpa/staging-1000/full/hex \
             --source-parquet s3://public-wdpa/wdpa.parquet --memory-limit 12GiB
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}

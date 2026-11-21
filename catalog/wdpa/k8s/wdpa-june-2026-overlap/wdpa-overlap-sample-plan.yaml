@@ -9,7 +9,8 @@
 #
 # The script ships as a ConfigMap, rebuilt from this directory before applying:
 #   kubectl -n geo-workflows create configmap wdpa-overlap-1000-script \
-#     --from-file=hex_overlap.py --from-file=sample-ramsar-pairs.sql \
+#     --from-file=hex_overlap.py --from-file=sample-ramsar-pairs.sql --from-file=validate_overlap.py \
+#     --from-file=validate_full.py --from-file=stac_update.py \
 #     --dry-run=client -o yaml | kubectl apply -f -
 apiVersion: batch/v1
 kind: Job
