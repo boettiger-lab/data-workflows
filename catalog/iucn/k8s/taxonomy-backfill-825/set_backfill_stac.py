@@ -31,18 +31,20 @@ assert rep["not_cached"] == 0, rep
 regional = rep.get("regional", "fill") == "fill"
 rlv = rep["red_list_version"]
 assert rlv, "report carries no red_list_version"
+same = rep["chosen_vs_row"]["same_category_and_year"]
 
 MARK = "Red List API v4"
 para = (
     f"Assessment fields for {n_target:,} taxa were filled from the IUCN {MARK} rather than the "
     f"tabular export, which held no bird assessments (BirdLife International assesses birds "
     f"for the Red List) and omitted taxa assessed only regionally. The API was read on {dates}, "
-    f"when it served Red List version {rlv}; for each taxon the assessment matching its "
-    f"published category and year was used where one exists (otherwise the latest global "
-    f"assessment), so the filled fields describe the same assessment as the status columns. {n_filled:,} of the {n_target:,} taxa now carry an assessment date. "
-    + ("For taxa assessed only at regional scope (mostly European Red List bees, beetles, "
-       "mosses and plants), the fields describe that regional assessment, as the status "
-       "columns already do. " if regional else "")
+    f"when it served Red List version {rlv}. For each taxon the global assessment matching its "
+    f"published category and year was used where one exists, otherwise the latest global "
+    f"assessment; for {same:,} taxa the filled fields therefore come from the assessment the "
+    f"status columns report. {n_filled:,} of the {n_target:,} taxa now carry an assessment date. "
+    + ("Taxa assessed only at regional scope (mostly the European Red Lists of bees, beetles, "
+       "mosses and plants, plus Mediterranean and Persian Gulf assessments) take their fields "
+       "from that regional assessment, as their status columns already do. " if regional else "")
     + "The API does not report year_last_seen, so it is empty for these taxa."
 )
 desc = doc["description"]
