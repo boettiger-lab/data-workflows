@@ -306,18 +306,31 @@ def mode_hex(a):
 
     # 3. Repair. H3's 'overlap' mode can omit a cell the piece overlaps: in
     #    the full WDPA build 202 parcels came out more than 1% short, each
-    #    missing one cell that was 90-97% inside it (#1000). So test every
-    #    neighbour of a boundary cell that H3 did not return, keep those with
-    #    area inside the piece, and repeat from the cells kept until none is
-    #    added.
+    #    missing one cell that was 70-97% inside it (#1000). So test every
+    #    neighbour of a boundary cell that H3 did not return, and every cell
+    #    under a hole vertex, keep those with area inside the piece, and
+    #    repeat from the cells kept until none is added.
     con.execute("CREATE TABLE seen AS SELECT qid, cell FROM ov")
     con.execute("DROP TABLE ov")
     con.execute("CREATE TABLE frontier AS SELECT qid, cell FROM bnd")
+    # A hole smaller than a cell leaves that cell partly outside the piece
+    # while all six neighbours are 'full', so no boundary cell leads to it;
+    # H3 omitted such cells too (#1000). Seed the sweep with the cells under
+    # every hole vertex.
+    con.execute(f"""
+      CREATE TABLE hole_seed AS
+      WITH h AS (SELECT qid, ST_Difference(ST_MakePolygon(ST_ExteriorRing(g)), g) AS holes
+                 FROM pc WHERE ST_NumInteriorRings(g) > 0),
+      pts AS (SELECT qid, UNNEST(ST_Dump(ST_Points(holes))).geom AS pt FROM h)
+      SELECT DISTINCT qid, h3_latlng_to_cell(ST_Y(pt), ST_X(pt), {R}) AS cell FROM pts
+    """)
+    log(f"hole seeds: {con.execute('SELECT count(*) FROM hole_seed').fetchone()[0]:,} cells")
     n_rep = 0
     for rnd in range(REPAIR_ROUNDS):
-        con.execute("""
+        con.execute(f"""
           CREATE OR REPLACE TABLE cand AS
           SELECT DISTINCT qid, UNNEST(h3_grid_disk(cell, 1)) AS cell FROM frontier
+          {"UNION SELECT qid, cell FROM hole_seed" if rnd == 0 else ""}
         """)
         con.execute("CREATE OR REPLACE TABLE cand AS SELECT * FROM cand ANTI JOIN seen USING (qid, cell)")
         n_c = con.execute("SELECT count(*) FROM cand").fetchone()[0]

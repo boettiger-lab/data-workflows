@@ -107,9 +107,16 @@ if __name__ == "__main__":
 
     # Straight-edge reference area per parcel, in the worker pool.
     def _batches():
-        rdr = con.execute(f"SELECT {a.id}, ST_AsWKB(SHAPE) FROM read_parquet('{a.source}')").fetch_record_batch(2000)
-        for b in rdr:
-            yield (b.column(0).to_pylist(), [bytes(x) for x in b.column(1).to_pylist()])
+        # Localize id + geometry once, in 2,000-row groups: reading id ranges
+        # from S3 re-downloaded each large row group dozens of times.
+        con.execute(f"""COPY (SELECT {a.id} AS fid, ST_AsWKB(SHAPE) AS wkb FROM read_parquet('{a.source}'))
+                        TO '/tmp/src_geom.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 2000)""")
+        lo, hi = con.execute("SELECT min(fid), max(fid) FROM '/tmp/src_geom.parquet'").fetchone()
+        for start in range(lo, hi + 1, 2000):
+            rows_ = con.execute(f"""SELECT fid, wkb FROM '/tmp/src_geom.parquet'
+                                    WHERE fid BETWEEN {start} AND {start + 1999}""").fetchall()
+            if rows_:
+                yield ([r[0] for r in rows_], [bytes(r[1]) for r in rows_])
 
 
     import pyarrow as pa

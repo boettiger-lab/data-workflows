@@ -6,21 +6,21 @@
 # Validates the repartitioned full hex in staging (validate_full.py): every
 # parcel present, cover_frac in (0, 1], no NULLs or duplicate (parcel, h9),
 # schema = published hex + cover_frac, area per decade of GIS_AREA. Writes
-# per-feature.parquet under staging-1000/full-r2/validation/.
+# per-feature.parquet under staging-1000/full-r3/validation/.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: wdpa-overlap-1000-validate-r2
+  name: wdpa-overlap-1000-validate-r5
   namespace: geo-workflows
   labels:
-    k8s-app: wdpa-overlap-1000-validate-r2
+    k8s-app: wdpa-overlap-1000-validate-r5
 spec:
   backoffLimit: 1
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
-        k8s-app: wdpa-overlap-1000-validate-r2
+        k8s-app: wdpa-overlap-1000-validate-r5
     spec:
       restartPolicy: Never
       priorityClassName: opportunistic
@@ -44,9 +44,9 @@ spec:
           set -euo pipefail
           mkdir -p /tmp/duckdb_tmp
           python3 /opt/script/validate_full.py --source s3://public-wdpa/wdpa.parquet \
-            --hex 's3://public-wdpa/wdpa/staging-1000/full-r2/hex/h0=*/data_0.parquet' \
+            --hex 's3://public-wdpa/wdpa/staging-1000/full-r3/hex/h0=*/data_0.parquet' \
             --reference 's3://public-wdpa/wdpa/hex/h0=*/data_0.parquet' \
-            --out s3://public-wdpa/wdpa/staging-1000/full-r2/validation
+            --out s3://public-wdpa/wdpa/staging-1000/full-r3/validation
         volumeMounts:
         - {name: script, mountPath: /opt/script, readOnly: true}
         resources:
