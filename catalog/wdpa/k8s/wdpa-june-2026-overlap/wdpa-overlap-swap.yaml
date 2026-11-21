@@ -9,14 +9,14 @@
 #
 # 1. Copies the live centre-mode hex (wdpa/hex/) to staging-1000/old-hex/ as a
 #    rollback copy (server side).
-# 2. Purges wdpa/hex/ and moves staging-1000/full-r3/hex/ into it. The path is empty
+# 2. Purges wdpa/hex/ and moves staging-1000/full-r4/hex/ into it. The path is empty
 #    for the minutes of the move, never a mix of old and new partitions (a
 #    sync would leave stale old partitions readable beside new ones).
 # 3. Checks that wdpa/hex/ now holds exactly the staged partition list, that a
 #    partition has cover_frac, and that the row count matches.
 # 4. Deletes the superseded first sample run (staging-1000/chunks/) and the
 #    superseded full builds without the complete repair step
-#    (staging-1000/full/hex/, staging-1000/full-r2/hex/).
+#    (staging-1000/full/hex/, full-r2/hex/, full-r3/hex/).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -53,7 +53,7 @@ spec:
         - |
           set -euo pipefail
           R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
-          NEW=nrp:public-wdpa/wdpa/staging-1000/full-r3/hex
+          NEW=nrp:public-wdpa/wdpa/staging-1000/full-r4/hex
           LIVE=nrp:public-wdpa/wdpa/hex
           OLD=nrp:public-wdpa/wdpa/staging-1000/old-hex
           rclone lsf -R --files-only "$NEW" | sort > /tmp/new.txt
@@ -66,7 +66,7 @@ spec:
           print(c.execute(f"SELECT count(*) FROM read_parquet('{sys.argv[1]}/h0=*/data_0.parquet')").fetchone()[0])
           PY
           }
-          staged_rows=$(rows s3://public-wdpa/wdpa/staging-1000/full-r3/hex); echo "staged rows: $staged_rows"
+          staged_rows=$(rows s3://public-wdpa/wdpa/staging-1000/full-r4/hex); echo "staged rows: $staged_rows"
           rclone copy "$LIVE" "$OLD" $R
           echo "old hex copied to $OLD: $(rclone lsf -R --files-only "$OLD" | wc -l) files"
           rclone purge "$LIVE" $R
@@ -86,6 +86,7 @@ spec:
           rclone purge nrp:public-wdpa/wdpa/staging-1000/chunks $R || true
           rclone purge nrp:public-wdpa/wdpa/staging-1000/full/hex $R || true
           rclone purge nrp:public-wdpa/wdpa/staging-1000/full-r2/hex $R || true
+          rclone purge nrp:public-wdpa/wdpa/staging-1000/full-r3/hex $R || true
           echo SWAPPED
         volumeMounts:
         - {name: script, mountPath: /opt/script, readOnly: true}

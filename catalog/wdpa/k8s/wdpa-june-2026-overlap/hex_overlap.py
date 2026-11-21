@@ -316,11 +316,14 @@ def mode_hex(a):
     # A hole smaller than a cell leaves that cell partly outside the piece
     # while all six neighbours are 'full', so no boundary cell leads to it;
     # H3 omitted such cells too (#1000). Seed the sweep with the cells under
-    # every hole vertex.
+    # every hole vertex. The test sits in a CASE, not a WHERE: DuckDB 2.0.0
+    # pushed `WHERE ST_NumInteriorRings(g) > 0` into the scan of this table
+    # and returned no rows (the same predicate in a CASE or FILTER counts 751).
     con.execute(f"""
       CREATE TABLE hole_seed AS
-      WITH h AS (SELECT qid, ST_Difference(ST_MakePolygon(ST_ExteriorRing(g)), g) AS holes
-                 FROM pc WHERE ST_NumInteriorRings(g) > 0),
+      WITH h AS (SELECT qid, CASE WHEN ST_NumInteriorRings(g) > 0
+                                  THEN ST_Difference(ST_MakePolygon(ST_ExteriorRing(g)), g) END AS holes
+                 FROM pc),
       pts AS (SELECT qid, UNNEST(ST_Dump(ST_Points(holes))).geom AS pt FROM h)
       SELECT DISTINCT qid, h3_latlng_to_cell(ST_Y(pt), ST_X(pt), {R}) AS cell FROM pts
     """)

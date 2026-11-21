@@ -4,24 +4,24 @@
 #
 # PHASE 2: approved by Carl on 2026-11-21, option (a), every parcel at h9 (#1000,
 # comment 7053766663). Writes only to staging; wdpa-overlap-swap.yaml publishes.
-# Full repartition into staging (staging-1000/full-r3/hex), attributes joined from
+# Full repartition into staging (staging-1000/full-r4/hex), attributes joined from
 # wdpa.parquet, completeness checked against every parcel (no skip). The
 # chunks are removed once written. wdpa-overlap-swap.yaml later replaces
 # wdpa/hex/ with it, together with the STAC update.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: wdpa-overlap-1000-repartition-r3
+  name: wdpa-overlap-1000-repartition-r4
   namespace: geo-workflows
   labels:
-    k8s-app: wdpa-overlap-1000-repartition-r3
+    k8s-app: wdpa-overlap-1000-repartition-r4
 spec:
   backoffLimit: 1
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
-        k8s-app: wdpa-overlap-1000-repartition-r3
+        k8s-app: wdpa-overlap-1000-repartition-r4
     spec:
       restartPolicy: Never
       priorityClassName: opportunistic
@@ -44,8 +44,8 @@ spec:
         - |
           set -euo pipefail
           cng-datasets repartition \
-            --chunks-dir s3://public-wdpa/wdpa/staging-1000/full-r3/chunks \
-            --output-dir s3://public-wdpa/wdpa/staging-1000/full-r3/hex \
+            --chunks-dir s3://public-wdpa/wdpa/staging-1000/full-r4/chunks \
+            --output-dir s3://public-wdpa/wdpa/staging-1000/full-r4/hex \
             --source-parquet s3://public-wdpa/wdpa.parquet --memory-limit 12GiB
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
