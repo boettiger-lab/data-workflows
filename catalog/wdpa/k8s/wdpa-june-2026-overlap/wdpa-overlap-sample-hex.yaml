@@ -1,6 +1,6 @@
 # HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
 # per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
-# hex_overlap.py in this directory (#1000; tool feature request drafted there).
+# hex_overlap.py in this directory (#1000; tool feature request datasets#363).
 #
 # Phase 1 sample hex: one index per chunk of plan-sample.parquet (written by
 # wdpa-overlap-sample-plan.yaml); set completions to its chunk count. Output

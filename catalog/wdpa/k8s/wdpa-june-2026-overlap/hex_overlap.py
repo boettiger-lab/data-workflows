@@ -2,8 +2,8 @@
 """H3 'overlap' hex with a per-(feature, cell) coverage fraction (#1000).
 
 HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
-coverage fraction; this is the shape requested from the tool in a drafted
-boettiger-lab/datasets feature request (#1000).
+coverage fraction; this is the shape requested from the tool in
+boettiger-lab/datasets#363 (#1000).
 
 For every polygon feature of a GeoParquet, write one row per H3 cell the
 feature's interior overlaps:

@@ -1,6 +1,6 @@
 # HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
 # per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
-# hex_overlap.py in this directory (#1000; tool feature request drafted there).
+# hex_overlap.py in this directory (#1000; tool feature request datasets#363).
 #
 # Phase 1 sample plan: an area-stratified sample of WDPA parcels (40 per decade
 # of GIS_AREA, the 12 largest, and Ramsar parcels with their National
