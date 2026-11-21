@@ -61,15 +61,22 @@ spec:
           # 1. preconditions
           want=$(rclone cat $ST/source-md5.txt | awk '{print $1}')
           have=$(rclone md5sum $B/iucn-taxonomy.parquet | awk '{print $1}')
-          echo "built from $want; published now $have"
-          [ -n "$want" ] && [ "$want" = "$have" ] || { echo "published parquet changed since the backfill was built; rebuild"; exit 1; }
+          staged=$(rclone md5sum $ST/iucn-taxonomy.parquet | awk '{print $1}')
+          echo "built from $want; published now $have; staged $staged"
           rclone copyto $ST/iucn-taxonomy.report.json report.json $R
           python3 -c "import json,sys; r=json.load(open('report.json')); print(r); sys.exit(0 if r['not_cached']==0 and r['rows']==179277 else 1)"
 
-          # 2-3. keep the old table, then swap the staged one in
-          rclone copyto $B/iucn-taxonomy.parquet $ST/previous-iucn-taxonomy.parquet $R
-          rclone copyto $ST/iucn-taxonomy.parquet $B/iucn-taxonomy.parquet $R
-          rclone md5sum $ST/iucn-taxonomy.parquet $B/iucn-taxonomy.parquet
+          # 2-3. keep the old table, then swap the staged one in (skipped on a re-run after the swap)
+          if [ "$have" = "$staged" ]; then
+            echo "published parquet is already the staged one; skipping swap"
+            rclone lsf $ST/previous-iucn-taxonomy.parquet | grep -q . || { echo "no rollback copy"; exit 1; }
+          else
+            [ -n "$want" ] && [ "$want" = "$have" ] || { echo "published parquet changed since the backfill was built; rebuild"; exit 1; }
+            rclone copyto $B/iucn-taxonomy.parquet $ST/previous-iucn-taxonomy.parquet $R
+            rclone copyto $ST/iucn-taxonomy.parquet $B/iucn-taxonomy.parquet $R
+          fi
+          now=$(rclone md5sum $B/iucn-taxonomy.parquet | awk '{print $1}')
+          [ "$now" = "$staged" ] || { echo "swap check failed: $now != $staged"; exit 1; }
 
           # 4. collection + README, edited in place
           rclone copyto $B/stac-collection.json stac-collection.json $R
