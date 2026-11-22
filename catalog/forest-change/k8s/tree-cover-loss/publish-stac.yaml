@@ -1,0 +1,125 @@
+# HAND-ROLLED: the generator does not write STAC; this follows the publish-stac pattern of
+# catalog/ncp/k8s/invest-peru-2019/invest-peru-2019-publish-stac.yaml and the root registration of
+# catalog/mesic/k8s/mesic-register-root-catalog.yaml (#434).
+#
+# Steps 5-6: publish the tree-cover-loss collection and README, draw and upload its thumbnail,
+# write the new public-forest-change bucket catalog, and add one child link for it to the root
+# catalog. Runs gen_stac.py (committed beside this file) from a ConfigMap:
+#   kubectl create configmap hansen-gfc-stac-script -n geo-workflows \
+#     --from-file=gen_stac.py=catalog/forest-change/k8s/tree-cover-loss/gen_stac.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/forest-change/k8s/tree-cover-loss/publish-stac.yaml
+#
+# The bucket catalog is new (it 404s today); if one exists by the time this runs, it is patched
+# with the child link rather than overwritten. The root catalog is read, patched and written in
+# the same pod, and the write is refused unless exactly one link was added and nothing else moved.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hansen-gfc-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: hansen-gfc-publish-stac}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: hansen-gfc-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          RAW=https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts
+          mkdir -p /tmp/g
+          curl -fsSL $RAW/stac-publish-guard.py -o /tmp/g/guard.py
+          curl -fsSL $RAW/thumbnail.py -o /tmp/g/thumbnail.py
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            rclone cat "$2" > /tmp/g/live.json 2>/dev/null || : > /tmp/g/live.json
+            python3 /tmp/g/guard.py "$1" /tmp/g/live.json || exit 1
+          }
+
+          # Sizes and created times are read from the objects (#417), paths bucket-relative.
+          rclone lsjson -R --files-only nrp:public-forest-change/tree-cover-loss/ > /tmp/o.json
+          python3 -c "
+          import json
+          o = [dict(r, Path='tree-cover-loss/' + r['Path']) for r in json.load(open('/tmp/o.json'))]
+          json.dump(o, open('/tmp/objects.json', 'w')); print(len(o), 'objects')"
+
+          python3 /script/gen_stac.py /tmp/stac /tmp/objects.json
+          find /tmp/stac -type f | sort
+          python3 - <<'PY'
+          import json
+          c = json.load(open("/tmp/stac/tree-cover-loss/stac-collection.json"))
+          assert c["license"] == "CC-BY-4.0" and c["version"] == "GFC-2025-v1.13", c["license"]
+          assert sorted(c["assets"]) == ["loss-year-cog", "loss-year-hex", "thumbnail",
+                                         "tree-cover-2000-cog", "tree-cover-2000-hex"], sorted(c["assets"])
+          assert list(c["renders"]) == ["tree-cover-2000", "loss-year"], list(c["renders"])
+          assert len(c["table:columns"]) == 5, len(c["table:columns"])
+          print("gate OK")
+          PY
+
+          C=nrp:public-forest-change/tree-cover-loss
+          guard_stac /tmp/stac/tree-cover-loss/stac-collection.json $C/stac-collection.json
+          rclone copyto /tmp/stac/tree-cover-loss/stac-collection.json $C/stac-collection.json $R
+          rclone copyto /tmp/stac/tree-cover-loss/README.md $C/README.md $R
+          python3 /tmp/g/thumbnail.py https://s3-west.nrp-nautilus.io/public-forest-change/tree-cover-loss/stac-collection.json --out /tmp/th
+          rclone copyto /tmp/th/public-forest-change/tree-cover-loss/thumbnail.png $C/thumbnail.png $R
+
+          # Bucket catalog: write it if absent, otherwise add the child link if missing.
+          rclone cat nrp:public-forest-change/stac-collection.json > /tmp/bucket-live.json 2>/dev/null || true
+          if [ -s /tmp/bucket-live.json ]; then  # rclone cat of a missing object can exit 0 with no output
+            python3 - <<'PY'
+          import json
+          live = json.load(open("/tmp/bucket-live.json"))
+          new = json.load(open("/tmp/stac/stac-collection.json"))
+          child = [l for l in new["links"] if l["rel"] == "child"][0]
+          if not any(l.get("href") == child["href"] for l in live["links"]):
+              live["links"].append(child)
+          json.dump(live, open("/tmp/stac/stac-collection.json", "w"), indent=2)
+          print("bucket catalog exists; child link ensured")
+          PY
+          fi
+          rclone copyto /tmp/stac/stac-collection.json nrp:public-forest-change/stac-collection.json $R
+
+          # Root catalog: add one child link, refuse any other change.
+          rclone copyto nrp:public-data/stac/catalog.json /tmp/root.json $R
+          rc=0
+          python3 - <<'PY' || rc=$?
+          import json, sys
+          HREF = "https://s3-west.nrp-nautilus.io/public-forest-change/stac-collection.json"
+          orig = json.load(open("/tmp/root.json"))
+          cat = json.loads(json.dumps(orig))
+          if any(l.get("href") == HREF for l in cat["links"]):
+              print("root: already registered"); sys.exit(9)
+          cat["links"].append({"rel": "child", "href": HREF, "type": "application/json",
+                               "title": "Forest change"})
+          assert cat["links"][:-1] == orig["links"], "an existing link changed"
+          assert {k: v for k, v in cat.items() if k != "links"} == \
+                 {k: v for k, v in orig.items() if k != "links"}, "a non-link field changed"
+          json.dump(cat, open("/tmp/root.new.json", "w"), indent=2)
+          print("root: children", sum(l["rel"] == "child" for l in orig["links"]), "->",
+                sum(l["rel"] == "child" for l in cat["links"]))
+          PY
+          if [ $rc -eq 0 ]; then
+            rclone copyto /tmp/root.new.json nrp:public-data/stac/catalog.json $R
+            rclone cat nrp:public-data/stac/catalog.json | grep -c public-forest-change
+          elif [ $rc -ne 9 ]; then exit $rc; fi
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: hansen-gfc-stac-script}}
