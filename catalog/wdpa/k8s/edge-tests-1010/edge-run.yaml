@@ -38,8 +38,8 @@ spec:
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         resources:
-          requests: {cpu: '1', memory: 6Gi, ephemeral-storage: 4Gi}
-          limits:   {cpu: '1', memory: 12Gi, ephemeral-storage: 4Gi}
+          requests: {cpu: '1', memory: 7Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '1', memory: 8Gi, ephemeral-storage: 4Gi}
         env:
         - {name: TILES, value: ""}
         - {name: WORK, value: /work}
