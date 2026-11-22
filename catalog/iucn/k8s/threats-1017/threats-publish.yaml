@@ -1,0 +1,81 @@
+# HAND-ROLLED: the generator does not write STAC for a table read from a REST API. Publishes the
+# IUCN threats table (#1017), after threats-job.yaml has written
+# s3://public-iucn/taxonomy/staging-1017/ and the staged file has been checked.
+#
+#  1. refuses unless the build report shows every target taxon cached and a Red List version;
+#  2. copies the staged parquet to s3://public-iucn/taxonomy/iucn-threats.parquet and checks it;
+#  3. edits the LIVE iucn-taxonomy-2025 collection and README with set_threats_stac.py (adds the
+#     threats asset and its columns), runs the publish guard, uploads both.
+#
+#   kubectl create configmap iucn-threats-publish-script -n geo-workflows \
+#     --from-file=set_threats_stac.py=catalog/iucn/k8s/threats-1017/set_threats_stac.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/iucn/k8s/threats-1017/threats-publish.yaml
+#   kubectl -n geo-workflows logs -f job/iucn-threats-publish
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-threats-publish
+  namespace: geo-workflows
+  labels: {k8s-app: iucn-threats-publish}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: iucn-threats-publish}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          B=nrp:public-iucn/taxonomy
+          ST=$B/staging-1017
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          mkdir -p /work && cd /work
+
+          # 1. preconditions
+          rclone copyto $ST/iucn-threats.report.json report.json $R
+          python3 -c "import json,sys; r=json.load(open('report.json')); print(r); sys.exit(0 if r['not_cached']==0 and r['rows']>0 and r['red_list_version'] else 1)"
+
+          # 2. data
+          rclone copyto $ST/iucn-threats.parquet $B/iucn-threats.parquet $R
+          staged=$(rclone md5sum $ST/iucn-threats.parquet | awk '{print $1}')
+          now=$(rclone md5sum $B/iucn-threats.parquet | awk '{print $1}')
+          [ "$now" = "$staged" ] || { echo "copy check failed: $now != $staged"; exit 1; }
+
+          # 3. collection + README, edited in place
+          rclone copyto $B/stac-collection.json stac-collection.json $R
+          rclone copyto $B/README.md README.md $R
+          python3 /script/set_threats_stac.py stac-collection.json README.md report.json
+          guard_stac stac-collection.json $B/stac-collection.json
+          rclone copyto README.md $B/README.md $R
+          rclone copyto stac-collection.json $B/stac-collection.json $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: iucn-threats-publish-script}}
