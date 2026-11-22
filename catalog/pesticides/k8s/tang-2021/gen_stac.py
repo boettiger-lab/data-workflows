@@ -339,18 +339,18 @@ QUALITY_MASK_NOTE = (
 
 
 def build_parent(objs):
+    # The bucket node groups child collections and holds no data, so it is a STAC Catalog:
+    # no license or extent (#957).
     return {
         "stac_version": "1.0.0",
-        "type": "Collection",
+        "type": "Catalog",
         "id": "public-pesticides",
         "title": "Pesticides",
         "description": ("Data sets on pesticide use and pesticide pollution, published as "
                         "cloud-optimized GeoTIFF and H3 hex parquet. Each child collection "
                         "carries its own licence; check there rather than assuming a "
                         "bucket-wide term."),
-        "license": "various",
         "keywords": ["pesticides", "pollution", "agriculture"],
-        "extent": {"spatial": {"bbox": [BBOX]}, "temporal": {"interval": [[None, None]]}},
         "providers": [{"name": "Boettiger Lab, UC Berkeley", "roles": ["processor", "host"],
                        "url": f"{BASE}/"}],
         "links": [
