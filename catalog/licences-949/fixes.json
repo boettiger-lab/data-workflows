@@ -1,0 +1,274 @@
+[
+ {
+  "collection": "public-overturemaps/2026-02-18.0/countries/stac-collection.json",
+  "license": "ODbL-1.0",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://opendatacommons.org/licenses/odbl/1-0/",
+    "type": "text/html",
+    "title": "Open Database License (ODbL) 1.0"
+   },
+   {
+    "rel": "license",
+    "href": "https://docs.overturemaps.org/attribution/",
+    "type": "text/html",
+    "title": "Overture Maps attribution and per-theme licences"
+   }
+  ],
+  "description_append": "**Licence:** Overture publishes the Divisions theme under the Open Database License (ODbL 1.0), not CDLA-Permissive-2.0, which covers other Overture themes. Attribution is owed to © OpenStreetMap contributors (ODbL), and to geoBoundaries, Esri Community Maps contributors and Land Information New Zealand (LINZ), each under CC BY 4.0.",
+  "evidence": "https://docs.overturemaps.org/attribution/ (Divisions: 'License for theme: ODbL', checked 2026-11-17)"
+ },
+ {
+  "collection": "public-overturemaps/2026-02-18.0/regions/stac-collection.json",
+  "license": "ODbL-1.0",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://opendatacommons.org/licenses/odbl/1-0/",
+    "type": "text/html",
+    "title": "Open Database License (ODbL) 1.0"
+   },
+   {
+    "rel": "license",
+    "href": "https://docs.overturemaps.org/attribution/",
+    "type": "text/html",
+    "title": "Overture Maps attribution and per-theme licences"
+   }
+  ],
+  "description_append": "**Licence:** Overture publishes the Divisions theme under the Open Database License (ODbL 1.0), not CDLA-Permissive-2.0, which covers other Overture themes. Attribution is owed to © OpenStreetMap contributors (ODbL), and to geoBoundaries, Esri Community Maps contributors and Land Information New Zealand (LINZ), each under CC BY 4.0.",
+  "evidence": "https://docs.overturemaps.org/attribution/ (Divisions: 'License for theme: ODbL', checked 2026-11-17)"
+ },
+ {
+  "collection": "public-overturemaps/2026-02-18.0/counties/stac-collection.json",
+  "license": "ODbL-1.0",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://opendatacommons.org/licenses/odbl/1-0/",
+    "type": "text/html",
+    "title": "Open Database License (ODbL) 1.0"
+   },
+   {
+    "rel": "license",
+    "href": "https://docs.overturemaps.org/attribution/",
+    "type": "text/html",
+    "title": "Overture Maps attribution and per-theme licences"
+   }
+  ],
+  "description_append": "**Licence:** Overture publishes the Divisions theme under the Open Database License (ODbL 1.0), not CDLA-Permissive-2.0, which covers other Overture themes. Attribution is owed to © OpenStreetMap contributors (ODbL), and to geoBoundaries, Esri Community Maps contributors and Land Information New Zealand (LINZ), each under CC BY 4.0.",
+  "evidence": "https://docs.overturemaps.org/attribution/ (Divisions: 'License for theme: ODbL', checked 2026-11-17)"
+ },
+ {
+  "collection": "public-indigenous/landmark/iplc-poly-stac.json",
+  "license": "CC-BY-SA-4.0",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "type": "text/html",
+    "title": "CC BY-SA 4.0"
+   },
+   {
+    "rel": "license",
+    "href": "https://landmark.wridata.org/LandMark/LandMark_Terms_of_Service_202408.pdf",
+    "type": "application/pdf",
+    "title": "LandMark Terms of Service (August 2024)"
+   }
+  ],
+  "description_replace": [
+   [
+    "License: CC BY 4.0.",
+    "License: CC BY-SA 4.0, under LandMark's Terms of Service."
+   ]
+  ],
+  "evidence": "https://www.landmarkmap.org/data-methods/access-data (both layers link CC BY-SA 4.0 and the Terms of Service PDF, checked 2026-11-17)"
+ },
+ {
+  "collection": "public-indigenous/landmark/iplc-pt-stac.json",
+  "license": "CC-BY-SA-4.0",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "type": "text/html",
+    "title": "CC BY-SA 4.0"
+   },
+   {
+    "rel": "license",
+    "href": "https://landmark.wridata.org/LandMark/LandMark_Terms_of_Service_202408.pdf",
+    "type": "application/pdf",
+    "title": "LandMark Terms of Service (August 2024)"
+   }
+  ],
+  "description_replace": [
+   [
+    "License: CC BY 4.0.",
+    "License: CC BY-SA 4.0, under LandMark's Terms of Service."
+   ]
+  ],
+  "evidence": "https://www.landmarkmap.org/data-methods/access-data (both layers link CC BY-SA 4.0 and the Terms of Service PDF, checked 2026-11-17)"
+ },
+ {
+  "collection": "public-indigenous/landmark/indicative-poly-stac.json",
+  "license": "CC-BY-SA-4.0",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "type": "text/html",
+    "title": "CC BY-SA 4.0"
+   },
+   {
+    "rel": "license",
+    "href": "https://landmark.wridata.org/LandMark/LandMark_Terms_of_Service_202408.pdf",
+    "type": "application/pdf",
+    "title": "LandMark Terms of Service (August 2024)"
+   }
+  ],
+  "description_replace": [
+   [
+    "License: CC BY 4.0.",
+    "License: CC BY-SA 4.0, under LandMark's Terms of Service."
+   ]
+  ],
+  "evidence": "https://www.landmarkmap.org/data-methods/access-data (both layers link CC BY-SA 4.0 and the Terms of Service PDF, checked 2026-11-17)"
+ },
+ {
+  "collection": "public-indigenous/landmark/indicative-pt-stac.json",
+  "license": "CC-BY-SA-4.0",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "type": "text/html",
+    "title": "CC BY-SA 4.0"
+   },
+   {
+    "rel": "license",
+    "href": "https://landmark.wridata.org/LandMark/LandMark_Terms_of_Service_202408.pdf",
+    "type": "application/pdf",
+    "title": "LandMark Terms of Service (August 2024)"
+   }
+  ],
+  "description_replace": [
+   [
+    "License: CC BY 4.0.",
+    "License: CC BY-SA 4.0, under LandMark's Terms of Service."
+   ]
+  ],
+  "evidence": "https://www.landmarkmap.org/data-methods/access-data (both layers link CC BY-SA 4.0 and the Terms of Service PDF, checked 2026-11-17)"
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/2021/stac-collection.json",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://www.arcgis.com/home/item.html?id=4914cbc7cacf4173a1bc858f7c7ca514",
+    "type": "text/html",
+    "title": "California Department of Conservation terms of use (item licence)"
+   }
+  ],
+  "description_append": "**Terms of use:** the Department of Conservation publishes this data as copyright, all rights reserved, not in the public domain. Its terms say that fair use for non-commercial, educational, research or scientific purposes is not a violation of copyright, and that no part of the data may be reproduced, transmitted or distributed for any purpose without the express written permission of the Department of Conservation, Division of Land Resource Protection.",
+  "evidence": "https://www.arcgis.com/sharing/rest/content/items/4914cbc7cacf4173a1bc858f7c7ca514?f=json licenseInfo (checked 2026-11-17)"
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/2022/stac-collection.json",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://www.arcgis.com/home/item.html?id=5591faef63534337a7c28beaa73f3bac",
+    "type": "text/html",
+    "title": "California Department of Conservation terms of use (item licence)"
+   }
+  ],
+  "description_append": "**Terms of use:** the Department of Conservation publishes this data as copyright, all rights reserved, not in the public domain. Its terms say that fair use for non-commercial, educational, research or scientific purposes is not a violation of copyright, and that no part of the data may be reproduced, transmitted or distributed for any purpose without the express written permission of the Department of Conservation, Division of Land Resource Protection.",
+  "evidence": "https://www.arcgis.com/sharing/rest/content/items/5591faef63534337a7c28beaa73f3bac?f=json licenseInfo (checked 2026-11-17)"
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/2023/stac-collection.json",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://www.arcgis.com/home/item.html?id=19143af5b1ee410fa9b2808f5aa76820",
+    "type": "text/html",
+    "title": "California Department of Conservation terms of use (item licence)"
+   }
+  ],
+  "description_append": "**Terms of use:** the Department of Conservation publishes this data as copyright, all rights reserved, not in the public domain. Its terms say that fair use for non-commercial, educational, research or scientific purposes is not a violation of copyright, and that no part of the data may be reproduced, transmitted or distributed for any purpose without the express written permission of the Department of Conservation, Division of Land Resource Protection.",
+  "evidence": "https://www.arcgis.com/sharing/rest/content/items/19143af5b1ee410fa9b2808f5aa76820?f=json licenseInfo (checked 2026-11-17)"
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/2024/stac-collection.json",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://www.arcgis.com/home/item.html?id=29dd1328c36a467991a1a1ad8b1caefa",
+    "type": "text/html",
+    "title": "California Department of Conservation terms of use (item licence)"
+   }
+  ],
+  "description_append": "**Terms of use:** the Department of Conservation publishes this data as copyright, all rights reserved, not in the public domain. Its terms say that fair use for non-commercial, educational, research or scientific purposes is not a violation of copyright, and that no part of the data may be reproduced, transmitted or distributed for any purpose without the express written permission of the Department of Conservation, Division of Land Resource Protection.",
+  "evidence": "https://www.arcgis.com/sharing/rest/content/items/29dd1328c36a467991a1a1ad8b1caefa?f=json licenseInfo (checked 2026-11-17)"
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/2025/stac-collection.json",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://www.arcgis.com/home/item.html?id=b040aa24bd91472282f47d24be0302de",
+    "type": "text/html",
+    "title": "California Department of Conservation terms of use (item licence)"
+   }
+  ],
+  "description_append": "**Terms of use:** the Department of Conservation publishes this data as copyright, all rights reserved, not in the public domain. Its terms say that fair use for non-commercial, educational, research or scientific purposes is not a violation of copyright, and that no part of the data may be reproduced, transmitted or distributed for any purpose without the express written permission of the Department of Conservation, Division of Land Resource Protection.",
+  "evidence": "https://www.arcgis.com/sharing/rest/content/items/b040aa24bd91472282f47d24be0302de?f=json licenseInfo (checked 2026-11-17)"
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/all-years/stac-collection.json",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://www.arcgis.com/home/item.html?id=b040aa24bd91472282f47d24be0302de",
+    "type": "text/html",
+    "title": "California Department of Conservation terms of use (item licence)"
+   }
+  ],
+  "description_append": "**Terms of use:** the Department of Conservation publishes this data as copyright, all rights reserved, not in the public domain. Its terms say that fair use for non-commercial, educational, research or scientific purposes is not a violation of copyright, and that no part of the data may be reproduced, transmitted or distributed for any purpose without the express written permission of the Department of Conservation, Division of Land Resource Protection.",
+  "evidence": "https://www.arcgis.com/sharing/rest/content/items/b040aa24bd91472282f47d24be0302de?f=json licenseInfo (checked 2026-11-17)"
+ },
+ {
+  "collection": "public-icca/icca-registry/icca-polygon/stac-collection.json",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://www.iccaregistry.org/en/terms-conditions",
+    "type": "text/html",
+    "title": "ICCA Registry Terms and Conditions"
+   }
+  ],
+  "description_append": "**Terms of use:** the ICCA Registry's own Terms and Conditions apply, not the Protected Planet terms. They prohibit commercial use without UNEP-WCMC's prior written permission, and prohibit redistributing the Registry data, including as web downloads or web services, without permission from UNEP-WCMC.",
+  "evidence": "https://www.iccaregistry.org/en/terms-conditions (checked 2026-11-17)"
+ },
+ {
+  "collection": "public-icca/icca-registry/icca-point/stac-collection.json",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://www.iccaregistry.org/en/terms-conditions",
+    "type": "text/html",
+    "title": "ICCA Registry Terms and Conditions"
+   }
+  ],
+  "description_append": "**Terms of use:** the ICCA Registry's own Terms and Conditions apply, not the Protected Planet terms. They prohibit commercial use without UNEP-WCMC's prior written permission, and prohibit redistributing the Registry data, including as web downloads or web services, without permission from UNEP-WCMC.",
+  "evidence": "https://www.iccaregistry.org/en/terms-conditions (checked 2026-11-17)"
+ }
+]
