@@ -68,7 +68,9 @@ spec:
           # 3. collection + README, edited in place
           rclone copyto $B/stac-collection.json stac-collection.json $R
           rclone copyto $B/README.md README.md $R
-          python3 /script/set_threats_stac.py stac-collection.json README.md report.json
+          rclone copyto $ST/iucn-threats.parquet threats.parquet $R
+          python3 -c "import json, pyarrow.parquet as pq; t = pq.read_table('threats.parquet', columns=['threat_code', 'threat_name']).to_pylist(); json.dump(sorted({(r['threat_code'], r['threat_name']) for r in t if r['threat_code']}), open('codes.json', 'w'))"
+          python3 /script/set_threats_stac.py stac-collection.json README.md report.json codes.json
           guard_stac stac-collection.json $B/stac-collection.json
           rclone copyto README.md $B/README.md $R
           rclone copyto stac-collection.json $B/stac-collection.json $R

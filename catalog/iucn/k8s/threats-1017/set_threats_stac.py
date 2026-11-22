@@ -19,6 +19,9 @@ import re
 import sys
 
 stac_path, readme_path, report_path = sys.argv[1:4]
+# Optional 4th argument: JSON list of [threat_code, threat_name] pairs read from the published
+# table, so the coded-column `values` match the data exactly (verify-stac categorical check).
+code_pairs = json.load(open(sys.argv[4])) if len(sys.argv) > 4 else None
 doc = json.load(open(stac_path))
 rep = json.load(open(report_path))
 before = json.loads(json.dumps(doc))
@@ -58,6 +61,16 @@ for name, typ, desc in THREAT_COLS:
     col = {"name": name, "type": typ, "description": desc}
     if name in CODED:
         col["values"] = CODED[name]
+    if code_pairs and name == "threat_code":
+        key = lambda c: tuple(int(x) for x in c.split("."))
+        names = {}
+        for c, n in code_pairs:
+            names.setdefault(c, n)
+        codes = sorted(names, key=key)
+        col["values"] = codes
+        col["description"] = desc + " Values: " + ", ".join(f"{c}={names[c]}" for c in codes) + "."
+    if code_pairs and name == "threat_name":
+        col["values"] = sorted({n for _, n in code_pairs if n})
     cols.append(col)
 for c in cols:
     if c["name"] == "sis_taxon_id":
