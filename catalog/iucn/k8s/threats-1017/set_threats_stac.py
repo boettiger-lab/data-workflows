@@ -35,7 +35,9 @@ THREAT_COLS = [
     ("assessment_id", "int64", "Red List assessment the threat comes from (threats table)."),
     ("year_published", "string", "Year the assessment was published (threats table)."),
     ("threat_code", "string", "IUCN Threats Classification Scheme code at the most detailed "
-     "level the assessment records, e.g. '2.1.3' (threats table)."),
+     "level the assessment records, e.g. '2.1.3' (threats table). A code can appear more than "
+     "once for a taxon: class 8 threats (invasive species, viruses) have one row per named "
+     "species or virus."),
     ("threat_name", "string", "English name of the threat code (threats table)."),
     ("timing", "string", "Timing of the threat as the assessment records it (threats table)."),
     ("scope", "string", "Share of the population the threat affects (threats table). NULL "
@@ -99,7 +101,7 @@ print(f"{doc['id']}: {', '.join(sorted(changed)) or 'unchanged'}")
 md = open(readme_path).read()
 section = (
     "## Threats with scope, severity and timing\n"
-    f"`{HREF}` has one row per taxon and threat for the {n_target:,} taxa with a range polygon, "
+    f"`{HREF}` has one row per taxon and threat (class 8 threats repeat once per named invasive species or virus) for the {n_target:,} taxa with a range polygon, "
     f"category NT to CR and at least one threat code: `sis_taxon_id`, `assessment_id`, "
     f"`year_published`, `threat_code`, `threat_name`, `timing`, `scope`, `severity`, `score`, "
     f"`invasive_species` and `virus`. It was read from the IUCN Red List API v4 ({dates}, "
