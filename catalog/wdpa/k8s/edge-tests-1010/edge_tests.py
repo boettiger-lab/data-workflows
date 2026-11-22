@@ -163,7 +163,17 @@ def one_sub(g, tree, bbox, raster: str):
     to_m = lambda geom: shapely.transform(geom, lambda c: np.column_stack(fwd.transform(c[:, 0], c[:, 1])))
     to_ll = lambda geom: shapely.transform(geom, lambda c: np.column_stack(inv.transform(c[:, 0], c[:, 1])))
 
-    Um = to_m(U)
+    from shapely.errors import GEOSException
+
+    def safe(op, a, b):
+        """GEOS set operation; on a topology error (projection can leave near-invalid
+        rings), retry on validated inputs snapped to a 1 cm grid."""
+        try:
+            return op(a, b)
+        except GEOSException:
+            return op(shapely.make_valid(a), shapely.make_valid(b), grid_size=0.01)
+
+    Um = shapely.make_valid(to_m(U))
     buf = {0: Um}
     for d in DISTS:
         buf[d] = shapely.buffer(Um, d, quad_segs=4)
@@ -171,12 +181,12 @@ def one_sub(g, tree, bbox, raster: str):
     variants_m = {
         "exact": buf[0],
         "grow90": buf[90], "grow270": buf[270], "shrink90": buf[-90], "shrink270": buf[-270],
-        "in_0_90": shapely.difference(buf[0], buf[-90]),
-        "in_90_270": shapely.difference(buf[-90], buf[-270]),
-        "in_270_1000": shapely.difference(buf[-270], buf[-1000]),
-        "out_0_90": shapely.difference(buf[90], buf[0]),
-        "out_90_270": shapely.difference(buf[270], buf[90]),
-        "out_270_1000": shapely.difference(buf[1000], buf[270]),
+        "in_0_90": safe(shapely.difference, buf[0], buf[-90]),
+        "in_90_270": safe(shapely.difference, buf[-90], buf[-270]),
+        "in_270_1000": safe(shapely.difference, buf[-270], buf[-1000]),
+        "out_0_90": safe(shapely.difference, buf[90], buf[0]),
+        "out_90_270": safe(shapely.difference, buf[270], buf[90]),
+        "out_270_1000": safe(shapely.difference, buf[1000], buf[270]),
     }
     del buf
     def polys(geom):
