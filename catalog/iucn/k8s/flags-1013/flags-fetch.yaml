@@ -1,0 +1,96 @@
+# HAND-ROLLED: cng-datasets has no step for enriching a table from a REST API. This job reads
+# severe_fragmentation and area_restricted from the IUCN Red List v4 API for the rows #1013
+# scopes, with fix_flags.py, into a per-taxon cache on S3. No table is written here.
+#
+# Runs in `biodiversity`, not geo-workflows, because the `iucn-api-key` secret lives there and
+# is not copied into geo-workflows (Hard Boundary 3; precedent taxonomy-backfill-825). S3 goes
+# through the `aws` secret already in biodiversity, as an env-defined rclone remote on the
+# internal endpoint; no secret is added anywhere.
+#
+# ~102k taxa in 4 shards (sis_taxon_id % 4), one pod each, 1-2 API calls per taxon with a
+# 0.3 s pause: about 12-16 h per pod. Default priority, because opportunistic pods would be
+# preempted over that span; requests stay at 1 core and 2Gi so NRP's small-pod exemption
+# applies. Do not run it beside another IUCN API job (iucn-threats): one key, one client at a time.
+#
+# The cache is kept after publishing (#1013 scope), at s3://public-iucn/taxonomy/api-cache/.
+# A rerun fetches only what is missing.
+#
+#   kubectl create configmap iucn-flags-script -n biodiversity \
+#     --from-file=fix_flags.py=catalog/iucn/k8s/flags-1013/fix_flags.py \
+#     --from-file=backfill_taxonomy.py=catalog/iucn/k8s/taxonomy-backfill-825/backfill_taxonomy.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -f catalog/iucn/k8s/flags-1013/flags-fetch.yaml
+#   kubectl -n biodiversity logs -f -l k8s-app=iucn-flags-fetch --max-log-requests 4
+#
+# Test first: set ONLY_IDS to a comma list, CACHE to taxonomy/staging-1013-test/api-cache,
+# and completions/parallelism to 1 with NSHARDS 1.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-flags-fetch
+  namespace: biodiversity
+  labels: {k8s-app: iucn-flags-fetch}
+spec:
+  completionMode: Indexed
+  completions: 4
+  parallelism: 4
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 4
+  activeDeadlineSeconds: 172800
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: iucn-flags-fetch}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: fetch
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 6Gi}
+        env:
+        - {name: NSHARDS, value: "4"}
+        - {name: ONLY_IDS, value: ""}
+        - {name: CACHE, value: taxonomy/api-cache}
+        - {name: STAGE, value: taxonomy/staging-1013}
+        - {name: IUCN_REQUEST_DELAY, value: "0.3"}
+        - name: IUCN_API_KEY
+          valueFrom: {secretKeyRef: {name: iucn-api-key, key: IUCN_API_KEY}}
+        - {name: RCLONE_CONFIG_NRP_TYPE, value: s3}
+        - {name: RCLONE_CONFIG_NRP_PROVIDER, value: Ceph}
+        - {name: RCLONE_CONFIG_NRP_ENDPOINT, value: "http://rook-ceph-rgw-nautiluss3.rook"}
+        - name: RCLONE_CONFIG_NRP_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: RCLONE_CONFIG_NRP_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          python -c "import requests, duckdb, pyarrow" 2>/dev/null || pip install --quiet requests duckdb pyarrow
+          R="--retries 10 --low-level-retries 20"
+          B=nrp:public-iucn
+          mkdir -p /work/src /work/api-cache /work/out
+          rclone copy $B/taxonomy/iucn-taxonomy.parquet /work/src/ $R
+          rclone copyto $B/taxonomy/staging-825/previous-iucn-taxonomy.parquet /work/src/previous-iucn-taxonomy.parquet $R
+          rclone copy $B/$CACHE/ /work/api-cache/ --transfers 32 $R || true
+          export SRC_PARQUET=/work/src/iucn-taxonomy.parquet \
+                 PRE825_PARQUET=/work/src/previous-iucn-taxonomy.parquet \
+                 CACHE_DIR=/work/api-cache VERSION_FILE=/work/out/red_list_version.txt \
+                 SYNC_CMD="rclone copy /work/api-cache/ $B/$CACHE/ --transfers 32 $R"
+          python /scripts/fix_flags.py fetch
+          if [ "$JOB_COMPLETION_INDEX" = 0 ]; then rclone copy /work/out/ $B/$STAGE/ $R; fi
+          echo Done.
+        volumeMounts:
+        - {name: scripts, mountPath: /scripts, readOnly: true}
+        - {name: work, mountPath: /work}
+      volumes:
+      - {name: scripts, configMap: {name: iucn-flags-script}}
+      - {name: work, emptyDir: {sizeLimit: 6Gi}}
