@@ -1,0 +1,41 @@
+# HAND-ROLLED (#607, #666): one-off removal of the staged raw after the build (AGENTS.md Step 1b); not a step the generator emits.
+# STAC-PUBLISH-GUARD: not needed: uploads no collection; it only purges s3://public-rap/raw/, which no STAC asset links to.
+# Provenance for every staged object (path, size, SHA-256 or manifest digest, access date) is in the
+# descriptions of rap-arte, rap-iag, rap-afg-cover, rap-pfg-cover and rap-pfg-biomass, checked 2026-11-23.
+# Contents at removal: raw/arte/ (764 tiles, 11.55 GB), raw/iag/ (764 tiles, 12.79 GB),
+# raw/vegetation-cover-v3-2025.tif (37.59 GB), raw/rap-vegetation-biomass-v3-2024.tif (36.57 GB).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rap-raw-purge
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: purge
+        image: ghcr.io/boettiger-lab/datasets:0.12.6
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          B=nrp:public-rap
+          echo "before:"; rclone size "$B/raw"
+          rclone purge "$B/raw"
+          echo "after:"; rclone lsf "$B" --max-depth 1
+        resources:
+          requests: {cpu: "1", memory: 1Gi}
+          limits: {cpu: "1", memory: 1Gi}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
