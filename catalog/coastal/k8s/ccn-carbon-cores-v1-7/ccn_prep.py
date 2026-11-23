@@ -10,8 +10,13 @@ Derived stocks, for D in (30, 100) cm:
                         scaled by D / covered, in Mg C/ha (1 g C/cm2 = 100 Mg C/ha).
                         Computed only where the union of usable intervals covers >= 90% of [0, D].
   cov_0_{D}cm         = that covered fraction (0-1) of [0, D].
-  f_c is fraction_carbon where measured, else Craft et al. (1991) from fraction_organic_matter:
-  OC% = 0.40 * LOI% + 0.0025 * LOI%^2. carbon_source_0_{D}cm = measured | organic_matter | mixed.
+  f_c is fraction_carbon where measured, else converted from fraction_organic_matter (LOI%):
+    seagrass cores: Fourqurean et al. (2012), OC% = 0.40 * LOI% - 0.21 below 20% LOI,
+                    0.43 * LOI% - 0.33 from 20%, floored at 0;
+    all other cores: Craft et al. (1991), OC% = 0.40 * LOI% + 0.0025 * LOI%^2.
+  Mangroves stay on Craft: the published mangrove equation (Kauffman et al. 2011, Palau,
+  0.415 * LOI% + 2.89) overestimates CCN's paired mangrove samples below 20% LOI (#793).
+  carbon_source_0_{D}cm = measured | organic_matter | mixed.
   Usable interval: depth_max > depth_min, 0 < dry_bulk_density <= 3, 0 <= f_c <= 1.
 """
 import sys
@@ -29,9 +34,16 @@ def csv(name):
     return f"read_csv('{IN}/CCN_{name}.csv', header=true, nullstr='NA', all_varchar=false, sample_size=-1)"
 
 
-rows = con.execute(f"""SELECT core_id, study_id, depth_min::DOUBLE, depth_max::DOUBLE,
-       dry_bulk_density::DOUBLE, fraction_carbon::DOUBLE, fraction_organic_matter::DOUBLE
-       FROM {csv('depthseries')}""").fetchall()
+rows = con.execute(f"""SELECT d.core_id, d.study_id, depth_min::DOUBLE, depth_max::DOUBLE,
+       dry_bulk_density::DOUBLE, fraction_carbon::DOUBLE, fraction_organic_matter::DOUBLE, c.habitat
+       FROM {csv('depthseries')} d LEFT JOIN {csv('cores')} c USING (study_id, core_id)""").fetchall()
+
+
+def om_to_c(loi, habitat):
+    """Organic carbon fraction from LOI in percent."""
+    if habitat == "seagrass":
+        return max(0.40 * loi - 0.21 if loi < 20 else 0.43 * loi - 0.33, 0.0) / 100
+    return (0.40 * loi + 0.0025 * loi * loi) / 100
 
 
 def union_len(iv):
@@ -47,14 +59,13 @@ def union_len(iv):
 
 
 ivs = defaultdict(list)
-for core, study, dmin, dmax, dbd, fc, om in rows:
+for core, study, dmin, dmax, dbd, fc, om, habitat in rows:
     if dmin is None or dmax is None or dmax <= dmin or dbd is None or not (0 < dbd <= 3):
         continue
     if fc is not None:
         src = "measured"
     elif om is not None:
-        loi = om * 100
-        fc, src = (0.40 * loi + 0.0025 * loi * loi) / 100, "organic_matter"
+        fc, src = om_to_c(om * 100, habitat), "organic_matter"
     else:
         continue
     if not (0 <= fc <= 1):

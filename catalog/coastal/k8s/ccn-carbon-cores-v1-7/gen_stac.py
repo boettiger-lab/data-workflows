@@ -115,8 +115,13 @@ STOCK = ("Soil organic carbon stock from the surface to {d} cm depth, in megagra
          "(Mg C/ha), computed by us from the core's depth series: dry bulk density × carbon fraction × "
          "interval thickness, summed over the sampled intervals within 0–{d} cm and scaled to the full "
          "{d} cm. Carbon fraction is the measured value where the study reports one; otherwise it is "
-         "converted from the organic-matter fraction with Craft et al. (1991), OC% = 0.40 × LOI% + "
-         "0.0025 × LOI%², an equation fitted to marsh soils. Empty where the sampled intervals cover less "
+         "converted from the organic-matter fraction (loss on ignition, LOI). Seagrass cores use Fourqurean "
+         "et al. (2012), OC% = 0.40 × LOI% − 0.21 below 20% LOI and 0.43 × LOI% − 0.33 above it, with "
+         "negative values set to 0. All other cores use Craft et al. (1991), OC% = 0.40 × LOI% + "
+         "0.0025 × LOI%², an equation fitted to marsh soils. Mangroves use Craft because the published "
+         "mangrove equation (Kauffman et al. 2011, fitted in Palau) overestimates carbon by about 3.6 "
+         "percentage points on this library's mangrove samples with under 20% organic matter, where "
+         "both organic matter and carbon were measured. Empty where the sampled intervals cover less "
          "than 90% of 0–{d} cm.")
 OVERRIDE = {
     "_cng_fid": "Unique row id assigned at conversion, one per core.",
@@ -245,7 +250,7 @@ DESC = f"""Sediment cores from tidal marshes, mangroves, seagrass meadows and ot
 
 The library holds 16,715 cores from hundreds of studies: 8,746 in marshes, 5,801 in mangroves, 1,294 in seagrass meadows, and smaller numbers in unvegetated flats, swamps, scrub and other tidal habitats. It includes the global seagrass soil carbon compilation of Krause et al. (2025). Three cores without coordinates are left out of the map layers, leaving 16,712.
 
-Carbon stocks come from each core's depth series (dry bulk density × carbon fraction × interval thickness). A stock is computed only where the sampled intervals cover at least 90% of the depth range, so 4,830 cores have a 0–30 cm stock and 2,754 a 0–100 cm stock. Where a study reports organic matter but not carbon, carbon is estimated with the Craft et al. (1991) equation, which was fitted to marsh soils; the carbon_source columns say which cores this applies to. Median 0–100 cm stocks are 285 Mg C/ha for mangroves, 275 for marshes and 134 for seagrass. To compare habitats or regions, filter to cores with a stock:
+Carbon stocks come from each core's depth series (dry bulk density × carbon fraction × interval thickness). A stock is computed only where the sampled intervals cover at least 90% of the depth range, so 4,830 cores have a 0–30 cm stock and 2,754 a 0–100 cm stock. Where a study reports organic matter but not carbon, carbon is estimated from organic matter, with Fourqurean et al. (2012) for seagrass and with Craft et al. (1991), fitted to marsh soils, for every other habitat; the carbon_source columns say which cores this applies to. Median 0–100 cm stocks are 285 Mg C/ha for mangroves, 275 for marshes and 134 for seagrass. To compare habitats or regions, filter to cores with a stock:
 
 ```sql
 SELECT habitat, COUNT(*) AS cores, MEDIAN(stock_0_100cm_mgha) AS median_mg_c_per_ha
@@ -270,7 +275,8 @@ col = {
     "sci:doi": "10.25573/serc.21565671.v9",
     "sci:citation": f"Coastal Carbon Network (2025). Database: Coastal Carbon Library (Version 1.7.0). Smithsonian Environmental Research Center. Dataset. https://doi.org/10.25573/serc.21565671.v9. Accessed {ACCESSED}.",
     "sci:publications": [{"doi": "10.1038/s41467-025-59204-4", "citation": "Krause, J. R., et al. (2025). Global seagrass carbon stock variability and emissions from seagrass loss. Nature Communications, 16."},
-                         {"citation": "Craft, C. B., Seneca, E. D., & Broome, S. W. (1991). Loss on ignition and Kjeldahl digestion for estimating organic carbon and total nitrogen in estuarine marsh soils: calibration with dry combustion. Estuaries, 14(2), 175–179.", "doi": "10.2307/1351691"}],
+                         {"citation": "Craft, C. B., Seneca, E. D., & Broome, S. W. (1991). Loss on ignition and Kjeldahl digestion for estimating organic carbon and total nitrogen in estuarine marsh soils: calibration with dry combustion. Estuaries, 14(2), 175–179.", "doi": "10.2307/1351691"},
+                         {"citation": "Fourqurean, J. W., Duarte, C. M., Kennedy, H., Marbà, N., Holmer, M., Mateo, M. A., et al. (2012). Seagrass ecosystems as a globally significant carbon stock. Nature Geoscience, 5(7), 505–509.", "doi": "10.1038/ngeo1477"}],
     "providers": [{"name": "Coastal Carbon Network, Smithsonian Environmental Research Center", "roles": ["producer", "licensor"], "url": "https://serc.si.edu/coastalcarbon"},
                   {"name": "Boettiger Lab", "roles": ["processor", "host"], "url": "https://github.com/boettiger-lab"}],
     "extent": {"spatial": {"bbox": [[-180, -51.82623, 180, 72.42798]]},
