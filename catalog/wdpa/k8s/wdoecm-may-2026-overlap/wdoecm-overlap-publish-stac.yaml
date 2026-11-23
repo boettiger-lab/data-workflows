@@ -1,0 +1,97 @@
+# HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
+# per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
+# hex_overlap.py in this directory, copied from the WDPA build (#1000, #879;
+# tool feature request datasets#363).
+#
+# STAC PUBLISH, NOT YET APPLIED: apply right after wdoecm-overlap-swap.yaml.
+# Reads the LIVE collection and README, rewrites only their hex text with
+# stac_update.py (row count read from the published hex; area agreement from
+# the validation of 2026-11-23: worst parcel 3.6% off GIS_AREA, 8.5% off
+# ST_Area_Spheroid), runs the publish guard (scripts/stac-publish-guard.py),
+# and uploads both. Fails before any upload if the hex has no cover_frac,
+# i.e. the swap has not run. Modelled on wdpa-overlap-publish-stac.yaml (#1000).
+#
+# The scripts ship as a ConfigMap, rebuilt from this directory before applying:
+#   kubectl -n geo-workflows create configmap wdoecm-overlap-879-script \
+#     --from-file=hex_overlap.py --from-file=validate_full.py --from-file=stac_update.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdoecm-overlap-879-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: wdoecm-overlap-879-publish-stac
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: wdoecm-overlap-879-publish-stac
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: main
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          C=nrp:public-wdpa/wdoecm-may-2026/stac-collection.json
+          M=nrp:public-wdpa/wdoecm-may-2026/README.md
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          ROWS=$(python3 - <<'PY'
+          import duckdb
+          from cng_datasets.storage.s3 import configure_s3_credentials
+          c = duckdb.connect(); configure_s3_credentials(c)
+          h = "read_parquet('s3://public-wdpa/wdoecm-may-2026/hex/h0=*/data_0.parquet')"
+          cols = [r[0] for r in c.execute(f"DESCRIBE SELECT * FROM {h}").fetchall()]
+          assert 'cover_frac' in cols, 'published hex has no cover_frac: run the swap first'
+          print(c.execute(f"SELECT count(*) FROM {h}").fetchone()[0])
+          PY
+          )
+          echo "hex rows: $ROWS"
+          rclone cat "$C" > /tmp/live.json
+          rclone cat "$M" > /tmp/live.md
+          python3 /opt/script/stac_update.py /tmp/live.json /tmp/live.md /tmp/new.json /tmp/new.md \
+            --rows "$ROWS" --max-gis-pct 3.6 --max-geodesic-pct 8.5
+          guard_stac /tmp/new.json "$C"
+          rclone copyto /tmp/new.json "$C" $R
+          rclone copyto /tmp/new.md "$M" $R
+          echo PUBLISHED
+        volumeMounts:
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - name: script
+        configMap: {name: wdoecm-overlap-879-script}
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

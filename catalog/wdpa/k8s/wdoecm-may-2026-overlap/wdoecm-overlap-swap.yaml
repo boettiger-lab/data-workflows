@@ -1,0 +1,102 @@
+# HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
+# per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
+# hex_overlap.py in this directory, copied from the WDPA build (#1000, #879;
+# tool feature request datasets#363).
+#
+# SWAP, NOT YET APPLIED: apply only when Carl says to swap, after the
+# validation (wdoecm-overlap-validate.yaml) has been checked. Apply
+# wdoecm-overlap-publish-stac.yaml straight after it succeeds, so the STAC
+# describes the data that is live. Modelled on wdpa-overlap-swap.yaml (#1000).
+#
+# 1. Copies the live centre-mode h8 hex (wdoecm-may-2026/hex/) to
+#    staging-879/old-hex/ as a rollback copy (server side).
+# 2. Purges wdoecm-may-2026/hex/ and moves staging-879/full/hex/ into it. The
+#    path is empty for the seconds of the move, never a mix of old and new
+#    partitions (a sync would leave stale old partitions readable beside new ones).
+# 3. Checks that wdoecm-may-2026/hex/ now holds exactly the staged partition
+#    list, that it has h9 and cover_frac, and that the row count matches.
+# 4. Deletes the sample chunks (staging-879/sample/).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdoecm-overlap-879-swap
+  namespace: geo-workflows
+  labels:
+    k8s-app: wdoecm-overlap-879-swap
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: wdoecm-overlap-879-swap
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: main
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          NEW=nrp:public-wdpa/wdoecm-may-2026/staging-879/full/hex
+          LIVE=nrp:public-wdpa/wdoecm-may-2026/hex
+          OLD=nrp:public-wdpa/wdoecm-may-2026/staging-879/old-hex
+          rclone lsf -R --files-only "$NEW" | sort > /tmp/new.txt
+          n=$(wc -l < /tmp/new.txt); echo "staged partitions: $n"
+          [ "$n" -ge 25 ] || { echo "too few staged partitions"; exit 1; }
+          rows() { python3 - "$1" <<'PY'
+          import sys, duckdb
+          from cng_datasets.storage.s3 import configure_s3_credentials
+          c = duckdb.connect(); configure_s3_credentials(c)
+          print(c.execute(f"SELECT count(*) FROM read_parquet('{sys.argv[1]}/h0=*/data_0.parquet')").fetchone()[0])
+          PY
+          }
+          staged_rows=$(rows s3://public-wdpa/wdoecm-may-2026/staging-879/full/hex); echo "staged rows: $staged_rows"
+          [ "$staged_rows" = 22738269 ] || { echo "staged rows differ from the validated build (22738269)"; exit 1; }
+          rclone copy "$LIVE" "$OLD" $R
+          echo "old hex copied to $OLD: $(rclone lsf -R --files-only "$OLD" | wc -l) files"
+          [ "$(rclone lsf -R --files-only "$OLD" | wc -l)" = "$(rclone lsf -R --files-only "$LIVE" | wc -l)" ] || { echo "rollback copy incomplete"; exit 1; }
+          rclone purge "$LIVE" $R
+          rclone move "$NEW" "$LIVE" $R --delete-empty-src-dirs
+          rclone lsf -R --files-only "$LIVE" | sort > /tmp/live.txt
+          diff /tmp/new.txt /tmp/live.txt && echo "partition list matches"
+          live_rows=$(rows s3://public-wdpa/wdoecm-may-2026/hex); echo "live rows: $live_rows"
+          [ "$live_rows" = "$staged_rows" ] || { echo "row count mismatch"; exit 1; }
+          python3 - <<'PY'
+          import duckdb
+          from cng_datasets.storage.s3 import configure_s3_credentials
+          c = duckdb.connect(); configure_s3_credentials(c)
+          cols = [r[0] for r in c.execute("DESCRIBE SELECT * FROM read_parquet('s3://public-wdpa/wdoecm-may-2026/hex/h0=*/data_0.parquet')").fetchall()]
+          assert 'cover_frac' in cols and 'h9' in cols, cols
+          print('h9 and cover_frac present')
+          PY
+          rclone purge nrp:public-wdpa/wdoecm-may-2026/staging-879/sample $R || true
+          echo SWAPPED
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
