@@ -1,0 +1,19 @@
+{
+  "set": {
+    "style-wdoecm-gov-type": {
+      "href": "https://s3-west.nrp-nautilus.io/public-wdpa/wdoecm-may-2026/styles/wdoecm-gov-type.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "WD-OECM May 2026 — PMTiles vector tiles by GOV_TYPE",
+      "description": "Features coloured by GOV_TYPE, 11 values.",
+      "roles": [
+        "style",
+        "default"
+      ]
+    }
+  },
+  "roles": {
+    "style-wdoecm": [
+      "style"
+    ]
+  }
+}

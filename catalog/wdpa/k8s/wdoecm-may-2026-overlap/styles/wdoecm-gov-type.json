@@ -1,0 +1,132 @@
+{
+  "version": 8,
+  "name": "WD-OECM May 2026 \u2014 PMTiles vector tiles by GOV_TYPE",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../wdoecm-may-2026.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "wdoecm-may-2026-fill",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "wdoecm-may-2026",
+      "paint": {
+        "fill-color": [
+          "case",
+          [
+            "!",
+            [
+              "has",
+              "GOV_TYPE"
+            ]
+          ],
+          "#cccccc",
+          [
+            "match",
+            [
+              "to-string",
+              [
+                "get",
+                "GOV_TYPE"
+              ]
+            ],
+            "Federal or national ministry or agency",
+            "#4e79a7",
+            "Sub-national ministry or agency",
+            "#f28e2b",
+            "Collaborative governance",
+            "#e15759",
+            "Not Reported",
+            "#76b7b2",
+            "Non-profit organisations",
+            "#59a14f",
+            "Joint governance",
+            "#edc948",
+            "Individual landowners",
+            "#b07aa1",
+            "For-profit organisations",
+            "#ff9da7",
+            "Government-delegated management",
+            "#9c755f",
+            "Indigenous Peoples",
+            "#86bcb6",
+            "Local communities",
+            "#d4a6c8",
+            "#cccccc"
+          ]
+        ],
+        "fill-opacity": 0.7
+      }
+    },
+    {
+      "id": "wdoecm-may-2026-outline",
+      "type": "line",
+      "source": "data",
+      "source-layer": "wdoecm-may-2026",
+      "paint": {
+        "line-color": "#4d4d4d",
+        "line-width": 0.4,
+        "line-opacity": 0.6
+      }
+    }
+  ],
+  "metadata": {
+    "description": "Features coloured by GOV_TYPE, 11 values.",
+    "glen:legend": {
+      "type": "categorical",
+      "label": "GOV_TYPE",
+      "classes": [
+        {
+          "label": "Federal or national ministry or agency",
+          "color": "#4e79a7"
+        },
+        {
+          "label": "Sub-national ministry or agency",
+          "color": "#f28e2b"
+        },
+        {
+          "label": "Collaborative governance",
+          "color": "#e15759"
+        },
+        {
+          "label": "Not Reported",
+          "color": "#76b7b2"
+        },
+        {
+          "label": "Non-profit organisations",
+          "color": "#59a14f"
+        },
+        {
+          "label": "Joint governance",
+          "color": "#edc948"
+        },
+        {
+          "label": "Individual landowners",
+          "color": "#b07aa1"
+        },
+        {
+          "label": "For-profit organisations",
+          "color": "#ff9da7"
+        },
+        {
+          "label": "Government-delegated management",
+          "color": "#9c755f"
+        },
+        {
+          "label": "Indigenous Peoples",
+          "color": "#86bcb6"
+        },
+        {
+          "label": "Local communities",
+          "color": "#d4a6c8"
+        }
+      ]
+    },
+    "glen:tooltip_fields": [
+      "GOV_TYPE"
+    ]
+  }
+}

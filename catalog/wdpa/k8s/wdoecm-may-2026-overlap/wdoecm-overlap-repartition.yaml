@@ -1,0 +1,62 @@
+# HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
+# per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
+# hex_overlap.py in this directory, copied from the WDPA build (#1000, #879;
+# tool feature request datasets#363).
+#
+# Repartition the full chunks by h0 into staging-879/full/hex, attributes
+# joined from wdoecm-may-2026.parquet, completeness checked against every
+# parcel (no skip). The chunks are removed once written.
+# wdoecm-overlap-swap.yaml later replaces wdoecm-may-2026/hex/ with it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdoecm-overlap-879-repartition
+  namespace: geo-workflows
+  labels:
+    k8s-app: wdoecm-overlap-879-repartition
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: wdoecm-overlap-879-repartition
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: main
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: CNG_POD_CPU, value: '2'}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          cng-datasets repartition \
+            --chunks-dir s3://public-wdpa/wdoecm-may-2026/staging-879/full/chunks \
+            --output-dir s3://public-wdpa/wdoecm-may-2026/staging-879/full/hex \
+            --source-parquet s3://public-wdpa/wdoecm-may-2026/wdoecm-may-2026.parquet --memory-limit 6GiB
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '2', memory: 8Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

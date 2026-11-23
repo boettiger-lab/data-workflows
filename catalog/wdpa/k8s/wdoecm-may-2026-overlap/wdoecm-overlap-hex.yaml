@@ -1,0 +1,85 @@
+# HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
+# per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
+# hex_overlap.py in this directory, copied from the WDPA build (#1000, #879;
+# tool feature request datasets#363).
+#
+# Full hex: one index per chunk of full/plan.parquet (19 chunks as planned);
+# re-plan if the source changes. Chunks go to staging-879/full/chunks, then
+# wdoecm-overlap-repartition.yaml builds staging-879/full/hex.
+#
+# Sizing measured on the sample (wdoecm-overlap-sample-hex.yaml, 12 chunks, 319
+# parcels including the 12 largest, 20.8M rows): 8-30 s per chunk on 4 cores,
+# peak RSS 0.45-2.33 GiB (DuckDB memory_limit 6GB). Pods: 4Gi, DuckDB capped at
+# 3GB; they run well under an hour, so opportunistic priority.
+#
+# The scripts ship as a ConfigMap, rebuilt from this directory before applying:
+#   kubectl -n geo-workflows create configmap wdoecm-overlap-879-script \
+#     --from-file=hex_overlap.py --from-file=validate_full.py --from-file=stac_update.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdoecm-overlap-879-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: wdoecm-overlap-879-hex
+spec:
+  completions: 19
+  parallelism: 19
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 19
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: wdoecm-overlap-879-hex
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: main
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PLAN, value: s3://public-wdpa/wdoecm-may-2026/staging-879/full/plan.parquet}
+        - {name: OUT, value: s3://public-wdpa/wdoecm-may-2026/staging-879/full/chunks}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 /opt/script/hex_overlap.py hex \
+            --source s3://public-wdpa/wdoecm-may-2026/wdoecm-may-2026.parquet --plan "$PLAN" \
+            --chunk "$JOB_COMPLETION_INDEX" --out "$OUT" \
+            --res 9 --parents 8,0 --threads 4 --memory-limit 3GB
+          df -h /tmp | tail -1
+        volumeMounts:
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '4', memory: 4Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '4', memory: 4Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: script
+        configMap: {name: wdoecm-overlap-879-script}
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
