@@ -1,0 +1,114 @@
+{
+  "version": 8,
+  "name": "VME Closures PMTiles by OWNER",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../vme.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "vme-fill",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "vme",
+      "paint": {
+        "fill-color": [
+          "case",
+          [
+            "!",
+            [
+              "has",
+              "OWNER"
+            ]
+          ],
+          "#cccccc",
+          [
+            "match",
+            [
+              "to-string",
+              [
+                "get",
+                "OWNER"
+              ]
+            ],
+            "CCAMLR",
+            "#4e79a7",
+            "NAFO",
+            "#f28e2b",
+            "NEAFC",
+            "#e15759",
+            "SEAFO",
+            "#76b7b2",
+            "SIOFA",
+            "#59a14f",
+            "NPFC",
+            "#edc948",
+            "GFCM",
+            "#b07aa1",
+            "SPRFMO",
+            "#ff9da7",
+            "#cccccc"
+          ]
+        ],
+        "fill-opacity": 0.7
+      }
+    },
+    {
+      "id": "vme-outline",
+      "type": "line",
+      "source": "data",
+      "source-layer": "vme",
+      "paint": {
+        "line-color": "#4d4d4d",
+        "line-width": 0.4,
+        "line-opacity": 0.6
+      }
+    }
+  ],
+  "metadata": {
+    "description": "Features coloured by OWNER, 8 values. Each VME closure is set by one RFMO, so colouring by the establishing body shows who regulates each area.",
+    "glen:legend": {
+      "type": "categorical",
+      "label": "OWNER",
+      "classes": [
+        {
+          "label": "Commission for the Conservation of Antarctic Marine Living Resources",
+          "color": "#4e79a7"
+        },
+        {
+          "label": "Northwest Atlantic Fisheries Organization",
+          "color": "#f28e2b"
+        },
+        {
+          "label": "North-East Atlantic Fisheries Commission",
+          "color": "#e15759"
+        },
+        {
+          "label": "South East Atlantic Fisheries Organisation",
+          "color": "#76b7b2"
+        },
+        {
+          "label": "Southern Indian Ocean Fisheries Agreement",
+          "color": "#59a14f"
+        },
+        {
+          "label": "North Pacific Fisheries Commission",
+          "color": "#edc948"
+        },
+        {
+          "label": "General Fisheries Commission for the Mediterranean",
+          "color": "#b07aa1"
+        },
+        {
+          "label": "South Pacific Regional Fisheries Management Organisation",
+          "color": "#ff9da7"
+        }
+      ]
+    },
+    "glen:tooltip_fields": [
+      "OWNER"
+    ]
+  }
+}
