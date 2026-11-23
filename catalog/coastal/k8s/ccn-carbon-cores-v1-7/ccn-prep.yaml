@@ -1,0 +1,77 @@
+# HAND-ROLLED: the generator cannot download a multi-file figshare release or derive columns.
+# Stages the Coastal Carbon Data Library v1.7.0 CSVs (figshare 10.25573/serc.21565671.v9) to
+# raw/ccn-v1-7/ after checking each file's MD5 against the figshare record, then runs
+# ccn_prep.py (committed beside this file) to build the cores GeoParquet with derived stocks,
+# which `cng-datasets workflow` then converts, tiles and hexes, and the companion tables,
+# which are published beside the dataset (#793).
+#   kubectl create configmap ccn-prep-script -n geo-workflows \
+#     --from-file=ccn_prep.py=catalog/coastal/k8s/ccn-carbon-cores-v1-7/ccn_prep.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/ccn-carbon-cores-v1-7/ccn-prep.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ccn-carbon-cores-prep
+  namespace: geo-workflows
+  labels: {k8s-app: ccn-carbon-cores-prep}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: ccn-carbon-cores-prep}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: prep
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          mkdir -p /work/in /work/out && cd /work/in
+          # name  figshare-file-id  md5 (from api.figshare.com/v2/articles/21565671, version 9)
+          while read -r name id md5; do
+            curl -fsSL --retry 5 -o "$name" "https://ndownloader.figshare.com/files/$id"
+            echo "$md5  $name" | md5sum -c -
+          done <<'EOF'
+          README.txt 59698892 43680d7508ab3f21cd050f5562a5db4e
+          CCN_methods.csv 59698877 239d1f92a117986f0f0ce756d1baaf85
+          CCN_sites.csv 59698880 01c30236173a5ad60f05a4e7a1021874
+          CCN_cores.csv 59698871 3c2072b33925f8d2dcf8e54e8db3904f
+          CCN_depthseries.csv 59698883 c5304e494ef535c006fba628006dae0f
+          CCN_impacts.csv 59698874 f9f63a66c215b9fb141a33272efa70df
+          CCN_species.csv 59698886 1897e3da258608a0784d1649b63357a4
+          CCN_study_citations.csv 59698889 886bc8f087b1666d04387db9e69b3840
+          CCN_bibliography.bib 59698868 7b66a23cd74003f23ed6e9e8fd632003
+          version_information.txt 59698895 2ba1682351294f0d9d8d200cc6881415
+          EOF
+          ls -l
+          rclone copy /work/in nrp:public-coastal/raw/ccn-v1-7/ $R
+          python3 /script/ccn_prep.py /work/in /work/out
+          rclone copyto /work/out/ccn-cores.parquet nrp:public-coastal/raw/ccn-v1-7/ccn-cores.parquet $R
+          for t in depthseries sites species impacts methods study_citations; do
+            rclone copyto /work/out/$t.parquet nrp:public-coastal/ccn-carbon-cores-v1-7/$t.parquet $R
+          done
+          rclone copyto /work/in/CCN_bibliography.bib nrp:public-coastal/ccn-carbon-cores-v1-7/bibliography.bib $R
+          echo OK
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: ccn-prep-script}}

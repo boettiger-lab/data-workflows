@@ -1,0 +1,101 @@
+# HAND-ROLLED: the generator does not write STAC. Publishes the ccn-carbon-cores-v1-7 collection,
+# README and default style, draws the thumbnail from the style, and adds a child link to the
+# public-coastal bucket collection (#793). The collection and README come from gen_stac.py
+# (committed beside this file); the style from scripts/default-style.py:
+#   python3 catalog/coastal/k8s/ccn-carbon-cores-v1-7/gen_stac.py /tmp/ccnstac catalog/coastal/k8s/ccn-carbon-cores-v1-7/companion_schema.md
+#   scripts/default-style.py build file:///tmp/ccnstac/stac-collection.json \
+#     --asset ccn-carbon-cores-v1-7-pmtiles --column habitat --kind categorical --label habitat \
+#     --colors '{"marsh":"#7fbc41","mangrove":"#1b7837","seagrass":"#2166ac","unvegetated":"#bf812d",
+#                "swamp":"#762a83","scrub/shrub":"#c2a5cf","mudflat":"#dfc27d"}' --why "..." --out /tmp/ccnstyle
+#   (then set the style's source url to pmtiles://../../ccn-carbon-cores-v1-7.pmtiles)
+#   kubectl create configmap ccn-stac-files -n geo-workflows \
+#     --from-file=stac-collection.json=/tmp/ccnstac/stac-collection.json \
+#     --from-file=README.md=/tmp/ccnstac/README.md \
+#     --from-file=habitat.json=/tmp/ccnstac/styles/ccn-carbon-cores-v1-7-habitat.json \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/ccn-carbon-cores-v1-7/ccn-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ccn-carbon-cores-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: ccn-carbon-cores-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: ccn-carbon-cores-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: files, mountPath: /files, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          D=public-coastal/ccn-carbon-cores-v1-7
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          mkdir -p /work && cd /work
+          # ConfigMap files are symlinks, which rclone will not copy: take real copies first.
+          cp -L /files/stac-collection.json c.json && cp -L /files/habitat.json habitat.json && cp -L /files/README.md README.md
+
+          # Thumbnail drawn from the default style over the published GeoParquet.
+          rclone copyto nrp:public-coastal/ccn-carbon-cores-v1-7.parquet cores.parquet $R
+          cng-datasets vector-thumbnail --style habitat.json --parquet cores.parquet --output thumbnail.png
+          python3 - <<'PY'
+          import json
+          d = json.load(open("c.json"))
+          d["assets"]["thumbnail"] = {
+              "href": "https://s3-west.nrp-nautilus.io/public-coastal/ccn-carbon-cores-v1-7/thumbnail.png",
+              "type": "image/png", "roles": ["thumbnail"],
+              "title": "Coastal carbon cores coloured by habitat"}
+          json.dump(d, open("c.json", "w"), indent=2, ensure_ascii=False)
+          PY
+
+          rclone copyto habitat.json nrp:$D/styles/ccn-carbon-cores-v1-7-habitat.json $R
+          rclone copyto thumbnail.png nrp:$D/thumbnail.png $R
+          rclone copyto README.md nrp:$D/README.md $R
+          guard_stac c.json nrp:$D/stac-collection.json
+          rclone copyto c.json nrp:$D/stac-collection.json $R
+
+          # Child link on the bucket collection, added only if absent; every other field kept.
+          rclone cat nrp:public-coastal/stac-collection.json > parent.json
+          python3 - <<'PY'
+          import json
+          p = json.load(open("parent.json"))
+          href = "https://s3-west.nrp-nautilus.io/public-coastal/ccn-carbon-cores-v1-7/stac-collection.json"
+          if not any(l.get("href") == href for l in p["links"]):
+              p["links"].append({"rel": "child", "href": href, "type": "application/json",
+                                 "title": "Coastal Carbon Network soil carbon cores (v1.7.0)"})
+          json.dump(p, open("parent.json", "w"), indent=2, ensure_ascii=False)
+          PY
+          guard_stac parent.json nrp:public-coastal/stac-collection.json
+          rclone copyto parent.json nrp:public-coastal/stac-collection.json $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: files, configMap: {name: ccn-stac-files}}
