@@ -1,0 +1,12 @@
+{
+  "style-polygons": {
+    "href": "https://s3-west.nrp-nautilus.io/public-coral-reefs/unep-wcmc-coral-reefs/polygons/styles/polygons.json",
+    "type": "application/vnd.mapbox.style+json",
+    "title": "Global Distribution of Coral Reefs (UNEP-WCMC WCMC-008 v4.1) — PMTiles",
+    "description": "The reef footprint is the information here: 96% of reefs report no survey method, and the other attributes are names, dates or a single value, so no attribute is worth colouring by.",
+    "roles": [
+      "style",
+      "default"
+    ]
+  }
+}

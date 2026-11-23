@@ -1,0 +1,60 @@
+# HAND-ROLLED: the generator does not publish styles or edit an existing collection's text.
+# Fixes two pre-existing findings on the coral polygons collection (#1020):
+#  - the one-colour default style `style-polygons` now states why (verify-stac
+#    style-single-colour-default): built with scripts/default-style.py --single-colour;
+#  - the provenance sentence in the collection and bucket README no longer points into raw/.
+#
+#   kubectl create configmap coral-h9-1020-style -n geo-workflows \
+#     --from-file=catalog/coral-reefs/k8s/coral-reefs-h9-1020/styles/ --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -f catalog/coral-reefs/k8s/coral-reefs-h9-1020/coral-h9-1020-style-publish.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coral-h9-1020-style
+  namespace: geo-workflows
+  labels: {k8s-app: coral-h9-1020-style}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: coral-h9-1020-style}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 900
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          P=nrp:public-coral-reefs/unep-wcmc-coral-reefs/polygons
+          C=$P/stac-collection.json
+          RM=nrp:public-coral-reefs/README.md
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          rclone copyto --copy-links /opt/style/polygons.json $P/styles/polygons.json $R
+          rclone copyto $C /tmp/c.json $R
+          rclone copyto $RM /tmp/README.md $R
+          python3 /opt/style/set_style_provenance.py /tmp/c.json /tmp/README.md /opt/style/style-asset.json
+          guard_stac /tmp/c.json $C
+          rclone copyto /tmp/README.md $RM $R
+          rclone copyto /tmp/c.json $C $R
+          echo PUBLISHED
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: style, mountPath: /opt/style, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: style, configMap: {name: coral-h9-1020-style}}

@@ -1,0 +1,84 @@
+# HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
+# per-cell coverage fraction, so the coral reef h9 'overlap' + cover_frac hex is
+# built by hex_overlap.py in this directory, copied from the WDPA (#1000) and
+# high-seas (#1016) recipes (#1020; tool feature request datasets#363).
+# ConfigMap: see coral-h9-1020-sample-plan.yaml.
+#
+# Full hex: one index per chunk of the full plan (72 chunks, ~2.0M estimated h9
+# cells), output to staging-1020/full/chunks/.
+#
+# Sizing measured on the sample (8 chunks, 4 threads, 450 reefs incl. the 8
+# largest): every chunk under 17 s and 0.47 GiB peak RSS. So 2 CPU / 1 GiB,
+# request = limit, and opportunistic priority since pods run seconds.
+#
+# Run 2026-11-23: 70 of 72 chunks finished in <= 17 s at <= 0.50 GiB peak RSS.
+# Chunks 27 and 40 stalled after reading the plan (idle CPU, no log) on nodes
+# where other chunks succeeded; they were rerun by a copy of this job with
+# completions 2 mapping index -> chunk 27, 40, and finished in 9 s and 20 s.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coral-h9-1020-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: coral-h9-1020-hex
+spec:
+  completions: 72
+  parallelism: 36
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 72
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: coral-h9-1020-hex
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: main
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 /opt/script/hex_overlap.py hex \
+            --source s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons.parquet --geom-col geom \
+            --plan s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons/staging-1020/full/plan.parquet --chunk "$JOB_COMPLETION_INDEX" \
+            --out s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons/staging-1020/full/chunks \
+            --res 9 --parents 8,0 --threads 2 --memory-limit 700MB
+          df -h /tmp | tail -1
+        volumeMounts:
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 1Gi, ephemeral-storage: 5Gi}
+          limits: {cpu: '2', memory: 1Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - name: script
+        configMap: {name: coral-h9-1020-script}
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
