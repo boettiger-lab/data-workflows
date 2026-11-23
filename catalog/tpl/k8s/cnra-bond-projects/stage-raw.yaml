@@ -1,0 +1,86 @@
+# HAND-ROLLED: staging an ArcGIS MapServer crawl plus the bond-accountability spreadsheets to
+# raw/ is a preprocess step the generator does not emit (data-workflows #866).
+# Pulls ABCRS layers 0/1/2 (paged, outSR=4326) as GeoJSON and every file on the Propositions
+# Downloads page, uploads to s3://public-tpl/raw/cnra-bond-projects/, and prints counts, sizes,
+# sha256 and the sheet headers so the join can be written against the real schema.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cnra-bond-projects-stage-raw
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  activeDeadlineSeconds: 3600
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/raw && cd /tmp/raw
+          pip install -q openpyxl requests
+          python3 - <<'PY'
+          import json, requests, time
+          B = "https://gis.cnra.ca.gov/arcgis/rest/services/Economy/ABCRS/MapServer"
+          for lyr, name in [(0, "abcrs-points"), (1, "abcrs-lines"), (2, "abcrs-polygons")]:
+              n = requests.get(f"{B}/{lyr}/query", params=dict(where="1=1", returnCountOnly="true", f="json"), timeout=120).json()["count"]
+              feats, off = [], 0
+              while True:
+                  for attempt in range(5):
+                      try:
+                          r = requests.get(f"{B}/{lyr}/query", params=dict(where="1=1", outFields="*", outSR=4326,
+                              orderByFields="OBJECTID", resultOffset=off, resultRecordCount=1000, f="geojson"), timeout=300)
+                          r.raise_for_status(); page = r.json()["features"]; break
+                      except Exception as e:
+                          print("retry", lyr, off, e); time.sleep(10)
+                  else:
+                      raise SystemExit(f"failed layer {lyr} offset {off}")
+                  feats += page; off += len(page)
+                  if len(page) == 0 or off >= n: break
+              ids = {f["properties"]["OBJECTID"] for f in feats}
+              print(f"layer {lyr} {name}: count={n} fetched={len(feats)} distinct_oid={len(ids)} nullgeom={sum(f['geometry'] is None for f in feats)}")
+              assert len(ids) == n, "paging mismatch"
+              json.dump({"type": "FeatureCollection", "features": feats}, open(f"{name}.geojson", "w"))
+          PY
+          for f in Prop_1_Details Prop_1E_Details Prop_68_Details Prop_84_Details \
+                   Prop_1_Metrics Prop_1E_Metrics Prop_68_Metrics Prop_84_Metrics \
+                   Prop_1_Spatial Prop_1E_Spatial Prop_68_Spatial Prop_84_Spatial; do
+            curl -fsSL --retry 5 -o $f.xlsx https://cnra.assets.resources.ca.gov/ProjectList/$f.xlsx
+          done
+          curl -fsSL --retry 5 -o prop_4_project_list.csv https://abcrsprodstorageaccount.blob.core.windows.net/csv-files-prod/output/prop_4_project_list.csv
+          echo "== access date: $(date -u +%FT%TZ)"
+          ls -l; sha256sum *
+          python3 - <<'PY'
+          import openpyxl, glob, csv
+          for p in sorted(glob.glob("*.xlsx")):
+              wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
+              for ws in wb.worksheets:
+                  rows = ws.iter_rows(values_only=True)
+                  hdr = next(rows, None); first = next(rows, None)
+                  n = 2 + sum(1 for _ in rows)
+                  print(f"## {p} [{ws.title}] ~rows={n}\n  header={hdr}\n  first={first}")
+          with open("prop_4_project_list.csv", newline="", encoding="utf-8-sig") as fh:
+              r = csv.reader(fh); hdr = next(r); first = next(r); n = 1 + sum(1 for _ in r)
+          print(f"## prop_4_project_list.csv rows={n}\n  header={hdr}\n  first={first}")
+          PY
+          rclone copy /tmp/raw nrp:public-tpl/raw/cnra-bond-projects/ --s3-no-check-bucket
+          rclone ls nrp:public-tpl/raw/cnra-bond-projects/
+        resources:
+          requests: {cpu: '1', memory: 4Gi}
+          limits:   {cpu: '1', memory: 4Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

@@ -1,0 +1,52 @@
+# HAND-ROLLED: staging the CARB annual-report workbook to raw/ and printing its schema is a
+# preprocess step the generator does not emit (data-workflows #867).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cci-projects-stage-raw
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  activeDeadlineSeconds: 3600
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          mkdir -p /tmp/raw && cd /tmp/raw
+          pip install -q openpyxl
+          curl -fsSL --retry 5 -D headers.txt -o cci_2026ar_detaileddata.xlsx \
+            https://ww2.arb.ca.gov/sites/default/files/auction-proceeds/arsupportdata/dl/cci_2026ar_detaileddata.xlsx
+          echo "== access date: $(date -u +%FT%TZ)"; grep -i last-modified headers.txt || true
+          ls -l; sha256sum cci_2026ar_detaileddata.xlsx
+          python3 - <<'PY'
+          import openpyxl
+          wb = openpyxl.load_workbook("cci_2026ar_detaileddata.xlsx", read_only=True, data_only=True)
+          for ws in wb.worksheets:
+              print("sheet:", ws.title, ws.max_row, ws.max_column)
+          ws = wb["Project List"]
+          for i, row in enumerate(ws.iter_rows(values_only=True, max_row=8)):
+              print(i, row)
+          PY
+          rclone copy cci_2026ar_detaileddata.xlsx nrp:public-tpl/raw/cci-projects/ --s3-no-check-bucket
+          rclone ls nrp:public-tpl/raw/cci-projects/
+        resources:
+          requests: {cpu: '1', memory: 6Gi}
+          limits:   {cpu: '1', memory: 6Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

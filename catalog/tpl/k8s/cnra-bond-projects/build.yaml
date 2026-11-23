@@ -1,0 +1,37 @@
+# HAND-ROLLED: the generator cannot join a map service to spreadsheets through a crawled crosswalk,
+# so this job builds the GeoParquet the generated workflow converts, plus the metrics table (#866).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cnra-bond-projects-build
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  activeDeadlineSeconds: 3600
+  template:
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      containers:
+      - name: build
+        image: ghcr.io/boettiger-lab/datasets:latest
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /scripts}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          pip install -q openpyxl
+          rclone copy nrp:public-tpl/raw/cnra-bond-projects/ /tmp/raw/ --exclude 'cnra-bond-projects-prepared.parquet' --s3-no-check-bucket
+          python3 /scripts/build.py /tmp/cnra-bond-projects-prepared.parquet /tmp/metrics.parquet
+          rclone copyto /tmp/cnra-bond-projects-prepared.parquet nrp:public-tpl/raw/cnra-bond-projects/cnra-bond-projects-prepared.parquet --s3-no-check-bucket
+          rclone copyto /tmp/metrics.parquet nrp:public-tpl/cnra-bond-projects/metrics.parquet --s3-no-check-bucket
+        resources:
+          requests: {cpu: '1', memory: 6Gi}
+          limits:   {cpu: '1', memory: 6Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: cnra-bond-projects-build}}
