@@ -1,0 +1,72 @@
+# HAND-ROLLED: the generator does not clean up staged raw. Deletes wdoecm-may-2026/raw/ (the
+# source GDB, staged 2026-05-22) now that the h9 build is published (AGENTS.md Step 1b, #879),
+# after recording its provenance:
+#  1. writes source-manifest.tsv (path, size, sha256 of each raw file) beside the collection;
+#  2. adds a provenance sentence and a `metadata` asset for the manifest to the LIVE collection
+#     (set_source_provenance.py), runs the publish guard, uploads;
+#  3. only then purges raw/.
+#
+#   kubectl create configmap wdoecm-raw-cleanup -n geo-workflows \
+#     --from-file=catalog/wdpa/k8s/wdoecm-may-2026-overlap/raw-cleanup/set_source_provenance.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -f catalog/wdpa/k8s/wdoecm-may-2026-overlap/raw-cleanup/wdoecm-raw-cleanup.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdoecm-raw-cleanup
+  namespace: geo-workflows
+  labels: {k8s-app: wdoecm-raw-cleanup}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: wdoecm-raw-cleanup}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: cleanup
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          B=nrp:public-wdpa/wdoecm-may-2026
+          C=$B/stac-collection.json
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          # 1. checksum every raw file from a local copy (recomputed, not transcribed)
+          rclone copy $B/raw /tmp/raw $R
+          cd /tmp/raw
+          { printf 'path\tbytes\tsha256\n'; find . -type f | sort | while read -r f; do
+              printf '%s\t%s\t%s\n' "${f#./}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"; done; } > /tmp/source-manifest.tsv
+          FILES=$(($(wc -l < /tmp/source-manifest.tsv) - 1)); BYTES=$(awk -F'\t' 'NR>1{s+=$2} END{print s}' /tmp/source-manifest.tsv)
+          REMOTE=$(rclone lsf -R --files-only $B/raw | wc -l)
+          [ "$FILES" -gt 0 ] && [ "$FILES" = "$REMOTE" ] || { echo "file count mismatch: $FILES local vs $REMOTE remote"; exit 1; }
+          echo "manifest: $FILES files, $BYTES bytes"
+          rclone copyto /tmp/source-manifest.tsv $B/source-manifest.tsv $R
+          # 2. provenance in the collection
+          rclone copyto $C /tmp/c.json $R
+          python3 /opt/script/set_source_provenance.py /tmp/c.json "$FILES" "$BYTES"
+          guard_stac /tmp/c.json $C
+          rclone copyto /tmp/c.json $C $R
+          # 3. delete the staged raw
+          rclone purge $B/raw $R
+          echo DONE
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: wdoecm-raw-cleanup}}
