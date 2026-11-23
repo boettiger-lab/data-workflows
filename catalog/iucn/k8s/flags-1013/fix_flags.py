@@ -130,6 +130,14 @@ def fetch() -> None:
         subprocess.run(SYNC_CMD, shell=True, check=False)
 
 
+def yesno(v):
+    """Yes -> TRUE, No -> FALSE, else NULL. The API also returns 'Y' / 'N' for some assessments
+    (89 taxa give 'N' for severe fragmentation, #1013); numeric ranges such as '0.5-1' stay NULL."""
+    if isinstance(v, str) and v.strip().upper() in ("Y", "N"):
+        return v.strip().upper() == "Y"
+    return bt._yesno(v)
+
+
 def build() -> None:
     import duckdb
     import pyarrow as pa
@@ -162,7 +170,7 @@ def build() -> None:
         for col, key in FLAGS.items():
             raw = si.get(key)
             report["api_values"][col][str(raw)] = report["api_values"][col].get(str(raw), 0) + 1
-            row[col] = bt._yesno(raw)
+            row[col] = yesno(raw)
         rows.append(row)
     report["not_cached"] = len(missing)
     if missing:
