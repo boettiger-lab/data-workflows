@@ -1,0 +1,72 @@
+# HAND-ROLLED: a measurement for #1010, not a dataset build; cng-datasets has no step for it.
+# One pod per row of 2-degree subtiles of one 10-degree tile (573 tiles with parcels x 5 rows =
+# 2865 indexes; tiles.txt maps index i to tile i // 5, row i % 5): exactextract and pixel-centre
+# sums of GHS-POP 2020 (native 3 arc-second COG) over the dissolved WDPA parcels, with the union
+# buffered +-90/270 m and in distance bands. Output: one JSON per tile row at
+#   s3://public-wdpa/wdpa/staging-1010/results/tile-K-row-R.json
+# Rows, not whole tiles, keep dense pods (Europe) to ~10-25 min, under the hour where
+# opportunistic pods get preempted. Memory: dense subtile peak measured 5.5 GB.
+# Test first: set TILES to a comma list (e.g. 486,421), completions/parallelism 1.
+#
+#   kubectl apply -f catalog/wdpa/k8s/edge-tests-1010/edge-run.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdpa-edge-1010-run
+  namespace: geo-workflows
+  labels: {k8s-app: wdpa-edge-1010-run}
+spec:
+  completionMode: Indexed
+  completions: 2865
+  parallelism: 50
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 2865
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: wdpa-edge-1010-run}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 5400
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: run
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '1', memory: 7Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '1', memory: 8Gi, ephemeral-storage: 4Gi}
+        env:
+        - {name: TILES, value: ""}
+        - {name: WORK, value: /work}
+        - {name: TILE_LIST, value: /scripts/tiles.txt}
+        - {name: GDAL_CACHEMAX, value: "512"}   # MB; GDAL's default is 5% of the NODE's RAM, which OOMs the pod
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "NO"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        - {name: AWS_NO_SIGN_REQUEST, value: "YES"}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20"
+          python -c "import exactextract" 2>/dev/null || pip install --quiet exactextract
+          mkdir -p /work/tiles /work/out
+          if [ -n "$TILES" ]; then T="$TILES"; else T=$(sed -n "$((JOB_COMPLETION_INDEX / 5 + 1))p" /scripts/tiles.txt); fi
+          for t in ${T//,/ }; do rclone copy nrp:public-wdpa/wdpa/staging-1010/tiles/tile=$t /work/tiles/tile=$t $R 2>/dev/null || true; done
+          python /scripts/edge_tests.py run /work/tiles /vsis3/public-population/ghs-pop-2020-cog.tif /work/out
+          rclone copy /work/out nrp:public-wdpa/wdpa/staging-1010/results $R
+          echo Done.
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /scripts, readOnly: true}
+        - {name: work, mountPath: /work}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: wdpa-edge-1010-script}}
+      - {name: work, emptyDir: {sizeLimit: 4Gi}}
