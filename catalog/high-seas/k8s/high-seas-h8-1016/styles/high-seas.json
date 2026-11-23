@@ -1,0 +1,37 @@
+{
+  "version": 8,
+  "name": "World High Seas v2 PMTiles",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../high-seas.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "high-seas-fill",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "high-seas",
+      "paint": {
+        "fill-color": "#4a7bb7",
+        "fill-opacity": 0.7
+      }
+    },
+    {
+      "id": "high-seas-outline",
+      "type": "line",
+      "source": "data",
+      "source-layer": "high-seas",
+      "paint": {
+        "line-color": "#4d4d4d",
+        "line-width": 0.4,
+        "line-opacity": 0.6
+      }
+    }
+  ],
+  "metadata": {
+    "description": "The high seas are one polygon with no attribute that varies, so a single fill is the honest default.",
+    "glen:single_colour_reason": "The high seas are one polygon with no attribute that varies, so a single fill is the honest default."
+  }
+}
