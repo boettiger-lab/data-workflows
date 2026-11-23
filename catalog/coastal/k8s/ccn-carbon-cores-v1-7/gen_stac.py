@@ -20,7 +20,7 @@ B = "https://s3-west.nrp-nautilus.io/public-coastal"
 D = f"{B}/ccn-carbon-cores-v1-7"
 CCN = "https://raw.githubusercontent.com/Smithsonian/CCN-Data-Library/5972abd40cc29ffaec7f7221aafd1a1fb56e257b/docs"
 ACCESSED = "2026-11-23"
-CREATED = "2026-11-23T22:00:00Z"
+CREATED = "2026-11-23T23:50:01Z"
 
 
 def fetch_csv(name):
@@ -250,7 +250,7 @@ DESC = f"""Sediment cores from tidal marshes, mangroves, seagrass meadows and ot
 
 The library holds 16,715 cores from hundreds of studies: 8,746 in marshes, 5,801 in mangroves, 1,294 in seagrass meadows, and smaller numbers in unvegetated flats, swamps, scrub and other tidal habitats. It includes the global seagrass soil carbon compilation of Krause et al. (2025). Three cores without coordinates are left out of the map layers, leaving 16,712.
 
-Carbon stocks come from each core's depth series (dry bulk density × carbon fraction × interval thickness). A stock is computed only where the sampled intervals cover at least 90% of the depth range, so 4,830 cores have a 0–30 cm stock and 2,754 a 0–100 cm stock. Where a study reports organic matter but not carbon, carbon is estimated from organic matter, with Fourqurean et al. (2012) for seagrass and with Craft et al. (1991), fitted to marsh soils, for every other habitat; the carbon_source columns say which cores this applies to. Median 0–100 cm stocks are 285 Mg C/ha for mangroves, 275 for marshes and 134 for seagrass. To compare habitats or regions, filter to cores with a stock:
+Carbon stocks come from each core's depth series (dry bulk density × carbon fraction × interval thickness). A stock is computed only where the sampled intervals cover at least 90% of the depth range, so 4,830 cores have a 0–30 cm stock and 2,754 a 0–100 cm stock. Where a study reports organic matter but not carbon, carbon is estimated from organic matter, with Fourqurean et al. (2012) for seagrass and with Craft et al. (1991), fitted to marsh soils, for every other habitat; the carbon_source columns say which cores this applies to. Median 0–100 cm stocks are 285 Mg C/ha for mangroves, 275 for marshes and 125 for seagrass. To compare habitats or regions, filter to cores with a stock:
 
 ```sql
 SELECT habitat, COUNT(*) AS cores, MEDIAN(stock_0_100cm_mgha) AS median_mg_c_per_ha
