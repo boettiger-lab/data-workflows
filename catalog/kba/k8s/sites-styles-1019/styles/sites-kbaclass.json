@@ -1,0 +1,84 @@
+{
+  "version": 8,
+  "name": "KBA sites PMTiles by KbaClass",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../../sites.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "sites-fill",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "sites",
+      "paint": {
+        "fill-color": [
+          "case",
+          [
+            "!",
+            [
+              "has",
+              "KbaClass"
+            ]
+          ],
+          "#cccccc",
+          [
+            "match",
+            [
+              "to-string",
+              [
+                "get",
+                "KbaClass"
+              ]
+            ],
+            "Global/Regional TBD",
+            "#4e79a7",
+            "Global",
+            "#f28e2b",
+            "Regional",
+            "#e15759",
+            "#cccccc"
+          ]
+        ],
+        "fill-opacity": 0.7
+      }
+    },
+    {
+      "id": "sites-outline",
+      "type": "line",
+      "source": "data",
+      "source-layer": "sites",
+      "paint": {
+        "line-color": "#4d4d4d",
+        "line-width": 0.4,
+        "line-opacity": 0.6
+      }
+    }
+  ],
+  "metadata": {
+    "description": "Features coloured by KbaClass, 3 values. Global or regional significance is the primary classification of a KBA under the IUCN standard.",
+    "glen:legend": {
+      "type": "categorical",
+      "label": "KbaClass",
+      "classes": [
+        {
+          "label": "Significance to be determined",
+          "color": "#4e79a7"
+        },
+        {
+          "label": "Global significance",
+          "color": "#f28e2b"
+        },
+        {
+          "label": "Regional significance",
+          "color": "#e15759"
+        }
+      ]
+    },
+    "glen:tooltip_fields": [
+      "KbaClass"
+    ]
+  }
+}
