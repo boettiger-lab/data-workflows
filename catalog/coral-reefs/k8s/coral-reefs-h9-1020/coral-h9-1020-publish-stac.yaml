@@ -1,0 +1,97 @@
+# HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
+# per-cell coverage fraction, so the coral reef h9 hex is built by
+# hex_overlap.py in this directory (#1020; ConfigMap: see
+# coral-h9-1020-sample-plan.yaml).
+#
+# STAC PUBLISH, NOT YET APPLIED: apply right after coral-h9-1020-swap.yaml.
+# Reads the LIVE polygons collection and bucket README, rewrites only the
+# polygons-hex asset, the column dictionary and the README's "H3 hex" paragraph
+# with stac_update.py (row count and weighted areas read from the published
+# hex), runs the publish guard (scripts/stac-publish-guard.py), and uploads.
+# Fails before any upload if the live hex has no cover_frac, i.e. the swap has
+# not run.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coral-h9-1020-publish-stac
+  namespace: geo-workflows
+  labels:
+    k8s-app: coral-h9-1020-publish-stac
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: coral-h9-1020-publish-stac
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          C=nrp:public-coral-reefs/unep-wcmc-coral-reefs/polygons/stac-collection.json
+          RD=nrp:public-coral-reefs/README.md
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          read ROWS KM2 KM2CAP < <(python3 - <<'PY'
+          import duckdb
+          from cng_datasets.storage.s3 import configure_s3_credentials
+          c = duckdb.connect(); configure_s3_credentials(c)
+          c.execute("INSTALL h3 FROM community; LOAD h3")
+          h = "read_parquet('s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons/hex/h0=*/data_0.parquet')"
+          cols = [r[0] for r in c.execute(f"DESCRIBE SELECT * FROM {h}").fetchall()]
+          assert 'cover_frac' in cols and 'h9' in cols, 'published hex has no h9/cover_frac: run the swap first'
+          n, a = c.execute(f"SELECT count(*), sum(cover_frac * h3_cell_area(h9, 'km^2')) FROM {h}").fetchone()
+          cap = c.execute(f"SELECT sum(least(f, 1) * h3_cell_area(h9, 'km^2')) FROM "
+                          f"(SELECT h9, sum(cover_frac) AS f FROM {h} GROUP BY h9)").fetchone()[0]
+          print(n, a, cap)
+          PY
+          )
+          echo "hex rows: $ROWS, weighted area: $KM2 km2, capped: $KM2CAP km2"
+          rclone cat "$C" > /tmp/live.json
+          rclone cat "$RD" > /tmp/live-README.md
+          python3 /opt/script/stac_update.py /tmp/live.json /tmp/new.json \
+            --rows "$ROWS" --km2 "$KM2" --km2-capped "$KM2CAP" \
+            --readme /tmp/live-README.md /tmp/new-README.md
+          guard_stac /tmp/new.json "$C"
+          rclone copyto /tmp/new.json "$C" $R
+          rclone copyto /tmp/new-README.md "$RD" $R
+          echo PUBLISHED
+        volumeMounts:
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - name: script
+        configMap: {name: coral-h9-1020-script}
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

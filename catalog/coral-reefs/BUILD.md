@@ -9,7 +9,10 @@ Four collections across two buckets, all from two UNEP-WCMC downloads.
 | `unep-wcmc-seagrass/polygons` | `public-seagrass` | MultiPolygon | 293,147 | `WCMC013_014_Seagrasses_Py_v7_1` |
 | `unep-wcmc-seagrass/points` | `public-seagrass` | Point | 17,668 | `WCMC013_014_Seagrasses_Pt_v7_1` |
 
-H3: native resolution **8**, parent resolutions **`0`**.
+H3: native resolution **8**, parent resolutions **`0`**, except the coral reef polygon hex, which
+#1020 rebuilds at native **h9**, parents **h8, h0**, one row per (reef, overlapping cell) with
+`cover_frac` (recipe `k8s/coral-reefs-h9-1020/`, hand-rolled like WDPA #1000). Until its swap job
+runs, the live polygon hex is still the centre-assigned h8 build.
 
 ## Sources and access
 

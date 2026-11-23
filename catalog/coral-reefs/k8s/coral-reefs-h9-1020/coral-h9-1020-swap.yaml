@@ -1,0 +1,103 @@
+# HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
+# per-cell coverage fraction, so the coral reef h9 'overlap' + cover_frac hex is
+# built by hex_overlap.py in this directory (#1020; tool feature request
+# datasets#363). This replaces the published centre-assigned h8 hex.
+#
+# SWAP, NOT YET APPLIED: apply only when Carl says to swap, after the validation
+# recorded in #1020. Apply coral-h9-1020-publish-stac.yaml straight after it
+# succeeds, so the STAC describes the data that is live.
+#
+# 1. Copies the live h8 hex (polygons/hex/) to staging-1020/old-hex/ as a
+#    rollback copy (server side).
+# 2. Purges polygons/hex/ and moves staging-1020/full/hex/ into it. The path is
+#    empty for the seconds of the move, never a mix of old and new partitions.
+# 3. Checks that the live hex now holds exactly the staged partition list, that
+#    it has h9, h8 and cover_frac, and that the row count matches.
+# 4. Deletes the chunks, plans and the sample run; keeps old-hex.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coral-h9-1020-swap
+  namespace: geo-workflows
+  labels:
+    k8s-app: coral-h9-1020-swap
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: coral-h9-1020-swap
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: swap
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          S=nrp:public-coral-reefs/unep-wcmc-coral-reefs/polygons/staging-1020
+          NEW=$S/full/hex
+          LIVE=nrp:public-coral-reefs/unep-wcmc-coral-reefs/polygons/hex
+          OLD=$S/old-hex
+          rclone lsf -R --files-only "$NEW" | sort > /tmp/new.txt
+          n=$(wc -l < /tmp/new.txt); echo "staged partitions: $n"
+          [ "$n" -eq 48 ] || { echo "expected 48 staged partitions"; exit 1; }
+          rows() { python3 - "$1" <<'PY'
+          import sys, duckdb
+          from cng_datasets.storage.s3 import configure_s3_credentials
+          c = duckdb.connect(); configure_s3_credentials(c)
+          print(c.execute(f"SELECT count(*) FROM read_parquet('{sys.argv[1]}/h0=*/data_0.parquet')").fetchone()[0])
+          PY
+          }
+          staged_rows=$(rows s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons/staging-1020/full/hex); echo "staged rows: $staged_rows"
+          [ "$staged_rows" = 2909438 ] || { echo "staged rows differ from the validated 2,909,438"; exit 1; }
+          rclone copy "$LIVE" "$OLD" $R
+          echo "old hex copied to $OLD: $(rclone lsf -R --files-only "$OLD" | wc -l) files"
+          [ "$(rclone lsf -R --files-only "$OLD" | wc -l)" = "$(rclone lsf -R --files-only "$LIVE" | wc -l)" ] || { echo "rollback copy incomplete"; exit 1; }
+          rclone purge "$LIVE" $R
+          rclone move "$NEW" "$LIVE" $R --delete-empty-src-dirs
+          rclone lsf -R --files-only "$LIVE" | sort > /tmp/live.txt
+          diff /tmp/new.txt /tmp/live.txt && echo "partition list matches"
+          live_rows=$(rows s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons/hex); echo "live rows: $live_rows"
+          [ "$live_rows" = "$staged_rows" ] || { echo "row count mismatch"; exit 1; }
+          python3 - <<'PY'
+          import duckdb
+          from cng_datasets.storage.s3 import configure_s3_credentials
+          c = duckdb.connect(); configure_s3_credentials(c)
+          cols = [r[0] for r in c.execute("DESCRIBE SELECT * FROM read_parquet('s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons/hex/h0=*/data_0.parquet')").fetchall()]
+          assert {'h9', 'cover_frac', 'h8', 'h0', '_cng_fid'} <= set(cols), cols
+          print('h9 + cover_frac + h8 + h0 present')
+          PY
+          rclone purge $S/full/chunks $R || true
+          rclone deletefile $S/full/plan.parquet $R || true
+          rclone purge $S/sample $R || true
+          echo SWAPPED
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

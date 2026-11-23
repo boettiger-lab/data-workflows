@@ -1,0 +1,74 @@
+# HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
+# per-cell coverage fraction, so the coral reef h9 'overlap' + cover_frac hex is
+# built by hex_overlap.py in this directory, copied from the WDPA (#1000) and
+# high-seas (#1016) recipes (#1020; tool feature request datasets#363).
+#
+# The scripts ship as a ConfigMap, rebuilt from this directory before applying:
+#   kubectl -n geo-workflows create configmap coral-h9-1020-script \
+#     --from-file=hex_overlap.py --from-file=sample-reefs.sql --from-file=stac_update.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# Sample plan: 200 Great Barrier Reef reefs, 200 Caribbean reefs, every reef that
+# reaches the antimeridian (sample-reefs.sql) and the 8 largest reefs. Writes only
+# staging-1020/sample/plan.parquet. Areas for planning are planar lon/lat areas
+# scaled to km2: GIS_AREA_K is per source record, not per reef (see the
+# GeoParquet asset), so it cannot weigh features.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coral-h9-1020-sample-plan
+  namespace: geo-workflows
+  labels:
+    k8s-app: coral-h9-1020-sample-plan
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: coral-h9-1020-sample-plan
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: main
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 /opt/script/hex_overlap.py sample \
+            --source s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons.parquet --geom-col geom \
+            --area-col "ST_Area(geom) * 12364 * cos(radians((ST_YMin(geom) + ST_YMax(geom)) / 2))" \
+            --plan-out s3://public-coral-reefs/unep-wcmc-coral-reefs/polygons/staging-1020/sample/plan.parquet \
+            --per-stratum 0 --top 8 --res 9 \
+            --target-cells 300000 --target-vertices 300000 \
+            --include-sql "$(cat /opt/script/sample-reefs.sql)"
+        volumeMounts:
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 5Gi}
+          limits: {cpu: '2', memory: 4Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - name: script
+        configMap: {name: coral-h9-1020-script}
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
