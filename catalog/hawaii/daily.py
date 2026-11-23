@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Daily aggregates of one month of a PacIOOS ERDDAP model grid (#840, #841).
+
+Usage: daily.py <product> <month.nc> <out_dir> <name>
+
+Reads the netCDF that ERDDAP delivered for one month (sub-daily steps, one depth level) and
+writes, for each UTC day:
+  <out_dir>/cog/<var>/<name-prefix>-<var>-YYYYMMDD.tif   one COG per output variable and day
+and one Zarr cube for the month:
+  <out_dir>/<name>.zarr       (time, latitude, longitude), every output variable, time = 00:00 UTC
+and <out_dir>/<name>.days.json, the number of model steps behind each day.
+
+Only numpy and the GDAL Python bindings are needed, as on the cng-datasets image.
+"""
+import json
+import os
+import sys
+
+import numpy as np
+from osgeo import gdal
+
+gdal.UseExceptions()
+
+# product -> (dataset, [(output name, source variable, reducer)])
+#   mean: mean of the day's steps; max: maximum; circ: circular mean of a direction in degrees
+PRODUCTS = {
+    "roms": ("roms-hiig-reanalysis", [(v, v, "mean") for v in ("temp", "salt", "u", "v")]),
+    "ww3": ("ww3-hawaii",
+            [(v, v, "mean") for v in ("Thgt", "Tper", "shgt", "sper", "whgt", "wper")]
+            + [(v, v, "circ") for v in ("Tdir", "sdir", "wdir")]
+            + [(f"{v}_max", v, "max") for v in ("Thgt", "shgt", "whgt")]),
+}
+
+
+def read(nc, var):
+    ds = gdal.Open(f'NETCDF:"{nc}":{var}')
+    arr = ds.ReadAsArray().astype(np.float32)
+    nodata = ds.GetRasterBand(1).GetNoDataValue()
+    if nodata is not None and not np.isnan(nodata):
+        arr[arr == np.float32(nodata)] = np.nan              # ROMS marks land with 9.97e36
+    if arr.ndim == 2:
+        arr = arr[None]
+    times = np.array([int(float(ds.GetRasterBand(i + 1).GetMetadataItem("NETCDF_DIM_time")))
+                      for i in range(ds.RasterCount)])
+    return arr, times, ds.GetGeoTransform()
+
+
+def reduce(stack, how):
+    with np.errstate(invalid="ignore"), __import__("warnings").catch_warnings():
+        __import__("warnings").simplefilter("ignore", RuntimeWarning)
+        if how == "mean":
+            return np.nanmean(stack, axis=0)
+        if how == "max":
+            return np.nanmax(stack, axis=0)
+        r = np.radians(stack)
+        d = np.degrees(np.arctan2(np.nanmean(np.sin(r), axis=0), np.nanmean(np.cos(r), axis=0)))
+        return np.where(np.isnan(d), np.nan, np.mod(d, 360.0))
+
+
+def write_cog(path, a, gt):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    mem = gdal.GetDriverByName("MEM").Create("", a.shape[1], a.shape[0], 1, gdal.GDT_Float32)
+    mem.SetGeoTransform(gt)
+    mem.SetProjection("EPSG:4326")
+    b = mem.GetRasterBand(1)
+    b.SetNoDataValue(float("nan"))
+    b.WriteArray(a)
+    gdal.Translate(path, mem, format="COG",
+                   creationOptions=["COMPRESS=ZSTD", "PREDICTOR=FLOATING_POINT", "BLOCKSIZE=256"])
+
+
+def write_zarr(path, days, out, gt):
+    ny, nx = next(iter(out.values())).shape[1:]
+    lat = gt[3] + gt[5] * (np.arange(ny) + 0.5)          # north-up, descending
+    lon = gt[0] + gt[1] * (np.arange(nx) + 0.5)
+    order = np.argsort(lat)                               # store ascending, as ERDDAP does
+    drv = gdal.GetDriverByName("ZARR")
+    ds = drv.CreateMultiDimensional(path)
+    g = ds.GetRootGroup()
+    f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    f32 = gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+    dims = []
+    for name, typ, direction, vals, attrs in [
+        ("time", gdal.DIM_TYPE_TEMPORAL, None, np.array(days, dtype=np.float64) * 86400.0,
+         {"units": "seconds since 1970-01-01T00:00:00Z", "standard_name": "time", "axis": "T"}),
+        ("latitude", gdal.DIM_TYPE_HORIZONTAL_Y, "NORTH", lat[order],
+         {"units": "degrees_north", "standard_name": "latitude", "axis": "Y"}),
+        ("longitude", gdal.DIM_TYPE_HORIZONTAL_X, "EAST", lon,
+         {"units": "degrees_east", "standard_name": "longitude", "axis": "X"}),
+    ]:
+        d = g.CreateDimension(name, typ, direction, len(vals))
+        v = g.CreateMDArray(name, [d], f64)
+        v.Write(np.ascontiguousarray(vals, dtype=np.float64))
+        for k, val in attrs.items():
+            a = v.CreateAttribute(k, [], gdal.ExtendedDataType.CreateString())
+            a.Write(val)
+        d.SetIndexingVariable(v)
+        dims.append(d)
+    for name, cube in out.items():
+        arr = g.CreateMDArray(name, dims, f32, ["COMPRESS=ZSTD", f"BLOCKSIZE=1,{ny},{nx}"])
+        arr.SetNoDataValueDouble(float("nan"))
+        arr.Write(np.ascontiguousarray(cube[:, order, :], dtype=np.float32))
+    ds = None
+
+
+def main():
+    product, nc, out_dir, name = sys.argv[1:5]
+    ds_name, spec = PRODUCTS[product]
+    cache, gt, steps = {}, None, None
+    out = {}
+    for oname, src, how in spec:
+        if src not in cache:
+            cache[src] = read(nc, src)
+        arr, times, g = cache[src]
+        gt = gt or g
+        day = times // 86400
+        days = sorted(set(day.tolist()))
+        if steps is None:
+            steps = {int(d): int((day == d).sum()) for d in days}
+        out[oname] = np.stack([reduce(arr[day == d], how) for d in days]).astype(np.float32)
+        for i, d in enumerate(days):
+            ymd = np.datetime64(int(d), "D").astype(str).replace("-", "")
+            write_cog(f"{out_dir}/cog/{oname}/{ds_name}-{oname}-{ymd}.tif", out[oname][i], gt)
+    write_zarr(f"{out_dir}/{name}.zarr", sorted(steps), out, gt)
+    json.dump({np.datetime64(d, "D").astype(str): n for d, n in steps.items()},
+              open(f"{out_dir}/{name}.days.json", "w"))
+    print(f"{name}: {len(steps)} days, steps per day {min(steps.values())}-{max(steps.values())}, "
+          f"{len(out)} variables")
+
+
+if __name__ == "__main__":
+    main()

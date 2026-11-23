@@ -1,0 +1,108 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: roms-hiig-reanalysis-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: roms-hiig-reanalysis-hex
+spec:
+  completions: 144
+  parallelism: 20
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: roms-hiig-reanalysis-hex
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: GDAL_DATA
+          value: /usr/share/gdal
+        - name: BUCKET
+          value: public-hawaii
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 1740MiB
+        - name: GDAL_CACHEMAX
+          value: '1024'
+        - name: GDAL_HTTP_MAX_RETRY
+          value: '5'
+        - name: GDAL_HTTP_RETRY_DELAY
+          value: '2'
+        - name: CNG_POD_CPU
+          value: '1'
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+
+          # One time unit per input file (#267).
+          INPUTS=(/vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200901.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200902.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200903.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200904.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200905.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200906.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200907.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200908.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200909.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200910.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200911.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-200912.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201001.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201002.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201003.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201004.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201005.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201006.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201007.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201008.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201009.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201010.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201011.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201012.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201101.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201102.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201103.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201104.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201105.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201106.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201107.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201108.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201109.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201110.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201111.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201112.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201201.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201202.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201203.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201204.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201205.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201206.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201207.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201208.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201209.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201210.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201211.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201212.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201301.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201302.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201303.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201304.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201305.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201306.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201307.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201308.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201309.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201310.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201311.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201312.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201401.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201402.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201403.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201404.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201405.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201406.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201407.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201408.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201409.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201410.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201411.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201412.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201501.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201502.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201503.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201504.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201505.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201506.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201507.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201508.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201509.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201510.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201511.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201512.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201601.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201602.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201603.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201604.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201605.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201606.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201607.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201608.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201609.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201610.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201611.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201612.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201701.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201702.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201703.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201704.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201705.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201706.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201707.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201708.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201709.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201710.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201711.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201712.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201801.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201802.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201803.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201804.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201805.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201806.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201807.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201808.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201809.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201810.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201811.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201812.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201901.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201902.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201903.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201904.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201905.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201906.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201907.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201908.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201909.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201910.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201911.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-201912.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202001.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202002.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202003.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202004.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202005.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202006.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202007.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202008.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202009.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202010.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202011.zarr /vsis3/public-hawaii/raw/roms-hiig-reanalysis/zarr/roms-hiig-reanalysis-202012.zarr)
+          UNIT="${INPUTS[$JOB_COMPLETION_INDEX]}"
+          if [ -z "${JOB_COMPLETION_INDEX}" ] || [ -z "$UNIT" ]; then
+            echo "No time unit for completion index ${JOB_COMPLETION_INDEX}" >&2
+            exit 1
+          fi
+
+          cng-datasets mdim \
+            --input "$UNIT" \
+            --variable temp \
+            --variable salt \
+            --variable u \
+            --variable v \
+            --resolution 6 \
+            --parent-resolutions 0 \
+            --hex-resampling mean \
+            --time-agg none \
+            --placement auto \
+            --output-parquet s3://public-hawaii/roms-hiig-reanalysis/hex-chunks/ \
+            --fan-out time \
+            --unit-index ${JOB_COMPLETION_INDEX}
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 10Gi
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

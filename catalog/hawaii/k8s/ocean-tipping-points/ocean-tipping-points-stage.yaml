@@ -1,0 +1,74 @@
+# HAND-ROLLED: cng-datasets has no stage step for a GeoServer WCS coverage. raster-workflow then
+# hexes each COG this job writes; see the per-layer directories beside this file.
+#
+# Stages the 43 Ocean Tipping Points Hawaiʻi layers (#851) from PacIOOS GeoServer WCS, one layer
+# per index (catalog/hawaii/ocean-tipping-points/layers.txt). stage.py reads each layer's native
+# grid from DescribeCoverage and requests exactly that grid, so the pixels are the stored ones,
+# not a resample. WCS delivers no CRS, so the COG has EPSG:4326 assigned; the source nodata is kept.
+#
+# Under public-hawaii:
+#   raw/ocean-tipping-points/<layer>.tif         the GeoTIFF as delivered
+#   raw/ocean-tipping-points/<layer>.tif.json    request URL, access time, bytes, sha256, grid,
+#                                                nodata and value statistics. Uploaded last, so it
+#                                                marks the layer done; a finished layer is skipped.
+#   ocean-tipping-points/<short>-cog.tif         WGS84 COG, <short> = layer without hi_otp_all_
+#
+# DEVIATION: opportunistic priority. A layer takes under a minute and finished layers are skipped,
+# so a preempted index is redone cheaply. 1 CPU and 1.5Gi stay below the sizes NRP's usage check
+# looks at (#804); limits are 1.2x requests. Parallelism 4 keeps the load on PacIOOS modest.
+#
+#   Source: https://www.pacioos.hawaii.edu/projects/oceantippingpoints/
+#   Issue:  https://github.com/boettiger-lab/data-workflows/issues/851
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ocean-tipping-points-stage
+  namespace: geo-workflows
+  labels: {k8s-app: ocean-tipping-points-stage}
+spec:
+  completions: 43
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 4
+  maxFailedIndexes: 10
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {k8s-app: ocean-tipping-points-stage}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: [bash, /scripts/stage.sh]
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: BUCKET, value: public-hawaii}
+        resources:
+          requests: {cpu: '1', memory: 1536Mi, ephemeral-storage: 5Gi}
+          limits: {cpu: '1200m', memory: 1843Mi, ephemeral-storage: 5Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: scripts, mountPath: /scripts, readOnly: true}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: scripts, configMap: {name: otp-stage}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}
