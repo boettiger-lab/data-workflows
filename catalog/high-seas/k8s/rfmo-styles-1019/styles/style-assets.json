@@ -1,0 +1,33 @@
+{
+  "set": {
+    "style-rfb-rfb": {
+      "href": "https://s3-west.nrp-nautilus.io/public-high-seas/rfmo/styles/rfb-rfb.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "RFMO/RFB Boundaries PMTiles by RFB",
+      "description": "Features coloured by RFB, 12 of 54 values, the rest grey. Colours the twelve RFMOs that manage high-seas fisheries (four tuna commissions and eight area-based bodies); the other 42 advisory, inland and coastal bodies are grouped as Other.",
+      "roles": [
+        "style",
+        "default"
+      ]
+    },
+    "style-vme-owner": {
+      "href": "https://s3-west.nrp-nautilus.io/public-high-seas/rfmo/styles/vme-owner.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "VME Closures PMTiles by OWNER",
+      "description": "Features coloured by OWNER, 8 values. Each VME closure is set by one RFMO, so colouring by the establishing body shows who regulates each area.",
+      "roles": [
+        "style",
+        "default"
+      ]
+    }
+  },
+  "roles": {
+    "style-rfb": [
+      "style"
+    ],
+    "style-vme": [
+      "style"
+    ]
+  },
+  "thumbnail": "style-rfb-rfb"
+}

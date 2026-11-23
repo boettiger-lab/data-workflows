@@ -8,7 +8,7 @@
 # row-group sizing) is preserved so the migrated partitions are indistinguishable from the two
 # that #667 still has to build (h0-index 14 and 78).
 #
-# MUST run before rap-pfg-hex, which overwrites these same 4 partitions with genuine band-4 data.
+# MUST run before the rap-pfg-cover hex (../rap-pfg-cover/), which overwrites these same 4 partitions with genuine band-4 data.
 apiVersion: batch/v1
 kind: Job
 metadata:

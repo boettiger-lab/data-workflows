@@ -94,7 +94,7 @@ completionMode: Indexed # Each job gets unique index 0-121
 Each job processes all 14 layers sequentially for its assigned hex:
 ```bash
 python -u iucn/raster.py --i $INDEX --zoom 8 \
-  --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Amphibians_SR_2025.tif \
+  --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Amphibians_SR_2025.tif \
   --output-url s3://public-iucn/hex/amphibians_sr \
   --layer-name amphibians_sr
 
@@ -121,7 +121,7 @@ kubectl logs -l k8s-app=iucn-richness -f
 Process a specific hex and layer locally:
 ```bash
 python raster.py --i 42 --zoom 8 \
-  --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Birds_SR_2025.tif \
+  --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Birds_SR_2025.tif \
   --output-url s3://public-iucn/hex/birds_sr \
   --layer-name birds_sr
 ```
@@ -266,7 +266,7 @@ The original IUCN richness rasters are available as Cloud-Optimized GeoTIFFs for
 
 **Location:** `s3://public-iucn/raw/richness/`
 
-**Public URL:** `https://minio.carlboettiger.info/public-iucn/raw/richness/`
+**Public URL:** `https://s3.carlboettiger.info/public-iucn/raw/richness/`
 
 These COGs can be accessed directly in QGIS, ArcGIS, web mapping applications, or any COG-compatible tool without downloading the entire file. The internal tiling and overviews enable efficient streaming and visualization at multiple zoom levels.
 

@@ -1,9 +1,12 @@
-"""Build one #735 PMTiles asset (ASSETS[JOB_COMPLETION_INDEX]) to staging/735-fid/."""
+"""Build one PMTiles asset (ASSETS[JOB_COMPLETION_INDEX]) to staging/$STAGING/ (default 735-fid).
+
+`select` maps tile field -> parquet expression, or is "*" for every column of the source
+(#904), plus any `alias` fields (tile field -> expression) whose name is not a column."""
 import gzip, json, os, struct, subprocess, sys
 import duckdb
 from assets import ASSETS
 
-a = ASSETS[int(os.environ.get("ASSET_INDEX", os.environ["JOB_COMPLETION_INDEX"]))]
+a = ASSETS[int(os.environ.get("ASSET_INDEX") or os.environ["JOB_COMPLETION_INDEX"])]  # a plain Job sets ASSET_INDEX
 print("=== asset:", a["bucket"], a["key"], flush=True)
 work = "/tmp/work"
 os.makedirs(f"{work}/duckdb", exist_ok=True)
@@ -19,7 +22,15 @@ c.execute("CREATE SECRET nrp (TYPE S3, ENDPOINT 'rook-ceph-rgw-nautiluss3.rook',
           [os.environ["AWS_ACCESS_KEY_ID"], os.environ["AWS_SECRET_ACCESS_KEY"]])
 
 src = f"read_parquet('{a['src']}')"
-gtype = dict(c.execute(f"SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM {src})").fetchall())[a["geom"]]
+schema = dict(c.execute(f"SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM {src})").fetchall())
+gtype = schema[a["geom"]]
+if a["select"] == "*":
+    names = [n for n in schema if n not in (a["geom"], "_cng_fid")]
+    nn = c.execute("SELECT " + ", ".join(f'COUNT("{n}")' for n in names) + f" FROM {src}").fetchone()
+    empty = [n for n, k in zip(names, nn) if k == 0]
+    print("all-null columns (tippecanoe drops them):", empty, flush=True)
+    a["select"] = {n: f'"{n}"' for n in names if n not in empty}
+    a["select"].update({k: e for k, e in a.get("alias", {}).items() if k not in schema})
 if "join" in a:
     frm, p = f"{src} p LEFT JOIN read_parquet('{a['join']}') d USING (MapUnit)", "p."
 else:
@@ -58,5 +69,5 @@ want = {"_cng_fid", *a["select"]}
 missing = {w for w in want if w not in fields and not any(f.startswith(w + ".") for f in fields)}
 assert layers == [a["layer"]] and not missing, f"footer check failed: layers={layers} missing={missing}"
 
-run(f"rclone copyto {out} nrp:{a['bucket']}/staging/735-fid/{a['key']} -v")
+run(f"rclone copyto {out} nrp:{a['bucket']}/staging/{os.environ.get('STAGING', '735-fid')}/{a['key']} -v")
 print("=== done:", a["key"])

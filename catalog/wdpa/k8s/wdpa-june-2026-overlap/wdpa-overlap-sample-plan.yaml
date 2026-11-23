@@ -1,0 +1,67 @@
+# HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
+# per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
+# hex_overlap.py in this directory (#1000; tool feature request datasets#363).
+#
+# Phase 1 sample plan: an area-stratified sample of WDPA parcels (40 per decade
+# of GIS_AREA, the 12 largest, and Ramsar parcels with their National
+# neighbours from sample-ramsar-pairs.sql), chunked for the hex job. Writes
+# only to the staging prefix s3://public-wdpa/wdpa/staging-1000/.
+#
+# The script ships as a ConfigMap, rebuilt from this directory before applying:
+#   kubectl -n geo-workflows create configmap wdpa-overlap-1000-script \
+#     --from-file=hex_overlap.py --from-file=sample-ramsar-pairs.sql --from-file=validate_overlap.py \
+#     --from-file=validate_full.py --from-file=stac_update.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdpa-overlap-1000-sample-plan
+  namespace: geo-workflows
+  labels:
+    k8s-app: wdpa-overlap-1000-sample-plan
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: wdpa-overlap-1000-sample-plan
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: plan
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 /opt/script/hex_overlap.py sample \
+            --source s3://public-wdpa/wdpa.parquet \
+            --plan-out s3://public-wdpa/wdpa/staging-1000/plan-sample.parquet \
+            --per-stratum 40 --top 12 --target-cells 8000000 \
+            --include-sql "$(cat /opt/script/sample-ramsar-pairs.sql)"
+        volumeMounts:
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        resources:
+          requests: {cpu: '4', memory: 20Gi, ephemeral-storage: 30Gi}
+          limits: {cpu: '4', memory: 20Gi, ephemeral-storage: 30Gi}
+      volumes:
+      - name: script
+        configMap: {name: wdpa-overlap-1000-script}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

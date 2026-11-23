@@ -1,0 +1,77 @@
+# HAND-ROLLED: the generator does not publish styles into an existing collection. Fixes the
+# two one-colour default styles verify-stac fails on the iho collection (#1016): the EEZ
+# PMTiles default becomes `style-eez-pol-type` (POL_TYPE, 3 classes), and the high-seas default
+# keeps one colour with the reason stated. Styles built with scripts/default-style.py.
+#
+#  1. uploads styles/eez-pol-type.json and styles/high-seas.json to iho/styles/;
+#  2. redraws iho/thumbnail.png from the new EEZ default (cng-datasets vector-thumbnail);
+#  3. edits the LIVE collection with set_styles.py, runs the publish guard, uploads it.
+#
+#   kubectl create configmap high-seas-styles-1016 -n geo-workflows \
+#     --from-file=catalog/high-seas/k8s/high-seas-h8-1016/styles/ --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -f catalog/high-seas/k8s/high-seas-h8-1016/high-seas-styles-publish.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: high-seas-styles-1016
+  namespace: geo-workflows
+  labels: {k8s-app: high-seas-styles-1016}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: high-seas-styles-1016}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          B=nrp:public-high-seas/iho
+          C=$B/stac-collection.json
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          rclone copyto --copy-links /opt/styles/eez-pol-type.json $B/styles/eez-pol-type.json $R
+          rclone copyto --copy-links /opt/styles/high-seas.json $B/styles/high-seas.json $R
+          cng-datasets vector-thumbnail --style https://s3-west.nrp-nautilus.io/public-high-seas/iho/styles/eez-pol-type.json \
+            --parquet s3://public-high-seas/iho/eez.parquet --output /tmp/thumbnail.png
+          rclone copyto /tmp/thumbnail.png $B/thumbnail.png $R
+          rclone cat "$C" > /tmp/new.json
+          python3 /opt/styles/set_styles.py /tmp/new.json /opt/styles/style-assets.json
+          guard_stac /tmp/new.json "$C"
+          rclone copyto /tmp/new.json "$C" $R
+          echo PUBLISHED
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: styles, mountPath: /opt/styles, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: styles, configMap: {name: high-seas-styles-1016}}

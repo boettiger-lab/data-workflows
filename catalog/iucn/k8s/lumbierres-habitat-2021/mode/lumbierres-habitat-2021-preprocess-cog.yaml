@@ -1,6 +1,6 @@
 # DEVIATION from generated output (#804): priorityClassName removed. One pod converting a 51-gigapixel
-# striped GeoTIFF may run over an hour, where opportunistic is preempted; a single default-priority pod
-# stays within the account's 4-pod usage allowance.
+# striped GeoTIFF may run over an hour, where opportunistic is preempted. At default priority the pod
+# must be sized to measured use: NRP's usage policy allows no out-of-range pods (#804).
 apiVersion: batch/v1
 kind: Job
 metadata:

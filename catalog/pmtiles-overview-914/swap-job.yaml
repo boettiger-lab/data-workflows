@@ -1,0 +1,43 @@
+# HAND-ROLLED (#914): after a candidate is chosen, back up the live tiles to staging/914-backup/
+# and copy the chosen candidate over them. ITEMS lists "bucket:candidate key:live key".
+# Chosen: easement coalesce (2026-11-12), IBTrACS r1-detail and NHDPlus stream order (2026-11-13).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: overview-914-swap
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: swap
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          for it in $ITEMS; do
+            b=${it%%:*}; rest=${it#*:}; c=${rest%%:*}; k=${rest#*:}
+            rclone lsf "nrp:$b/staging/914-candidates/$c" | grep -q .
+            rclone lsf "nrp:$b/staging/914-backup/$k" | grep -q . || rclone copyto "nrp:$b/$k" "nrp:$b/staging/914-backup/$k" -v
+            rclone copyto "nrp:$b/staging/914-candidates/$c" "nrp:$b/$k" -v
+            rclone lsl "nrp:$b/$k"
+          done
+        env:
+        - name: ITEMS
+          value: >-
+            public-padus:padus-4-1/easement.coalesce.pmtiles:padus-4-1/easement.pmtiles
+            public-storms:ibtracs-v04r01/points.r1-detail.pmtiles:ibtracs-v04r01/points.pmtiles
+            public-usgs-nhd:nhdplus-hr/flowline.streamorder.pmtiles:nhdplus-hr/flowline.pmtiles
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: "1", memory: 1Gi}
+          limits: {cpu: "1", memory: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

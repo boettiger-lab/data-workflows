@@ -1,0 +1,72 @@
+# HAND-ROLLED: the generator does not write STAC. Default styles (#881) for four collections whose
+# default drew every feature in one colour: wdpa (IUCN_CAT), wetlands-ramsar (Montreux listed),
+# Overture countries and regions (class). Built with scripts/default-style.py from the live
+# collections, then thumbnails with scripts/thumbnail.py from the live styles (a second run of
+# this job). The ConfigMap holds each file under a flat key; paths.txt maps key -> nrp path.
+# Every stac-collection.json goes through the publish guard before upload.
+#   OUT=<scratch>/styles
+#   scripts/default-style.py build https://s3-west.nrp-nautilus.io/public-wdpa/wdpa/stac-collection.json \
+#     --asset wdpa-pmtiles --column IUCN_CAT --kind categorical --label "IUCN management category" \
+#     --colors '{"Ia":"#00441b","Ib":"#006d2c","II":"#238b45","III":"#41ab5d","IV":"#74c476","V":"#a1d99b","VI":"#c7e9c0","Not Reported":"#bdbdbd","Not Assigned":"#969696","Not Applicable":"#d9d9d9"}' \
+#     --tooltip NAME_ENG,DESIG_ENG,IUCN_CAT --why "..." --out $OUT
+#   scripts/default-style.py build .../public-wetlands/ramsar/stac-collection.json --asset ramsar-pmtiles \
+#     --column "Montreux listed" --kind categorical --colors '{"true":"#d7301f","false":"#2b8cbe"}' \
+#     --labels '{"true":"Montreux Record","false":"Not listed"}' --why "..." --out $OUT
+#   scripts/default-style.py build .../public-overturemaps/2026-02-18.0/{countries,regions}/stac-collection.json \
+#     --asset {countries,regions}-pmtiles --column class --kind categorical \
+#     --colors '{"land":"#e3d5b0","maritime":"#9ecae1"}' --labels '{"land":"Land","maritime":"Territorial waters"}' --why "..." --out $OUT
+# DEVIATION from default-style.py output: the two Overture styles get a fill-sort-key and
+# line-sort-key that draw class='land' above class='maritime'. Overture's maritime polygon
+# is the land plus the territorial sea (China: 9.73M km2 maritime, 9.39M km2 land), so without
+# it the maritime fill covers the land. The style and asset descriptions say so. Fill opacity is 1, so the land is not tinted by the blue beneath it.
+#   (after the first publish) scripts/thumbnail.py <live collection url> --out $OUT
+#   kubectl delete configmap default-styles-881 -n geo-workflows --ignore-not-found   # apply overflows the annotation limit with PNGs
+#   kubectl create configmap default-styles-881 -n geo-workflows --from-file=paths.txt=... --from-file=<key>=<file> ... \
+#     --from-file=guard.py=scripts/stac-publish-guard.py
+#   kubectl delete job -n geo-workflows default-styles-881 --ignore-not-found
+#   kubectl create -f catalog/default-styles-881/publish-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: default-styles-881
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: in, mountPath: /in, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/live.json 2>/dev/null || : > /tmp/live.json
+            python3 /in/guard.py "$1" /tmp/live.json || exit 1
+          }
+          while read -r key path; do
+            [ -n "$key" ] || continue
+            cp "/in/$key" /tmp/f
+            case "$path" in */stac-collection.json) guard_stac /tmp/f "nrp:$path" ;; esac
+            rclone copyto /tmp/f "nrp:$path" $R
+            echo "uploaded $path"
+          done < /in/paths.txt
+          echo OK
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: in, configMap: {name: default-styles-881}}

@@ -1,0 +1,20 @@
+{
+  "set": {
+    "style-sites-kbaclass": {
+      "href": "https://s3-west.nrp-nautilus.io/public-kba/kba-2026-03/sites/styles/sites-kbaclass.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "KBA sites PMTiles by KbaClass",
+      "description": "Features coloured by KbaClass, 3 values. Global or regional significance is the primary classification of a KBA under the IUCN standard.",
+      "roles": [
+        "style",
+        "default"
+      ]
+    }
+  },
+  "roles": {
+    "style-sites": [
+      "style"
+    ]
+  },
+  "thumbnail": "style-sites-kbaclass"
+}

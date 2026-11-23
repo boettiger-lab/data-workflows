@@ -1,7 +1,10 @@
+# DEVIATION from generated output (#617): repartition memory raised to 64Gi (DuckDB 40GiB); at 32Gi it was OOM-killed on h0=577727389698621439 (700M hex rows). At 64Gi that partition then passed 200Gi of sort scratch and was evicted, so the remaining partitions were written by combined-repartition-617/. The generator has no repartition-memory option.
+# DEVIATION from generated output (#617, datasets#315): image pinned to datasets:0.12.1, the first release that repairs the invalid antimeridian crosser (FID 868); the generator has no image-tag option.
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: padus-4-1-combined-repartition
+  namespace: geo-workflows
   labels:
     k8s-app: padus-4-1-combined-repartition
 spec:
@@ -14,20 +17,10 @@ spec:
       labels:
         k8s-app: padus-4-1-combined-repartition
     spec:
-      priorityClassName: opportunistic
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: feature.node.kubernetes.io/pci-10de.present
-                operator: NotIn
-                values:
-                - 'true'
       restartPolicy: Never
       containers:
       - name: repartition-task
-        image: ghcr.io/boettiger-lab/datasets:latest
+        image: ghcr.io/boettiger-lab/datasets:0.12.1
         imagePullPolicy: Always
         env:
         - name: AWS_ACCESS_KEY_ID
@@ -61,15 +54,27 @@ spec:
         - -c
         - |
           set -e
-          cng-datasets repartition --chunks-dir s3://public-padus/padus-4-1/combined/chunks --output-dir s3://public-padus/padus-4-1/combined/hex --source-parquet s3://public-padus/padus-4-1/combined.parquet --cleanup
+          cng-datasets repartition --chunks-dir s3://public-padus/padus-4-1/combined/chunks --output-dir s3://public-padus/padus-4-1/combined/hex --source-parquet s3://public-padus/padus-4-1/combined.parquet --cleanup --memory-limit 40GiB
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 64Gi
+            ephemeral-storage: 200Gi
           limits:
             cpu: '4'
-            memory: 32Gi
+            memory: 64Gi
+            ephemeral-storage: 200Gi
       volumes:
       - name: rclone-config
         secret:
           secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

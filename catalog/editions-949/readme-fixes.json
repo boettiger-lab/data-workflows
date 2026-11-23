@@ -1,0 +1,28 @@
+[
+ {
+  "path": "public-iucn/README.md",
+  "replace": [
+   [
+    "**Version**: 2025.1\n",
+    "**Edition**: IUCN's 2025 richness maps, staged 2025-12-19. The files carry the year only; the Red List version they were built from is not recorded.\n"
+   ],
+   [
+    "IUCN 2025. The IUCN Red List of Threatened Species. Version 2025.1. <https://www.iucnredlist.org>",
+    "IUCN. 2025. The IUCN Red List of Threatened Species. <https://www.iucnredlist.org>"
+   ]
+  ]
+ },
+ {
+  "path": "public-wui/README.md",
+  "replace": [
+   [
+    "- **License:** CC-BY-4.0",
+    "- **Terms:** no licence granted; use constraints \"None\", acknowledgment of the USDA Forest Service Northern Research Station requested"
+   ],
+   [
+    "https://silvis.forest.wisc.edu/data/wui-change/ (CC-BY-4.0).",
+    "https://silvis.forest.wisc.edu/data/wui-change/ (v4, last updated February 2025).\n\nRadeloff, V. C., D. P. Helmers, M. H. Mockrin, A. R. Carlson, T. J. Hawbaker, S. Martinuzzi. 2023. The 1990-2020 wildland-urban interface of the conterminous United States - geospatial data. 4th Edition. Fort Collins, CO: Forest Service Research Data Archive. https://doi.org/10.2737/RDS-2015-0012-4"
+   ]
+  ]
+ }
+]

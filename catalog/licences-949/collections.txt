@@ -1,0 +1,15 @@
+public-overturemaps/2026-02-18.0/countries/stac-collection.json
+public-overturemaps/2026-02-18.0/regions/stac-collection.json
+public-overturemaps/2026-02-18.0/counties/stac-collection.json
+public-indigenous/landmark/iplc-poly-stac.json
+public-indigenous/landmark/iplc-pt-stac.json
+public-indigenous/landmark/indicative-poly-stac.json
+public-indigenous/landmark/indicative-pt-stac.json
+public-ca30x30/williamson-act/2021/stac-collection.json
+public-ca30x30/williamson-act/2022/stac-collection.json
+public-ca30x30/williamson-act/2023/stac-collection.json
+public-ca30x30/williamson-act/2024/stac-collection.json
+public-ca30x30/williamson-act/2025/stac-collection.json
+public-ca30x30/williamson-act/all-years/stac-collection.json
+public-icca/icca-registry/icca-polygon/stac-collection.json
+public-icca/icca-registry/icca-point/stac-collection.json

@@ -1,0 +1,50 @@
+# HAND-ROLLED: the generator does not write STAC. Patches the two LIVE wrc-2-pa-hurisk collections
+# for the #828 `sum` rebuild with patch_hurisk_828.py, through the publish guard, after
+# swap-828.yaml. Arguments per domain: COG size in bytes (read from S3 after the swap) and the render
+# upper bound (the new COG's 98th percentile from TiTiler /cog/statistics, rounded up).
+#   kubectl create configmap wrc-2-pa-hurisk-828 -n geo-workflows \
+#     --from-file=patch.py=catalog/fire/k8s/wrc-2-pa/patch_hurisk_828.py \
+#     --from-file=guard.py=scripts/stac-publish-guard.py
+#   kubectl create -f catalog/fire/k8s/wrc-2-pa/patch-stac-828.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wrc-2-pa-hurisk-stac-828
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 900
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: patch
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: in, mountPath: /in, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          for spec in "conus 4500" "ak 5800"; do
+            set -- $spec
+            p=public-fire/wrc-2-pa-hurisk-$1/stac-collection.json
+            size=$(rclone lsjson "nrp:public-fire/wrc-2-pa-hurisk-$1-cog.tif" | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['Size'])")
+            rclone cat "nrp:$p" > /tmp/live.json
+            cp /tmp/live.json /tmp/c.json
+            python3 /in/patch.py "$1" /tmp/c.json "$size" "$2"
+            python3 /in/guard.py /tmp/c.json /tmp/live.json
+            rclone copyto /tmp/c.json "nrp:$p" --retries 6
+          done
+          echo DONE
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: in, configMap: {name: wrc-2-pa-hurisk-828}}

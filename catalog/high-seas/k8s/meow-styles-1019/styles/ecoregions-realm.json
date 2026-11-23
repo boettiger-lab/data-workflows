@@ -1,0 +1,138 @@
+{
+  "version": 8,
+  "name": "MEOW Ecoregions PMTiles by REALM",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../ecoregions.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "ecoregions-fill",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "ecoregions",
+      "paint": {
+        "fill-color": [
+          "case",
+          [
+            "!",
+            [
+              "has",
+              "REALM"
+            ]
+          ],
+          "#cccccc",
+          [
+            "match",
+            [
+              "to-string",
+              [
+                "get",
+                "REALM"
+              ]
+            ],
+            "Central Indo-Pacific",
+            "#4e79a7",
+            "Temperate Northern Atlantic",
+            "#f28e2b",
+            "Tropical Atlantic",
+            "#e15759",
+            "Western Indo-Pacific",
+            "#76b7b2",
+            "Southern Ocean",
+            "#59a14f",
+            "Arctic",
+            "#edc948",
+            "Temperate Australasia",
+            "#b07aa1",
+            "Temperate Northern Pacific",
+            "#ff9da7",
+            "Temperate South America",
+            "#9c755f",
+            "Eastern Indo-Pacific",
+            "#86bcb6",
+            "Tropical Eastern Pacific",
+            "#d4a6c8",
+            "Temperate Southern Africa",
+            "#a0cbe8",
+            "#cccccc"
+          ]
+        ],
+        "fill-opacity": 0.7
+      }
+    },
+    {
+      "id": "ecoregions-outline",
+      "type": "line",
+      "source": "data",
+      "source-layer": "ecoregions",
+      "paint": {
+        "line-color": "#4d4d4d",
+        "line-width": 0.4,
+        "line-opacity": 0.6
+      }
+    }
+  ],
+  "metadata": {
+    "description": "Features coloured by REALM, 12 values. Realm is the top level of the MEOW hierarchy: its 12 classes show the biogeographic structure at a glance, where 232 ecoregions or 62 provinces are too many to tell apart.",
+    "glen:legend": {
+      "type": "categorical",
+      "label": "REALM",
+      "classes": [
+        {
+          "label": "Central Indo-Pacific",
+          "color": "#4e79a7"
+        },
+        {
+          "label": "Temperate Northern Atlantic",
+          "color": "#f28e2b"
+        },
+        {
+          "label": "Tropical Atlantic",
+          "color": "#e15759"
+        },
+        {
+          "label": "Western Indo-Pacific",
+          "color": "#76b7b2"
+        },
+        {
+          "label": "Southern Ocean",
+          "color": "#59a14f"
+        },
+        {
+          "label": "Arctic",
+          "color": "#edc948"
+        },
+        {
+          "label": "Temperate Australasia",
+          "color": "#b07aa1"
+        },
+        {
+          "label": "Temperate Northern Pacific",
+          "color": "#ff9da7"
+        },
+        {
+          "label": "Temperate South America",
+          "color": "#9c755f"
+        },
+        {
+          "label": "Eastern Indo-Pacific",
+          "color": "#86bcb6"
+        },
+        {
+          "label": "Tropical Eastern Pacific",
+          "color": "#d4a6c8"
+        },
+        {
+          "label": "Temperate Southern Africa",
+          "color": "#a0cbe8"
+        }
+      ]
+    },
+    "glen:tooltip_fields": [
+      "REALM"
+    ]
+  }
+}

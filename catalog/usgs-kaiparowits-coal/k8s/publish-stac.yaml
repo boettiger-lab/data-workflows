@@ -52,6 +52,14 @@ spec:
         - -c
         - |
           set -euo pipefail
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
           DEST=nrp:public-usgs/kaiparowits-coal-resources
 
           # A ConfigMap mount is a symlink into ../data and `rclone copyto` will not follow
@@ -68,11 +76,13 @@ spec:
           for f in /tmp/*.json; do
             base=$(basename "$f" .json)
             [ "$base" = "_parent" ] && continue
+            guard_stac "$f" "$DEST/$base/stac-collection.json"
             rclone copyto "$f" "$DEST/$base/stac-collection.json"
             echo "  published $base"
           done
 
           echo '=== Grouping collection + README ==='
+          guard_stac /tmp/_parent.json "$DEST/stac-collection.json"
           rclone copyto /tmp/_parent.json "$DEST/stac-collection.json"
           rclone copyto /tmp/README.md "$DEST/README.md"
 

@@ -1,3 +1,6 @@
+# HAND-ROLLED: the generator converts spatial layers only; these are attribute tables from the
+# SWAP 2025 feature services, converted with tables2parquet.py. sgcn-species and
+# sgcn-species-units were retired with the final SGCN release (#976) and are no longer built.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -41,7 +44,7 @@ spec:
         - -c
         - |
           set -euo pipefail
-          for t in targets strategies sgcn-species sgcn-species-units; do
+          for t in targets strategies; do
             echo "=== $t ==="
             rclone copyto "nrp:public-swap/california/raw/swap-2025-$t.json" "/tmp/$t.json" -v
             python3 /opt/scripts/tables2parquet.py "/tmp/$t.json" "/tmp/$t.parquet"

@@ -164,7 +164,7 @@ Both were hit and fixed on the DEM import (data-workflows #426; manifests at
    `rechunk-scratch` **cephfs** PVC and running `gdalbuildvrt` over them crawled — each file open pays
    a network-metadata RTT (~150 ms), so 26k opens = 60+ min *each* for the localize and the VRT build,
    at idle CPU. Local NVMe opens the same files in <1 s. **Fix: localize to LOCAL ephemeral (`/tmp`),
-   not the PVC.** 66 GB > the 50Gi ephemeral cap, so split into N balanced **contiguous longitude
+   not the PVC.** 66 GB is more than a shared node can reasonably spare, so split into N balanced **contiguous longitude
    bands** (integer-degree cuts → tile-aligned, seamless), one indexed pod per band on local NVMe →
    regional COGs, then a tiny merge job stitches the few regional COGs into the global COG (a handful
    of large-file opens is fine on cephfs). ~35 min total vs "never finished." Reserve the cephfs PVC

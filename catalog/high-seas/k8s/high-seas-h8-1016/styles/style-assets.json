@@ -1,0 +1,29 @@
+{
+  "set": {
+    "style-eez-pol-type": {
+      "href": "https://s3-west.nrp-nautilus.io/public-high-seas/iho/styles/eez-pol-type.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "World EEZ v12 PMTiles by POL_TYPE",
+      "description": "Features coloured by POL_TYPE, 3 values.",
+      "roles": [
+        "style",
+        "default"
+      ]
+    },
+    "style-high-seas": {
+      "href": "https://s3-west.nrp-nautilus.io/public-high-seas/iho/styles/high-seas.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "World High Seas v2 PMTiles",
+      "description": "The high seas are one polygon with no attribute that varies, so a single fill is the honest default.",
+      "roles": [
+        "style",
+        "default"
+      ]
+    }
+  },
+  "roles": {
+    "style-eez": [
+      "style"
+    ]
+  }
+}

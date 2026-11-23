@@ -28,6 +28,14 @@ spec:
         - -c
         - |-
           set -euo pipefail
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
           # A ConfigMap mount presents each key as a symlink into ..data/, and rclone refuses to
           # follow those ("not a directory"). Dereference into a plain directory first.
           mkdir -p /tmp/stac
@@ -40,11 +48,13 @@ spec:
             [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
             python3 -c "import json,sys; json.load(open('$f'))"   # refuse to publish invalid JSON
             echo "publishing $ds"
+            guard_stac "$f" "nrp:public-rap/${ds}/stac-collection.json"
             rclone copyto --s3-no-check-bucket "$f" "nrp:public-rap/${ds}/stac-collection.json"
           done
 
           echo "publishing bucket collection + README"
           python3 -c "import json; json.load(open('/stac/parent-stac-collection.json'))"
+          guard_stac /tmp/stac/parent-stac-collection.json nrp:public-rap/stac-collection.json
           rclone copyto --s3-no-check-bucket /tmp/stac/parent-stac-collection.json nrp:public-rap/stac-collection.json
           rclone copyto --s3-no-check-bucket /tmp/stac/README.md nrp:public-rap/README.md
 

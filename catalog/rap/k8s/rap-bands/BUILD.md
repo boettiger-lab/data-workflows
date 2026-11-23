@@ -1,9 +1,10 @@
 # RAP rebuild campaign — issues #666, #667, #607
 
 Three independent defects across the four `public-rap` collections, all found to be build-recipe
-errors rather than upstream problems. This directory holds the corrected jobs; the old manifests
-under `../rap-arte/`, `../rap-iag/` and `../rap-pfg-cover/` are marked SUPERSEDED and must not be
-re-run.
+errors rather than upstream problems. This directory holds the one-off jobs that rebuilt the COGs
+and published the STAC. The hex step for each collection is now a generated recipe in its own
+directory (`../rap-afg-cover/`, `../rap-pfg-cover/`, `../rap-arte/`, `../rap-iag/`); the
+hand-written hex jobs that ran the 2026-10 rebuild are in git history (427ec86).
 
 ## Upstream facts, measured (not taken from the old STAC)
 
@@ -201,18 +202,24 @@ so it does not hit the 4 GB ceiling that `gdal_translate -of COG` hit in `rap-ex
 
 ```bash
 kubectl apply -n geo-workflows -f rap-extract-bands.yaml        # band 1 + band 4 COGs
-kubectl apply -n geo-workflows -f rap-afg-migrate-hex.yaml      # AFG rows out of rap-pfg-cover
-kubectl apply -n geo-workflows -f rap-afg-hex.yaml              # + h0-index 14, 78
-kubectl apply -n geo-workflows -f rap-pfg-hex.yaml              # all 6, fresh, band 4
-
 kubectl apply -n geo-workflows -f rap-s2-stage-all-zones.yaml   # 764 tiles x arte, iag
 kubectl apply -n geo-workflows -f rap-s2-mosaic-all-zones.yaml
-kubectl apply -n geo-workflows -f rap-s2-hex-all-zones.yaml
+
+for d in rap-afg-cover rap-pfg-cover rap-arte rap-iag; do      # hex, one workflow at a time
+  kubectl apply -n geo-workflows -f ../$d/configmap.yaml -f ../$d/workflow.yaml
+  kubectl wait -n geo-workflows job/$d-workflow --for=condition=complete --timeout=86400s
+done
 ```
 
-`rap-afg-migrate-hex` **must** precede `rap-pfg-hex`, which overwrites the same four partitions.
-Each hex job guards its own precondition (single-band input; COG eastern edge past −105) and fails
-loudly rather than silently rebuilding a defective layer.
+The hex recipes are generated (`cng-datasets raster-workflow`; the command is in each
+`configmap.yaml`): res 10 with parents 9,8,0, `mean`, nodata 255, 256Gi and 8 CPUs per pod, reads
+over the internal endpoint. The cover collections take the six CONUS h0 positions
+(`--h0-subset 12,14,20,50,71,78`), arte and iag the four western ones (`12,20,50,71`). The tool
+now refuses to hex a multi-band input that names no band (datasets#220), which replaces the
+single-band guard the hand-written jobs carried.
+
+`rap-afg-migrate-hex` was a one-time step of the 2026-10 rebuild, moving band-1 rows out of
+rap-pfg-cover before PFG was rebuilt; a fresh build does not need it.
 
 ### 2. Verify, before publishing anything
 

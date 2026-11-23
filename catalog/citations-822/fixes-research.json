@@ -1,0 +1,1202 @@
+[
+ {
+  "collection": "public-swap/california/swap-2025/provinces/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action Plan, 2025 Update: A Conservation Legacy for Californians.",
+  "source": "https://wildlife.ca.gov/SWAP"
+ },
+ {
+  "collection": "public-swap/california/swap-2025/conservation-units/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action Plan, 2025 Update: A Conservation Legacy for Californians.",
+  "source": "https://wildlife.ca.gov/SWAP"
+ },
+ {
+  "collection": "public-swap/california/swap-2025/bay-delta-conservation-unit/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action Plan, 2025 Update: A Conservation Legacy for Californians.",
+  "source": "https://wildlife.ca.gov/SWAP"
+ },
+ {
+  "collection": "public-swap/california/swap-2025/sgcn-ranges/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action Plan, 2025 Update: A Conservation Legacy for Californians.",
+  "source": "https://wildlife.ca.gov/SWAP"
+ },
+ {
+  "collection": "public-swap/california/swap-2025/noaa-esu-dps/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action Plan, 2025 Update: A Conservation Legacy for Californians.",
+  "source": "https://wildlife.ca.gov/SWAP"
+ },
+ {
+  "collection": "public-swap/california/swap-2025/marine-bioregions/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action Plan, 2025 Update: A Conservation Legacy for Californians.",
+  "source": "https://wildlife.ca.gov/SWAP"
+ },
+ {
+  "collection": "public-swap/california/swap-2025/sgcn-species/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action Plan, 2025 Update: A Conservation Legacy for Californians.",
+  "source": "https://wildlife.ca.gov/SWAP"
+ },
+ {
+  "collection": "public-swap/california/swap-2025/sgcn-species-units/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action Plan, 2025 Update: A Conservation Legacy for Californians.",
+  "source": "https://wildlife.ca.gov/SWAP"
+ },
+ {
+  "collection": "public-swap/california/swap-2025/strategies/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action Plan, 2025 Update: A Conservation Legacy for Californians.",
+  "source": "https://wildlife.ca.gov/SWAP"
+ },
+ {
+  "collection": "public-swap/california/swap-2025/targets/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife (CDFW). 2025. California State Wildlife Action Plan, 2025 Update: A Conservation Legacy for Californians.",
+  "source": "https://wildlife.ca.gov/SWAP"
+ },
+ {
+  "collection": "public-swap/nevada/swap-2022/key-habitats/stac-collection.json",
+  "sci:citation": "Nevada Department of Wildlife. (2022). The 2022 - 2032 Wildlife Action Plan. Barnes, J., Davis, L., Kleiber, J., Newmark, J., Mack. L., & Hessenius. A. (eds). Reno, NV 298 pages.",
+  "source": "https://www.ndow.org/blog/nevada-wildlife-action-plan/"
+ },
+ {
+  "collection": "public-swap/nevada/swap-2022/species-distributions/stac-collection.json",
+  "sci:citation": "Nevada Department of Wildlife. (2022). The 2022 - 2032 Wildlife Action Plan. Barnes, J., Davis, L., Kleiber, J., Newmark, J., Mack. L., & Hessenius. A. (eds). Reno, NV 298 pages.",
+  "source": "https://www.ndow.org/blog/nevada-wildlife-action-plan/"
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/cave-karst-coa/stac-collection.json",
+  "sci:citation": "Missouri Department of Conservation. (n.d.). COA_Public_Cave_Karst_Conservation_Opportunity_Areas [Data set]. Comprehensive Conservation Strategy (CCS) map service. Missouri Department of Conservation. https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/3",
+  "source": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/3",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf"
+   }
+  ]
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/forest-woodland-coa/stac-collection.json",
+  "sci:citation": "Missouri Department of Conservation. (n.d.). COA_Forest_and_Woodland_Conservation_Opportunity_Areas [Data set]. Comprehensive Conservation Strategy (CCS) map service. Missouri Department of Conservation. https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/2",
+  "source": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/2",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf"
+   }
+  ]
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/glade-coa/stac-collection.json",
+  "sci:citation": "Missouri Department of Conservation. (n.d.). COA_Glade_Conservation_Opportunity_Areas [Data set]. Comprehensive Conservation Strategy (CCS) map service. Missouri Department of Conservation. https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/1",
+  "source": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/1",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf"
+   }
+  ]
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/grassland-prairie-savanna-coa/stac-collection.json",
+  "sci:citation": "Missouri Department of Conservation. (n.d.). COA_Grassland_Prairie_Savanna_Conservation_Opportunity_Areas [Data set]. Comprehensive Conservation Strategy (CCS) map service. Missouri Department of Conservation. https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/0",
+  "source": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/0",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf"
+   }
+  ]
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/priority-geographies/stac-collection.json",
+  "sci:citation": "Missouri Department of Conservation. (n.d.). Priority_Geographies [Data set]. Comprehensive Conservation Strategy (CCS) map service. Missouri Department of Conservation. https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/7",
+  "source": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/7",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf"
+   }
+  ]
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/stream-reach-coa/stac-collection.json",
+  "sci:citation": "Missouri Department of Conservation. (n.d.). COA_Stream_Reach_Conservation_Opportunity_Areas [Data set]. Comprehensive Conservation Strategy (CCS) map service. Missouri Department of Conservation. https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/5",
+  "source": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/5",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf"
+   }
+  ]
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/wetland-coa/stac-collection.json",
+  "sci:citation": "Missouri Department of Conservation. (n.d.). COA_Wetland_Conservation_Opportunity_Areas [Data set]. Comprehensive Conservation Strategy (CCS) map service. Missouri Department of Conservation. https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/6",
+  "source": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer/6",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf"
+   }
+  ]
+ },
+ {
+  "collection": "public-tpl/conservation-almanac-2024-sites/stac-collection.json",
+  "sci:citation": "Trust for Public Land, Conservation Almanac, 2024, www.conservationalmanac.org.",
+  "source": "https://conservationalmanac.org/about/"
+ },
+ {
+  "collection": "public-tpl/conservation-almanac-2024-funding/stac-collection.json",
+  "sci:citation": "Trust for Public Land, Conservation Almanac, 2024, www.conservationalmanac.org.",
+  "source": "https://conservationalmanac.org/about/"
+ },
+ {
+  "collection": "public-tpl/landvote/stac-collection.json",
+  "sci:citation": "Trust for Public Land. (n.d.). LandVote [Database]. Trust for Public Land. https://www.landvote.org",
+  "source": "https://tpl.quickbase.com/db/bbqna2qct?a=dbpage&pageID=8",
+  "constructed": true
+ },
+ {
+  "collection": "public-tpl/wcb-approved-projects/stac-collection.json",
+  "sci:citation": "Wildlife Conservation Board. (n.d.). Wildlife Conservation Board (WCB) Approved Projects [ds672]. Calif. Dept. of Fish and Wildlife. Biogeographic Information and Observation System (BIOS). Retrieved April 29, 2026 from https://data-cdfw.opendata.arcgis.com/datasets/CDFW::wildlife-conservation-board-wcb-approved-projects-ds672-1",
+  "source": "https://wildlife.ca.gov/Data/BIOS/Citing-BIOS",
+  "constructed": true
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/parks/stac-collection.json",
+  "sci:citation": "Trust for Public Land. (2026). ParkServe [Database]. Land and People Lab. tpl.org/parkserve",
+  "source": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf"
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/service-areas/stac-collection.json",
+  "sci:citation": "Trust for Public Land. (2026). ParkServe [Database]. Land and People Lab. tpl.org/parkserve",
+  "source": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf"
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/places/stac-collection.json",
+  "sci:citation": "Trust for Public Land. (2026). ParkServe [Database]. Land and People Lab. tpl.org/parkserve",
+  "source": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf"
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/urban-areas/stac-collection.json",
+  "sci:citation": "Trust for Public Land. (2026). ParkServe [Database]. Land and People Lab. tpl.org/parkserve",
+  "source": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf"
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/priority-areas-place/stac-collection.json",
+  "sci:citation": "Trust for Public Land. (2026). ParkServe [Database]. Land and People Lab. tpl.org/parkserve",
+  "source": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf"
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/priority-areas-urban-area/stac-collection.json",
+  "sci:citation": "Trust for Public Land. (2026). ParkServe [Database]. Land and People Lab. tpl.org/parkserve",
+  "source": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf"
+ },
+ {
+  "collection": "public-tpl/parkserve-2025/parkscore/stac-collection.json",
+  "sci:citation": "Trust for Public Land. (2026). ParkServe [Database]. Land and People Lab. tpl.org/parkserve",
+  "source": "https://parkserve.tpl.org/downloads/ParkServe_Documentation_2026.pdf"
+ },
+ {
+  "collection": "public-blm/oil-gas-leases/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Oil and Gas Leases [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/ce26353f9cf74439b3619b5b410505e2",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/ce26353f9cf74439b3619b5b410505e2",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/mining-claims/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Mining Claims - Not Closed [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/abec5ef96dc8495d9c29a01b30cc04ee; U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Mining Claims-Closed (Past Year) [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/490428b37a254d958371ace41a812822",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/abec5ef96dc8495d9c29a01b30cc04ee",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/locatable-operations/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Locatable Notices [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/77fdce23b54d4e259e1d2735c639838c; U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Locatable Plans of Operations [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/2ba74f2e88934c988b80c3e6772ca099",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/77fdce23b54d4e259e1d2735c639838c",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/coal-cases/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Coal Cases [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/42fddf0138da4c46bc47ff470cb97776",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/42fddf0138da4c46bc47ff470cb97776",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/geothermal-leases/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Geothermal Leases [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/e4e45280f0624f6a98ae8b905ef83909",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/e4e45280f0624f6a98ae8b905ef83909",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/oil-shale-leases/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Oil Shale [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/2524f6ac5f3f494a96548e3f2e27801d",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/2524f6ac5f3f494a96548e3f2e27801d",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/non-energy-leasables/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Non-Energy Leasables [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/2ed600440881487ba85abc7ed18d59b8",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/2ed600440881487ba85abc7ed18d59b8",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/mineral-materials/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Mineral Materials [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/82a91df26a464a7794970f5b2abbef5b",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/82a91df26a464a7794970f5b2abbef5b",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/oil-gas-agreements/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Oil and Gas Agreements [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/fded2111af924d6abcf4eabaebef2c35",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/fded2111af924d6abcf4eabaebef2c35",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/oil-gas-participating-areas/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Oil and Gas Participating Areas [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/a37aebd0a5fa49e8968be82db353ac11",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/a37aebd0a5fa49e8968be82db353ac11",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/lua-leases-permits-easements/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Land Use Authorization- Leases-Permits-Easements [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/db7617e39e6a451d827125391cadb9f1",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/db7617e39e6a451d827125391cadb9f1",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/lua-row/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Land Use Authorization- Rights of Way ROW [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/d7aa622b202c49e1a74f269a37dbfc4d",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/d7aa622b202c49e1a74f269a37dbfc4d",
+  "constructed": true
+ },
+ {
+  "collection": "public-blm/acquisitions/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl MLRS Acquisitions [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/c4b06cabe5024e2d9c53a45355db6ef4",
+  "source": "https://gbp-blm-egis.hub.arcgis.com/datasets/c4b06cabe5024e2d9c53a45355db6ef4",
+  "constructed": true
+ },
+ {
+  "collection": "public-usfs/roadless-areas-2001/stac-collection.json",
+  "sci:citation": "USDA Forest Service, Geospatial Service and Technology Center. (2023). Roadless Areas: 2001 Roadless Rule (S_USA.RoadlessArea_2001) [Data set]. USDA Forest Service Enterprise Data Warehouse. https://data.fs.usda.gov/geodata/edw/datasets.php",
+  "source": "https://data.fs.usda.gov/geodata/edw/edw_resources/meta/S_USA.RoadlessArea_2001.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usfs/nfs-surface-ownership/stac-collection.json",
+  "sci:citation": "USDA Forest Service, Automated Lands Program. (2025). Surface Ownership Parcels, detailed (S_USA.SurfaceOwnership) [Data set]. USDA Forest Service Enterprise Data Warehouse. https://data.fs.usda.gov/geodata/edw/datasets.php",
+  "source": "https://data.fs.usda.gov/geodata/edw/edw_resources/meta/S_USA.SurfaceOwnership.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usfs/administrative-forest/stac-collection.json",
+  "sci:citation": "USDA Forest Service, Automated Lands Program. (2025). Administrative Forest Boundaries (S_USA.AdministrativeForest) [Data set]. USDA Forest Service Enterprise Data Warehouse. https://data.fs.usda.gov/geodata/edw/datasets.php",
+  "source": "https://data.fs.usda.gov/geodata/edw/edw_resources/meta/S_USA.AdministrativeForest.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usfs/proclaimed-forest/stac-collection.json",
+  "sci:citation": "USDA Forest Service, Automated Lands Program. (2025). Original Proclaimed National Forests (S_USA.ProclaimedForest) [Data set]. USDA Forest Service Enterprise Data Warehouse. https://data.fs.usda.gov/geodata/edw/datasets.php",
+  "source": "https://data.fs.usda.gov/geodata/edw/edw_resources/meta/S_USA.ProclaimedForest.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usfs/ranger-district/stac-collection.json",
+  "sci:citation": "USDA Forest Service, Automated Lands Program. (2025). Ranger District Boundaries (S_USA.RangerDistrict) [Data set]. USDA Forest Service Enterprise Data Warehouse. https://data.fs.usda.gov/geodata/edw/datasets.php",
+  "source": "https://data.fs.usda.gov/geodata/edw/edw_resources/meta/S_USA.RangerDistrict.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usfs/roadcore-fs/stac-collection.json",
+  "sci:citation": "USDA Forest Service. (2025). National Forest System Roads (S_USA.RoadCore_FS) [Data set]. USDA Forest Service Enterprise Data Warehouse. https://data.fs.usda.gov/geodata/edw/datasets.php",
+  "source": "https://data.fs.usda.gov/geodata/edw/edw_resources/meta/S_USA.RoadCore_FS.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usfs/ira-road-proximity/stac-collection.json",
+  "sci:citation": "Boettiger Lab. (2026). Roadless Area road-proximity acreage by distance, road stratum and denominator [Data set]. https://s3-west.nrp-nautilus.io/public-usfs/ira-road-proximity/stac-collection.json",
+  "source": "https://s3-west.nrp-nautilus.io/public-usfs/ira-road-proximity/stac-collection.json",
+  "constructed": true
+ },
+ {
+  "collection": "public-usfws/critical-habitat/final/stac-collection.json",
+  "sci:citation": "U.S. Fish and Wildlife Service. (2026). FWS HQ ES Critical Habitat [Data set]. https://gis-fws.opendata.arcgis.com/maps/794de45b9d774d21aed3bf9b5313ee24",
+  "source": "https://www.arcgis.com/home/item.html?id=794de45b9d774d21aed3bf9b5313ee24",
+  "constructed": true,
+  "set_title": "USFWS Critical Habitat — Final (Polygon Features)"
+ },
+ {
+  "collection": "public-usfws/critical-habitat/proposed/stac-collection.json",
+  "sci:citation": "U.S. Fish and Wildlife Service. (2026). FWS HQ ES Critical Habitat [Data set]. https://gis-fws.opendata.arcgis.com/maps/794de45b9d774d21aed3bf9b5313ee24",
+  "source": "https://www.arcgis.com/home/item.html?id=794de45b9d774d21aed3bf9b5313ee24",
+  "constructed": true,
+  "set_title": "USFWS Critical Habitat — Proposed (Polygon Features)"
+ },
+ {
+  "collection": "public-utah/ugs-mineral-occurrences/stac-collection.json",
+  "sci:citation": "Utah Geological Survey. (2026). Utah Mineral Occurrence System (UMOS): Mineral Occurrences [Data set]. https://webmaps.geology.utah.gov/arcgis/rest/services/Energy_Mineral/UMOS/MapServer/0",
+  "source": "https://webmaps.geology.utah.gov/arcgis/rest/services/Energy_Mineral/UMOS/MapServer/0",
+  "constructed": true
+ },
+ {
+  "collection": "public-utah/coal-deposits/stac-collection.json",
+  "sci:citation": "Utah Geospatial Resource Center. (1988). Utah Coal Deposit Areas 1988 [Data set]. Utah State Geographic Information Database (SGID). https://gis.utah.gov/products/sgid/energy/coal/",
+  "source": "https://gis.utah.gov/products/sgid/energy/coal/",
+  "constructed": true
+ },
+ {
+  "collection": "public-utah/udogm/stac-collection.json",
+  "sci:citation": "Utah Department of Natural Resources, Division of Oil, Gas and Mining. (2026). Utah Oil and Gas Fields [Data set]. https://services.arcgis.com/ZzrwjTRez6FJiOq4/arcgis/rest/services/Oil_and_Gas_Fields/FeatureServer; Utah Department of Natural Resources, Division of Oil, Gas and Mining. (2026). Coalpermit [Data set]. https://services.arcgis.com/ZzrwjTRez6FJiOq4/arcgis/rest/services/Coalpermit/FeatureServer; Utah Department of Natural Resources, Division of Oil, Gas and Mining. (2026). Minerals Permits View Layer [Data set]. https://services.arcgis.com/ZzrwjTRez6FJiOq4/arcgis/rest/services/Minerals_Permits_View_Layer/FeatureServer; Utah Division of Oil, Gas and Mining & Utah School and Institutional Trust Lands Administration. (2026). Energy_Wells_DOGM [Data set]. https://gis.trustlands.utah.gov/mapping/rest/services/Energy_Wells_DOGM/FeatureServer",
+  "source": "https://www.arcgis.com/home/item.html?id=5bb6d8d0ea7440568764dc5a28418be8",
+  "constructed": true
+ },
+ {
+  "collection": "public-parks/park-access-2020/tract-acres-per-thousand/stac-collection.json",
+  "sci:citation": "California Department of Parks and Recreation, Office of Grants and Local Services. (2020). Park Access Tool (2020 version) [Data set]. Parks for All Californians. https://www.parksforcalifornia.org/parkaccess/",
+  "source": "https://www.parksforcalifornia.org/parkaccess/",
+  "constructed": true
+ },
+ {
+  "collection": "public-parks/park-access-2020/no-park-access/stac-collection.json",
+  "sci:citation": "California Department of Parks and Recreation, Office of Grants and Local Services. (2020). Park Access Tool (2020 version) [Data set]. Parks for All Californians. https://www.parksforcalifornia.org/parkaccess/",
+  "source": "https://www.parksforcalifornia.org/parkaccess/",
+  "constructed": true
+ },
+ {
+  "collection": "public-parks/park-access-2020/half-mile-access/stac-collection.json",
+  "sci:citation": "California Department of Parks and Recreation, Office of Grants and Local Services. (2020). Park Access Tool (2020 version) [Data set]. Parks for All Californians. https://www.parksforcalifornia.org/parkaccess/",
+  "source": "https://www.parksforcalifornia.org/parkaccess/",
+  "constructed": true
+ },
+ {
+  "collection": "public-trails/federal-trails-2026/stac-collection.json",
+  "sci:citation": "USDA Forest Service. (2025). National Forest System Trails (S_USA.TrailNFS_Publish) [Data set]. USDA Forest Service Enterprise Data Warehouse. https://data.fs.usda.gov/geodata/edw/datasets.php; National Park Service. (2026). NPS Public Trails [Data set]. https://mapservices.nps.gov/arcgis/rest/services/NationalDatasets/NPS_Public_Trails_Geographic/FeatureServer/0; U.S. Department of the Interior, Bureau of Land Management. (2026). BLM Natl GTLF Public Managed Trails [Data set]. https://gbp-blm-egis.hub.arcgis.com/datasets/974363b4f22244d49350753f8fb5af32",
+  "source": "https://data.fs.usda.gov/geodata/edw/edw_resources/meta/S_USA.TrailNFS_Publish.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-facts/common-attributes-2026-06/stac-collection.json",
+  "sci:citation": "USDA Forest Service. (2026). FACTS Common Attributes, Regions 01-10 (Actv_CommonAttribute_PL) [Data set]. USDA Forest Service Enterprise Data Warehouse. https://data.fs.usda.gov/geodata/edw/datasets.php?xmlKeyword=FACTS",
+  "source": "https://data.fs.usda.gov/geodata/edw/datasets.php?xmlKeyword=FACTS",
+  "constructed": true
+ },
+ {
+  "collection": "public-globio/globio-msa-2015-overall/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-2015-plants/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-2015-wbvert/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-ssp1rcp26-2050-overall/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-ssp1rcp26-2050-plants/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-ssp1rcp26-2050-wbvert/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-ssp3rcp60-2050-overall/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-ssp3rcp60-2050-plants/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-ssp3rcp60-2050-wbvert/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-ssp5rcp85-2050-overall/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-ssp5rcp85-2050-plants/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-globio/globio-msa-ssp5rcp85-2050-wbvert/stac-collection.json",
+  "sci:citation": "Schipper, AM, Hilbers, JP, Meijer, JR, et al. Projecting terrestrial biodiversity intactness with GLOBIO 4. Glob Change Biol. 2020; 26: 760–771. https://doi.org/10.1111/gcb.14848",
+  "source": "https://www.globio.info/globio-data-downloads",
+  "sci:publications": [
+   {
+    "citation": "Schipper, A. M., Hilbers, J. P., Meijer, J. R., Antão, L. H., Benítez-López, A., de Jonge, M. M. J., Leemans, L. H., Scheper, E., Alkemade, R., Doelman, J. C., Mylius, S., Stehfest, E., van Vuuren, D. P., van Zeist, W.-J., & Huijbregts, M. A. J. (2020). Projecting terrestrial biodiversity intactness with GLOBIO 4. Global Change Biology, 26(2), 760–771.",
+    "doi": "10.1111/gcb.14848"
+   }
+  ]
+ },
+ {
+  "collection": "public-iucn/stac-collection.json",
+  "sci:citation": "IUCN. 2025. The IUCN Red List of Threatened Species. Version 2025-2. https://www.iucnredlist.org.",
+  "source": "https://www.iucnredlist.org/resources/other-spatial-downloads"
+ },
+ {
+  "collection": "public-iucn/taxonomy/stac-collection.json",
+  "sci:citation": "IUCN. 2025. The IUCN Red List of Threatened Species. Version 2025-2. https://www.iucnredlist.org.",
+  "source": "https://www.iucnredlist.org/about/citationinfo"
+ },
+ {
+  "collection": "public-iucn/iucn-ranges-2025/stac-collection.json",
+  "sci:citation": "IUCN 2025. The IUCN Red List of Threatened Species. Version 2025-2. https://www.iucnredlist.org.; BirdLife International and Handbook of the Birds of the World (2025) Bird species distribution maps of the world. Version 2025.2. Available at http://datazone.birdlife.org/species/requestdis.",
+  "source": "https://s3-west.nrp-nautilus.io/public-iucn/raw/ranges/METADATA_for_Digital_Distribution_Maps_of_The_IUCN_Red_List_of_Threatened_Species_v6_3.pdf"
+ },
+ {
+  "collection": "public-wdpa/wdpa/stac-collection.json",
+  "sci:citation": "UNEP-WCMC and IUCN (2026), Protected Planet: The World Database on Protected and Conserved Areas (WDPCA) [On-line], June 2026, Cambridge, UK: UNEP-WCMC and IUCN. Available at: www.protectedplanet.net.",
+  "source": "https://www.protectedplanet.net/en/legal"
+ },
+ {
+  "collection": "public-high-seas/iho/stac-collection.json",
+  "sci:citation": "Flanders Marine Institute (2023). Maritime Boundaries Geodatabase: Maritime Boundaries and Exclusive Economic Zones (200NM), version 12. Available online at https://www.marineregions.org/. https://doi.org/10.14284/632; Flanders Marine Institute (2024). Maritime Boundaries Geodatabase: High Seas, version 2. Available online at https://www.marineregions.org/. https://doi.org/10.14284/696",
+  "source": "https://www.marineregions.org/sources.php",
+  "sci:doi": "10.14284/632"
+ },
+ {
+  "collection": "public-high-seas/meow/stac-collection.json",
+  "sci:citation": "The Nature Conservancy. Spalding MD, Fox HE, Allen GR, Davidson N, Ferdaña ZA, Finlayson M, Halpern BS, Jorge MA, Lombana A, Lourie SA, Martin KD, McManus E, Molnar J, Recchia CA, Robertson J (2007) Marine Ecoregions of the World: a bioregionalization of coast and shelf areas. BioScience 57: 573-583.",
+  "source": "https://www.arcgis.com/home/item.html?id=903c3ae05b264c00a3b5e58a4561b7e6",
+  "sci:publications": [
+   {
+    "citation": "Spalding, M. D., Fox, H. E., Allen, G. R., Davidson, N., Ferdaña, Z. A., Finlayson, M., Halpern, B. S., Jorge, M. A., Lombana, A., Lourie, S. A., Martin, K. D., McManus, E., Molnar, J., Recchia, C. A., & Robertson, J. (2007). Marine Ecoregions of the World: A Bioregionalization of Coastal and Shelf Areas. BioScience, 57(7), 573–583.",
+    "doi": "10.1641/B570707"
+   }
+  ]
+ },
+ {
+  "collection": "public-high-seas/rfmo/stac-collection.json",
+  "sci:citation": "FAO. RFB area of competence (fifao:RFB_COMP) [Data set]. Food and Agriculture Organization of the United Nations. https://www.fao.org/fishery/geoserver/fifao/ows; FAO. Vulnerable Marine Ecosystems (VME) Database: VME closures [Data set]. Food and Agriculture Organization of the United Nations. https://www.fao.org/fishery/geoserver/vme/ows",
+  "source": "https://www.fao.org/fishery/geoserver/fifao/ows?service=WFS&request=GetCapabilities",
+  "constructed": true
+ },
+ {
+  "collection": "public-high-seas/ebsa/stac-collection.json",
+  "sci:citation": "Secretariat of the Convention on Biological Diversity. Global Ecologically or Biologically Significant Marine Areas (EBSAs) [Data set]. https://www.cbd.int/ebsa/",
+  "source": "https://www.cbd.int/ebsa/",
+  "constructed": true
+ },
+ {
+  "collection": "public-high-seas/longhurst/stac-collection.json",
+  "sci:citation": "Flanders Marine Institute (2009). Longhurst Provinces. Available online at https://www.marineregions.org/.",
+  "source": "https://www.marineregions.org/sources.php",
+  "sci:publications": [
+   {
+    "citation": "Longhurst, A.R. (2006). Ecological Geography of the Sea. 2nd Edition. Academic Press, San Diego, 560p."
+   }
+  ]
+ },
+ {
+  "collection": "public-high-seas/imma/stac-collection.json",
+  "sci:citation": "IUCN MMPATF (2025) Global Dataset of Important Marine Mammal Areas (IUCN IMMA). December 2025. Made available under agreement on terms and conditions of use by the IUCN Joint SSC/WCPA Marine Mammal Protected Areas Task Force and accessible via the IMMA e-Atlas https://marinemammalhabitat.org/imma-eatlas/",
+  "source": "https://s3-west.nrp-nautilus.io/public-high-seas/raw/imma/IUCN-IMMA%20Metadata%20Standard.txt"
+ },
+ {
+  "collection": "public-high-seas/ebsa-2023/stac-collection.json",
+  "sci:citation": "Secretariat of the Convention on Biological Diversity. (2023). Global Ecologically or Biologically Significant Marine Areas (EBSAs), 336 sites (Global_EBSAs_Automated_Final_2023_0222) [Data set]. https://www.cbd.int/ebsa/",
+  "source": "https://www.cbd.int/ebsa/",
+  "constructed": true
+ },
+ {
+  "collection": "public-icca/icca-registry/icca-polygon/stac-collection.json",
+  "sci:citation": "UNEP-WCMC (2026), ICCA Registry [On-line], May 2026, Cambridge, UK: UNEP-WCMC. Available at: www.iccaregistry.org.",
+  "source": "https://www.iccaregistry.org/en/terms-conditions"
+ },
+ {
+  "collection": "public-icca/icca-registry/icca-point/stac-collection.json",
+  "sci:citation": "UNEP-WCMC (2026), ICCA Registry [On-line], May 2026, Cambridge, UK: UNEP-WCMC. Available at: www.iccaregistry.org.",
+  "source": "https://www.iccaregistry.org/en/terms-conditions"
+ },
+ {
+  "collection": "public-indigenous/landmark/iplc-poly-stac.json",
+  "sci:citation": "LandMark. 2024. LandMark: The Global Platform of Indigenous and Community Lands. Available at: http://www.landmarkmap.org",
+  "source": "https://landmarkmap.zendesk.com/hc/en-us/articles/26706286740625-How-do-I-use-LandMark-data-in-my-research"
+ },
+ {
+  "collection": "public-indigenous/landmark/iplc-pt-stac.json",
+  "sci:citation": "LandMark. 2024. LandMark: The Global Platform of Indigenous and Community Lands. Available at: http://www.landmarkmap.org",
+  "source": "https://landmarkmap.zendesk.com/hc/en-us/articles/26706286740625-How-do-I-use-LandMark-data-in-my-research"
+ },
+ {
+  "collection": "public-indigenous/landmark/indicative-poly-stac.json",
+  "sci:citation": "LandMark. 2024. LandMark: The Global Platform of Indigenous and Community Lands. Available at: http://www.landmarkmap.org",
+  "source": "https://landmarkmap.zendesk.com/hc/en-us/articles/26706286740625-How-do-I-use-LandMark-data-in-my-research"
+ },
+ {
+  "collection": "public-indigenous/landmark/indicative-pt-stac.json",
+  "sci:citation": "LandMark. 2024. LandMark: The Global Platform of Indigenous and Community Lands. Available at: http://www.landmarkmap.org",
+  "source": "https://landmarkmap.zendesk.com/hc/en-us/articles/26706286740625-How-do-I-use-LandMark-data-in-my-research"
+ },
+ {
+  "collection": "public-gfw/stac-collection.json",
+  "sci:citation": "Global Fishing Watch. (2025). Global AIS-based Apparent Fishing Effort Dataset (Version 3.0.0) [Data set]. Global Fishing Watch. https://doi.org/10.5281/zenodo.14982712",
+  "source": "https://zenodo.org/records/14982712",
+  "sci:doi": "10.5281/zenodo.14982712",
+  "sci:publications": [
+   {
+    "citation": "Kroodsma, D. A., Mayorga, J., Hochberg, T., Miller, N. A., Boerder, K., Ferretti, F., Wilson, A., Bergman, B., White, T. D., Block, B. A., Woods, P., Sullivan, B., Costello, C., & Worm, B. (2018). Tracking the global footprint of fisheries. Science, 359(6378), 904–908.",
+    "doi": "10.1126/science.aao5646"
+   }
+  ]
+ },
+ {
+  "collection": "public-inat/stac-collection.json",
+  "sci:citation": "iNaturalist. (2025). iNaturalist Open Range Map Dataset. Available at: https://www.inaturalist.org.",
+  "source": "https://www.inaturalist.org/pages/range_maps",
+  "sci:publications": [
+   {
+    "citation": "Cole E, Van Horn G, Lange C, Shepard A, Leary P, Perona P, Loarie S, Mac Aodha O. (2023). Spatial implicit neural representations for global-scale species mapping. International Conference on Machine Learning. PMLR.",
+    "doi": "10.48550/arXiv.2306.02564"
+   }
+  ]
+ },
+ {
+  "collection": "public-nci-frontiers/stac-collection.json",
+  "sci:citation": "Hawthorne, P., Chaplin-Kramer, R., Smith, J., Gerber, J., Mamun, S., Vogl, A., Kowal, V., Wolny, S., Ray, D., West, P., Castonguay, A., Chang, J., Holden, M., McDonald-Madden, E., Schmitt, R., Madden, I., & Polasky, S. (2026). Input data from: Landscape efficiency frontiers for biodiversity, climate mitigation and net economic value (Version 8) [Data set]. Dryad. https://doi.org/10.5061/dryad.qjq2bvqw5",
+  "source": "https://doi.org/10.5061/dryad.qjq2bvqw5",
+  "sci:doi": "10.5061/dryad.qjq2bvqw5",
+  "sci:publications": [
+   {
+    "citation": "Polasky, S., Hawthorne, P. L., Chaplin-Kramer, R., Smith, J., Gerber, J. S., Mamun, S., Ruckelshaus, M., Russ, J., Schmitt, R., Vogl, A. L., Castonguay, A. C., Douglass, J., Kowal, V., Madden, I., Sharp, R., Sohngen, B., Chang, J., Daily, G., Heger, M. P., et al. (2026). Landscape efficiency frontiers for biodiversity, climate mitigation, and net economic value. Science, 392(6802), 1069–1074.",
+    "doi": "10.1126/science.aea9058"
+   }
+  ]
+ },
+ {
+  "collection": "public-hydrobasins/stac-collection.json",
+  "sci:citation": "Lehner, B., Grill G. (2013): Global river hydrography and network routing: baseline data and new approaches to study the world’s large river systems. Hydrological Processes, 27(15): 2171–2186. Data is available at www.hydrosheds.org.",
+  "source": "https://data.hydrosheds.org/file/technical-documentation/HydroBASINS_TechDoc_v1c.pdf",
+  "sci:publications": [
+   {
+    "citation": "Lehner, B., Grill G. (2013). Global river hydrography and network routing: baseline data and new approaches to study the world's large river systems. Hydrological Processes, 27(15): 2171–2186.",
+    "doi": "10.1002/hyp.9740"
+   }
+  ]
+ },
+ {
+  "collection": "public-ncp/biodiversity-indicators/stac-collection.json",
+  "sci:citation": "Chaplin-Kramer, R., Sharp, R. P., Weil, C., Bennett, E. M., Pascual, U., Arkema, K. K., Brauman, K. A., Bryant, B. P., Guerry, A. D., Haddad, N. M., Hamann, M., Hamel, P., Johnson, J. A., Mandle, L., Pereira, H. M., Polasky, S., Ruckelshaus, M., Shaw, M. R., Silver, J. M., et al. (2019). Global modeling of nature’s contributions to people. Science, 366(6462), 255–258. https://doi.org/10.1126/science.aaw3372",
+  "source": "https://doi.org/10.1126/science.aaw3372",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Chaplin-Kramer, R., Sharp, R. P., Weil, C., Bennett, E. M., Pascual, U., Arkema, K. K., Brauman, K. A., Bryant, B. P., Guerry, A. D., Haddad, N. M., Hamann, M., Hamel, P., Johnson, J. A., Mandle, L., Pereira, H. M., Polasky, S., Ruckelshaus, M., Shaw, M. R., Silver, J. M., et al. (2019). Global modeling of nature's contributions to people. Science, 366(6462), 255–258.",
+    "doi": "10.1126/science.aaw3372"
+   }
+  ]
+ },
+ {
+  "collection": "public-wetlands/ramsar/stac-collection.json",
+  "sci:citation": "Ramsar Convention Secretariat. Ramsar Sites Information Service (RSIS) [Data set]. https://rsis.ramsar.org/",
+  "source": "https://rsis.ramsar.org/",
+  "constructed": true
+ },
+ {
+  "collection": "public-census/census-2024/state/stac-collection.json",
+  "sci:citation": "U.S. Census Bureau, \"tl_2024_us_state,\" TIGER/Line Shapefiles, 2024, <https://www2.census.gov/geo/tiger/TIGER2024/STATE/>.",
+  "source": "https://www.census.gov/about/policies/citation.html",
+  "constructed": true
+ },
+ {
+  "collection": "public-census/census-2024/county/stac-collection.json",
+  "sci:citation": "U.S. Census Bureau, \"tl_2024_us_county,\" TIGER/Line Shapefiles, 2024, <https://www2.census.gov/geo/tiger/TIGER2024/COUNTY/>.",
+  "source": "https://www.census.gov/about/policies/citation.html",
+  "constructed": true
+ },
+ {
+  "collection": "public-census/census-2024/tract/stac-collection.json",
+  "sci:citation": "U.S. Census Bureau, \"tl_2024_[state FIPS]_tract (per-state files),\" TIGER/Line Shapefiles, 2024, <https://www2.census.gov/geo/tiger/TIGER2024/TRACT/>.",
+  "source": "https://www.census.gov/about/policies/citation.html",
+  "constructed": true
+ },
+ {
+  "collection": "public-census/census-2024/cd/stac-collection.json",
+  "sci:citation": "U.S. Census Bureau, \"tl_2024_[state FIPS]_cd119 (per-state files),\" TIGER/Line Shapefiles, 2024, <https://www2.census.gov/geo/tiger/TIGER2024/CD/>.",
+  "source": "https://www.census.gov/about/policies/citation.html",
+  "constructed": true
+ },
+ {
+  "collection": "public-census/census-2024/place/stac-collection.json",
+  "sci:citation": "U.S. Census Bureau, \"tl_2024_[state FIPS]_place (per-state files),\" TIGER/Line Shapefiles, 2024, <https://www2.census.gov/geo/tiger/TIGER2024/PLACE/>.",
+  "source": "https://www.census.gov/about/policies/citation.html",
+  "constructed": true
+ },
+ {
+  "collection": "public-census/census-2025/sldl/stac-collection.json",
+  "sci:citation": "U.S. Census Bureau, \"tl_2025_[state FIPS]_sldl (per-state files),\" TIGER/Line Shapefiles, 2025, <https://www2.census.gov/geo/tiger/TIGER2025/SLDL/>.",
+  "source": "https://www.census.gov/about/policies/citation.html",
+  "constructed": true
+ },
+ {
+  "collection": "public-census/census-2025/sldu/stac-collection.json",
+  "sci:citation": "U.S. Census Bureau, \"tl_2025_[state FIPS]_sldu (per-state files),\" TIGER/Line Shapefiles, 2025, <https://www2.census.gov/geo/tiger/TIGER2025/SLDU/>.",
+  "source": "https://www.census.gov/about/policies/citation.html",
+  "constructed": true
+ },
+ {
+  "collection": "public-census/acs-2020-2024/blockgroup/stac-collection.json",
+  "sci:citation": "U.S. Census Bureau, \"American Community Survey 5-Year Estimates: Table-Based Summary File,\" 2020-2024, <https://www2.census.gov/programs-surveys/acs/summary_file/2024/table-based-SF/>; U.S. Census Bureau, \"tl_2024_[state FIPS]_bg (per-state files),\" TIGER/Line Shapefiles, 2024, <https://www2.census.gov/geo/tiger/TIGER2024/BG/>.",
+  "source": "https://www.census.gov/about/policies/citation.html",
+  "constructed": true
+ },
+ {
+  "collection": "public-census/census-2025/roads/stac-collection.json",
+  "sci:citation": "U.S. Census Bureau, \"tl_2025_[county FIPS]_roads (per-county files),\" TIGER/Line Shapefiles, 2025, <https://www2.census.gov/geo/tiger/TIGER2025/ROADS/>.",
+  "source": "https://www.census.gov/about/policies/citation.html",
+  "constructed": true
+ },
+ {
+  "collection": "public-usgs-wbd/wbd/hu2/stac-collection.json",
+  "sci:citation": "U.S. Geological Survey (USGS), U.S. Department of Agriculture - Natural Resources Conservation Service (NRCS), and U.S. Environmental Protection Agency (EPA). (2025). USGS Watershed Boundary Dataset (WBD) - National (published 20250107) FileGDB [Data set]. U.S. Geological Survey. https://www.usgs.gov/national-hydrography/watershed-boundary-dataset",
+  "source": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/WBD/National/GDB/WBD_National_GDB.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usgs-wbd/wbd/hu4/stac-collection.json",
+  "sci:citation": "U.S. Geological Survey (USGS), U.S. Department of Agriculture - Natural Resources Conservation Service (NRCS), and U.S. Environmental Protection Agency (EPA). (2025). USGS Watershed Boundary Dataset (WBD) - National (published 20250107) FileGDB [Data set]. U.S. Geological Survey. https://www.usgs.gov/national-hydrography/watershed-boundary-dataset",
+  "source": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/WBD/National/GDB/WBD_National_GDB.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usgs-wbd/wbd/hu6/stac-collection.json",
+  "sci:citation": "U.S. Geological Survey (USGS), U.S. Department of Agriculture - Natural Resources Conservation Service (NRCS), and U.S. Environmental Protection Agency (EPA). (2025). USGS Watershed Boundary Dataset (WBD) - National (published 20250107) FileGDB [Data set]. U.S. Geological Survey. https://www.usgs.gov/national-hydrography/watershed-boundary-dataset",
+  "source": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/WBD/National/GDB/WBD_National_GDB.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usgs-wbd/wbd/hu8/stac-collection.json",
+  "sci:citation": "U.S. Geological Survey (USGS), U.S. Department of Agriculture - Natural Resources Conservation Service (NRCS), and U.S. Environmental Protection Agency (EPA). (2025). USGS Watershed Boundary Dataset (WBD) - National (published 20250107) FileGDB [Data set]. U.S. Geological Survey. https://www.usgs.gov/national-hydrography/watershed-boundary-dataset",
+  "source": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/WBD/National/GDB/WBD_National_GDB.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usgs-wbd/wbd/hu10/stac-collection.json",
+  "sci:citation": "U.S. Geological Survey (USGS), U.S. Department of Agriculture - Natural Resources Conservation Service (NRCS), and U.S. Environmental Protection Agency (EPA). (2025). USGS Watershed Boundary Dataset (WBD) - National (published 20250107) FileGDB [Data set]. U.S. Geological Survey. https://www.usgs.gov/national-hydrography/watershed-boundary-dataset",
+  "source": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/WBD/National/GDB/WBD_National_GDB.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usgs-wbd/wbd/hu12/stac-collection.json",
+  "sci:citation": "U.S. Geological Survey (USGS), U.S. Department of Agriculture - Natural Resources Conservation Service (NRCS), and U.S. Environmental Protection Agency (EPA). (2025). USGS Watershed Boundary Dataset (WBD) - National (published 20250107) FileGDB [Data set]. U.S. Geological Survey. https://www.usgs.gov/national-hydrography/watershed-boundary-dataset",
+  "source": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/WBD/National/GDB/WBD_National_GDB.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usgs-nhd/streams-by-order/stac-collection.json",
+  "sci:citation": "U.S. Geological Survey, National Geospatial Program. (2025). USGS National Hydrography Dataset Best Resolution (NHD) (published 20250918) FileGDB [Data set]. U.S. Geological Survey. https://www.usgs.gov/national-hydrography/national-hydrography-dataset",
+  "source": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/NHD/National/GDB/NHD_H_National_GDB.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usgs-nhd/perennial-streams/stac-collection.json",
+  "sci:citation": "U.S. Geological Survey, National Geospatial Program. (2025). USGS National Hydrography Dataset Best Resolution (NHD) (published 20250918) FileGDB [Data set]. U.S. Geological Survey. https://www.usgs.gov/national-hydrography/national-hydrography-dataset",
+  "source": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/NHD/National/GDB/NHD_H_National_GDB.xml",
+  "constructed": true
+ },
+ {
+  "collection": "public-usgs-nhd/nhdplus-hr/flowline/stac-collection.json",
+  "sci:citation": "U.S. Geological Survey, 2025, USGS National Hydrography Dataset Plus High Resolution National Release 2 FileGDB: U.S. Geological Survey, https://doi.org/10.5066/P13V7GVY.",
+  "source": "https://www.sciencebase.gov/catalog/item/679d39cbd34eb38981c9c7a5",
+  "sci:doi": "10.5066/P13V7GVY",
+  "sci:publications": [
+   {
+    "citation": "Moore, R.B., McKay, L.D., Rea, A.H., Bondelid, T.R., Price, C.V., Dewald, T.G., and Johnston, C.M., 2019, User's guide for the national hydrography dataset plus (NHDPlus) high resolution: U.S. Geological Survey Open-File Report 2019-1096.",
+    "doi": "10.3133/ofr20191096"
+   }
+  ]
+ },
+ {
+  "collection": "public-social-vulnerability/2000/stac-collection.json",
+  "sci:citation": "Centers for Disease Control and Prevention/ Agency for Toxic Substances and Disease Registry/ Geospatial Research, Analysis, and Services Program. CDC/ATSDR Social Vulnerability Index 2000 Database U.S. https://www.atsdr.cdc.gov/placeandhealth/svi/data_documentation_download.html",
+  "source": "https://www.atsdr.cdc.gov/place-health/php/svi/svi-data-documentation-download.html"
+ },
+ {
+  "collection": "public-social-vulnerability/2010/stac-collection.json",
+  "sci:citation": "Centers for Disease Control and Prevention/ Agency for Toxic Substances and Disease Registry/ Geospatial Research, Analysis, and Services Program. CDC/ATSDR Social Vulnerability Index 2010 Database U.S. https://www.atsdr.cdc.gov/placeandhealth/svi/data_documentation_download.html",
+  "source": "https://www.atsdr.cdc.gov/place-health/php/svi/svi-data-documentation-download.html"
+ },
+ {
+  "collection": "public-social-vulnerability/2020/stac-collection.json",
+  "sci:citation": "Centers for Disease Control and Prevention/ Agency for Toxic Substances and Disease Registry/ Geospatial Research, Analysis, and Services Program. CDC/ATSDR Social Vulnerability Index 2020 Database U.S. https://www.atsdr.cdc.gov/placeandhealth/svi/data_documentation_download.html",
+  "source": "https://www.atsdr.cdc.gov/place-health/php/svi/svi-data-documentation-download.html"
+ },
+ {
+  "collection": "public-social-vulnerability/2022/stac-collection.json",
+  "sci:citation": "Centers for Disease Control and Prevention/ Agency for Toxic Substances and Disease Registry/ Geospatial Research, Analysis, and Services Program. CDC/ATSDR Social Vulnerability Index 2022 Database U.S. https://www.atsdr.cdc.gov/placeandhealth/svi/data_documentation_download.html",
+  "source": "https://www.atsdr.cdc.gov/place-health/php/svi/svi-data-documentation-download.html"
+ },
+ {
+  "collection": "public-overturemaps/2026-02-18.0/countries/stac-collection.json",
+  "sci:citation": "© OpenStreetMap contributors, Overture Maps Foundation, overturemaps.org. Overture Maps release 2026-02-18.0, divisions theme.",
+  "source": "https://docs.overturemaps.org/attribution/",
+  "constructed": true
+ },
+ {
+  "collection": "public-overturemaps/2026-02-18.0/regions/stac-collection.json",
+  "sci:citation": "© OpenStreetMap contributors, Overture Maps Foundation, overturemaps.org. Overture Maps release 2026-02-18.0, divisions theme.",
+  "source": "https://docs.overturemaps.org/attribution/",
+  "constructed": true
+ },
+ {
+  "collection": "public-overturemaps/2026-02-18.0/counties/stac-collection.json",
+  "sci:citation": "© OpenStreetMap contributors, Overture Maps Foundation, overturemaps.org. Overture Maps release 2026-02-18.0, divisions theme.",
+  "source": "https://docs.overturemaps.org/attribution/",
+  "constructed": true
+ },
+ {
+  "collection": "public-epa-water/epa-sab-v3/cws/stac-collection.json",
+  "sci:citation": "U.S. Environmental Protection Agency, Office of Research and Development. (2026). Community Water System Service Area Boundaries (Version 3.0) [Data set]. U.S. Environmental Protection Agency. https://github.com/USEPA/ORD_SAB_Model",
+  "source": "https://github.com/USEPA/ORD_SAB_Model",
+  "constructed": true
+ },
+ {
+  "collection": "public-mappinginequality/stac-collection.json",
+  "sci:citation": "Nelson, R. K., Winling, L, et al. (2023). Mapping Inequality: Redlining in New Deal America. Digital Scholarship Lab. https://dsl.richmond.edu/panorama/redlining.",
+  "source": "https://dsl.richmond.edu/panorama/redlining/"
+ },
+ {
+  "collection": "public-usgs-ungulate-migration/ungulate-ranges/stac-collection.json",
+  "sci:citation": "Kauffman, M.J., Copeland, H.E., Cole, E., Cuzzocreo, M., Dewey, S., Fattebert, J., Gagnon, J., Gelzer, E., Graves, T.A., Hersey, K., Kaiser, R., Meacham, J., Merkle, J., Middleton, A., Nunez, T., Oates, B., Olson, D., Olson, L., Sawyer, H., Schroeder, C., Sprague, S., Steingisser, A., and Thonhoff, M., 2020, Ungulate Migrations of the Western United States, Volume 1: U.S. Geological Survey data release, https://doi.org/10.5066/P9O2YM6I. Kauffman, M.J., Lowrey, B., Beck, J., Berg, J., Bergen, S., Berger, J., Cain, J., Dewey, S., Diamond, J., Duvuvuei, O., Fattebert, J., Gagnon, J., Garcia, J., Greenspan, E., Hall, E., Harper, G., Harter, S., Hersey, K., Hnilicka, P., Hurley, M., Knox, L., Lawson, A., Maichak, E., Meacham, J., Merkle, J., Middleton, A., Olson, D., Olson, L., Reddell, C., Robb, B., Rozman, G., Sawyer, H., Schroeder, C., Scurlock, B., Short, J., Sprague, S., Steingisser, A., and Tatman, N., 2022, Ungulate Migrations of the Western United States, Volume 2: U.S. Geological Survey data release, https://doi.org/10.5066/P9TKA3L8. Kauffman, M.J., Lowrey, B., et al., 2022, Ungulate migrations of the western United States, Volume 3: U.S. Geological Survey data release, https://doi.org/10.5066/P9LSKEZQ. Kauffman, M.J., Lowrey, B., et al., 2024, Ungulate migrations of the western United States, volume 4: U.S. Geological Survey data release, https://doi.org/10.5066/P9SS9GD9. Kauffman, M., Lowrey, B., McKee, J.L., et al., 2025, Ungulate migrations of the Western United States, volume 5: U.S. Geological Survey data release, https://doi.org/10.5066/P1YJCCQA. Kauffman, M., Lowrey, B., McKee, J.L., et al., 2026, Ungulate migrations of the Western United States, volume 6: U.S. Geological Survey data release, https://doi.org/10.5066/P1ETBSYE.",
+  "source": "https://www.sciencebase.gov/catalog/item/66dee5dcd34eef5af66da144",
+  "sci:publications": [
+   {
+    "citation": "Kauffman, M.J., et al., 2020, Ungulate migrations of the western United States, Volume 1: U.S. Geological Survey Scientific Investigations Report 2020-5101.",
+    "doi": "10.3133/sir20205101"
+   },
+   {
+    "citation": "Kauffman, M.J., Lowrey, B., et al., 2022, Ungulate migrations of the western United States, volume 2: U.S. Geological Survey Scientific Investigations Report 2022-5008.",
+    "doi": "10.3133/sir20225008"
+   },
+   {
+    "citation": "Kauffman, M.J., Lowrey, B., et al., 2022, Ungulate migrations of the western United States, volume 3: U.S. Geological Survey Scientific Investigations Report 2022-5088.",
+    "doi": "10.3133/sir20225088"
+   },
+   {
+    "citation": "Kauffman, M.J., Lowrey, B., Beaupre, C.J., et al., 2024, Ungulate migrations of the Western United States, volume 4: U.S. Geological Survey Scientific Investigations Report 2024-5006.",
+    "doi": "10.3133/sir20245006"
+   },
+   {
+    "citation": "Kauffman, M.J., Lowrey, B., McKee, J.L., et al., 2025, Ungulate migrations of the Western United States, volume 5: U.S. Geological Survey Scientific Investigations Report 2024-5111.",
+    "doi": "10.3133/sir20245111"
+   },
+   {
+    "citation": "Kauffman, M.J., Lowrey, B., McKee, J.L., et al., 2026, Ungulate migrations of the Western United States, volume 6: U.S. Geological Survey Scientific Investigations Report 2026-5123.",
+    "doi": "10.3133/sir20265123"
+   }
+  ]
+ },
+ {
+  "collection": "public-usgs-ungulate-migration/ungulate-routes/stac-collection.json",
+  "sci:citation": "Kauffman, M.J., Copeland, H.E., Cole, E., Cuzzocreo, M., Dewey, S., Fattebert, J., Gagnon, J., Gelzer, E., Graves, T.A., Hersey, K., Kaiser, R., Meacham, J., Merkle, J., Middleton, A., Nunez, T., Oates, B., Olson, D., Olson, L., Sawyer, H., Schroeder, C., Sprague, S., Steingisser, A., and Thonhoff, M., 2020, Ungulate Migrations of the Western United States, Volume 1: U.S. Geological Survey data release, https://doi.org/10.5066/P9O2YM6I. Kauffman, M.J., Lowrey, B., Beck, J., Berg, J., Bergen, S., Berger, J., Cain, J., Dewey, S., Diamond, J., Duvuvuei, O., Fattebert, J., Gagnon, J., Garcia, J., Greenspan, E., Hall, E., Harper, G., Harter, S., Hersey, K., Hnilicka, P., Hurley, M., Knox, L., Lawson, A., Maichak, E., Meacham, J., Merkle, J., Middleton, A., Olson, D., Olson, L., Reddell, C., Robb, B., Rozman, G., Sawyer, H., Schroeder, C., Scurlock, B., Short, J., Sprague, S., Steingisser, A., and Tatman, N., 2022, Ungulate Migrations of the Western United States, Volume 2: U.S. Geological Survey data release, https://doi.org/10.5066/P9TKA3L8. Kauffman, M.J., Lowrey, B., et al., 2022, Ungulate migrations of the western United States, Volume 3: U.S. Geological Survey data release, https://doi.org/10.5066/P9LSKEZQ. Kauffman, M.J., Lowrey, B., et al., 2024, Ungulate migrations of the western United States, volume 4: U.S. Geological Survey data release, https://doi.org/10.5066/P9SS9GD9. Kauffman, M., Lowrey, B., McKee, J.L., et al., 2025, Ungulate migrations of the Western United States, volume 5: U.S. Geological Survey data release, https://doi.org/10.5066/P1YJCCQA. Kauffman, M., Lowrey, B., McKee, J.L., et al., 2026, Ungulate migrations of the Western United States, volume 6: U.S. Geological Survey data release, https://doi.org/10.5066/P1ETBSYE.",
+  "source": "https://www.sciencebase.gov/catalog/item/66dee5dcd34eef5af66da144",
+  "sci:publications": [
+   {
+    "citation": "Kauffman, M.J., et al., 2020, Ungulate migrations of the western United States, Volume 1: U.S. Geological Survey Scientific Investigations Report 2020-5101.",
+    "doi": "10.3133/sir20205101"
+   },
+   {
+    "citation": "Kauffman, M.J., Lowrey, B., et al., 2022, Ungulate migrations of the western United States, volume 2: U.S. Geological Survey Scientific Investigations Report 2022-5008.",
+    "doi": "10.3133/sir20225008"
+   },
+   {
+    "citation": "Kauffman, M.J., Lowrey, B., et al., 2022, Ungulate migrations of the western United States, volume 3: U.S. Geological Survey Scientific Investigations Report 2022-5088.",
+    "doi": "10.3133/sir20225088"
+   },
+   {
+    "citation": "Kauffman, M.J., Lowrey, B., Beaupre, C.J., et al., 2024, Ungulate migrations of the Western United States, volume 4: U.S. Geological Survey Scientific Investigations Report 2024-5006.",
+    "doi": "10.3133/sir20245006"
+   },
+   {
+    "citation": "Kauffman, M.J., Lowrey, B., McKee, J.L., et al., 2025, Ungulate migrations of the Western United States, volume 5: U.S. Geological Survey Scientific Investigations Report 2024-5111.",
+    "doi": "10.3133/sir20245111"
+   },
+   {
+    "citation": "Kauffman, M.J., Lowrey, B., McKee, J.L., et al., 2026, Ungulate migrations of the Western United States, volume 6: U.S. Geological Survey Scientific Investigations Report 2026-5123.",
+    "doi": "10.3133/sir20265123"
+   }
+  ]
+ },
+ {
+  "collection": "public-hazard/sea-level-rise/stac-collection.json",
+  "sci:citation": "Office for Coastal Management, 2026: NOAA Office for Coastal Management Sea Level Rise Data: 1-10 ft Sea Level Rise Inundation Extent [InPort metadata record], https://www.fisheries.noaa.gov/inport/item/48106.",
+  "source": "https://www.fisheries.noaa.gov/inport/item/48106/citation"
+ },
+ {
+  "collection": "public-hazard/flood-hazard/stac-collection.json",
+  "sci:citation": "Federal Emergency Management Agency (FEMA). (2026). National Flood Hazard Layer (NFHL), S_FLD_HAZ_AR flood hazard zones from effective county FIRM products [Data set]. FEMA. https://www.fema.gov/flood-maps/national-flood-hazard-layer",
+  "source": "https://www.fema.gov/flood-maps/national-flood-hazard-layer",
+  "constructed": true
+ },
+ {
+  "collection": "public-ca30x30/ecoregion/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife. (2024). ACE_Ecoregions_BaileyDerived_2024_Cnty19_1_LandWaterAgnostic [Data set]. ArcGIS Online. https://www.arcgis.com/home/item.html?id=9eda218cdd724a8a976ca4bbc2938658",
+  "source": "https://www.arcgis.com/home/item.html?id=9eda218cdd724a8a976ca4bbc2938658",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Cleland, D. T., Freeouf, J. A., Keys, J. E., Nowacki, G. J., Carpenter, C. A., & McNab, W. H. (2007). Ecological Subregions: Sections and Subsections for the conterminous United States (Gen. Tech. Report WO-76D). U.S. Department of Agriculture, Forest Service.",
+    "doi": "10.2737/wo-gtr-76d"
+   }
+  ]
+ },
+ {
+  "collection": "public-ca30x30/groundwater-dependent-ecosystems/vegetation/stac-collection.json",
+  "sci:citation": "California Department of Water Resources, California Department of Fish and Wildlife, & The Nature Conservancy. (2018). Natural Communities Commonly Associated with Groundwater - Vegetation [ds2788] (Edition 1) [Data set]. California Department of Fish and Wildlife, Biogeographic Information and Observation System (BIOS). https://data.cnra.ca.gov/dataset/natural-communities-commonly-associated-with-groundwater",
+  "source": "https://data.cnra.ca.gov/dataset/natural-communities-commonly-associated-with-groundwater",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Klausmeyer, K., Howard J., Keeler-Wolf T., Davis-Fadtke K., Hull R., and Lyons A. (2018). Mapping Indicators of Groundwater dependent ecosystems in California"
+   }
+  ]
+ },
+ {
+  "collection": "public-ca30x30/groundwater-dependent-ecosystems/wetlands/stac-collection.json",
+  "sci:citation": "California Department of Water Resources, California Department of Fish and Wildlife, & The Nature Conservancy. (2018). Natural Communities Commonly Associated with Groundwater - Wetlands [ds2789] (Edition 1) [Data set]. California Department of Fish and Wildlife, Biogeographic Information and Observation System (BIOS). https://data.cnra.ca.gov/dataset/natural-communities-commonly-associated-with-groundwater",
+  "source": "https://data.cnra.ca.gov/dataset/natural-communities-commonly-associated-with-groundwater",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Klausmeyer, K., Howard J., Keeler-Wolf T., Davis-Fadtke K., Hull R., and Lyons A. (2018). Mapping Indicators of Groundwater dependent ecosystems in California"
+   }
+  ]
+ },
+ {
+  "collection": "public-ca30x30/conserved-areas-terrestrial-2025/stac-collection.json",
+  "sci:citation": "CA Nature Working Group, California Natural Resources Agency. (2025). 30x30 Conserved Areas, Terrestrial (2025) [Data set]. CA Nature. https://www.californianature.ca.gov/datasets/CAnature::30x30-conserved-areas-terrestrial-2025/about",
+  "source": "https://www.californianature.ca.gov/datasets/CAnature::30x30-conserved-areas-terrestrial-2025/about",
+  "constructed": true
+ },
+ {
+  "collection": "public-ca30x30/2024/conserved-areas-terrestrial/stac-collection.json",
+  "sci:citation": "CA Nature Working Group, California Natural Resources Agency. (2024). 30x30 Conserved Areas, Terrestrial (2024) [Data set]. CA Nature. https://www.californianature.ca.gov/datasets/CAnature::30x30-conserved-areas-terrestrial-2024/about",
+  "source": "https://www.californianature.ca.gov/datasets/CAnature::30x30-conserved-areas-terrestrial-2024/about",
+  "constructed": true
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/2021/stac-collection.json",
+  "sci:citation": "California Department of Conservation, Division of Land Resource Protection. (2025). California Williamson Act Enrollment 2021 [Data set]. https://www.arcgis.com/home/item.html?id=4914cbc7cacf4173a1bc858f7c7ca514",
+  "source": "https://www.arcgis.com/home/item.html?id=4914cbc7cacf4173a1bc858f7c7ca514",
+  "constructed": true
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/2022/stac-collection.json",
+  "sci:citation": "California Department of Conservation, Division of Land Resource Protection. (2025). California Williamson Act Enrollment 2022 [Data set]. https://www.arcgis.com/home/item.html?id=5591faef63534337a7c28beaa73f3bac",
+  "source": "https://www.arcgis.com/home/item.html?id=5591faef63534337a7c28beaa73f3bac",
+  "constructed": true
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/2023/stac-collection.json",
+  "sci:citation": "California Department of Conservation, Division of Land Resource Protection. (2025). California Williamson Act Enrollment 2023 [Data set]. https://www.arcgis.com/home/item.html?id=19143af5b1ee410fa9b2808f5aa76820",
+  "source": "https://www.arcgis.com/home/item.html?id=19143af5b1ee410fa9b2808f5aa76820",
+  "constructed": true
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/2024/stac-collection.json",
+  "sci:citation": "California Department of Conservation, Division of Land Resource Protection. (2025). California Williamson Act Enrollment 2024 [Data set]. https://www.arcgis.com/home/item.html?id=29dd1328c36a467991a1a1ad8b1caefa",
+  "source": "https://www.arcgis.com/home/item.html?id=29dd1328c36a467991a1a1ad8b1caefa",
+  "constructed": true
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/2025/stac-collection.json",
+  "sci:citation": "California Department of Conservation, Division of Land Resource Protection. (2026). California Williamson Act Enrollment 2025 [Data set]. https://www.arcgis.com/home/item.html?id=b040aa24bd91472282f47d24be0302de",
+  "source": "https://www.arcgis.com/home/item.html?id=b040aa24bd91472282f47d24be0302de",
+  "constructed": true
+ },
+ {
+  "collection": "public-ca30x30/williamson-act/all-years/stac-collection.json",
+  "sci:citation": "California Department of Conservation, Division of Land Resource Protection. (2025–2026). California Williamson Act Enrollment 2021, 2022, 2023, 2024 and 2025 [Data sets]. https://www.conservation.ca.gov/dlrp/wa",
+  "source": "https://www.arcgis.com/home/item.html?id=b040aa24bd91472282f47d24be0302de",
+  "constructed": true
+ },
+ {
+  "collection": "public-cpad/cpad-holdings-stac-collection.json",
+  "sci:citation": "California Protected Areas Database (CPAD) – www.calands.org (December 2025)",
+  "source": "https://data.source.coop/cboettig/cpad/2025b/CPAD%202025b%20Database%20Manual.pdf"
+ },
+ {
+  "collection": "public-cpad/cpad-units-stac-collection.json",
+  "sci:citation": "California Protected Areas Database (CPAD) – www.calands.org (December 2025)",
+  "source": "https://data.source.coop/cboettig/cpad/2025b/CPAD%202025b%20Database%20Manual.pdf"
+ },
+ {
+  "collection": "public-cpad/cced-stac-collection.json",
+  "sci:citation": "California Conservation Easement Database (CCED) – www.CALands.org (December 2025b)",
+  "source": "https://data.source.coop/cboettig/cpad/2025b/CCED%20Manual%202025b.pdf"
+ },
+ {
+  "collection": "public-cdfw/ace/terrestrial-biodiversity-summary/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife. (2017). Terrestrial Biodiversity Summary - ACE [ds2739] (Areas of Conservation Emphasis version 3.0) [Data set]. Biogeographic Information and Observation System (BIOS). https://apps.wildlife.ca.gov/ace/",
+  "source": "https://www.arcgis.com/home/item.html?id=f3430956fbe847c4b0e315b83bcd8844",
+  "constructed": true
+ },
+ {
+  "collection": "public-cdfw/fish-passage-pad/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife, Passage Assessment Database, July 2026.",
+  "source": "https://www.arcgis.com/home/item.html?id=41a75124e89d47dda0763eef1f755b9e",
+  "constructed": true
+ },
+ {
+  "collection": "public-calenviroscreen/stac-collection.json",
+  "sci:citation": "California Office of Environmental Health Hazard Assessment. (2026). Draft CalEnviroScreen 5.0 [Data set]. California Open Data Portal. https://data.ca.gov/dataset/draft-calenviroscreen-5-0",
+  "source": "https://data.ca.gov/dataset/draft-calenviroscreen-5-0",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "California Office of Environmental Health Hazard Assessment. (2026, January). Draft CalEnviroScreen 5.0 Public Review Technical Report: Update to the California Communities Environmental Health Screening Tool. California Environmental Protection Agency. https://oehha.ca.gov/sites/default/files/media/2026-01/calenviroscreen50techreportd12226.pdf"
+   }
+  ]
+ },
+ {
+  "collection": "public-ca-wolves/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife, Wildlife Diversity Program. (n.d.). Wolf Location Automated Mapping System and Approximate Area of Gray Wolf Activity (February 2025) [Data set and map]. https://wildlife.ca.gov/Conservation/Mammals/Gray-Wolf",
+  "source": "https://wildlife.ca.gov/Conservation/Mammals/Gray-Wolf",
+  "constructed": true
+ },
+ {
+  "collection": "public-cgs/sierra-nevada-atlas/map-unit-polys/stac-collection.json",
+  "sci:citation": "Graymer, R.W., and O'Neal, M.D., 2026, Geologic map of the Sierra Nevada, California and western Nevada, in O’Neal, M.D., Graymer, R.W., and Langenheim, V.E., eds., Sierra Nevada Earth Science Atlas: California Geological Survey Geologic Data Map 9, Plates 1A and 1B, scale 1:400,000, Appendix A, 113 p.",
+  "source": "https://www.conservation.ca.gov/cgs/sierra-nevada-atlas"
+ },
+ {
+  "collection": "public-ca-dac/stac-collection.json",
+  "sci:citation": "California Department of Water Resources. (2025). i16 Census DisadvantagedCommunities 2023 (Tract, Place, Block Group) and i16 Census EconomicallyDistressedAreas 2023 (Tract, Place, Block Group, County) [Data set]. California Natural Resources Agency Open Data. https://data.cnra.ca.gov/dataset/i16-census-tract-disadvantagedcommunities-2023",
+  "source": "https://data.cnra.ca.gov/dataset/i16-census-tract-disadvantagedcommunities-2023",
+  "constructed": true
+ },
+ {
+  "collection": "public-fire/calfire-2025/firep/stac-collection.json",
+  "sci:citation": "California Department of Forestry and Fire Protection, Fire and Resource Assessment Program (FRAP). (2026). Fire Perimeters (firep25_1) (Edition 25_1) [Data set]. https://frap.fire.ca.gov/mapping/gis-data/",
+  "source": "https://www.arcgis.com/home/item.html?id=a31aa1efe1d6466f8530b501c30ab00a",
+  "constructed": true
+ },
+ {
+  "collection": "public-fire/calfire-2025/rxburn/stac-collection.json",
+  "sci:citation": "California Department of Forestry and Fire Protection, Fire and Resource Assessment Program (FRAP). (2026). Prescribed Burns (rxburn25_1) (Edition 25_1) [Data set]. https://frap.fire.ca.gov/mapping/gis-data/",
+  "source": "https://www.arcgis.com/home/item.html?id=18d89dfa9c634c1f8e3df3f8e4fcaf92",
+  "constructed": true
+ },
+ {
+  "collection": "public-fire/usgs-fires-2021/combined/stac-collection.json",
+  "sci:citation": "Welty, J.L., and Jeffries, M.I., 2021, Combined wildland fire datasets for the United States and certain territories, 1800s-Present: U.S. Geological Survey data release, https://doi.org/10.5066/P9ZXGFY3.",
+  "source": "https://www.sciencebase.gov/catalog/item/61aa537dd34eb622f699df81",
+  "sci:doi": "10.5066/P9ZXGFY3"
+ },
+ {
+  "collection": "public-connectivity/regional-connectivity-linkages/stac-collection.json",
+  "sci:citation": "South Coast Wildlands. (2008). South Coast Missing Linkages [ds419] [Data set]. California Department of Fish and Wildlife, Biogeographic Information and Observation System (BIOS). https://wildlife.ca.gov/Data/BIOS",
+  "source": "https://www.arcgis.com/home/item.html?id=d99ff4e746df423c900b00b0756f683b",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Beier, P., Penrod, K. L., Luke, C., Spencer, W. D., & Cabañero, C. (2006). South Coast Missing Linkages: restoring connectivity to wildlands in the largest metropolitan area in the USA. In K. R. Crooks & M. Sanjayan (Eds.), Connectivity Conservation (pp. 555–586). Cambridge University Press.",
+    "doi": "10.1017/cbo9780511754821.025"
+   }
+  ]
+ },
+ {
+  "collection": "public-connectivity/wildlife-movement-barriers/stac-collection.json",
+  "sci:citation": "California Department of Fish and Wildlife. (2025). Wildlife Movement Barriers - CDFW [ds2867] [Data set]. Biogeographic Information and Observation System (BIOS). https://wildlife.ca.gov/Conservation/Wildlife/Connectivity/Barriers",
+  "source": "https://www.arcgis.com/home/item.html?id=e6dce86d3d8e457d9a154774b75f84b8",
+  "constructed": true
+ },
+ {
+  "collection": "public-rivers/american-rivers/dam-removal/stac-collection.json",
+  "sci:citation": "American Rivers (2019). American Rivers Dam Removal Database. figshare. Dataset. https://doi.org/10.6084/m9.figshare.5234068.v13",
+  "source": "https://figshare.com/articles/dataset/American_Rivers_Dam_Removal_Database/5234068/13",
+  "sci:doi": "10.6084/m9.figshare.5234068.v13"
+ },
+ {
+  "collection": "public-rivers/american-rivers/nri-2016/stac-collection.json",
+  "sci:citation": "National Park Service. 2016. Nationwide Rivers Inventory. National Park Service",
+  "source": "https://irma.nps.gov/DataStore/Reference/Profile/2237082"
+ },
+ {
+  "collection": "public-rivers/american-rivers/nri-2024/stac-collection.json",
+  "sci:citation": "U.S. Department of the Interior, National Park Service. 2024. Nationwide Rivers Inventory (NRI): National Park Service data release, https://irma.nps.gov/DataStore/Reference/Profile/2305275",
+  "source": "https://irma.nps.gov/DataStore/Reference/Profile/2305275"
+ },
+ {
+  "collection": "public-rivers/american-rivers/campaigns/stac-collection.json",
+  "sci:citation": "American Rivers. (2025). River Protection Map: River Protection Campaigns [Data set]. ArcGIS Online. https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/River_Protection_Map_WFL1/FeatureServer/0",
+  "source": "https://www.arcgis.com/home/item.html?id=4ecab48e71494f01aa777a30aa2ccae4",
+  "constructed": true
+ },
+ {
+  "collection": "public-rivers/american-rivers/wild-scenic-eligible/stac-collection.json",
+  "sci:citation": "American Rivers. (2025). River Protection Map: Eligible & Suitable Rivers [Data set]. ArcGIS Online. https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/River_Protection_Map_WFL1/FeatureServer/1",
+  "source": "https://www.arcgis.com/home/item.html?id=4ecab48e71494f01aa777a30aa2ccae4",
+  "constructed": true
+ },
+ {
+  "collection": "public-rivers/american-rivers/wild-scenic-designated/stac-collection.json",
+  "sci:citation": "American Rivers. (2025). River Protection Map: Designated Rivers [Data set]. ArcGIS Online. https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/River_Protection_Map_WFL1/FeatureServer/2",
+  "source": "https://www.arcgis.com/home/item.html?id=4ecab48e71494f01aa777a30aa2ccae4",
+  "constructed": true
+ },
+ {
+  "collection": "public-rivers/american-rivers/ira-watersheds/stac-collection.json",
+  "sci:citation": "American Rivers. (2026). IRA_influenced_drinking_water: IRA_huc12_infl_wsheds [Data set]. ArcGIS Online. https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/IRA_influenced_drinking_water/FeatureServer/0",
+  "source": "https://www.arcgis.com/home/item.html?id=6d74d3f1f8d047dd9295467d7671b774",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Mack, Erika; Lilja, Rebecca; Claggett, Sally; Sun, Ge; Caldwell, Peter. 2022. Forests to Faucets 2.0: connecting forests, water, and communities. Gen. Tech. Rep. WO-99. Washington, DC: U.S. Department of Agriculture, Forest Service, Washington Office. 32 p. https://doi.org/10.2737/WO-GTR-99.",
+    "doi": "10.2737/WO-GTR-99"
+   }
+  ]
+ },
+ {
+  "collection": "public-rivers/american-rivers/roo-cjest/stac-collection.json",
+  "sci:citation": "Council on Environmental Quality. (2022). Climate and Economic Justice Screening Tool (Version 1.0) [Data set]. https://screeningtool.geoplatform.gov/",
+  "source": "https://bidenwhitehouse.archives.gov/ceq/news-updates/2022/11/22/biden-harris-administration-launches-version-1-0-of-climate-and-economic-justice-screening-tool-key-step-in-implementing-president-bidens-justice40-initiative",
+  "constructed": true
+ },
+ {
+  "collection": "public-barred-owl/stac-collection.json",
+  "sci:citation": "Peery Wildlife Ecology + Conservation Lab, University of Wisconsin-Madison, and U.S. Fish & Wildlife Service. (n.d.). Barred Owl Prioritization Platform [Data set]. https://barredowltool.russell.wisc.edu",
+  "source": "https://barredowltool.russell.wisc.edu/pages/background/",
+  "constructed": true
+ },
+ {
+  "collection": "public-land-cover/nlcd/stac-collection.json",
+  "sci:citation": "U.S. Geological Survey (USGS), 2024, Annual NLCD Collection 1 Science Products: U.S. Geological Survey data release, https://doi.org/10.5066/P94UXNTS",
+  "source": "https://www.usgs.gov/centers/eros/science/usgs-eros-archive-land-cover-annual-nlcd-collection-12-land-cover",
+  "sci:doi": "10.5066/P94UXNTS",
+  "sci:publications": [
+   {
+    "citation": "U.S. Geological Survey, 2025, Annual NLCD (National Land Cover Database)—The next generation of land cover mapping: U.S. Geological Survey Fact Sheet 2025–3001, 4 p., https://doi.org/10.3133/fs20253001.",
+    "doi": "10.3133/fs20253001"
+   }
+  ]
+ },
+ {
+  "collection": "public-wui/stac-collection.json",
+  "sci:citation": "Radeloff, Volker C.; Helmers, David P.; Mockrin, Miranda H.; Carlson, Amanda R.; Hawbaker, Todd J.; Martinuzzi, Sebastián. 2023. The 1990-2020 wildland-urban interface of the conterminous United States - geospatial data. 4th Edition. Fort Collins, CO: Forest Service Research Data Archive. https://doi.org/10.2737/RDS-2015-0012-4",
+  "source": "https://www.fs.usda.gov/rds/archive/catalog/RDS-2015-0012-4",
+  "sci:doi": "10.2737/RDS-2015-0012-4",
+  "sci:publications": [
+   {
+    "citation": "Radeloff, V. C., D. P. Helmers, H. A. Kramer, M. H. Mockrin, P. M. Alexandre, A. Bar-Massada, V. Butsic, T. J. Hawbaker, S. Martinuzzi, A. D. Syphard, and S. I. Stewart. 2018. Rapid growth of the U.S. Wildland Urban Interface raises wildfire risk. Proceedings of the National Academy of Sciences, 115(13): 3314-3319.",
+    "doi": "10.1073/pnas.1718850115"
+   },
+   {
+    "citation": "Radeloff, V. C., M. H. Mockrin, D. Helmers, A. Carlson, T. J. Hawbaker, S. Martinuzzi, F. Schug, P. M. Alexandre, A. H. Kramer, and A. M. Pidgeon. 2023. Rising wildfire risk to houses in the United States, especially in western grass- and shrublands. Science, 382(6671): 702-707.",
+    "doi": "10.1126/science.ade9223"
+   }
+  ]
+ },
+ {
+  "collection": "public-kba/kba-2026-03/sites/stac-collection.json",
+  "sci:citation": "BirdLife International (2026). Digital boundaries of Key Biodiversity Areas from the World Database of Key Biodiversity Areas. Developed by the KBA Partnership: BirdLife International, International Union for the Conservation of Nature, American Bird Conservancy, Amphibian Survival Alliance, Conservation International, Critical Ecosystem Partnership Fund, Global Environment Facility, Re:Wild, NatureServe, Rainforest Trust, Royal Society for the Protection of Birds, Wildlife Conservation Society and World Wildlife Fund. March 2026 Version. Available at http://www.keybiodiversityareas.org/kba-data/request.",
+  "source": "https://s3-west.nrp-nautilus.io/public-kba/raw/KBA_metadata_March2026.docx"
+ },
+ {
+  "collection": "public-usgs/mrds/stac-collection.json",
+  "sci:citation": "Mason, G.T. and Arndt, R.E., 1996, Mineral Resources Data System (MRDS): USGS Data Series 20, https://doi.org/10.3133/ds20.",
+  "source": "https://mrdata.usgs.gov/mrds/",
+  "sci:doi": "10.3133/ds20",
+  "sci:publications": [
+   {
+    "citation": "McFaul, E.J., Mason, G.T., Ferguson, W.B., and Lipin, B.R., 2000, U.S. Geological Survey mineral databases; MRDS and MAS/MILS: USGS Data Series 52, https://doi.org/10.3133/ds52.",
+    "doi": "10.3133/ds52"
+   },
+   {
+    "citation": "Schweitzer, P.N., 2019, Record quality tables for the Mineral Resources Data System: U.S. Geological Survey data release, https://doi.org/10.5066/P9DYLWMP.",
+    "doi": "10.5066/P9DYLWMP"
+   }
+  ]
+ },
+ {
+  "collection": "public-coastal/meow-coastal-band/stac-collection.json",
+  "sci:citation": "Boettiger Lab, UC Berkeley. (2026). MEOW Coastal Band: coastal H3 cells labelled with marine ecoregion, distance to coast and depth [Data set]. https://s3-west.nrp-nautilus.io/public-coastal/meow-coastal-band/stac-collection.json",
+  "source": "https://s3-west.nrp-nautilus.io/public-coastal/meow-coastal-band/stac-collection.json",
+  "constructed": true,
+  "sci:publications": [
+   {
+    "citation": "Spalding, M. D., Fox, H. E., Allen, G. R., Davidson, N., Ferdaña, Z. A., Finlayson, M., Halpern, B. S., Jorge, M. A., Lombana, A., Lourie, S. A., Martin, K. D., McManus, E., Molnar, J., Recchia, C. A., & Robertson, J. (2007). Marine Ecoregions of the World: A Bioregionalization of Coastal and Shelf Areas. BioScience, 57(7), 573-583.",
+    "doi": "10.1641/B570707"
+   }
+  ]
+ }
+]

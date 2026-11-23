@@ -1,0 +1,2 @@
+ecs-pol-type.json public-high-seas/ecs/styles/ecs-pol-type.json
+ecs-thumbnail.png public-high-seas/ecs/thumbnail.png

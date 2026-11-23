@@ -1,0 +1,39 @@
+# HAND-ROLLED: the generator has no retire step. Deletes the public-gye bucket (#994): its only
+# dataset, gye-priority-areas, now lives in private-wyoming (copied and verified byte for byte,
+# #999), the wyoming app reads it there (wyoming#100), and the root-catalog link is already
+# removed (unlink-public-gye.yaml). Run by hand, not by an agent: the data-workflows safety hook
+# refuses whole-bucket deletes from inside Claude.
+#   kubectl create -f catalog/gye/k8s/retire-public-994/purge-public-gye.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: purge-public-gye
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: purge
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          rclone lsl nrp:public-gye
+          rclone purge nrp:public-gye --retries 10 --low-level-retries 20
+          if rclone lsf nrp:public-gye 2>/dev/null | grep -q .; then echo "objects remain"; exit 1; fi
+          echo purged
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
