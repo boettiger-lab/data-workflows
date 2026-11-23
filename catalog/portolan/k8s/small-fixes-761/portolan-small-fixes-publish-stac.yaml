@@ -1,0 +1,59 @@
+# HAND-ROLLED: the generator does not write STAC. A metadata-only fix (#761): the small,
+# unambiguous Portolan (rashid 0.4.0) findings from the catalog-wide run, on 9 collections in
+# 6 buckets: PTL-LNK-003 (root link type), PTL-PRV-001 (providers), PTL-PRV-003 (host url).
+# fix_small.py (committed beside this file) edits each LIVE collection, so nothing else is touched.
+#   kubectl create configmap portolan-small-fixes-script -n geo-workflows \
+#     --from-file=fix_small.py=catalog/portolan/k8s/small-fixes-761/fix_small.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/portolan/k8s/small-fixes-761/portolan-small-fixes-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: portolan-small-fixes-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: portolan-small-fixes-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: portolan-small-fixes-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          for k in public-fire/usgs-fires-2021/combined public-tpl/landvote public-dem/copernicus-glo90 \
+                   public-coastal/meow-coastal-band public-ca30x30/cwhr public-ca30x30/cwhr13 \
+                   public-hazard/flood-hazard public-hazard/mid-century-habitat-climate-exposure \
+                   public-hazard/sea-level-rise; do
+            p="$k/stac-collection.json"
+            rclone cat "nrp:$p" > /tmp/c.json
+            python3 /script/fix_small.py /tmp/c.json "$p"
+            guard_stac /tmp/c.json "nrp:$p"
+            rclone copyto /tmp/c.json "nrp:$p" $R
+          done
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: portolan-small-fixes-script}}
