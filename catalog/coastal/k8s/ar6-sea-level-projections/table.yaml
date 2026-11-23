@@ -1,0 +1,263 @@
+# HAND-ROLLED: cng-datasets has no netCDF point-table converter; this writes the AR6 regional
+# confidence files as one GeoParquet table per copy (#795).
+#
+# Index 0 reads raw/ar6-sea-level-projections/ar6-regional-confidence.zip (with vertical land
+# motion) and index 1 reads ar6-regional_novlm-confidence.zip (without it). Each writes
+#   s3://public-coastal/ar6-sea-level-projections/regional-confidence[-novlm].parquet
+# with one row per location x scenario x confidence x component x measure x year and the 107
+# quantiles as columns p0 .. p100, in mm (values) or mm per year (rates). Every location and year
+# is kept; where upstream has no projection the quantiles are null. In the values files that is
+# fill (a whole location, such as an inland grid node, or some years, such as SSP3-7.0 after 2050
+# at 61 grid nodes); the rates files store 0 there instead, so the converter masks the rates from
+# the values. The two .tgz members are byte-identical
+# copies of loose .nc files in the same zip and are skipped.
+#
+# Measured locally on two medium-confidence files: 625 MB peak RSS, about 5 s per file. Requests
+# sit under NRP's usage-policy check thresholds (<=1 CPU, <=2 GiB), so default priority is safe.
+# The zip is read in place with HTTP range requests and the table is streamed to S3, so ephemeral
+# holds one member at a time (<200 MB).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ar6-sea-level-table
+  namespace: geo-workflows
+data:
+  ar6_to_parquet.py: |
+    """Convert one AR6 regional confidence zip into one GeoParquet table (#795).
+
+    usage: ar6_to_parquet.py <zip-url> <location_list.lst> <out: local path or s3://bucket/key>
+
+    One row per location x scenario x confidence x component x measure x year, numbered by a
+    row-unique _cng_fid, with the 107 quantiles as float32 columns p0 .. p100 in physical units (mm for values, mm per
+    year for rates). Every member .nc is read through GDAL's multidimensional API; the zip
+    is read with HTTP range requests, one member at a time. The two .tgz members are
+    byte-identical copies of loose .nc files in the same zip and are skipped.
+    """
+    import io, json, os, re, sys, tempfile, urllib.request, zipfile
+    import numpy as np
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from osgeo import gdal
+
+    gdal.UseExceptions()
+
+    class HTTPFile(io.RawIOBase):
+        def __init__(self, url, blk=32 << 20):
+            self.url, self.pos, self.blk, self.cache = url, 0, blk, {}
+            self.size = int(urllib.request.urlopen(urllib.request.Request(url, method="HEAD")).headers["Content-Length"])
+        def seekable(self): return True
+        def readable(self): return True
+        def tell(self): return self.pos
+        def seek(self, off, whence=0):
+            self.pos = {0: off, 1: self.pos + off, 2: self.size + off}[whence]; return self.pos
+        def _get(self, s):
+            if s not in self.cache:
+                self.cache = {}  # sequential member reads: keep one block
+                e = min(s + self.blk, self.size) - 1
+                for i in range(8):
+                    try:
+                        self.cache[s] = urllib.request.urlopen(urllib.request.Request(self.url, headers={"Range": f"bytes={s}-{e}"}), timeout=120).read()
+                        break
+                    except Exception as ex:
+                        if i == 7: raise
+                        print("retry", s, ex, flush=True)
+            return self.cache[s]
+        def readinto(self, b):
+            n = min(len(b), self.size - self.pos)
+            if n <= 0: return 0
+            out = bytearray()
+            while len(out) < n:
+                p = self.pos + len(out); s = p // self.blk * self.blk
+                d = self._get(s); out += d[p - s:p - s + n - len(out)]
+            b[:n] = out; self.pos += n; return n
+
+    PAT = re.compile(r"/(low|medium)_confidence/([^/]+)/([A-Za-z]+)_\2_\1_confidence_(values|rates)\.nc$")
+    COMPONENTS = ["total", "verticallandmotion", "oceandynamics", "AIS", "GIS", "glaciers", "landwaterstorage"]
+    SCENARIOS = ["ssp119", "ssp126", "ssp245", "ssp370", "ssp585",
+                 "tlim1.5win0.25", "tlim2.0win0.25", "tlim3.0win0.25", "tlim4.0win0.25", "tlim5.0win0.25"]
+
+    def qname(q):
+        s = f"{q * 100:.1f}".rstrip("0").rstrip(".")
+        return "p" + s.replace(".", "_")
+
+    def wkb_points(lon, lat):
+        b = np.zeros(len(lon), dtype=[("o", "u1"), ("t", "<u4"), ("x", "<f8"), ("y", "<f8")])
+        b["o"], b["t"], b["x"], b["y"] = 1, 1, lon, lat
+        return [r.tobytes() for r in b]
+
+    def main(url, lst, out):
+        z = zipfile.ZipFile(url if os.path.exists(url) else io.BufferedReader(HTTPFile(url), buffer_size=32 << 20))
+        members = []
+        for n in z.namelist():
+            m = PAT.search(n)
+            if m:
+                conf, scen, comp, meas = m.groups()
+                members.append((COMPONENTS.index(comp), conf != "medium", SCENARIOS.index(scen) if scen in SCENARIOS else 99, meas != "values", n, conf, scen, comp, meas))
+            elif not n.endswith("/") and not n.endswith(".tgz"):
+                sys.exit(f"unexpected member {n}")
+        members.sort()
+        print(f"{len(members)} netCDF members", flush=True)
+
+        names = {}
+        for line in open(lst):
+            f = line.rstrip("\n").split("\t")
+            names[int(f[1])] = f[0]
+
+        writer, loc_cols, qcols, ref = None, None, None, None
+        tmp = tempfile.mkdtemp()
+        rows, masks = 0, {}
+        for *_, n, conf, scen, comp, meas in members:
+            local = os.path.join(tmp, "m.nc")
+            with z.open(n) as src, open(local, "wb") as dst:
+                while (c := src.read(32 << 20)):
+                    dst.write(c)
+            g = gdal.OpenEx(local, gdal.OF_MULTIDIM_RASTER).GetRootGroup()
+            var = "sea_level_change" if meas == "values" else "sea_level_change_rate"
+            a = g.OpenMDArray(var)
+            assert [d.GetName() for d in a.GetDimensions()] == ["quantiles", "years", "locations"], n
+            scale = a.GetScale() or 1.0
+            locs = g.OpenMDArray("locations").ReadAsArray()
+            years = g.OpenMDArray("years").ReadAsArray()
+            qs = g.OpenMDArray("quantiles").ReadAsArray()
+            if ref is None:
+                ref = locs
+                lon = g.OpenMDArray("lon").ReadAsArray().astype("f8")
+                lat = g.OpenMDArray("lat").ReadAsArray().astype("f8")
+                qcols = [qname(q) for q in qs]
+                assert len(set(qcols)) == len(qcols) == 107, qcols
+                loc_cols = {
+                    "location_id": pa.array(locs, pa.int32()),
+                    "location_name": pa.array([names[int(i)] for i in locs], pa.string()),
+                    "lon": pa.array(lon, pa.float64()),
+                    "lat": pa.array(lat, pa.float64()),
+                    "geom": pa.array(wkb_points(lon, lat), pa.binary()),
+                }
+                schema = pa.schema(
+                    [("_cng_fid", pa.int64()), ("location_id", pa.int32()), ("location_name", pa.string()), ("scenario", pa.string()),
+                     ("confidence", pa.string()), ("component", pa.string()), ("measure", pa.string()),
+                     ("year", pa.int16())] + [(c, pa.float32()) for c in qcols] +
+                    [("lon", pa.float64()), ("lat", pa.float64()), ("geom", pa.binary())])
+                geo = {"version": "1.1.0", "primary_column": "geom",
+                       "columns": {"geom": {"encoding": "WKB", "geometry_types": ["Point"],
+                                            "bbox": [float(np.nanmin(lon)), float(np.nanmin(lat)), float(np.nanmax(lon)), float(np.nanmax(lat))]}}}
+                schema = schema.with_metadata({"geo": json.dumps(geo)})
+                if out.startswith("s3://"):
+                    from pyarrow import fs
+                    s3 = fs.S3FileSystem(endpoint_override=os.environ["AWS_S3_ENDPOINT"], scheme="http",
+                                         access_key=os.environ["AWS_ACCESS_KEY_ID"], secret_key=os.environ["AWS_SECRET_ACCESS_KEY"])
+                    sink = s3.open_output_stream(out[5:])
+                else:
+                    sink = out
+                writer = pq.ParquetWriter(sink, schema, compression="zstd", compression_level=6)
+            assert np.array_equal(locs, ref), f"location order differs in {n}"
+            assert np.allclose(qs, [float(c[1:].replace("_", ".")) / 100 for c in qcols]), n
+            v = a.ReadAsArray()  # int16 (q, y, loc)
+            # Upstream marks a missing projection with fill, consistently across the 107 quantiles,
+            # for a whole location (inland grid nodes, gauges without a projection) or for some years
+            # (SSP3-7.0 stops after 2050 at 61 grid nodes). Most rates files store 0 instead of fill
+            # there, and also 0 in the last year that has a value, since a rate there needs the
+            # following decade; some (no-VLM ocean dynamics) store fill. The rates cover fewer years
+            # than the values (vertical land motion values start in 2005), so masks match by year.
+            # A rate is masked where it is fill, where the value for that year is masked, and where
+            # all 107 rate quantiles are exactly 0 at a location that has any masked value.
+            key = (comp, conf, scen)
+            fm = (v == -32768).all(axis=0)  # (year, location)
+            assert ((v == -32768).any(axis=0) == fm).all(), f"fill differs across quantiles in {n}"
+            if meas == "values":
+                masks[key] = dict(zip(years.tolist(), fm)), fm.any(axis=0)
+                ymask = fm
+            else:
+                byyear, anym = masks[key]
+                vm = np.stack([byyear[y] for y in years.tolist()])
+                ymask = fm | vm | ((v == 0).all(axis=0) & anym[None, :])
+                assert np.isin(v[:, ymask & ~fm], [0]).all(), f"masked rates not zero in {n}"
+            for yi, y in enumerate(years):
+                blk = v[:, yi, :].T.astype("f4")
+                fill = np.repeat(ymask[yi][:, None], len(qcols), axis=1)
+                blk *= np.float32(scale)
+                nloc = len(locs)
+                cols = {"_cng_fid": pa.array(np.arange(rows, rows + nloc, dtype="i8")), "location_id": loc_cols["location_id"], "location_name": loc_cols["location_name"],
+                        "scenario": pa.array([scen] * nloc), "confidence": pa.array([conf] * nloc),
+                        "component": pa.array([comp] * nloc), "measure": pa.array([meas] * nloc),
+                        "year": pa.array(np.full(nloc, y, "i2"))}
+                for j, c in enumerate(qcols):
+                    cols[c] = pa.array(blk[:, j], pa.float32(), mask=fill[:, j])
+                cols.update({k: loc_cols[k] for k in ("lon", "lat", "geom")})
+                writer.write_table(pa.table(cols, schema=writer.schema), row_group_size=nloc)
+                rows += nloc
+            print(f"{comp} {conf} {scen} {meas}: {len(years)} years {years.min()}-{years.max()} scale {scale}; masked location-years {int(ymask.sum())}, locations all years {int(ymask.all(axis=0).sum())}; rows so far {rows:,}", flush=True)
+            del v, g, a
+            os.remove(local)
+        writer.close()
+        print(f"DONE {rows:,} rows -> {out}", flush=True)
+
+    if __name__ == "__main__":
+        main(*sys.argv[1:4])
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ar6-sea-level-table
+  namespace: geo-workflows
+  labels:
+    k8s-app: ar6-sea-level-table
+spec:
+  completions: 2
+  parallelism: 2
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ar6-sea-level-table
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: table
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        volumeMounts:
+        - name: script
+          mountPath: /opt/ar6
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          RAW=http://rook-ceph-rgw-nautiluss3.rook/public-coastal/raw/ar6-sea-level-projections
+          case $JOB_COMPLETION_INDEX in
+            0) Z=ar6-regional-confidence; OUT=regional-confidence ;;
+            1) Z=ar6-regional_novlm-confidence; OUT=regional-confidence-novlm ;;
+          esac
+          curl -sSf -o /tmp/location_list.lst $RAW/location_list.lst
+          echo "431bf1a682b5938290565fb4c1969e56cfbb7c4b1fb08bc7459d9b2dc758d88d  /tmp/location_list.lst" | sha256sum -c -
+          python3 /opt/ar6/ar6_to_parquet.py $RAW/$Z.zip /tmp/location_list.lst \
+            s3://public-coastal/ar6-sea-level-projections/$OUT.parquet
+        resources:
+          requests:
+            cpu: '1'
+            memory: 3Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: '1'
+            memory: 3Gi
+            ephemeral-storage: 2Gi
+      volumes:
+      - name: script
+        configMap:
+          name: ar6-sea-level-table

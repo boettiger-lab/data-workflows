@@ -1,0 +1,248 @@
+# HAND-ROLLED: a nearest-node assignment of a point table onto an existing H3 cell set, which
+# cng-datasets does not do (#795).
+#
+# In each scenario and confidence level, each H3 resolution-8 cell of the MEOW coastal band
+# (public-coastal/meow-coastal-band, #730) takes the AR6 values of the nearest 1-degree grid node
+# that has a total projection in every year of that scenario and confidence level, by great-circle
+# distance from the cell centre (tide gauges are not used). Upstream masks a slightly different
+# set of nodes in each scenario (10 distinct sets of 50,172-51,153 nodes), so the node can differ
+# between scenarios; location_id records it. Requiring one node complete in every scenario
+# instead drops the Black Sea and Caspian nodes and puts those coasts up to 980 km from their
+# node. Content: total component, values (mm), with vertical land
+# motion, every scenario, confidence level and year, quantiles 5, 17, 50, 83 and 95. One index per
+# h0 partition of the band (97), written to
+#   s3://public-coastal/ar6-sea-level-projections/coastal-band/hex/h0=<h0>/data_0.parquet
+# Run after table.yaml has written regional-confidence.parquet.
+#
+# Tested locally against a brute-force nearest search (2,989 and 2,999 sampled cells, including
+# cells at 83.5 N: all matched), and per scenario on a two-scenario table with nodes masked in one
+# (6,000 sampled cells: all matched, no nulls). Largest partition (2.08M cells): 1.06 GB peak RSS with DuckDB at
+# 800 MB. Pods are expected to finish well under an hour, so they run at opportunistic priority
+# with per-index retries; requests stay within NRP's usage-policy exemption (<=1 CPU, <=2 GiB).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ar6-sea-level-coastal-hex
+  namespace: geo-workflows
+data:
+  ar6_coastal_hex.py: |
+    """Coastal hex for AR6 relative sea level (#795): one MEOW coastal-band h0 partition per call.
+
+    usage: ar6_coastal_hex.py <h0 partition index> <band hex glob> <table parquet> <out prefix>
+
+    In each scenario and confidence level, each h8 cell of the coastal band takes the values of the
+    nearest 1-degree grid node that has a projection in every year of that scenario and confidence
+    level (great-circle distance from the cell centre; tide gauges are not used). Upstream masks a
+    slightly different set of nodes in each scenario, so the node can differ between scenarios;
+    location_id records it. Content: total component, values (mm), quantiles 5, 17, 50, 83 and 95,
+    every scenario, confidence level and year. Rows are written one scenario x confidence x year
+    block at a time, each block sorted by h8.
+    """
+    import os, sys, time
+    import duckdb
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    idx, band, table, outp = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4].rstrip("/")
+    con = duckdb.connect()
+    con.execute(f"SET memory_limit='{os.environ.get('DUCKDB_MEMORY_LIMIT', '800MB')}'; SET threads={os.environ.get('DUCKDB_THREADS', '1')}; SET preserve_insertion_order=true")
+    for ext in ("httpfs", "h3"):
+        con.execute(f"LOAD {ext}")
+    if os.environ.get("AWS_S3_ENDPOINT"):
+        con.execute(f"""CREATE SECRET s3 (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}', SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}',
+                        ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}', USE_SSL false, URL_STYLE 'path')""")
+
+    h0s = [r[0] for r in con.execute(f"SELECT DISTINCT h0 FROM read_parquet('{band}', hive_partitioning=true) ORDER BY h0").fetchall()]
+    h0 = h0s[idx]
+    print(f"index {idx} of {len(h0s)}: h0={h0}", flush=True)
+    t = time.time()
+
+    # Grid nodes with a total projection in every year, per scenario and confidence level, keyed by
+    # integer degrees (lon in -180..179). Scenarios that share the same node set share one search.
+    con.execute(f"""CREATE TABLE sc AS
+        SELECT scenario, confidence, location_id, any_value(lat) AS lat, any_value(lon) AS lon
+        FROM read_parquet('{table}')
+        WHERE component='total' AND measure='values' AND location_id >= 1000000000
+        GROUP BY ALL HAVING bool_and(p50 IS NOT NULL)""")
+    con.execute("""CREATE TABLE scset AS
+        SELECT scenario, confidence, dense_rank() OVER (ORDER BY hash(ids)) AS setid
+        FROM (SELECT scenario, confidence, list(location_id ORDER BY location_id) AS ids FROM sc GROUP BY ALL)""")
+    con.execute("""CREATE TABLE setnodes AS
+        SELECT DISTINCT s.setid, c.location_id FROM sc c JOIN scset s USING (scenario, confidence)""")
+    con.execute("""CREATE TABLE allnodes AS
+        SELECT location_id, CAST(round(any_value(lat)) AS INT) AS ilat, CAST(round(any_value(lon)) AS INT) AS ilon,
+               any_value(lat) AS lat, any_value(lon) AS lon FROM sc GROUP BY location_id""")
+    nsets = con.execute("SELECT max(setid) FROM scset").fetchone()[0]
+    print("grid nodes complete in at least one scenario", con.execute("SELECT COUNT(*) FROM allnodes").fetchone()[0],
+          f"; {nsets} distinct node sets", flush=True)
+
+    con.execute(f"""CREATE TABLE cells AS
+        SELECT h8, h3_cell_to_lat(h8) AS clat, h3_cell_to_lng(h8) AS clon
+        FROM read_parquet('{band}', hive_partitioning=true) WHERE h0 = {h0}""")
+    ncell = con.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
+
+    # Nearest node: search a window of integer-degree nodes around the cell, w degrees in latitude and
+    # wl in longitude, where wl grows as 1/cos(latitude) (plus a 10% margin, since a great circle is
+    # shorter than the parallel) so that every node outside the window is at least (w - 0.5) degrees
+    # of arc away. The best hit is accepted when it is within that bound; otherwise w doubles.
+    HAV = "2 * 6371.0088 * asin(sqrt(pow(sin(radians(n.lat - c.clat) / 2), 2) + cos(radians(c.clat)) * cos(radians(n.lat)) * pow(sin(radians(n.lon - c.clon) / 2), 2)))"
+    def nearest(cells, nodes, out):
+        con.execute(f"CREATE OR REPLACE TABLE cb AS SELECT *, (row_number() OVER (ORDER BY h8) - 1) // 250000 AS b FROM {cells}")
+        nbatch = con.execute("SELECT coalesce(max(b) + 1, 0) FROM cb").fetchone()[0]
+        con.execute(f"CREATE TABLE {out} (h8 UBIGINT, location_id INT, node_dist_km DOUBLE)")
+        w = 2
+        while True:
+            todo = con.execute(f"SELECT COUNT(*) FROM cb ANTI JOIN {out} USING (h8)").fetchone()[0]
+            if todo == 0:
+                return
+            if w > 30:
+                sys.exit(f"{todo} cells have no unmasked node within {w} degrees")
+            for b in range(nbatch):  # batches of 250,000 cells keep the candidate join small
+                con.execute(f"""INSERT INTO {out}
+                WITH c AS (SELECT * FROM (SELECT * FROM cb WHERE b = {b}) ANTI JOIN {out} USING (h8)),
+                cw AS (SELECT *, CAST(least(180, ceil(({w} - 0.5) / greatest(0.9 * cos(radians(least(abs(clat) + {w} + 1, 90))), 1e-6) + 0.5)) AS BIGINT) AS wl FROM c),
+                cand AS (
+                    SELECT h8, CAST(round(clat) AS INT) + di AS ilat,
+                           ((CAST(round(clon) AS INT) + dj + 180) % 360 + 360) % 360 - 180 AS ilon
+                    FROM (SELECT h8, clat, clon, wl, unnest(range(-{w}, {w + 1})) AS di FROM cw)
+                         , LATERAL (SELECT unnest(range(-wl, wl + 1)) AS dj)),
+                d AS (SELECT k.h8, n.location_id, {HAV} AS km
+                      FROM cand k JOIN {nodes} n USING (ilat, ilon) JOIN cb c ON c.h8 = k.h8),
+                best AS (SELECT h8, arg_min(location_id, km) AS location_id, min(km) AS km FROM d GROUP BY h8)
+                SELECT h8, location_id, km FROM best WHERE km <= ({w} - 0.5) * 111.19""")
+            w *= 2
+
+    # One search over the union of the node sets. A cell whose nearest node belongs to a set has its
+    # answer for that set already; only the other cells are searched again, within that set.
+    nearest("cells", "allnodes", "nearest")
+    con.execute("CREATE TABLE override (setid INT, h8 UBIGINT, location_id INT, node_dist_km DOUBLE)")
+    for s in range(1, nsets + 1):
+        con.execute(f"""CREATE OR REPLACE TABLE redo AS SELECT c.* FROM cells c JOIN nearest n USING (h8)
+                        WHERE n.location_id NOT IN (SELECT location_id FROM setnodes WHERE setid = {s})""")
+        con.execute(f"CREATE OR REPLACE TABLE setn AS SELECT a.* FROM allnodes a SEMI JOIN (SELECT location_id FROM setnodes WHERE setid = {s}) USING (location_id)")
+        con.execute("DROP TABLE IF EXISTS near_s")
+        nearest("redo", "setn", "near_s")
+        con.execute(f"INSERT INTO override SELECT {s}, h8, location_id, node_dist_km FROM near_s")
+    # Log summary only: the largest distance in any scenario, and quantiles of the search over all nodes.
+    print(f"{ncell} cells matched in {time.time() - t:.0f}s ({con.execute('SELECT COUNT(*) FROM override').fetchone()[0]} set-specific matches); max node distance",
+          con.execute("SELECT round(max(node_dist_km), 1) FROM (SELECT node_dist_km FROM nearest UNION ALL SELECT node_dist_km FROM override)").fetchone()[0],
+          "km; quantiles 50/90/99 over all nodes",
+          con.execute("SELECT round(quantile_cont(node_dist_km, 0.5), 1), round(quantile_cont(node_dist_km, 0.9), 1), round(quantile_cont(node_dist_km, 0.99), 1) FROM nearest").fetchone(), flush=True)
+
+    con.execute(f"""CREATE TABLE vals AS
+        SELECT location_id, scenario, confidence, year, p5, p17, p50, p83, p95
+        FROM read_parquet('{table}')
+        WHERE component='total' AND measure='values'
+          AND location_id IN (SELECT location_id FROM nearest UNION SELECT location_id FROM override)""")
+    blocks = con.execute("""SELECT DISTINCT v.scenario, v.confidence, v.year, s.setid FROM vals v JOIN scset s USING (scenario, confidence)
+                            ORDER BY v.confidence DESC, v.scenario, v.year""").fetchall()
+
+    schema = pa.schema([("h8", pa.uint64()), ("scenario", pa.string()), ("confidence", pa.string()),
+                        ("year", pa.int16()), ("p5", pa.float32()), ("p17", pa.float32()), ("p50", pa.float32()),
+                        ("p83", pa.float32()), ("p95", pa.float32()), ("location_id", pa.int32()),
+                        ("h0", pa.uint64())])
+    local = f"/tmp/data_0.parquet"
+    writer = pq.ParquetWriter(local, schema, compression="zstd")
+    rows = 0
+    for scen, conf, year, setid in blocks:
+        r = con.execute(f"""
+            WITH cn AS (SELECT n.h8, coalesce(o.location_id, n.location_id) AS location_id
+                        FROM nearest n LEFT JOIN override o ON o.h8 = n.h8 AND o.setid = ?)
+            SELECT cn.h8, v.scenario, v.confidence, v.year::SMALLINT AS year,
+                   v.p5::FLOAT p5, v.p17::FLOAT p17, v.p50::FLOAT p50, v.p83::FLOAT p83, v.p95::FLOAT p95,
+                   cn.location_id, {h0}::UBIGINT AS h0
+            FROM cn JOIN vals v USING (location_id)
+            WHERE v.scenario = ? AND v.confidence = ? AND v.year = ?
+            ORDER BY cn.h8""", [setid, scen, conf, year]); tbl = (r.to_arrow_table() if hasattr(r, "to_arrow_table") else r.fetch_arrow_table()).cast(schema)
+        assert tbl.num_rows == ncell, (scen, conf, year, tbl.num_rows, ncell)
+        assert tbl.column("p50").null_count == 0, (scen, conf, year, "null values")
+        writer.write_table(tbl, row_group_size=1 << 20)
+        rows += tbl.num_rows
+    writer.close()
+    print(f"{len(blocks)} blocks, {rows:,} rows in {time.time() - t:.0f}s", flush=True)
+    con.close(); del con, tbl, r  # release DuckDB's memory before the upload
+    if outp.startswith("s3://"):
+        os.system(f"rclone copyto {local} nrp:{outp[5:]}/h0={h0}/data_0.parquet --s3-no-check-bucket --s3-upload-concurrency 4 --s3-chunk-size 32M") == 0 or sys.exit("upload failed")
+    else:
+        os.makedirs(f"{outp}/h0={h0}", exist_ok=True); os.replace(local, f"{outp}/h0={h0}/data_0.parquet")
+    print("DONE", h0, flush=True)
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ar6-sea-level-coastal-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: ar6-sea-level-coastal-hex
+spec:
+  completions: 97
+  parallelism: 20
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 5
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: ar6-sea-level-coastal-hex
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: hex
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 800MB
+        - name: DUCKDB_THREADS
+          value: '1'
+        volumeMounts:
+        - name: script
+          mountPath: /opt/ar6
+          readOnly: true
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          python3 /opt/ar6/ar6_coastal_hex.py $JOB_COMPLETION_INDEX \
+            's3://public-coastal/meow-coastal-band/hex/h0=*/data_0.parquet' \
+            s3://public-coastal/ar6-sea-level-projections/regional-confidence.parquet \
+            s3://public-coastal/ar6-sea-level-projections/coastal-band/hex
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 3Gi
+          limits:
+            cpu: '1'
+            memory: 2Gi
+            ephemeral-storage: 3Gi
+      volumes:
+      - name: script
+        configMap:
+          name: ar6-sea-level-coastal-hex
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
