@@ -2,7 +2,7 @@
 # pre-existing findings on wdoecm-may-2026 (#879): the one-colour default style
 # (verify-stac style-single-colour-default) becomes `style-wdoecm-gov-type` (GOV_TYPE, 11
 # classes, built with scripts/default-style.py), the thumbnail is redrawn from it, and the
-# README no longer links the raw GDB.
+# README no longer links the raw GDB. 16Gi: drawing the thumbnail from the GeoParquet OOMs at 8Gi.
 #
 #   kubectl create configmap wdoecm-styles-879 -n geo-workflows \
 #     --from-file=catalog/wdpa/k8s/wdoecm-may-2026-overlap/styles/ --dry-run=client -o yaml | kubectl apply -f -
@@ -63,8 +63,8 @@ spec:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         - {name: styles, mountPath: /opt/styles, readOnly: true}
         resources:
-          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 4Gi}
-          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 4Gi}
+          requests: {cpu: '2', memory: 16Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '2', memory: 16Gi, ephemeral-storage: 4Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
       - {name: styles, configMap: {name: wdoecm-styles-879}}
