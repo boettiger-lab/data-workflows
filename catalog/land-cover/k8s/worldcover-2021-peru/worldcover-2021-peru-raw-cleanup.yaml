@@ -1,0 +1,77 @@
+# HAND-ROLLED: the generator does not clean up staged raw or move provenance files. Deletes the
+# staged WorldCover tiles under raw/worldcover-2021/ once the build is published (AGENTS.md
+# Step 1b), keeping the provenance:
+#
+#  1. copies raw/worldcover-2021/manifest.tsv (per-tile size, sha256, ETag, URL, download time)
+#     to worldcover-2021/peru/source-manifest.tsv and checks the copy's md5;
+#  2. rewrites the provenance sentences in the LIVE collection and README with
+#     set_provenance.py (they pointed into raw/), adds the manifest as a `metadata` asset, runs
+#     the publish guard, uploads both;
+#  3. only then purges raw/worldcover-2021/.
+#
+#   kubectl create configmap worldcover-raw-cleanup -n geo-workflows \
+#     --from-file=set_provenance.py=catalog/land-cover/k8s/worldcover-2021-peru/set_provenance.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -f catalog/land-cover/k8s/worldcover-2021-peru/worldcover-2021-peru-raw-cleanup.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: worldcover-2021-peru-raw-cleanup
+  namespace: geo-workflows
+  labels: {k8s-app: worldcover-2021-peru-raw-cleanup}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: worldcover-2021-peru-raw-cleanup}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: cleanup
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          RAW=nrp:public-land-cover/raw/worldcover-2021
+          D=nrp:public-land-cover/worldcover-2021/peru
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          # 1. keep the manifest beside the collection
+          rclone copyto $RAW/manifest.tsv $D/source-manifest.tsv $R
+          a=$(rclone md5sum $RAW/manifest.tsv | awk '{print $1}'); b=$(rclone md5sum $D/source-manifest.tsv | awk '{print $1}')
+          [ -n "$a" ] && [ "$a" = "$b" ] || { echo "manifest copy check failed: $a != $b"; exit 1; }
+          # 2. provenance text and asset
+          rclone copyto $D/stac-collection.json /tmp/c.json $R
+          rclone copyto $D/README.md /tmp/README.md $R
+          python3 /opt/script/set_provenance.py /tmp/c.json /tmp/README.md
+          guard_stac /tmp/c.json $D/stac-collection.json
+          rclone copyto /tmp/README.md $D/README.md $R
+          rclone copyto /tmp/c.json $D/stac-collection.json $R
+          rclone cat $D/stac-collection.json | grep -q 'raw/worldcover-2021' && { echo "collection still points into raw/"; exit 1; }
+          # 3. delete the staged raw
+          rclone purge $RAW $R
+          echo DONE
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: worldcover-raw-cleanup}}
