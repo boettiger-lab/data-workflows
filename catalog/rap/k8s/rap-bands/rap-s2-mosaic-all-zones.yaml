@@ -1,3 +1,8 @@
+# HAND-ROLLED: plain gdalbuildvrt/gdalwarp/gdal_translate mosaic of 764 tiles across four UTM zones,
+# with DEFLATE intermediates on node-local disk, because create_mosaic_cog wrote them uncompressed (#607).
+# datasets#277 has since fixed that, so a rebuild should try `cng-datasets raster-workflow` with one
+# --source-url per tile first and keep this job only if that path is still too slow.
+#
 # Issue #607: mosaic rap-arte and rap-iag from the FULL 764-tile 2025 set (UTM zones 10-13),
 # replacing the 117-tile zone-10-only COGs.
 #

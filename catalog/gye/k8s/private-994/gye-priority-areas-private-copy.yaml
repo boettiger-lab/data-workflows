@@ -1,0 +1,80 @@
+# HAND-ROLLED: the generator has no copy-between-stores step. Moves gye-priority-areas from the
+# public NRP bucket public-gye to the private tier, private-wyoming on s3.carlboettiger.info
+# (#994). Runs in biodiversity, the wyoming app's namespace, because geo-workflows holds only NRP
+# credentials. Reads public-gye anonymously; writes with a short-lived key scoped to
+# private-wyoming (Get/List/Put only) that Carl mints by hand and revokes after the copy:
+#   kubectl -n biodiversity create secret generic private-wyoming-write \
+#     --from-literal=AWS_ACCESS_KEY_ID=<AK> --from-literal=AWS_SECRET_ACCESS_KEY=<SK>
+#   kubectl -n biodiversity create configmap gye-private-copy \
+#     --from-file=LICENSE.md=catalog/gye/k8s/private-994/LICENSE.md
+#   kubectl create -f catalog/gye/k8s/private-994/gye-priority-areas-private-copy.yaml
+# Afterwards: kubectl -n biodiversity delete job gye-priority-areas-private-copy;
+#   kubectl -n biodiversity delete secret private-wyoming-write; kubectl -n biodiversity delete configmap gye-private-copy
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gye-priority-areas-private-copy
+  namespace: biodiversity
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: copy
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        env:
+        - {name: RCLONE_CONFIG_PUB_TYPE, value: s3}
+        - {name: RCLONE_CONFIG_PUB_PROVIDER, value: Other}
+        - {name: RCLONE_CONFIG_PUB_ENDPOINT, value: https://s3-west.nrp-nautilus.io}
+        - {name: RCLONE_CONFIG_PUB_ENV_AUTH, value: 'false'}
+        - {name: RCLONE_CONFIG_PRIV_TYPE, value: s3}
+        - {name: RCLONE_CONFIG_PRIV_PROVIDER, value: Other}
+        - {name: RCLONE_CONFIG_PRIV_ENDPOINT, value: https://s3.carlboettiger.info}
+        - {name: RCLONE_CONFIG_PRIV_FORCE_PATH_STYLE, value: 'true'}
+        - name: RCLONE_CONFIG_PRIV_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: private-wyoming-write, key: AWS_ACCESS_KEY_ID}}
+        - name: RCLONE_CONFIG_PRIV_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: private-wyoming-write, key: AWS_SECRET_ACCESS_KEY}}
+        volumeMounts:
+        - {name: in, mountPath: /in, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          F="--s3-no-check-bucket --retries 5 --low-level-retries 10"
+          P=priv:private-wyoming/priority-areas
+          rclone copyto pub:public-gye/priority-areas.parquet  $P/priority-areas.parquet $F
+          rclone copyto pub:public-gye/priority-areas.pmtiles  $P/priority-areas.pmtiles $F
+          rclone copy   pub:public-gye/priority-areas/hex      $P/hex $F
+          rclone copyto pub:public-gye/priority-areas/thumbnail.png $P/thumbnail.png $F
+          rclone copyto pub:public-gye/raw/PriorityAreas_GYE.gpkg $P/raw/PriorityAreas_GYE.gpkg $F
+          # The style sits one level below the PMTiles now, not two.
+          rclone cat pub:public-gye/priority-areas/styles/priority-areas.json \
+            | sed 's#pmtiles://\.\./\.\./priority-areas\.pmtiles#pmtiles://../priority-areas.pmtiles#' > /tmp/style.json
+          grep -q 'pmtiles://../priority-areas.pmtiles' /tmp/style.json
+          rclone copyto /tmp/style.json $P/styles/priority-areas.json $F
+          cp -L /in/LICENSE.md /tmp/LICENSE.md
+          rclone copyto /tmp/LICENSE.md $P/LICENSE.md $F
+          # Data files must match the public copy byte for byte.
+          for f in priority-areas.parquet priority-areas.pmtiles priority-areas/thumbnail.png; do
+            a=$(rclone cat pub:public-gye/$f | sha256sum); b=$(rclone cat $P/$(basename $f) | sha256sum)
+            [ "$a" = "$b" ] || { echo "MISMATCH $f"; exit 1; }
+          done
+          for h in $(rclone lsf pub:public-gye/priority-areas/hex -R --files-only); do
+            a=$(rclone cat pub:public-gye/priority-areas/hex/$h | sha256sum); b=$(rclone cat $P/hex/$h | sha256sum)
+            [ "$a" = "$b" ] || { echo "MISMATCH hex/$h"; exit 1; }
+          done
+          echo "496e143c4bb8df1f16b90b20f6ca738b137c3821b2e483d282d9b5a9c1bb08ca  -" > /tmp/raw.sha
+          rclone cat $P/raw/PriorityAreas_GYE.gpkg | sha256sum | diff - /tmp/raw.sha
+          rclone lsl priv:private-wyoming/priority-areas
+          echo copied and verified
+      volumes:
+      - {name: in, configMap: {name: gye-private-copy}}

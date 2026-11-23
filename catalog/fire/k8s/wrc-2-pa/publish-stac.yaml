@@ -53,6 +53,14 @@ spec:
         - -c
         - |
           set -euo pipefail
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
 
           # A ConfigMap volume mounts each key as a SYMLINK into ..data/, and rclone does not
           # follow those -- it reports "not a directory" and copies nothing. Dereference into a
@@ -79,6 +87,7 @@ spec:
 
           echo "--- publishing the dataset collections ---"
           for ds in $DS; do
+            guard_stac "/work/${ds}-stac-collection.json" "nrp:public-fire/${ds}/stac-collection.json"
             rclone copyto "/work/${ds}-stac-collection.json" \
                           "nrp:public-fire/${ds}/stac-collection.json" --retries 6
             echo "  published ${ds}/stac-collection.json"
@@ -91,6 +100,7 @@ spec:
                           "nrp:public-fire/stac-collection.backup.json" --retries 6
             echo "  kept at nrp:public-fire/stac-collection.backup.json"
             echo "--- publishing the patched bucket collection ---"
+            guard_stac "/work/public-fire-stac-collection.json" "nrp:public-fire/stac-collection.json"
             rclone copyto "/work/public-fire-stac-collection.json" \
                           "nrp:public-fire/stac-collection.json" --retries 6
             echo "  published public-fire/stac-collection.json"

@@ -1,0 +1,133 @@
+# HAND-ROLLED: the generator has no step that aggregates a 10 m probability onto another product's
+# grid with a sub-pixel majority rule (#882).
+#
+# InVEST Peru (#882), Carbon build step 1 of 3. On the CGLS-LC100 100 m grid, over Peru plus a
+# 0.06 degree margin (the 5 km buffer fits inside it), writes per latitude strip:
+#   cocoa-<i>.tif  Byte, 1 where more than half of the valid 10 m FDAP 2024 cocoa sub-pixels
+#                  have probability >= 0.5 (scope rule (b)), else 0
+#   peru-<i>.tif   Byte, 1 where at least half of the 100 m pixel is inside the FDAP cocoa
+#                  footprint, which is the FAO GAUL 2015 level 0 boundary of Peru (scope), else 0
+# to s3://public-ncp/raw/derived/invest-peru-2019/strips/. Same aggregation as
+# measure-cocoa-rules.yaml, which measured rule (b) at 3,240.2 km².
+#
+#   kubectl apply -n geo-workflows -f catalog/ncp/k8s/invest-peru-2019/carbon-1-cocoa-strips.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: invest-peru-2019-carbon-1-cocoa-strips
+  namespace: geo-workflows
+  labels: {k8s-app: invest-peru-2019-carbon-1-cocoa-strips}
+spec:
+  completionMode: Indexed
+  completions: 12
+  parallelism: 12
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: invest-peru-2019-carbon-1-cocoa-strips}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # nrp-c17 hung on the image pull for every pod on 2026-11-10.
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}, {key: kubernetes.io/hostname, operator: NotIn, values: [nrp-c17.nysernet.org]}]}
+      containers:
+      - name: measure
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        - {name: AWS_NO_SIGN_REQUEST, value: "YES"}
+        - {name: GDAL_CACHEMAX, value: "256"}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - python3
+        - -c
+        - |
+          import json, math, os, subprocess
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          SRC = "/vsis3/public-commodities/fdap-2025b/cocoa-peru-2024-cog.tif"
+          RES = 1 / 1008                      # CGLS-LC100 pixel, origin (-180, 80)
+          N, i = 12, int(os.environ["JOB_COMPLETION_INDEX"])
+          src = gdal.Open(SRC)
+          gx, sx, _, gy, _, sy = src.GetGeoTransform()
+          W, H = src.RasterXSize, src.RasterYSize
+          # Peru on the CGLS grid, snapped outward to whole CGLS pixels
+          MARGIN = 0.06                       # degrees; the 5 km buffer is at most 0.046
+          c0 = math.floor((gx - MARGIN + 180) / RES); c1 = math.ceil((gx + W * sx + MARGIN + 180) / RES)
+          r0 = math.floor((80 - gy - MARGIN) / RES);  r1 = math.ceil((80 - (gy + H * sy) + MARGIN) / RES)
+          rows = r1 - r0; a_ = r0 + rows * i // N; b_ = r0 + rows * (i + 1) // N
+          xmin, xmax = -180 + c0 * RES, -180 + c1 * RES
+          ymax, ymin = 80 - a_ * RES, 80 - b_ * RES
+          # the 10 m strip, with a margin so every overlapping sub-pixel is included
+          run = lambda *a: subprocess.run(a, check=True)
+          m = 2 * RES
+          # clamped to the source extent: gdal_translate fills outside it with 0, which would read as p = 0
+          pw = [max(xmin - m, gx), min(ymax + m, gy), min(xmax + m, gx + W * sx), max(ymin - m, gy + H * sy)]
+          run("gdal_translate", "-q", "-projwin", *map(str, pw),
+              "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES", SRC, "/tmp/c10.tif")
+          # 10 m binary: 1 where p >= 0.5, 0 where p < 0.5, 255 where no data; plus 10 m reference area
+          c10 = gdal.Open("/tmp/c10.tif"); b = c10.GetRasterBand(1)
+          cgt = c10.GetGeoTransform(); cw, ch = c10.RasterXSize, c10.RasterYSize
+          drv = gdal.GetDriverByName("GTiff")
+          out = drv.Create("/tmp/bin10.tif", cw, ch, 1, gdal.GDT_Byte,
+                           ["TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"])
+          out.SetGeoTransform(cgt); out.SetProjection(c10.GetProjection())
+          ob = out.GetRasterBand(1); ob.SetNoDataValue(255)
+          # valid footprint: 1 where the 10 m cocoa pixel has data, 0 elsewhere (no nodata)
+          vout = drv.Create("/tmp/valid10.tif", cw, ch, 1, gdal.GDT_Byte,
+                            ["TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"])
+          vout.SetGeoTransform(cgt); vout.SetProjection(c10.GetProjection())
+          vb = vout.GetRasterBand(1)
+          R = 6371.0088; dlon = math.radians(abs(cgt[1]))
+          ref_km2 = 0.0
+          for y in range(0, ch, 128):
+              n = min(128, ch - y)
+              p = b.ReadAsArray(0, y, cw, n)
+              v = (p >= 0.5).view(np.uint8); v[np.isnan(p)] = 255; del p
+              ob.WriteArray(v, 0, y); vb.WriteArray((v != 255).view(np.uint8), 0, y)
+              lat_top = cgt[3] + y * cgt[5]
+              lats = lat_top + np.arange(n + 1) * cgt[5]
+              ra = R * R * dlon * np.abs(np.diff(np.sin(np.radians(lats))))
+              # count only 10 m pixels whose centre lies inside this CGLS strip, so strips don't overlap
+              cy = lat_top + (np.arange(n) + 0.5) * cgt[5]
+              cx = cgt[0] + (np.arange(cw) + 0.5) * cgt[1]
+              rin = (cy <= ymax) & (cy > ymin); cin = (cx >= xmin) & (cx < xmax)
+              ref_km2 += float(((v == 1)[rin][:, cin].sum(axis=1) * ra[rin]).sum())
+          out = None; vout = None; c10 = None
+          te = [str(xmin), str(ymin), str(xmax), str(ymax)]; tr = [str(RES), str(RES)]
+          run("gdalwarp", "-q", "-r", "average", "-te", *te, "-tr", *tr, "-wm", "256",
+              "-dstnodata", "nan", "-ot", "Float32", "/tmp/c10.tif", "/tmp/a.tif")
+          run("gdalwarp", "-q", "-r", "average", "-te", *te, "-tr", *tr, "-wm", "256",
+              "-srcnodata", "255", "-dstnodata", "nan", "-ot", "Float32", "/tmp/bin10.tif", "/tmp/b.tif")
+          run("gdalwarp", "-q", "-r", "average", "-te", *te, "-tr", *tr, "-wm", "256",
+              "-dstnodata", "nan", "-ot", "Float32", "/tmp/valid10.tif", "/tmp/v.tif")
+          B = gdal.Open("/tmp/b.tif").ReadAsArray(); V = gdal.Open("/tmp/v.tif").ReadAsArray()
+          gt = (xmin, RES, 0, ymax, 0, -RES)
+          for name, arr in (("cocoa", B > 0.5), ("peru", V >= 0.5)):   # NaN compares False
+              d = drv.Create(f"/tmp/{name}-{i:02d}.tif", arr.shape[1], arr.shape[0], 1, gdal.GDT_Byte,
+                             ["TILED=YES", "COMPRESS=DEFLATE"])
+              d.SetGeoTransform(gt); d.SetProjection(src.GetProjection())
+              d.GetRasterBand(1).WriteArray(arr.astype(np.uint8)); d = None
+              run("rclone", "copyto", f"/tmp/{name}-{i:02d}.tif",
+                  f"nrp:public-ncp/raw/derived/invest-peru-2019/strips/{name}-{i:02d}.tif")
+          lats = ymax - np.arange(B.shape[0] + 1) * RES
+          ra = R * R * math.radians(RES) * np.abs(np.diff(np.sin(np.radians(lats))))
+          km2 = lambda mask: float((mask.sum(axis=1) * ra).sum())
+          print("RESULT " + json.dumps({"strip": i, "cocoa_px": int((B > 0.5).sum()),
+              "cocoa_km2": km2(B > 0.5), "peru_km2": km2(V >= 0.5)}), flush=True)
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

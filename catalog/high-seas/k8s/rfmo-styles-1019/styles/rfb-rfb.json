@@ -1,0 +1,142 @@
+{
+  "version": 8,
+  "name": "RFMO/RFB Boundaries PMTiles by RFB",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../rfb.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "rfb-fill",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "rfb",
+      "paint": {
+        "fill-color": [
+          "case",
+          [
+            "!",
+            [
+              "has",
+              "RFB"
+            ]
+          ],
+          "#cccccc",
+          [
+            "match",
+            [
+              "to-string",
+              [
+                "get",
+                "RFB"
+              ]
+            ],
+            "IATTC",
+            "#4e79a7",
+            "ICCAT",
+            "#f28e2b",
+            "IOTC",
+            "#e15759",
+            "WCPFC",
+            "#76b7b2",
+            "CCAMLR",
+            "#59a14f",
+            "GFCM",
+            "#edc948",
+            "NAFO",
+            "#b07aa1",
+            "NEAFC",
+            "#ff9da7",
+            "NPFC",
+            "#9c755f",
+            "SEAFO",
+            "#86bcb6",
+            "SIOFA",
+            "#d4a6c8",
+            "SPRFMO",
+            "#a0cbe8",
+            "#bdbdbd"
+          ]
+        ],
+        "fill-opacity": 0.7
+      }
+    },
+    {
+      "id": "rfb-outline",
+      "type": "line",
+      "source": "data",
+      "source-layer": "rfb",
+      "paint": {
+        "line-color": "#4d4d4d",
+        "line-width": 0.4,
+        "line-opacity": 0.6
+      }
+    }
+  ],
+  "metadata": {
+    "description": "Features coloured by RFB, 12 of 54 values, the rest grey. Colours the twelve RFMOs that manage high-seas fisheries (four tuna commissions and eight area-based bodies); the other 42 advisory, inland and coastal bodies are grouped as Other.",
+    "glen:legend": {
+      "type": "categorical",
+      "label": "RFB",
+      "classes": [
+        {
+          "label": "Inter-American Tropical Tuna Commission",
+          "color": "#4e79a7"
+        },
+        {
+          "label": "International Commission for the Conservation of Atlantic Tunas",
+          "color": "#f28e2b"
+        },
+        {
+          "label": "Indian Ocean Tuna Commission",
+          "color": "#e15759"
+        },
+        {
+          "label": "Western and Central Pacific Fisheries Commission",
+          "color": "#76b7b2"
+        },
+        {
+          "label": "Commission for the Conservation of Antarctic Marine Living Resources",
+          "color": "#59a14f"
+        },
+        {
+          "label": "General Fisheries Commission for the Mediterranean",
+          "color": "#edc948"
+        },
+        {
+          "label": "Northwest Atlantic Fisheries Organization",
+          "color": "#b07aa1"
+        },
+        {
+          "label": "North-East Atlantic Fisheries Commission",
+          "color": "#ff9da7"
+        },
+        {
+          "label": "North Pacific Fisheries Commission",
+          "color": "#9c755f"
+        },
+        {
+          "label": "South East Atlantic Fisheries Organisation",
+          "color": "#86bcb6"
+        },
+        {
+          "label": "Southern Indian Ocean Fisheries Agreement",
+          "color": "#d4a6c8"
+        },
+        {
+          "label": "South Pacific Regional Fisheries Management Organisation",
+          "color": "#a0cbe8"
+        },
+        {
+          "label": "Other",
+          "color": "#bdbdbd"
+        }
+      ]
+    },
+    "glen:tooltip_fields": [
+      "RFB"
+    ]
+  }
+}

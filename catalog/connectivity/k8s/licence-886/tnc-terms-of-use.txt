@@ -1,0 +1,146 @@
+TNC Geospatial Data
+Terms of Use: sublicensing
+
+Last revised on January 12, 2023
+
+[Transcribed from an image of The Nature Conservancy's document "Geospatial Data Terms of Use
+FULL - sublicensing allowed.docx" (https://tnc.app.box.com/s/bu8jfr4c64mi471o1j6jcbi04k8up0x6),
+whose Box share does not allow downloads. Headings and wording are reproduced as they appear;
+the image ends after the governing-law paragraph, so any text after it is not reproduced here.
+TNC's own document is authoritative.]
+
+The Nature Conservancy ("TNC," "we," "us," or "our") is pleased to provide the geospatial data
+("TNC Data") accompanying these Terms of Use to you.
+
+If you are using TNC Data on behalf of a business (such as your employer), that business accepts
+these terms of service ("Terms") by your use. In that case, the words "You" and "Your" in these
+Terms refer to both you and that business.
+
+The Terms govern Your access to and use of TNC Data, so please carefully read them and Our
+Privacy Policy before using TNC Data. By registering on the TNC Data websites and using TNC
+Data, You agree to be bound by these Terms and by our Privacy Policy. If You don't agree with
+these Terms and our Privacy Policy, You cannot use TNC Data or TNC Data data in any way or at
+any time.
+
+Your Responsibilities
+
+Respect the law. Do not use TNC Data for any fraudulent or unlawful purpose including
+violations of statutory, regulatory or contractual law. Respect copyright, privacy, trade secret,
+data protection, fish & wildlife and all other laws. Do not attempt to impersonate any other
+individual when requesting or accessing the TNC Data.
+
+Without our express written consent, You may not use, display, mirror, or frame any web page
+or interface (the "Interface") by which we provide TNC Data. You may not use any proprietary
+elements belonging to us (including but not limited to our logos and marks). In addition to
+adhering to all applicable laws and regulations, You may NOT do any of the following:
+
+    resell TNC Data, or any portion, whether by themselves or as part of other GIS products or
+    services;
+
+    encourage or enable anyone else to do any of the foregoing.
+
+We will investigate violations of these Terms or conduct that affect TNC Data or our systems or
+networks. We may also consult and cooperate with law enforcement authorities to prosecute
+users who violate the law.
+
+Rights You Grant in Your Information
+
+By using the Interface or the TNC Data, You grant us permission to use Your information for the
+purpose of providing TNC Data, facilitating or modifying the Interface, and understanding how
+the Interface and TNC Data are accessed or used.
+
+Rights That We Grant You
+
+Subject to Your compliance with these Terms, we grant You a limited, non-exclusive, non-
+transferable, worldwide, royalty-free license to use the TNC Data for non-commercial purposes.
+
+You may not lease, or rent the TNC Data to any third party.
+
+Accessing or using TNC Data does not give You ownership of any intellectual property rights in
+TNC Data. We and our licensors exclusively own all right, title and interest in and to TNC Data,
+including all associated intellectual property rights. You acknowledge that copyright, trademark,
+and other laws of the United States and foreign countries may protect TNC Data. You agree not
+to remove, alter or obscure any copyright, trademark, service mark or other proprietary rights
+notices incorporated in or accompanying TNC Data.
+
+These Terms do not grant You the right to use any of our branding or logos or names, except
+that you may attribute "The Nature Conservancy" as the source of the TNC Data. You must not
+use our names or logos or branding without our written permission.
+
+Modifying our Terms of Service
+
+We may update these Terms from time to time, in our sole discretion. We may notify You of
+such updates by any reasonable means, such as by posting the revised Terms on the TNC Data
+website. Please look at the "LAST UPDATED" legend above to see when these Terms were last
+revised. Your use of TNC Data after the posting of any revised Terms means that You accept and
+agree to be bound by the revised Terms. If You don't agree to be bound by the revised Terms,
+then You may not use TNC Data anymore. You can stop using TNC Data at any time. We may
+also stop providing TNC Data or add or create new limits to TNC Data at any time.
+
+Disclaimers, Limited Liability and Indemnity
+
+As we describe in more detail below, TNC Data are a general information resource and are
+provided solely "AS IS" and "AS AVAILABLE" without warranty of any kind. The TNC Data may
+not be accurate, current, or complete. The TNC Data do not represent an on-the-ground survey
+and at most show approximate relative locations of feature boundaries. The TNC Data are for
+informational purposes, and are not suitable for legal, engineering, or surveying purposes. You
+should not construe publication of TNC Data as a warranty or guarantee of the quality or
+availability of any goods or services or technical support. While we encourage you to read any
+metadata file accompanying the TNC Data, the metadata may not be accurate, current, or
+complete.
+
+DISCLAIMERS AND LIMITATION OF LIABILITY
+
+ALL TNC DATA IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY KIND,
+EITHER EXPRESS OR IMPLIED. WITHOUT LIMITING THE FOREGOING, WE EXPLICITLY DISCLAIM
+ANY AND ALL WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE,
+QUIET ENJOYMENT, OR NON-INFRINGEMENT, AND ANY AND ALL WARRANTIES ARISING OUT
+OF COURSE OF DEALING OR USAGE OF TRADE. TNC MAKES NO WARRANTY AS TO THE QUALITY,
+ACCURACY, COMPLETENESS, TIMELINESS, OR RELIABILITY OF TNC DATA. YOUR USE OF TNC
+DATA IS AT YOUR SOLE RISK.
+
+TNC MAKES NO REPRESENTATIONS OR WARRANTIES THAT YOUR USE OF TNC DATA WILL MEET
+YOUR NEEDS OR BE ERROR FREE. USERS ARE RESPONSIBLE FOR TAKING ALL NECESSARY
+PRECAUTIONS TO ENSURE THAT ANY CONTENT YOU MAY OBTAIN FROM THE INTERFACE IS
+FREE OF VIRUSES OR OTHER HARMFUL CODE.
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE SHALL NOT BE LIABLE FOR CREATING,
+PRODUCING, MAINTAINING, OPERATING, OR PROVIDING TNC DATA, UNDER ANY THEORY
+BASED IN CONTRACT, WARRANTY, TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY, STRICT
+LIABILITY, OR OTHER LEGAL THEORY. THIS LIMITATION ON LIABILITY INCLUDES ANY AND ALL
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY OR CONSEQUENTIAL DAMAGES, INCLUDING LOST
+PROFITS, LOSS OF DATA OR GOODWILL, SERVICE INTERRUPTION, COMPUTER DAMAGE OR
+SYSTEM FAILURE OR THE COST OF SUBSTITUTE SERVICES ARISING OUT OF OR IN CONNECTION
+WITH THESE TERMS OR FROM THE USE OF OR INABILITY TO USE TNC DATA, EVEN IF WE HAVE
+BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+THE ABOVE EXCLUSIONS AND LIMITATIONS OF DAMAGES ARE FUNDAMENTAL ELEMENTS OF
+THE BASIS OF THE BARGAIN BETWEEN YOU AND US.
+
+Indemnity
+
+You agree to release, indemnify, defend and hold harmless TNC, our subsidiaries and affiliates,
+and our and their respective officers, directors, agents, partners and employees, from and
+against any claims, disputes, demands, liabilities, damages, losses, and costs and expenses,
+including, without limitation, reasonable legal and accounting fees arising out of or in any way
+connected with (i) Your access to or use of TNC Data or (ii) Your violation of these Terms.
+
+General Terms
+
+These Terms are the entire and exclusive agreement between You and us regarding TNC Data,
+and they supersede any prior agreements between You and us regarding TNC Data.
+
+If You do not comply with these Terms, and we do not take action right away, this does not
+mean that we are giving up any rights that we may have to take action in the future or seek all
+available remedies.
+
+If it turns out that a particular provision of these Terms is not fully valid or enforceable, that
+provision will be enforced to the maximum extent permissible, and this will not affect any other
+Terms.
+
+All claims arising out of this Agreement or relating to TNC Data will be governed by the laws of
+the Commonwealth of Virginia, excluding the application of its conflicts of law rules. Any legal
+action or proceeding arising out of this Agreement or relating to these Services shall be brought
+exclusively in a state or federal court in or for Arlington County, Virginia, USA. You agree that
+any and all disputes, claims and causes of action arising out of, or connected with these Terms
+shall be resolved individually, without resort to any form of class action.

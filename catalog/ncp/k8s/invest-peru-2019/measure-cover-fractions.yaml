@@ -1,0 +1,153 @@
+# HAND-ROLLED: input staging plus a one-off measurement; the generator has neither (#882).
+#
+# InVEST Peru (#882), Habitat Quality threat scale. Ale's comment of 2026-11-11 makes the cocoa
+# threat a cover fraction, which needs built-up and cropland on the same scale, from the
+# CGLS-LC100 2019 cover-fraction layers if they are usable (else all threats presence/absence).
+#
+#   1. Stages BuiltUp- and Crops-CoverFraction 2019 from Zenodo record 3939050 (the record the
+#      catalog's discrete map came from; CC-BY-4.0) unchanged to
+#      s3://public-ncp/raw/cgls-lc100-2019-cover-fraction/, asserting Zenodo's MD5s, and logs
+#      size, MD5 and access date (#417).
+#   2. Over Peru (the FDAP footprint strips from carbon-1, rule-(b) cocoa from the same strips),
+#      measures: grid identity with the discrete map, the value histogram of each fraction
+#      (encoding of no-data / water), each fraction against its discrete class (urban 50,
+#      cultivated 40), the threat area each scale implies, and the crops fraction on cocoa
+#      pixels (would cocoa be counted twice, as crops and as cocoa?). Areas are spherical
+#      (R = 6371.0088 km). Results go to the log as one RESULT JSON line.
+#
+#   kubectl apply -n geo-workflows -f catalog/ncp/k8s/invest-peru-2019/measure-cover-fractions.yaml
+#   kubectl -n geo-workflows logs job/invest-peru-2019-measure-cover-fractions | grep -E '^(STAGED|RESULT)'
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: invest-peru-2019-measure-cover-fractions
+  namespace: geo-workflows
+  labels: {k8s-app: invest-peru-2019-measure-cover-fractions}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: invest-peru-2019-measure-cover-fractions}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 5400
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # nrp-c17 hung on the image pull for every pod on 2026-11-10.
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}, {key: kubernetes.io/hostname, operator: NotIn, values: [nrp-c17.nysernet.org]}]}
+      containers:
+      - name: measure
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        - {name: AWS_NO_SIGN_REQUEST, value: "YES"}
+        - {name: GDAL_CACHEMAX, value: "256"}
+        command:
+        - python3
+        - -c
+        - |
+          import datetime, hashlib, json, math, os, subprocess, urllib.request
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          run = lambda *a: subprocess.run(a, check=True)
+          REC = "3939050"
+          DEST = "nrp:public-ncp/raw/cgls-lc100-2019-cover-fraction/"
+          NAMES = {k: f"PROBAV_LC100_global_v3.0.1_2019-nrt_{k}-CoverFraction-layer_EPSG-4326.tif"
+                   for k in ("BuiltUp", "Crops")}
+
+          # 1. stage, verified against Zenodo's checksums
+          rec = json.load(urllib.request.urlopen(f"https://zenodo.org/api/records/{REC}"))
+          md5s = {f["key"]: f["checksum"].split(":", 1)[1] for f in rec["files"]}
+          staged = {o["Name"]: o for o in json.loads(subprocess.run(
+              ["rclone", "lsjson", "--hash", DEST], capture_output=True, text=True).stdout or "[]")}
+          for k, name in NAMES.items():
+              o = staged.get(name)
+              if o and o.get("Hashes", {}).get("md5") == md5s[name]:
+                  print("STAGED " + json.dumps({"file": DEST + name, "bytes": o["Size"], "md5": md5s[name],
+                        "zenodo_record": REC, "already_staged": o["ModTime"][:10]}), flush=True)
+                  continue
+              p = f"/tmp/{name}"
+              run("curl", "-fsSL", "--retry", "5", "--retry-delay", "20", "-o", p,
+                  f"https://zenodo.org/records/{REC}/files/{name}?download=1")
+              h = hashlib.md5()
+              with open(p, "rb") as f:
+                  for chunk in iter(lambda: f.read(1 << 24), b""): h.update(chunk)
+              assert h.hexdigest() == md5s[name], (name, h.hexdigest(), md5s[name])
+              run("rclone", "copyto", p, DEST + name, "--s3-no-check-bucket", "--retries", "10")
+              print("STAGED " + json.dumps({"file": DEST + name, "bytes": os.path.getsize(p),
+                    "md5": h.hexdigest(), "zenodo_record": REC,
+                    "accessed": datetime.date.today().isoformat()}), flush=True)
+              os.remove(p)
+
+          # 2. Peru window on the CGLS grid, from the carbon-1 footprint strips
+          S = "/vsis3/public-ncp/raw/derived/invest-peru-2019/strips/"
+          run("gdalbuildvrt", "-q", "/tmp/peru.vrt", *[f"{S}peru-{i:02d}.tif" for i in range(12)])
+          run("gdalbuildvrt", "-q", "/tmp/cocoa.vrt", *[f"{S}cocoa-{i:02d}.tif" for i in range(12)])
+          pv = gdal.Open("/tmp/peru.vrt"); gt = pv.GetGeoTransform()
+          W, H = pv.RasterXSize, pv.RasterYSize
+          win = [str(gt[0]), str(gt[3]), str(gt[0] + W * gt[1]), str(gt[3] + H * gt[5])]
+          srcs = {"lc": "/vsis3/public-land-cover/raw/cgls-lc100-2019.tif",
+                  "built": "/vsis3/public-ncp/raw/cgls-lc100-2019-cover-fraction/" + NAMES["BuiltUp"],
+                  "crops": "/vsis3/public-ncp/raw/cgls-lc100-2019-cover-fraction/" + NAMES["Crops"]}
+          grids, nodata = {}, {}
+          for k, s in srcs.items():
+              src = gdal.Open(s)   # keep the dataset referenced while its band is used
+              grids[k] = list(src.GetGeoTransform()); nodata[k] = src.GetRasterBand(1).GetNoDataValue()
+              src = None
+              run("gdal_translate", "-q", "-projwin", *win, "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
+                  s, f"/tmp/{k}.tif")
+          same_grid = all(np.allclose(grids[k], grids["lc"], atol=1e-12) for k in grids)
+          dsets = {k: gdal.Open(f"/tmp/{k}.tif") for k in ("lc", "built", "crops")}
+          cv = gdal.Open("/tmp/cocoa.vrt")
+          assert cv.GetGeoTransform() == gt and (cv.RasterXSize, cv.RasterYSize) == (W, H)
+          dsets["peru"] = pv; dsets["cocoa"] = cv
+          ds = {k: d.GetRasterBand(1) for k, d in dsets.items()}
+
+          R = 6371.0088
+          hist = {"built": np.zeros(256, np.int64), "crops": np.zeros(256, np.int64)}
+          acc = {}
+          def add(key, v): acc[key] = acc.get(key, 0.0) + float(v)
+          for y in range(0, H, 512):
+              n = min(512, H - y)
+              rd = {k: b.ReadAsArray(0, y, W, n) for k, b in ds.items()}
+              lats = gt[3] + (y + np.arange(n + 1)) * gt[5]
+              ra = (R * R * math.radians(gt[1]) * np.abs(np.diff(np.sin(np.radians(lats)))))[:, None]
+              ra = np.broadcast_to(ra, (n, W))
+              inp = rd["peru"] == 1
+              lc, coc = rd["lc"], (rd["cocoa"] == 1) & inp
+              for k, cls in (("built", 50), ("crops", 40)):
+                  f = rd[k]
+                  hist[k] += np.bincount(f[inp].ravel(), minlength=256)
+                  valid = inp & (f <= 100)
+                  fr = np.where(valid, f, 0).astype(np.float64) / 100.0
+                  incls = inp & (lc == cls)
+                  add(f"{k}_class_px", incls.sum()); add(f"{k}_class_km2", ra[incls].sum())
+                  add(f"{k}_frac_km2", (fr * ra).sum())
+                  add(f"{k}_frac_km2_in_class", (fr * ra)[incls].sum())
+                  add(f"{k}_frac_km2_outside_class", (fr * ra)[valid & ~incls].sum())
+                  add(f"{k}_px_gt0_outside_class", (valid & ~incls & (f > 0)).sum())
+                  add(f"{k}_px_class_frac_lt50", (incls & (f < 50)).sum())
+                  add(f"{k}_cocoa_frac_sum", fr[coc].sum())
+                  add(f"{k}_cocoa_px_gt0", (coc & valid & (f > 0)).sum())
+                  add(f"{k}_cocoa_px_ge50", (coc & valid & (f >= 50) & (f <= 100)).sum())
+              add("cocoa_px", coc.sum()); add("peru_px", inp.sum()); add("peru_km2", ra[inp].sum())
+          out = {"same_grid": same_grid, "grids": grids, "nodata": nodata,
+                 "hist_nonzero": {k: {int(i): int(c) for i, c in enumerate(h) if c} for k, h in hist.items()}}
+          out.update({k: (round(v, 2) if isinstance(v, float) and v != int(v) else int(v)) for k, v in acc.items()})
+          for k in ("built", "crops"):
+              out[f"{k}_cocoa_frac_mean"] = round(acc[f"{k}_cocoa_frac_sum"] / max(acc["cocoa_px"], 1), 4)
+          print("RESULT " + json.dumps(out), flush=True)
+        resources:
+          requests: {cpu: '1', memory: 4Gi, ephemeral-storage: 12Gi}
+          limits:   {cpu: '1', memory: 4Gi, ephemeral-storage: 12Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

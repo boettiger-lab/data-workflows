@@ -1,0 +1,63 @@
+# HAND-ROLLED: the generator does not write STAC. A metadata-only fix (#940 item 1): the WDPA
+# res-8 join sentence in the wdpa-hex asset and the dataset README is replaced with the fact
+# that a small parcel's h8 is a parent cell, not a covered cell. fix_res8.py (committed beside
+# this file) edits the LIVE collection and README, so nothing else on them is touched.
+#   kubectl create configmap wdpa-res8-script -n geo-workflows \
+#     --from-file=fix_res8.py=catalog/wdpa/k8s/res8-940/fix_res8.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/wdpa/k8s/res8-940/wdpa-res8-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdpa-res8-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: wdpa-res8-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: wdpa-res8-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+
+          C=nrp:public-wdpa/wdpa/stac-collection.json
+          M=nrp:public-wdpa/wdpa/README.md
+          rclone cat "$C" > /tmp/c.json
+          rclone cat "$M" > /tmp/README.md
+          python3 /script/fix_res8.py /tmp/c.json /tmp/README.md
+          guard_stac /tmp/c.json "$C"
+          rclone copyto /tmp/c.json "$C" $R
+          rclone copyto /tmp/README.md "$M" $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: wdpa-res8-script}}

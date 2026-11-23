@@ -1,0 +1,36 @@
+name: STAC publish guard
+
+# A catalog job that uploads a stac-collection.json must run scripts/stac-publish-guard.py,
+# or declare why it does not need to (#890).
+#
+# Ratchets rather than blocking on history: only the catalog files this PR touches are
+# checked. The jobs that replace collections wholesale were guarded when this check was added; the
+# ones that read the live collection and edit it declare so when someone next edits them.
+on:
+  pull_request:
+    paths:
+      - 'catalog/**'
+      - 'scripts/check-stac-publish-guard.py'
+      - '.github/workflows/check-stac-publish-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # need the merge base to diff against
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check changed STAC publishers run the guard or declare why not
+        run: |
+          # checkout above already ran with fetch-depth: 0, so the base branch ref is
+          # present; `--depth=0` here was rejected outright ("depth 0 is not a positive
+          # number") and failed the job before the check ever ran.
+          git fetch origin "${{ github.base_ref }}"
+          python3 scripts/check-stac-publish-guard.py --base "origin/${{ github.base_ref }}"

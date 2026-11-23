@@ -1,0 +1,66 @@
+# HAND-ROLLED: the generator does not write STAC or styles. The PAD-US marine default style was
+# one colour (verify-stac HARD style-single-colour-default, #881). scripts/default-style.py builds
+# a default coloured by GAP_Sts in the fee palette; scripts/thumbnail.py redraws the thumbnail
+# from it. Both, with the patched collection, go in through a ConfigMap built from the scratch
+# output (the collection JSON is not committed, Hard Boundary 1):
+#   O=<out>/public-padus/padus-4-1/marine
+#   kubectl create configmap padus-marine-style -n geo-workflows \
+#     --from-file=stac-collection.json=$O/stac-collection.json \
+#     --from-file=marine-gap-sts.json=$O/styles/marine-gap-sts.json \
+#     --from-file=thumbnail.png=$O/thumbnail.png \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/pad-us/k8s/style-marine-881/padus-marine-style-publish.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: padus-marine-style-publish
+  namespace: geo-workflows
+  labels: {k8s-app: padus-marine-style-publish}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: padus-marine-style-publish}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: files, mountPath: /files, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          D=nrp:public-padus/padus-4-1/marine
+          # ConfigMap files are symlinks, which rclone refuses as a source; copy them out first.
+          cp /files/stac-collection.json /tmp/c.json
+          cp /files/marine-gap-sts.json /files/thumbnail.png /tmp/
+          guard_stac /tmp/c.json "$D/stac-collection.json"
+          rclone copyto /tmp/marine-gap-sts.json "$D/styles/marine-gap-sts.json" $R
+          rclone copyto /tmp/thumbnail.png "$D/thumbnail.png" $R
+          rclone copyto /tmp/c.json "$D/stac-collection.json" $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: files, configMap: {name: padus-marine-style}}

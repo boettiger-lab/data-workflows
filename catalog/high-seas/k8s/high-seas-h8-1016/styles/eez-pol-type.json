@@ -1,0 +1,84 @@
+{
+  "version": 8,
+  "name": "World EEZ v12 PMTiles by POL_TYPE",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../eez.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "eez-fill",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "eez",
+      "paint": {
+        "fill-color": [
+          "case",
+          [
+            "!",
+            [
+              "has",
+              "POL_TYPE"
+            ]
+          ],
+          "#cccccc",
+          [
+            "match",
+            [
+              "to-string",
+              [
+                "get",
+                "POL_TYPE"
+              ]
+            ],
+            "200NM",
+            "#4e79a7",
+            "Overlapping claim",
+            "#f28e2b",
+            "Joint regime",
+            "#e15759",
+            "#cccccc"
+          ]
+        ],
+        "fill-opacity": 0.7
+      }
+    },
+    {
+      "id": "eez-outline",
+      "type": "line",
+      "source": "data",
+      "source-layer": "eez",
+      "paint": {
+        "line-color": "#4d4d4d",
+        "line-width": 0.4,
+        "line-opacity": 0.6
+      }
+    }
+  ],
+  "metadata": {
+    "description": "Features coloured by POL_TYPE, 3 values.",
+    "glen:legend": {
+      "type": "categorical",
+      "label": "POL_TYPE",
+      "classes": [
+        {
+          "label": "Standard 200 nautical mile EEZ",
+          "color": "#4e79a7"
+        },
+        {
+          "label": "Area claimed by multiple states with unresolved boundaries",
+          "color": "#f28e2b"
+        },
+        {
+          "label": "Area jointly managed by two states",
+          "color": "#e15759"
+        }
+      ]
+    },
+    "glen:tooltip_fields": [
+      "POL_TYPE"
+    ]
+  }
+}

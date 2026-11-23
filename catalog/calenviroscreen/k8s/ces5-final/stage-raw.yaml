@@ -1,0 +1,47 @@
+# HAND-ROLLED: the generator has no stage-raw step (AGENTS.md Step 1b). Stages the final
+# CalEnviroScreen 5.0 release (OEHHA, data.ca.gov package calenviroscreen-5-0, files dated
+# 070126) under s3://public-calenviroscreen/raw/ and prints each file's size and sha256 (#975).
+# data.ca.gov redirects each download to a signed URL that expires in 60 s, so every file is
+# fetched once here and the build reads the staged copy.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ces5-final-stage-raw
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 5Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 5Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          P=https://publish.data.ca.gov/dataset/72b28c84-ceac-4886-9f71-d422470d2223/resource
+          mkdir -p /tmp/raw && cd /tmp/raw
+          while read -r id name; do
+            curl -fsSL --retry 5 -o "$name" "$P/$id/download/$name"
+          done <<'EOF'
+          64a0fdd4-ccb1-4bfb-ba41-22c4ee2f3e14 calenviroscreen50results_f_070126.gdb.zip
+          28dc1cef-ca09-4949-94bc-a52b9df96eec calenviroscreen50results_f_070126.xlsx
+          31ddb21a-44bb-4cb0-81d8-6e2f80ee359d final-calenviroscreen-5.0-data-dictionary.pdf
+          EOF
+          date -u +"accessed %Y-%m-%dT%H:%M:%SZ"
+          for f in *; do echo "$(stat -c %s "$f") $(sha256sum "$f" | cut -d' ' -f1) $f"; done
+          rclone copy /tmp/raw nrp:public-calenviroscreen/raw/ces5-final/ --s3-no-check-bucket
+          rclone ls nrp:public-calenviroscreen/raw/ces5-final/
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

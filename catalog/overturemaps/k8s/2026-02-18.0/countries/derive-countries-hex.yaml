@@ -89,6 +89,8 @@ spec:
               )
           """)
 
+          # regions/hex holds land AND maritime region features (`class`); filter to land, or the
+          # maritime regions' territorial-sea cells enter the country (#940: 19,831 km2 in Gabon).
           # Derive countries/hex from the LAND regions/hex, carrying each country's LAND
           # feature _cng_fid + attributes so the hex shares the flat's per-feature id (#549).
           # Each country code has exactly ONE land feature (class='land'), so the join is 1:1.
@@ -112,7 +114,7 @@ spec:
                       SELECT DISTINCT r.h8, r.h0, l._cng_fid
                       FROM read_parquet('s3://public-overturemaps/2026-02-18.0/regions/hex/h0=*/data_0.parquet') r
                       JOIN land l ON r.country = l.country
-                      WHERE r.country IS NOT NULL
+                      WHERE r.country IS NOT NULL AND r.class = 'land'
                   )
                   SELECT c.h8, c.h0, l.*
                   FROM cells c JOIN land l USING (_cng_fid)

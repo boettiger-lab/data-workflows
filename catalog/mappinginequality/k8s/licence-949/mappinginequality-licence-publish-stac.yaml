@@ -1,0 +1,48 @@
+# HAND-ROLLED: the generator does not write STAC. A metadata-only fix (#949): the Mapping
+# Inequality licence is CC-BY-NC 2.5 per the project FAQ, not CC-BY-NC-SA-4.0. set_licence.py
+# (committed beside this file) edits the live collection and README; everything else is kept.
+#   kubectl create configmap mappinginequality-licence -n geo-workflows \
+#     --from-file=set_licence.py=catalog/mappinginequality/k8s/licence-949/set_licence.py \
+#     --from-file=guard.py=scripts/stac-publish-guard.py
+#   kubectl create -f catalog/mappinginequality/k8s/licence-949/mappinginequality-licence-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mappinginequality-licence-publish
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: in, mountPath: /in, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          rclone cat nrp:public-mappinginequality/stac-collection.json > /tmp/live.json
+          cp /tmp/live.json /tmp/c.json
+          python3 /in/set_licence.py collection /tmp/c.json
+          python3 /in/guard.py /tmp/c.json /tmp/live.json
+          rclone cat nrp:public-mappinginequality/README.md > /tmp/README.md
+          python3 /in/set_licence.py readme /tmp/README.md
+          rclone copyto /tmp/c.json nrp:public-mappinginequality/stac-collection.json $R
+          rclone copyto /tmp/README.md nrp:public-mappinginequality/README.md $R
+          echo updated
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: in, configMap: {name: mappinginequality-licence}}

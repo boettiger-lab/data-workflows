@@ -1,0 +1,27 @@
+{
+  "public-fire/stac-collection.json": {
+    "AGENCY": "The prescribed-burn layers also use CSP=California State Parks, NOP=No Protection and PVT=Private (CAL FIRE's AGENCY domain), and CCC, which that domain does not define."
+  },
+  "public-ca-dac/stac-collection.json": {
+    "DAC23": "The place layers spell the same value 'Data Not Available'."
+  },
+  "public-ca30x30/cwhr/stac-collection.json": {
+    "whrnum": "0=no data: in the fractions table, the share of the hex with no CWHR class."
+  },
+  "public-land-cover/cgls-lc100-2019/stac-collection.json": {
+    "lc_class": "255=no data: in the fractions table, the share of the hex the COG marks as no data."
+  },
+  "public-utah/ugs-uranium/stac-collection.json": {
+    "MERIDIAN": {
+      "add_values": [
+        "SALT LAKE",
+        "SLBM",
+        "SALT LAKE.",
+        "SALTLAKE",
+        "SALT LAKE BASE MERIDIAN",
+        "SALT WASH"
+      ],
+      "note": "Past producers write it in free text: SALT LAKE, SLBM, SALT LAKE., SALTLAKE and SALT LAKE BASE MERIDIAN all mean the Salt Lake meridian. One record says SALT WASH, which is not a survey meridian (Salt Wash is a member of the Morrison Formation)."
+    }
+  }
+}

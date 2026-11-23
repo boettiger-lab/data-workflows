@@ -1,0 +1,53 @@
+# HAND-ROLLED: the generator does not write STAC. A metadata-only fix (#881): the fallback COG
+# renders were titled "Fallback: <asset title>", which map apps show in their layer lists.
+# scripts/render-titles.py drops the prefix and the file-format words from each LIVE collection
+# listed in collections.txt (the crawl of 2026-11-14), touching render titles and nothing else.
+#   kubectl create configmap render-titles-881 -n geo-workflows \
+#     --from-file=render-titles.py=scripts/render-titles.py \
+#     --from-file=guard.py=scripts/stac-publish-guard.py \
+#     --from-file=collections.txt=catalog/render-titles-881/collections.txt
+#   kubectl create -f catalog/render-titles-881/render-titles-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: render-titles-881
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: retitle
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: in, mountPath: /in, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          n=0
+          while read -r p; do
+            [ -n "$p" ] || continue
+            rclone cat "nrp:$p" > /tmp/live.json
+            cp /tmp/live.json /tmp/c.json
+            python3 /in/render-titles.py /tmp/c.json | sed "s#/tmp/c.json#$p#"
+            cmp -s /tmp/c.json /tmp/live.json && { echo "unchanged $p"; continue; }
+            python3 /in/guard.py /tmp/c.json /tmp/live.json
+            rclone copyto /tmp/c.json "nrp:$p" $R
+            n=$((n+1))
+          done < /in/collections.txt
+          echo "DONE: $n collections rewritten"
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: in, configMap: {name: render-titles-881}}

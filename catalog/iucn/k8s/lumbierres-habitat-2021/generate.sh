@@ -4,6 +4,10 @@
 #            then hex at native 9, parents 8 and 0, dominant class per cell.
 # fractions: same COG, share of each class per cell (like cgls-lc100-2019's hex-fractions).
 # Short-unit fan-outs at opportunistic per #804.
+# PINNED PATH (#1001): the fractions build is published at lumbierres-habitat-2021/fractions/hex/.
+# On cng-datasets >= 0.17.0 (datasets#355) a fractions build writes <dataset>/hex-fractions/, so
+# regenerating this unchanged would write lumbierres-habitat-2021/fractions/hex-fractions/, which the
+# STAC does not reference. Do not regenerate on >= 0.17.0 without updating the published path and STAC.
 set -euo pipefail
 cd "$(dirname "$0")"
 COMMON=(--bucket public-iucn --namespace geo-workflows --h3-resolution 9 --parent-resolutions "8,0"

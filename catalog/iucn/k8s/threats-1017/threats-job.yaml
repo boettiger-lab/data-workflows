@@ -1,0 +1,97 @@
+# HAND-ROLLED: cng-datasets has no step for reading a table from a REST API; this job reads the
+# threats (scope, severity, timing) of each STAR-scored taxon from the IUCN Red List v4 API (#1017).
+#
+# Runs in `biodiversity`, not geo-workflows, because that is where the `iucn-api-key` secret
+# lives (precedent: taxonomy-backfill-825). The key is not copied into geo-workflows (Hard
+# Boundary 3). S3 goes through the `aws` secret already in biodiversity, as an env-defined
+# rclone remote on the internal endpoint; no secret is added anywhere.
+#
+# Output goes to a STAGING prefix only:
+#   s3://public-iucn/taxonomy/staging-1017/iucn-threats.parquet          (+ .report.json)
+#   s3://public-iucn/taxonomy/staging-1017/api-cache/<sis_taxon_id>.json (resume cache)
+# Taxa already in staging-825/api-cache are reused, not fetched. A rerun fetches only what is
+# missing. The publish step (geo-workflows) copies the parquet into place and writes the STAC.
+#
+# Pod: two API calls per taxon at ~0.7 s each for up to ~26k taxa, single-threaded on purpose
+# (be polite to the API). Default priority, because an opportunistic pod would be preempted
+# over that span; requests stay at <=1 core and <=2Gi (NRP small-pod exemption).
+#
+#   kubectl create configmap iucn-threats-script -n biodiversity \
+#     --from-file=fetch_threats.py=catalog/iucn/k8s/threats-1017/fetch_threats.py \
+#     --from-file=backfill_taxonomy.py=catalog/iucn/k8s/taxonomy-backfill-825/backfill_taxonomy.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n biodiversity delete job iucn-threats --ignore-not-found
+#   kubectl apply -f catalog/iucn/k8s/threats-1017/threats-job.yaml
+#   kubectl -n biodiversity logs -f job/iucn-threats
+#
+# Test on a few taxa first: set ONLY_IDS to a comma list and STAGE to staging-1017-test.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-threats
+  namespace: biodiversity
+  labels: {k8s-app: iucn-threats}
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 172800
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: iucn-threats}}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: fetch
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 4Gi}
+        env:
+        - name: STAGE
+          value: staging-1017
+        - name: ONLY_IDS
+          value: ""
+        - name: IUCN_REQUEST_DELAY
+          value: "0.3"
+        - name: IUCN_API_KEY
+          valueFrom: {secretKeyRef: {name: iucn-api-key, key: IUCN_API_KEY}}
+        - {name: RCLONE_CONFIG_NRP_TYPE, value: s3}
+        - {name: RCLONE_CONFIG_NRP_PROVIDER, value: Ceph}
+        - {name: RCLONE_CONFIG_NRP_ENDPOINT, value: "http://rook-ceph-rgw-nautiluss3.rook"}
+        - name: RCLONE_CONFIG_NRP_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: RCLONE_CONFIG_NRP_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          python -c "import requests, duckdb, pyarrow" 2>/dev/null || pip install --quiet requests duckdb pyarrow
+          R="--retries 10 --low-level-retries 20"
+          DEST=nrp:public-iucn/taxonomy/$STAGE
+          mkdir -p /work/src /work/api-cache /work/prior-cache /work/out
+          # Fail fast if the S3 key cannot write the staging prefix.
+          date -u +%FT%TZ > /work/started.txt && rclone copyto /work/started.txt $DEST/started.txt $R
+          rclone copy nrp:public-iucn/taxonomy/iucn-taxonomy.parquet /work/src/ $R
+          rclone md5sum /work/src/iucn-taxonomy.parquet | tee /work/out/source-md5.txt
+          rclone copy nrp:public-iucn/taxonomy/staging-825/api-cache/ /work/prior-cache/ --transfers 32 $R
+          rclone copy $DEST/api-cache/ /work/api-cache/ --transfers 32 $R || true
+          export SRC_PARQUET=/work/src/iucn-taxonomy.parquet CACHE_DIR=/work/api-cache \
+                 PRIOR_CACHE_DIR=/work/prior-cache OUT_PARQUET=/work/out/iucn-threats.parquet \
+                 SYNC_CMD="rclone copy /work/api-cache/ $DEST/api-cache/ --transfers 32 $R"
+          python /scripts/fetch_threats.py fetch
+          python /scripts/fetch_threats.py build
+          rclone copy /work/out/ $DEST/ $R
+          echo Done.
+        volumeMounts:
+        - {name: scripts, mountPath: /scripts, readOnly: true}
+        - {name: work, mountPath: /work}
+      volumes:
+      - {name: scripts, configMap: {name: iucn-threats-script}}
+      - {name: work, emptyDir: {sizeLimit: 4Gi}}

@@ -1,0 +1,44 @@
+# HAND-ROLLED: stage-raw before generation (AGENTS.md Step 1b); the generator has no download step for a
+# multi-file source (#944). Copies the two FWS bulk zips to public-usfws/raw/ and prints each object's
+# size, sha256 and the access date for the STAC provenance.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: usfws-944-stage-raw
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '1', memory: 2Gi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          echo "access date: $(date -u +%F)"
+          for u in https://ecos.fws.gov/docs/crithab/crithab_all/crithab_all_layers.zip \
+                   https://ecos.fws.gov/docs/species/shapefiles/usfws_complete_species_current_range.zip; do
+            f=/tmp/$(basename $u)
+            curl -sSfL --retry 5 -D /tmp/h.txt -o "$f" "$u"
+            grep -i '^last-modified' /tmp/h.txt || true
+            echo "$(basename $f) $(stat -c %s $f) $(sha256sum $f | cut -d' ' -f1)"
+            unzip -l "$f" | tail -n +4 | head -40
+            rclone copyto "$f" "nrp:public-usfws/raw/$(basename $f)" --retries 6
+            rm -f "$f"
+          done
+          echo DONE
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

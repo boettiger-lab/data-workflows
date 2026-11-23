@@ -99,7 +99,7 @@ spec:
             - -lc
             - |
               echo "Running index ${INDEX}";
-              python -u wetlands/job.py --i ${INDEX} --zoom 8 --input-url https://minio.carlboettiger.info/public-wetlands/GLWD_v2_0/GLWD_v2_0_combined_classes/GLWD_v2_0_main_class.tif --output-url s3://public-wetlands/hex
+              python -u wetlands/job.py --i ${INDEX} --zoom 8 --input-url https://s3.carlboettiger.info/public-wetlands/GLWD_v2_0/GLWD_v2_0_combined_classes/GLWD_v2_0_main_class.tif --output-url s3://public-wetlands/hex
       volumes:
         - name: repo
           emptyDir: {}

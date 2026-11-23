@@ -37,9 +37,18 @@ spec:
         args:
         - |
           set -euo pipefail
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
           # configMap keys mount as symlinks, which rclone copyto rejects as a source
           mkdir -p /tmp/stac && cp -L /stac/stac-collection.json /stac/README.md /tmp/stac/
           python3 -m json.tool /tmp/stac/stac-collection.json >/dev/null
+          guard_stac /tmp/stac/stac-collection.json nrp:public-ca30x30/fmmp-2022/stac-collection.json
           rclone copyto /tmp/stac/stac-collection.json nrp:public-ca30x30/fmmp-2022/stac-collection.json -v
           rclone copyto /tmp/stac/README.md nrp:public-ca30x30/fmmp-2022/README.md -v
         resources:

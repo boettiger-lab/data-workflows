@@ -31,9 +31,9 @@ spec:
               name: private-wyoming-rw
               key: AWS_SECRET_ACCESS_KEY
         - name: AWS_S3_ENDPOINT
-          value: minio.carlboettiger.info
+          value: s3.carlboettiger.info
         - name: AWS_PUBLIC_ENDPOINT
-          value: minio.carlboettiger.info
+          value: s3.carlboettiger.info
         - name: AWS_HTTPS
           value: 'true'
         - name: AWS_VIRTUAL_HOSTING

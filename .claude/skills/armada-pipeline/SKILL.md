@@ -251,8 +251,7 @@ cluster pods.
 All three Armada classes have **positive** priority, so NRP's usage policy checks every Armada pod
 once it has run 30 minutes, `armada-preemptible` included. Only negative-priority (k8s
 `opportunistic`) pods are exempt. Size Armada requests to measured use exactly as for
-default-priority k8s pods: memory 20–150%, CPU 20–200%, limit ≤ 1.2× request. Across the whole
-account, no more than 4 pods may be outside those ranges (#804, `pod-preemption` skill).
+default-priority k8s pods, under the zero-violation rule in the `pod-preemption` skill (#804).
 
 ## ⛔ Job specs are world-readable
 
@@ -264,7 +263,17 @@ credential into a submitted spec.
 
 **Preferred: generate it.** `--backend armada` (or `--backend auto`) on `workflow` /
 `raster-workflow` converts every step as it generates, emitting `armada-<name>-<step>.yaml`
-alongside the k8s manifests. Submit each in order with `armadactl submit`.
+alongside the k8s manifests. There is no orchestrator; submit each in order, waiting for hex
+before repartition:
+
+```bash
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-setup-bucket.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-convert.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-plan.yaml      # if emitted (cells-per-chunk plan, #124)
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-pmtiles.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml
+armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-repartition.yaml   # after hex finishes
+```
 
 **Converting a manifest you already have:**
 
@@ -341,25 +350,9 @@ Unschedulable jobs:
 Actual usage was **peak 5.2 Gi** and a **mean of 3.3 cores**. Right-size both dimensions — see
 the `hex-tuning` skill for the measurement recipe and the bimodal-profile caveat.
 
-**Treat memory as the resource to be most conservative about.** Cores are comparatively elastic:
-a node with spare CPU can usually take another pod, and a slice that wants fewer cores simply runs
-a little longer. Memory is not elastic — a node either has the gigabytes free or it cannot host
-the pod at all, so the memory request is what decides how many placement slots exist for your work
-at all. Size cpu honestly too, but if you have to be wrong in one direction, be tight on memory.
-
-Two forward-looking reasons this matters beyond today's cluster:
-
-- **Federation.** Armada can schedule across clusters, and another cluster may have no large-RAM
-  nodes even if its Armada limits are configured differently. A slice that needs 8 Gi is portable
-  to anywhere; one that needs 64 Gi is placeable only where big nodes exist, which forfeits the
-  main thing Armada offers.
-- **The controller-less cap.** NRP already refuses anything over 32 GB (above), so memory is the
-  dimension with a hard wall, not merely a soft contention cost.
-
-⚠️ Do **not** conclude "cpu binds, not memory" from a small change in concurrency after
-right-sizing memory. We briefly drew that inference from concurrency moving 28 → 31 pods, then
-found both figures had been sampled during Armada's lease ramp, which later reached 128. Ramp
-noise is not a ceiling — see the next section.
+Memory is the dimension to be tightest on: it is not elastic the way cores are, and it decides
+where a slice can be placed at all (skill `hex-tuning`). And do not read a concurrency change
+taken during Armada's lease ramp as a ceiling — see the next section.
 
 ## ⛔ You cannot measure Armada concurrency with `kubectl`
 
@@ -415,12 +408,15 @@ query parameters so there is nothing to escape at all.
 
 - **k8s** — the standard route here. Right when the work is naturally a few hundred units and each
   is short.
-  - **Units under ~1 hour:** run at `opportunistic`. They are exempt from NRP's usage policy and barely exposed to preemption.
-  - **Units over ~1 hour:** run at default priority, with requests sized to measured use (memory 20–150% of request, CPU 20–200%, limit ≤ 1.2× request). Otherwise more than 4 out-of-range pods block every Deployment change on the account (#804).
-  - `cng-datasets` omits `priorityClassName` by default, so a generated job runs at default priority. It also gives hex fan-outs `backoffLimitPerIndex`. Its memory defaults are not measured, so check them. See the `pod-preemption` skill.
+  - Choose the priority class by unit runtime (short units at `opportunistic`, long ones at default priority sized to measured use) per the `pod-preemption` skill.
 - **Armada** — right when the work microslices into thousands of small units, or when the ~200
   completion cap forces artificial batching that inflates per-pod RAM and runtime. Budget for a
   gap-fill pass: nothing retries, so a fan-out of a few thousand will lose one or two units.
+  - **NRP's Armada kills every pod at 6 hours.** Its executor sets `activeDeadlineSeconds: 21600`
+    on every pod, overriding whatever the job asks for, so a pod still running at 6 h ends with
+    `DeadlineExceeded` and exit 137 (tested 2026-11-17). Keep Armada units well under 6 h, make
+    long loops resumable (for example with claim markers on S3), and run anything longer as a k8s
+    Job. Queue waits of ~30 min before a pod starts are normal.
 
 `--backend auto` makes that choice on chunk count alone (~200), which is a reasonable proxy but
 only a proxy — it does not know how long a unit runs or how expensive losing one is. Override it

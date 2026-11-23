@@ -1,0 +1,137 @@
+[
+ {
+  "collection": "public-rivers/american-rivers/ira-watersheds/stac-collection.json",
+  "evidence": "https://www.arcgis.com/home/item.html?id=6d74d3f1f8d047dd9295467d7671b774 (item summary: 'USFS inventoried roadless areas (IRA) ... and IRA-influenced watersheds'; FeatureServer layers 0-4); https://data.fs.usda.gov/geodata/edw/edw_resources/meta/Hydro_F2F2_HUC12.xml (field definitions, edition 2.0.14); FeatureServer statistics 2026-11-17 (9,991 rows, 37 states plus 7 blank)",
+  "title": "Drinking Water Watersheds Influenced by Inventoried Roadless Areas (HUC12)",
+  "description": "HUC12 watersheds that supply surface drinking water and are influenced by USDA Forest Service Inventoried Roadless Areas (IRAs, the areas covered by the 2001 Roadless Area Conservation Rule), compiled by American Rivers. Here IRA means Inventoried Roadless Area, not the Inflation Reduction Act. 9,991 watersheds in 37 states (7 have no state recorded). American Rivers publishes this layer with the 2001 roadless areas, national forests and wilderness areas, but with no field definitions.\n\nHUC12, APCW, IMP, POP_DS and SUM_POP carry the names of USDA Forest Service Forests to Faucets 2.0 fields: ability to produce clean water, importance for surface drinking water, the surface drinking-water population downstream, and the surface-water consumers served by intakes in the watershed. American Rivers does not say whether these values are carried over from Forests to Faucets unchanged. BG, BW, FF, MB, SR and IDX, and the _NR and _SR variants of every score, are not defined by either source, so their meaning is unknown.",
+  "providers": {
+   "US EPA / American Rivers": {
+    "name": "American Rivers",
+    "roles": [
+     "producer"
+    ],
+    "url": "https://www.americanrivers.org"
+   }
+  },
+  "links_replace": {
+   "https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/IRA_influenced_drinking_water/FeatureServer/0": {
+    "rel": "source",
+    "href": "https://services9.arcgis.com/90v9hhDSTUTen7c9/arcgis/rest/services/IRA_influenced_drinking_water/FeatureServer/0",
+    "title": "ArcGIS FeatureServer source (American Rivers)"
+   },
+   "https://www.epa.gov/cwsrf/inflation-reduction-act-clean-water-state-revolving-fund": {
+    "rel": "about",
+    "href": "https://www.arcgis.com/home/item.html?id=6d74d3f1f8d047dd9295467d7671b774",
+    "type": "text/html",
+    "title": "American Rivers: IRA_influenced_drinking_water (ArcGIS item)"
+   }
+  },
+  "links_add": [
+   {
+    "rel": "about",
+    "href": "https://data.fs.usda.gov/geodata/edw/edw_resources/meta/Hydro_F2F2_HUC12.xml",
+    "type": "application/xml",
+    "title": "Forests to Faucets 2.0 field definitions (USDA Forest Service metadata)"
+   }
+  ],
+  "columns": {
+   "HUC_12_NPR": "Hydrologic Unit Code (12 digits) as text; equal to HUC12 in the rows checked. Not defined by American Rivers. High-cardinality key, not an enumerable class.",
+   "POP_DS": "Name matches the Forests to Faucets 2.0 field: surface drinking-water population downstream of the HUC12. Cannot be summed across watersheds, since downstream populations are counted once per upstream watershed.",
+   "SUM_POP": "Name matches the Forests to Faucets 2.0 field: surface-water consumers served by drinking-water intakes in the HUC12 (surface plus Great Lakes intakes).",
+   "APCW": "Name matches the Forests to Faucets 2.0 field Ability to Produce Clean Water, (natural cover + agriculture + impervious + riparian ranks) × water-yield rank. Values here run 4 to 64.",
+   "IMP": "Name matches the Forests to Faucets 2.0 field Important Areas for Surface Drinking Water (raw value), drinking-water protection × water yield.",
+   "APCW_NR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "APCW_SR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "IMP_NR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "IMP_SR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "BG": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "BG_NR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "BG_SR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "BW": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "BW_NR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "BW_SR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "FF": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "FF_NR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "FF_SR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "MB": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "MB_NR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "MB_SR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "SR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "SR_NR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "SR_SR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "IDX": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "IDX_NR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown.",
+   "IDX_SR": "Not defined by American Rivers or by Forests to Faucets 2.0; meaning unknown."
+  },
+  "asset_text_replace": {
+   "ira-watersheds-hex": [
+    [
+     "the six indicator scores (APCW, IMP, BG, BW, FF, MB, SR) and their non-rural (_NR) / super-rural (_SR) variants, the composite IDX/IDX_NR/IDX_SR",
+     "the score columns (APCW, IMP, BG, BW, FF, MB, SR), their _NR and _SR variants, IDX/IDX_NR/IDX_SR"
+    ]
+   ]
+  }
+ },
+ {
+  "collection": "public-rivers/american-rivers/roo-cjest/stac-collection.json",
+  "evidence": "CEQ names the tool the Climate and Economic Justice Screening Tool (CEJST), https://screeningtool.geoplatform.gov/",
+  "title": "Rivers of Opportunity — CEJST Census Tract Scores",
+  "description_replace": [
+   [
+    "Screening Tool (CJEST)",
+    "Screening Tool (CEJST)"
+   ]
+  ],
+  "providers": {
+   "CEQ / EPA (CJEST data)": {
+    "name": "Council on Environmental Quality (CEJST data)",
+    "roles": [
+     "producer"
+    ],
+    "url": "https://screeningtool.geoplatform.gov/"
+   }
+  },
+  "asset_text_replace": {
+   "style-roo-cjest-tc": [
+    [
+     "(CJEST)",
+     "(CEJST)"
+    ]
+   ]
+  }
+ },
+ {
+  "collection": "public-barred-owl/stac-collection.json",
+  "evidence": "https://barredowltool.russell.wisc.edu/pages/background/ (name) and /pages/methods/ ('We used the prioritizr package in R')",
+  "title": "Barred Owl Prioritization Platform (Northern Spotted Owl range)",
+  "description_replace": [
+   [
+    "Cloud-native mirror of the Barred Owl Tool (",
+    "Cloud-native mirror of the Barred Owl Prioritization Platform ("
+   ]
+  ]
+ },
+ {
+  "collection": "public-calenviroscreen/stac-collection.json",
+  "evidence": "CES 4.0 results already carry Lead / Lead Pctl (calenviroscreen40resultsdatadictionary_f_2021.xlsx); final CalEnviroScreen 5.0 published on data.ca.gov 2026-06-16 (package calenviroscreen-5-0, files dated 070126)",
+  "description_replace": [
+   [
+    "Version 5.0 adds two new indicators (Children's Lead Risk from Housing and Small Air Toxic Sites)",
+    "Version 5.0 adds two new indicators (Small Air Toxic Sites and Diabetes Prevalence)"
+   ]
+  ],
+  "description_append": "**Draft, not final:** OEHHA published the final CalEnviroScreen 5.0 on 2026-06-16 (https://data.ca.gov/dataset/calenviroscreen-5-0). This collection holds the January 2026 public-review draft, whose scores may differ from the final.",
+  "links_add": [
+   {
+    "rel": "related",
+    "href": "https://data.ca.gov/dataset/calenviroscreen-5-0",
+    "type": "text/html",
+    "title": "CalEnviroScreen 5.0 (final, June 2026)"
+   }
+  ],
+  "columns": {
+   "ChildLead": "Potential risk for lead exposure in children in low-income communities with older housing (carried over from CES 4.0)",
+   "DiabetesPrev": "Model-based prevalence of diabetes in adults ≥18 (new in v5.0)"
+  }
+ }
+]
