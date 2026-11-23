@@ -1,0 +1,70 @@
+# HAND-ROLLED: the generator does not publish styles into an existing collection. Fixes two
+# pre-existing findings on wdoecm-may-2026 (#879): the one-colour default style
+# (verify-stac style-single-colour-default) becomes `style-wdoecm-gov-type` (GOV_TYPE, 11
+# classes, built with scripts/default-style.py), the thumbnail is redrawn from it, and the
+# README no longer links the raw GDB.
+#
+#   kubectl create configmap wdoecm-styles-879 -n geo-workflows \
+#     --from-file=catalog/wdpa/k8s/wdoecm-may-2026-overlap/styles/ --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -f catalog/wdpa/k8s/wdoecm-may-2026-overlap/wdoecm-styles-publish.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdoecm-styles-879
+  namespace: geo-workflows
+  labels: {k8s-app: wdoecm-styles-879}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: wdoecm-styles-879}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          B=nrp:public-wdpa/wdoecm-may-2026
+          C=$B/stac-collection.json
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          rclone copyto --copy-links /opt/styles/wdoecm-gov-type.json $B/styles/wdoecm-gov-type.json $R
+          cng-datasets vector-thumbnail --style https://s3-west.nrp-nautilus.io/public-wdpa/wdoecm-may-2026/styles/wdoecm-gov-type.json \
+            --parquet s3://public-wdpa/wdoecm-may-2026/wdoecm-may-2026.parquet --output /tmp/thumbnail.png
+          rclone copyto /tmp/thumbnail.png $B/thumbnail.png $R
+          rclone copyto $C /tmp/c.json $R
+          rclone copyto $B/README.md /tmp/README.md $R
+          python3 /opt/styles/set_styles.py /tmp/c.json /tmp/README.md /opt/styles/style-assets.json
+          guard_stac /tmp/c.json $C
+          rclone copyto /tmp/README.md $B/README.md $R
+          rclone copyto /tmp/c.json $C $R
+          echo PUBLISHED
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: styles, mountPath: /opt/styles, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 4Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: styles, configMap: {name: wdoecm-styles-879}}
