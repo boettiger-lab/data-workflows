@@ -1,0 +1,54 @@
+# HAND-ROLLED: the generator does not edit an existing collection's text. Adds to the live
+# gfw-fishing-effort hex asset how to total fishing hours inside a polygon (weight boundary
+# cells by their inside share), per the scope on #1021. No data changes.
+#
+#   kubectl create configmap gfw-weighting-1021 -n geo-workflows \
+#     --from-file=set_weighting.py=catalog/high-seas/k8s/gfw/weighting-1021/set_weighting.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -f catalog/high-seas/k8s/gfw/weighting-1021/gfw-weighting-publish.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gfw-weighting-1021
+  namespace: geo-workflows
+  labels: {k8s-app: gfw-weighting-1021}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: gfw-weighting-1021}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 900
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          C=nrp:public-gfw/stac-collection.json
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          rclone copyto $C /tmp/c.json $R
+          python3 /opt/script/set_weighting.py /tmp/c.json
+          guard_stac /tmp/c.json $C
+          rclone copyto /tmp/c.json $C $R
+          echo PUBLISHED
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: gfw-weighting-1021}}
