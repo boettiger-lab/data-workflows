@@ -29,6 +29,7 @@ import time
 from pathlib import Path
 
 MARGIN = 0.2
+SIMPLIFY_M = float(os.environ.get("SIMPLIFY_M", "10"))
 DISTS = (90, 270, 1000)  # bands; +-90 and +-270 double as the boundary-shift sensitivity
 
 
@@ -147,7 +148,11 @@ def one_sub(g, tree, bbox, raster: str):
     idx = tree.query(big, predicate="intersects")
     if len(idx) == 0:
         return None
-    part = shapely.get_parts(shapely.make_valid(g[idx]))
+    # Clip first (clip_by_rect is cheap and tolerates invalid input), then validate only the
+    # clipped piece: validating a whole continent-scale parcel first runs out of memory.
+    bx0, by0, bx1, by1 = shapely.bounds(big)
+    part = shapely.clip_by_rect(g[idx], bx0, by0, bx1, by1)
+    part = shapely.get_parts(shapely.make_valid(part[~shapely.is_empty(part)]))
     part = part[np.isin(shapely.get_type_id(part), [3, 6])]
     part = shapely.intersection(part, big)
     part = shapely.get_parts(part[~shapely.is_empty(part)])
@@ -174,12 +179,16 @@ def one_sub(g, tree, bbox, raster: str):
             return op(shapely.make_valid(a), shapely.make_valid(b), grid_size=0.01)
 
     Um = shapely.make_valid(to_m(U))
-    buf = {0: Um}
+    # Buffers and bands use the union simplified by SIMPLIFY_M metres: buffering an
+    # unsimplified fjord coastline (Patagonia, 559k vertices) exhausts memory, and 10 m moves
+    # the area by ~0.02%, small against 90 m bands. `exact` and `centre` keep the boundary as is.
+    Us = shapely.make_valid(shapely.simplify(Um, SIMPLIFY_M, preserve_topology=False))
+    buf = {0: Us}
     for d in DISTS:
-        buf[d] = shapely.buffer(Um, d, quad_segs=4)
-        buf[-d] = shapely.buffer(Um, -d, quad_segs=4)
+        buf[d] = shapely.buffer(Us, d, quad_segs=4)
+        buf[-d] = shapely.buffer(Us, -d, quad_segs=4)
     variants_m = {
-        "exact": buf[0],
+        "exact": Um,
         "grow90": buf[90], "grow270": buf[270], "shrink90": buf[-90], "shrink270": buf[-270],
         "in_0_90": safe(shapely.difference, buf[0], buf[-90]),
         "in_90_270": safe(shapely.difference, buf[-90], buf[-270]),
