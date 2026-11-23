@@ -1,8 +1,8 @@
 # HAND-ROLLED: the generator does not publish styles into an existing collection. Fixes two
 # pre-existing findings on wdoecm-may-2026 (#879): the one-colour default style
 # (verify-stac style-single-colour-default) becomes `style-wdoecm-gov-type` (GOV_TYPE, 11
-# classes, built with scripts/default-style.py), the thumbnail is redrawn from it, and the
-# README no longer links the raw GDB. 16Gi: drawing the thumbnail from the GeoParquet OOMs at 8Gi.
+# classes, built with scripts/default-style.py), and the README no longer links the raw GDB. The
+# thumbnail is not redrawn: cng-datasets vector-thumbnail OOMs on this GeoParquet even at 16Gi.
 #
 #   kubectl create configmap wdoecm-styles-879 -n geo-workflows \
 #     --from-file=catalog/wdpa/k8s/wdoecm-may-2026-overlap/styles/ --dry-run=client -o yaml | kubectl apply -f -
@@ -49,9 +49,6 @@ spec:
             python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
           }
           rclone copyto --copy-links /opt/styles/wdoecm-gov-type.json $B/styles/wdoecm-gov-type.json $R
-          cng-datasets vector-thumbnail --style https://s3-west.nrp-nautilus.io/public-wdpa/wdoecm-may-2026/styles/wdoecm-gov-type.json \
-            --parquet s3://public-wdpa/wdoecm-may-2026/wdoecm-may-2026.parquet --output /tmp/thumbnail.png
-          rclone copyto /tmp/thumbnail.png $B/thumbnail.png $R
           rclone copyto $C /tmp/c.json $R
           rclone copyto $B/README.md /tmp/README.md $R
           python3 /opt/styles/set_styles.py /tmp/c.json /tmp/README.md /opt/styles/style-assets.json
@@ -63,8 +60,8 @@ spec:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         - {name: styles, mountPath: /opt/styles, readOnly: true}
         resources:
-          requests: {cpu: '2', memory: 16Gi, ephemeral-storage: 4Gi}
-          limits:   {cpu: '2', memory: 16Gi, ephemeral-storage: 4Gi}
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 4Gi}
       volumes:
       - {name: rclone-config, secret: {secretName: rclone-config}}
       - {name: styles, configMap: {name: wdoecm-styles-879}}
