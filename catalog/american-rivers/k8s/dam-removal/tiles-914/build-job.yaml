@@ -1,0 +1,58 @@
+# HAND-ROLLED: cng-datasets builds PMTiles only inside a full ingest workflow; this rebuilds
+# the dam-removal tiles from their published GeoParquet so every point shows at every zoom (#914), reusing
+# the #735 builder (catalog/pmtiles-fid/k8s/build.py). ConfigMap dam-removal-914:
+#   kubectl create configmap dam-removal-914 -n geo-workflows --from-file=assets.py \
+#     --from-file=../../../../pmtiles-fid/k8s/build.py --dry-run=client -o yaml > configmap.yaml
+# Writes nrp:public-rivers/staging/914-tiles/<live key>; then back up and swap the live file.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dam-removal-914
+  namespace: geo-workflows
+  labels:
+    k8s-app: dam-removal-914
+spec:
+  completions: 1
+  parallelism: 1
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: dam-removal-914
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic  # each tile build is minutes; a preempted index retries
+      automountServiceAccountToken: false
+      activeDeadlineSeconds: 7200
+      containers:
+      - name: tile
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        command: ["bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          cd /opt/904 && python3 build.py
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: STAGING, value: 914-tiles}
+        - {name: TILE_THREADS, value: "2"}
+        - {name: DUCKDB_MEMORY, value: 1GB}
+        - {name: TMPDIR, value: /tmp}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: code, mountPath: /opt/904, readOnly: true}
+        resources:
+          requests: {cpu: "2", memory: 2Gi, ephemeral-storage: 5Gi}
+          limits: {cpu: "2", memory: 2Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      - name: code
+        configMap: {name: dam-removal-914}

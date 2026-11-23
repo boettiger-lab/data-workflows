@@ -1,0 +1,81 @@
+# HAND-ROLLED: cng-datasets cannot split one feature across jobs, and the World
+# High Seas source is one global multipolygon (~300M h8 cells), so its h8 hex
+# OOMs in `cng-datasets vector`. hex_overlap.py (copied from #1000's WDPA
+# recipe) cuts it into 20-degree lon/lat tiles, one pod each (#1016; tool
+# feature request datasets#363). ConfigMap: see high-seas-h8-sample-hex.yaml.
+#
+# Full hex: index = tile, 18 x 9 = 162 tiles of 20 degrees; tiles with no high
+# seas exit without output. Chunks go to staging-1016/full/chunks/, then
+# high-seas-h8-full-merge.yaml builds staging-1016/full/hex/.
+#
+# Sizing measured on the sample (4 threads): the 20 x 20 degree open-Pacific
+# tile (4.6M h8 rows) ran in 15 s at 0.73 GiB peak RSS; polar tiles in < 10 s
+# at < 0.35 GiB. An equatorial all-ocean tile has ~6.6M cells, so 2 CPU / 2 GiB.
+# Pods run well under an hour, so opportunistic priority.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: high-seas-h8-1016-hex
+  namespace: geo-workflows
+  labels:
+    k8s-app: high-seas-h8-1016-hex
+spec:
+  completions: 162
+  parallelism: 50
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 162
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: high-seas-h8-1016-hex
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: hex
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 /opt/script/hex_overlap.py hex \
+            --source s3://public-high-seas/iho/high-seas.parquet --geom-col geom \
+            --tile-deg 20 --chunk "$JOB_COMPLETION_INDEX" \
+            --out s3://public-high-seas/iho/high-seas/staging-1016/full/chunks \
+            --res 8 --parents 0 --threads 2 --memory-limit 1500MB
+          df -h /tmp | tail -1
+        volumeMounts:
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 2Gi, ephemeral-storage: 5Gi}
+          limits: {cpu: '2', memory: 2Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - name: script
+        configMap: {name: high-seas-h8-1016-script}
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

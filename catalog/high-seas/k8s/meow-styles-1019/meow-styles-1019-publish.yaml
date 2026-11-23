@@ -1,0 +1,76 @@
+# HAND-ROLLED: the generator does not publish styles into an existing collection. Fixes the
+# one-colour default style verify-stac fails on the meow-ecoregions collection (#1019): the
+# ecoregions PMTiles default becomes `style-ecoregions-realm` (REALM, 12 classes) and the old
+# `style-ecoregions` stays as a plain style. Style built with scripts/default-style.py.
+#
+#  1. uploads styles/ecoregions-realm.json to meow/styles/;
+#  2. redraws meow/thumbnail.png from the new default (cng-datasets vector-thumbnail);
+#  3. edits the LIVE collection with set_styles.py, runs the publish guard, uploads it.
+#
+#   kubectl create configmap meow-styles-1019 -n geo-workflows \
+#     --from-file=catalog/high-seas/k8s/meow-styles-1019/styles/ --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -f catalog/high-seas/k8s/meow-styles-1019/meow-styles-1019-publish.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: meow-styles-1019
+  namespace: geo-workflows
+  labels: {k8s-app: meow-styles-1019}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: meow-styles-1019}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          B=nrp:public-high-seas/meow
+          C=$B/stac-collection.json
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          rclone copyto --copy-links /opt/styles/ecoregions-realm.json $B/styles/ecoregions-realm.json $R
+          cng-datasets vector-thumbnail --style https://s3-west.nrp-nautilus.io/public-high-seas/meow/styles/ecoregions-realm.json \
+            --parquet s3://public-high-seas/meow/ecoregions.parquet --output /tmp/thumbnail.png
+          rclone copyto /tmp/thumbnail.png $B/thumbnail.png $R
+          rclone cat "$C" > /tmp/new.json
+          python3 /opt/styles/set_styles.py /tmp/new.json /opt/styles/style-assets.json
+          guard_stac /tmp/new.json "$C"
+          rclone copyto /tmp/new.json "$C" $R
+          echo PUBLISHED
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: styles, mountPath: /opt/styles, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: styles, configMap: {name: meow-styles-1019}}

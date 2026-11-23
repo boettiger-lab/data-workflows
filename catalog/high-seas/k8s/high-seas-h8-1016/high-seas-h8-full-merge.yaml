@@ -1,0 +1,68 @@
+# HAND-ROLLED: cng-datasets cannot split one feature across jobs, and the World
+# High Seas source is one global multipolygon, so its h8 hex is built in tiles
+# by hex_overlap.py (#1016; ConfigMap: see high-seas-h8-sample-hex.yaml). A cell
+# cut by a tile edge has a row from each tile; this sums them, so each h8 cell
+# appears once, which `cng-datasets repartition` (a plain concatenation) does not.
+#
+# Full merge: sums every tile's chunks into staging-1016/full/hex/, one
+# data_00.parquet per h0 cell (the live asset's file name, so paths that name it
+# keep working after the swap). high-seas-h8-1016-swap.yaml publishes it.
+#
+# Sizing: one h0 cell at a time, at most ~6M h8 rows in memory.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: high-seas-h8-1016-merge
+  namespace: geo-workflows
+  labels:
+    k8s-app: high-seas-h8-1016-merge
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: high-seas-h8-1016-merge
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: merge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 /opt/script/hex_overlap.py merge \
+            --source s3://public-high-seas/iho/high-seas.parquet --geom-col geom \
+            --chunks-dir s3://public-high-seas/iho/high-seas/staging-1016/full/chunks \
+            --out-dir s3://public-high-seas/iho/high-seas/staging-1016/full/hex \
+            --file-name data_00.parquet --res 8 --parents 0 --threads 2 --memory-limit 3GB
+        volumeMounts:
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - name: script
+        configMap: {name: high-seas-h8-1016-script}
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

@@ -1,0 +1,57 @@
+# HAND-ROLLED: the generator has no stage-raw step, and the source is an ArcGIS FeatureServer
+# with no file download (AGENTS.md Step 1b). Pages the final SWAP 2025 SGCN ranges
+# (SGCN_Final_red_gdb/FeatureServer/0, CDFW) to GeoJSON with fs2geojson.py, checks that every
+# OBJECTID arrived once, and stages the file under s3://public-swap/california/raw/ with its
+# size and sha256 and the service's dataLastEditDate (#976).
+#   kubectl create configmap sgcn-final-scripts -n geo-workflows \
+#     --from-file=fs2geojson.py=catalog/swap/california/k8s/swap-2025/fs2geojson.py
+#   kubectl create -f catalog/swap/california/k8s/swap-2025/sgcn-final/stage-raw.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sgcn-final-stage-raw
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3000
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '1', memory: 8Gi, ephemeral-storage: 10Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /opt/scripts, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          U=https://services2.arcgis.com/Uq9r85Potqm3MfRV/arcgis/rest/services/SGCN_Final_red_gdb/FeatureServer/0
+          F=/tmp/swap-2025-sgcn-final-ranges.geojson
+          date -u +"accessed %Y-%m-%dT%H:%M:%SZ"
+          curl -fsS "$U?f=json" | python3 -c "import json,sys,datetime; e=json.load(sys.stdin)['editingInfo']; print('dataLastEditDate', datetime.datetime.fromtimestamp(e['dataLastEditDate']/1000, datetime.timezone.utc).isoformat())"
+          N=$(curl -fsS "$U/query?where=1%3D1&returnCountOnly=true&f=json" | python3 -c "import json,sys; print(json.load(sys.stdin)['count'])")
+          echo "service count $N"
+          python3 /opt/scripts/fs2geojson.py "$U" "$F" --page 50
+          python3 - "$F" "$N" <<'EOF'
+          import json, sys
+          f = json.load(open(sys.argv[1]))["features"]
+          ids = [x["properties"]["OBJECTID"] for x in f]
+          print(len(ids), "features,", len(set(ids)), "distinct OBJECTID")
+          assert len(ids) == len(set(ids)) == int(sys.argv[2]), "paging lost or repeated features"
+          assert all(x.get("geometry") for x in f), "feature without geometry"
+          EOF
+          echo "$(stat -c %s "$F") $(sha256sum "$F" | cut -d' ' -f1) $(basename "$F")"
+          rclone copyto "$F" "nrp:public-swap/california/raw/$(basename "$F")" --s3-no-check-bucket
+          rclone lsl "nrp:public-swap/california/raw/$(basename "$F")"
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: sgcn-final-scripts}}

@@ -1,0 +1,61 @@
+# HAND-ROLLED: the generator does not write STAC (#975). Builds the final CalEnviroScreen 5.0
+# collection and README from the live collection with make_collection.py, runs the publish
+# guard, uploads them with the default style, copies OEHHA's data dictionary from raw/ to sit
+# beside the dataset, and uploads the thumbnail when the ConfigMap carries one. Re-runnable:
+# an unchanged file is not re-uploaded.
+#   kubectl create configmap ces5-final-publish -n geo-workflows \
+#     --from-file=make_collection.py=catalog/calenviroscreen/k8s/ces5-final/make_collection.py \
+#     --from-file=ces5-ciscore-pctl.json=catalog/calenviroscreen/k8s/ces5-final/ces5-ciscore-pctl.json \
+#     --from-file=guard.py=scripts/stac-publish-guard.py \
+#     [--from-file=thumbnail.png=DIR/thumbnail.png]
+#   kubectl create -f catalog/calenviroscreen/k8s/ces5-final/publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ces5-final-publish
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: in, mountPath: /in, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          B=public-calenviroscreen
+          put() {  # put <local> <bucket path>: upload when it differs from the live object
+            if rclone cat "nrp:$B/$2" 2>/dev/null | cmp -s - "$1"; then echo "unchanged $2"
+            else cp -L "$1" /tmp/upload && rclone copyto /tmp/upload "nrp:$B/$2" $R && echo "uploaded $2"; fi
+          }
+          D=final-calenviroscreen-5.0-data-dictionary.pdf
+          rclone copyto "nrp:$B/raw/ces5-final/$D" "nrp:$B/calenviroscreen-5-0/$D" $R
+          rclone lsl "nrp:$B/calenviroscreen-5-0/$D"
+          HEX=$(rclone lsjson "nrp:$B/calenviroscreen-5-0/ces5/hex/" -R --files-only \
+                | python3 -c "import json,sys; print(max(x['ModTime'] for x in json.load(sys.stdin))[:19] + 'Z')")
+          echo "hex created $HEX"
+          rclone cat "nrp:$B/stac-collection.json" > /tmp/live.json
+          python3 /in/make_collection.py /tmp/live.json /tmp/c.json "$HEX" /tmp/README.md
+          python3 /in/guard.py /tmp/c.json /tmp/live.json
+          put /in/ces5-ciscore-pctl.json styles/ces5-ciscore-pctl.json
+          put /tmp/README.md README.md
+          [ -e /in/thumbnail.png ] && put /in/thumbnail.png thumbnail.png
+          put /tmp/c.json stac-collection.json
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: in, configMap: {name: ces5-final-publish}}

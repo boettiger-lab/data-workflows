@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""Build the Epoch AI data centers intermediates from the staged raw snapshot.
+
+Inputs (staged by epoch-ai-data-centers-stage-raw.yaml):
+  data_centers.zip   Epoch's download: data_centers.csv + the five companion tables
+  map.html           https://epoch.ai/data/ai-data-centers/map, which embeds each site's
+                     coordinate (lngLat) and annotated footprint shapes as Astro island props
+
+Outputs (in OUT_DIR):
+  ai-data-centers.parquet             GeoParquet, one point per site in data_centers.csv
+  ai-data-center-footprints.parquet   GeoParquet, one polygon per annotated feature
+  tables/<name>.parquet               the five non-spatial tables
+
+data_centers.csv carries addresses but no coordinates, so geometry comes from the map page.
+Every CSV site must match a map site by exact name; the script reports any that do not and
+keeps them with a null geometry.
+
+Column names are snake_cased from Epoch's headers (SNAKE below); values are not edited
+except for type parsing (numbers, booleans, ISO dates; blank -> null).
+
+Usage: extract_epoch.py <data_centers.zip> <map.html> <out_dir>
+"""
+import csv
+import html
+import io
+import json
+import re
+import sys
+import zipfile
+from pathlib import Path
+
+import geopandas as gpd
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import shapely
+from shapely.geometry import Point, shape
+
+TABLES = {
+    # zip member -> published table name
+    "data_center_timelines.csv": "ai-data-center-timelines",
+    "data_center_chip_quantities.csv": "ai-data-center-chip-quantities",
+    "chip_types.csv": "ai-chip-types",
+    "data_center_chillers.csv": "ai-data-center-chillers",
+    "data_center_cooling_towers.csv": "ai-data-center-cooling-towers",
+}
+
+# Headers whose mechanical snake_case would start with a digit or read badly.
+SNAKE = {
+    "16-bit FLOP/s": "flop_s_16bit",
+    "8-bit OP/s": "op_s_8bit",
+    "Performance (8-bit OP/s)": "performance_op_s_8bit",
+    "Area (m^2)": "area_m2",
+    "Cost per chip (approx.)": "cost_per_chip_approx",
+}
+
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+INT = re.compile(r"^-?\d+$")
+
+
+def snake(h):
+    if h in SNAKE:
+        return SNAKE[h]
+    s = re.sub(r"[^0-9a-zA-Z]+", "_", h.strip()).strip("_").lower()
+    return s
+
+
+def typed_frame(rows, headers):
+    """Columns typed from their non-blank values: int64, float64, bool, date, else string."""
+    cols = {}
+    for h in headers:
+        raw = [r.get(h, "") for r in rows]
+        vals = [v for v in raw if v != ""]
+        name = snake(h)
+        if name in cols:
+            raise SystemExit(f"column name collision: {name}")
+        if vals and all(v in ("True", "False") for v in vals):
+            s = pd.array([None if v == "" else v == "True" for v in raw], dtype="boolean")
+        elif vals and all(ISO_DATE.match(v) for v in vals):
+            s = pd.to_datetime(pd.Series([v or None for v in raw]), format="%Y-%m-%d").dt.date
+        elif vals and all(INT.match(v) for v in vals):
+            s = pd.array([None if v == "" else int(v) for v in raw], dtype="Int64")
+        else:
+            try:
+                f = [None if v == "" else float(v) for v in raw]
+                if name.startswith("number_of") and all(x is None or x.is_integer() for x in f):
+                    s = pd.array([None if x is None else int(x) for x in f], dtype="Int64")  # counts written as 1.0
+                else:
+                    s = pd.array(f, dtype="Float64") if vals else pd.array([None] * len(raw), dtype="string")
+            except ValueError:
+                s = pd.array([None if v == "" else v for v in raw], dtype="string")
+        cols[name] = s
+    return pd.DataFrame(cols)
+
+
+def read_csv_member(zf, member):
+    text = zf.read(member).decode("utf-8-sig")
+    rdr = csv.DictReader(io.StringIO(text))
+    return list(rdr), rdr.fieldnames
+
+
+def unwrap(v):
+    """Astro serialises island props as [tag, value]: 0 = plain value/object, 1 = array."""
+    if isinstance(v, list) and len(v) == 2 and isinstance(v[0], int) and not isinstance(v[0], bool):
+        tag, val = v
+        if tag == 0:
+            return {k: unwrap(x) for k, x in val.items()} if isinstance(val, dict) else val
+        if tag == 1:
+            return [unwrap(x) for x in val]
+        raise SystemExit(f"unhandled Astro serialisation tag {tag}")
+    if isinstance(v, dict):
+        return {k: unwrap(x) for k, x in v.items()}
+    return v
+
+
+def map_sites(map_html):
+    t = Path(map_html).read_text(encoding="utf-8")
+    found = []
+    for attrs in re.findall(r"<astro-island ([^>]*)>", t):
+        m = re.search(r'props="([^"]*)"', attrs)
+        if m and "dataCenters" in m.group(1):
+            found.append(unwrap(json.loads(html.unescape(m.group(1)))))
+    if len(found) != 1:
+        raise SystemExit(f"expected one map island with dataCenters, found {len(found)}")
+    return found[0]["dataCenters"]
+
+
+CLOSE_TOL = 1e-4  # degrees, ~10 m: max gap between the ends of an outline drawn as a line
+
+CONF = re.compile(r"\s*#(confident|likely|speculative)\s*$")
+
+
+def main(zip_path, map_html, out_dir):
+    out = Path(out_dir)
+    (out / "tables").mkdir(parents=True, exist_ok=True)
+    zf = zipfile.ZipFile(zip_path)
+
+    # --- sites -----------------------------------------------------------------
+    rows, headers = read_csv_member(zf, "data_centers.csv")
+    sites = typed_frame(rows, headers)
+    names = list(sites["name"])
+    assert len(set(names)) == len(names), "duplicate site names in data_centers.csv"
+
+    dcs = map_sites(map_html)
+    by_id = {d["id"]: d for d in dcs}
+    assert len(by_id) == len(dcs), "duplicate site ids on the map"
+    unmatched_csv = [n for n in names if n not in by_id]
+    unmatched_map = sorted(set(by_id) - set(names))
+
+    owner_name, city, state, operational, geoms = [], [], [], [], []
+    lon, lat = [], []
+    for n, own in zip(names, sites["owner"]):
+        o = None if pd.isna(own) else CONF.sub("", own)
+        owner_name.append(o)
+        d = by_id.get(n)
+        facts = (d or {}).get("facts") or {}
+        city.append(facts.get("city") or None)
+        state.append(facts.get("state") or None)
+        operational.append(facts.get("operational"))
+        ll = (d or {}).get("lngLat")
+        if ll and len(ll) == 2 and all(isinstance(x, (int, float)) for x in ll):
+            lon.append(float(ll[0])); lat.append(float(ll[1])); geoms.append(Point(ll[0], ll[1]))
+        else:
+            lon.append(None); lat.append(None); geoms.append(None)
+        mo = (facts.get("owner") or {}).get("value")
+        if d and (mo or None) != o:
+            print(f"  note: owner differs CSV={o!r} map={mo!r} for {n}")
+    sites["owner_name"] = pd.array(owner_name, dtype="string")
+    sites["city"] = pd.array(city, dtype="string")
+    sites["state"] = pd.array(state, dtype="string")
+    sites["operational"] = pd.array(operational, dtype="boolean")
+    sites["longitude"] = pd.array(lon, dtype="Float64")
+    sites["latitude"] = pd.array(lat, dtype="Float64")
+    gsites = gpd.GeoDataFrame(sites, geometry=geoms, crs="EPSG:4326")
+    gsites.to_parquet(out / "ai-data-centers.parquet", geometry_encoding="WKB", index=False)
+
+    # --- footprints ------------------------------------------------------------
+    recs = []
+    dropped_keys = {}
+    lines_closed = 0
+    repaired = 0
+    degenerate = []
+    for n in names:
+        d = by_id.get(n)
+        feats = ((d or {}).get("shapes") or {}).get("features") or []
+        for i, f in enumerate(feats):
+            g = f["geometry"]
+            p = f.get("properties") or {}
+            drawn_as_line = g["type"] == "LineString"
+            if drawn_as_line:
+                # Outlines drawn as an open ring whose last vertex lands a few metres from the
+                # first. Treat that last vertex as the closing point (closing past it would
+                # add a self-intersecting sliver).
+                c = [tuple(x) for x in g["coordinates"]]
+                if c[0] != c[-1] and Point(c[0]).distance(Point(c[-1])) < CLOSE_TOL:
+                    c[-1] = c[0]
+                elif c[0] != c[-1]:
+                    raise SystemExit(f"open LineString (ends {c[0]} .. {c[-1]}) at {n} #{i}")
+                if len(c) < 4:
+                    raise SystemExit(f"LineString with too few points at {n} #{i}")
+                geom = shapely.Polygon(c)
+                lines_closed += 1
+            elif g["type"] in ("Polygon", "MultiPolygon"):
+                geom = shape(g)
+            else:
+                raise SystemExit(f"unexpected geometry type {g['type']} at {n} #{i}")
+            if geom.is_empty or geom.area == 0:
+                degenerate.append((n, i, p))
+                continue
+            if not geom.is_valid:
+                print(f"  repairing invalid geometry at {n} #{i}: {shapely.is_valid_reason(geom)}")
+                repaired += 1
+                geom = shapely.make_valid(geom)
+                if geom.geom_type not in ("Polygon", "MultiPolygon"):
+                    geom = shapely.MultiPolygon([x for x in geom.geoms if x.geom_type == "Polygon"])
+            bnum = next((p[k] for k in ("buildingNumber", "building", "Building") if p.get(k) not in (None, "")), None)
+            blab = next((p[k] for k in ("buildingPromo", "Building_promo") if p.get(k) not in (None, "")), None)
+            comp = p.get("complete")
+            known = {"type", "buildingNumber", "building", "Building", "buildingPromo", "Building_promo",
+                     "complete", "startDate", "endDate", "area_m2"}
+            for k, v in p.items():
+                if k not in known:
+                    dropped_keys.setdefault(k, []).append(v)
+            recs.append({
+                "data_center": n,
+                "feature_index": i,
+                "feature_type": p.get("type") or None,
+                "building_number": None if bnum is None else int(bnum),
+                "building_label": None if blab is None else str(blab),
+                "complete": None if comp in (None, "") else bool(int(comp)),
+                "start_date": p.get("startDate") or None,
+                "end_date": p.get("endDate") or None,
+                "stated_area_m2": None if p.get("area_m2") in (None, "") else float(p["area_m2"]),
+                "drawn_as_line": drawn_as_line,
+                "geometry": geom,
+            })
+    fp = pd.DataFrame(recs)
+    fp["feature_type"] = fp["feature_type"].astype("string")
+    fp["building_number"] = fp["building_number"].astype("Int64")
+    fp["building_label"] = fp["building_label"].astype("string")
+    fp["complete"] = fp["complete"].astype("boolean")
+    for c in ("start_date", "end_date"):
+        fp[c] = pd.to_datetime(fp[c], format="%Y-%m-%d").dt.date
+    fp["stated_area_m2"] = fp["stated_area_m2"].astype("Float64")
+    gfp = gpd.GeoDataFrame(fp, geometry="geometry", crs="EPSG:4326")
+    gfp.to_parquet(out / "ai-data-center-footprints.parquet", geometry_encoding="WKB", index=False)
+
+    # --- tables ----------------------------------------------------------------
+    table_counts = {}
+    for member, tname in TABLES.items():
+        r, h = read_csv_member(zf, member)
+        df = typed_frame(r, h)
+        pq.write_table(pa.Table.from_pandas(df, preserve_index=False), out / "tables" / f"{tname}.parquet",
+                       compression="zstd")
+        table_counts[tname] = len(df)
+        if "data_center" in df.columns:
+            orphan = sorted(set(df["data_center"].dropna()) - set(names))
+            print(f"  {tname}: data_center values not in sites: {orphan}")
+
+    # --- report ----------------------------------------------------------------
+    n_geom = int(gsites.geometry.notna().sum())
+    print("REPORT")
+    print(f"  sites in CSV: {len(names)}; map sites: {len(dcs)}")
+    print(f"  sites with coordinate: {n_geom}; without: {len(names) - n_geom}")
+    print(f"  CSV sites with no map match: {unmatched_csv}")
+    print(f"  map sites not in CSV: {unmatched_map}")
+    print(f"  sites with no footprint shapes: {[n for n in names if not ((by_id.get(n) or {}).get('shapes') or {}).get('features')]}")
+    print(f"  footprint features: {len(gfp)} (outlines drawn as lines, closed to polygons: {lines_closed})")
+    print(f"  footprint types: {gfp['feature_type'].value_counts(dropna=False).to_dict()}")
+    print(f"  footprint geometry types: {gfp.geom_type.value_counts().to_dict()}")
+    print(f"  invalid polygons repaired with make_valid: {repaired}")
+    print(f"  degenerate (zero-area) shapes skipped: {degenerate}")
+    print(f"  dropped footprint property keys: { {k: len(v) for k, v in dropped_keys.items()} }")
+    print(f"  tables: {table_counts}")
+    print(f"  sites bbox: {list(gsites.total_bounds)}; footprints bbox: {list(gfp.total_bounds)}")
+
+
+if __name__ == "__main__":
+    main(*sys.argv[1:4])

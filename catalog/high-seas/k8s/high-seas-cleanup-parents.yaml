@@ -1,3 +1,5 @@
+# SUPERSEDED (#1016): built the h4 high-seas hex. The published hex is h8 with cover_frac,
+# built by catalog/high-seas/k8s/high-seas-h8-1016/. Do not re-run: it would overwrite it.
 apiVersion: batch/v1
 kind: Job
 metadata:

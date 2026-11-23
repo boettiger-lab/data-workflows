@@ -23,9 +23,18 @@ spec:
         - -c
         - |-
           set -e
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
           B=nrp:public-land-cover
           # ConfigMap files are symlinks, which rclone copyto rejects; dereference first.
           mkdir -p /tmp/stac && cp -L /src/stac-collection.json /tmp/stac/ && cd /tmp/stac
+          guard_stac stac-collection.json $B/forest-to-grass-shrub/stac-collection.json
           rclone copyto stac-collection.json $B/forest-to-grass-shrub/stac-collection.json
           # The README is not generated; publish it only when one is supplied in the ConfigMap.
           if [ -e /src/README.md ]; then
@@ -47,6 +56,7 @@ spec:
               print("child link present; title set")
           json.dump(p, open("parent.json", "w"), indent=2)
           PY
+          guard_stac parent.json $B/stac-collection.json
           rclone copyto parent.json $B/stac-collection.json
           rclone lsl $B/forest-to-grass-shrub/ --max-depth 1
         resources: {requests: {cpu: '1', memory: 1Gi}, limits: {cpu: '1', memory: 1Gi}}

@@ -1,0 +1,111 @@
+# HAND-ROLLED (#617, datasets#329): re-hexes the rows of combined hex chunks 72 and 199,
+# which fail in pass 1 with DuckDB "Parquet writer: ... uncompressed page size out of range for type
+# integer". Each chunk holds several copies of one giant monument (6 x Papahanaumokuakea in 72,
+# 4 x Pacific Remote Islands in 199, ~100M h10 cells each), and pass 1 writes all of a chunk's cell
+# lists into one row group, past the 2 GiB page limit. The planner raised its cell budget to fit 200
+# completions, so these chunks reached ~600M cells. This job replaces those two ranges with 14
+# chunks (ids 200-213; the original ids stay unused) that put each giant copy in its own chunk, the
+# largest ~194M estimated cells. Same image, resources and arguments as the generated hex job
+# (catalog/pad-us/k8s/combined/padus-4-1-combined-hex.yaml); only the plan and the chunk ids differ.
+# Can run alongside the main hex job; run the generated repartition once both end.
+#   kubectl apply -n geo-workflows -f catalog/pad-us/k8s/combined-rechunk-617/padus-4-1-combined-hex-rechunk.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: padus-4-1-combined-hex-rechunk
+  namespace: geo-workflows
+  labels:
+    k8s-app: padus-4-1-combined-hex-rechunk
+spec:
+  completions: 14
+  parallelism: 14
+  completionMode: Indexed
+  backoffLimitPerIndex: 3
+  maxFailedIndexes: 14
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        k8s-app: padus-4-1-combined-hex-rechunk
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: hex-task
+        image: ghcr.io/boettiger-lab/datasets:0.12.1
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-padus
+        - name: DATASET
+          value: padus-4-1-combined
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 27GiB
+        command:
+        - bash
+        - -c
+        - |-
+          set -e
+          cat > /tmp/plan.csv <<'EOF'
+          chunk_id,row_offset,row_count,est_cells
+          200,236520,141,35042586
+          201,236661,1,76209822
+          202,236662,1,100272186
+          203,236663,1,76209953
+          204,236664,1,100272776
+          205,236665,1,100272856
+          206,236666,1,100272776
+          207,236667,3138,11661228
+          208,653715,3143,21301355
+          209,656858,1,83485864
+          210,656859,1,84433770
+          211,656860,1,83485892
+          212,656861,1,83485864
+          213,656862,124,194064544
+          EOF
+          python3 -c "import duckdb; duckdb.sql(\"COPY (SELECT chunk_id::INTEGER chunk_id, row_offset::BIGINT row_offset, row_count::BIGINT row_count, est_cells::DOUBLE est_cells FROM read_csv('/tmp/plan.csv')) TO '/tmp/plan.parquet' (FORMAT PARQUET)\")"
+          CHUNK=$((JOB_COMPLETION_INDEX + 200))
+          cng-datasets vector --input s3://public-padus/padus-4-1/combined.parquet --output s3://public-padus/padus-4-1/combined/chunks --chunk-id ${CHUNK} --chunk-size 3285 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0 --plan /tmp/plan.parquet
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 10Gi
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

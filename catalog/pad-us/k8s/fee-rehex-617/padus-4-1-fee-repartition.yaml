@@ -1,0 +1,83 @@
+# DEVIATION from generated output (#617): re-hex of fee from the current fee.parquet on datasets:0.12.6.
+# The 2026-11-13 fee hex attached about 5% of features to a neighbouring _cng_fid's cells
+# (6,949 small features had no cell on their own geometry). Same commands as fee/, with the
+# image pinned (the generator has no image-tag option) and the hex step given the --plan the
+# orchestrator injects at run time (fee/_hex_plan.parquet, 200 chunks).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: padus-4-1-fee-repartition
+  namespace: geo-workflows
+  labels:
+    k8s-app: padus-4-1-fee-repartition
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels:
+        k8s-app: padus-4-1-fee-repartition
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: repartition-task
+        image: ghcr.io/boettiger-lab/datasets:0.12.6
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_S3_ENDPOINT
+          value: rook-ceph-rgw-nautiluss3.rook
+        - name: AWS_PUBLIC_ENDPOINT
+          value: s3-west.nrp-nautilus.io
+        - name: AWS_HTTPS
+          value: 'false'
+        - name: AWS_VIRTUAL_HOSTING
+          value: 'FALSE'
+        - name: TMPDIR
+          value: /tmp
+        - name: BUCKET
+          value: public-padus
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          cng-datasets repartition --chunks-dir s3://public-padus/padus-4-1/fee/chunks --output-dir s3://public-padus/padus-4-1/fee/hex --source-parquet s3://public-padus/padus-4-1/fee.parquet --cleanup --memory-limit 27GiB
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 200Gi
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            ephemeral-storage: 200Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: NotIn
+                values:
+                - 'true'

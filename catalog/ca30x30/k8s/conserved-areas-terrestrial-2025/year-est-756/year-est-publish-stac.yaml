@@ -1,0 +1,61 @@
+# HAND-ROLLED: the generator does not write STAC. A metadata-only fix (#756): the 2025
+# collection described year_est as a duplicate of YR_EST. YR_EST is CPAD's park formation
+# year; year_est and date_est are CCED's easement establishment year and date.
+# set_year_columns.py (committed beside this file) edits the LIVE collection, so nothing
+# else on it is touched.
+#   kubectl create configmap ca30x30-year-est-script -n geo-workflows \
+#     --from-file=set_year_columns.py=catalog/ca30x30/k8s/conserved-areas-terrestrial-2025/year-est-756/set_year_columns.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/ca30x30/k8s/conserved-areas-terrestrial-2025/year-est-756/year-est-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ca30x30-year-est-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: ca30x30-year-est-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: ca30x30-year-est-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+
+          P=nrp:public-ca30x30/conserved-areas-terrestrial-2025/stac-collection.json
+          rclone cat "$P" > /tmp/c.json
+          python3 /script/set_year_columns.py /tmp/c.json
+          guard_stac /tmp/c.json "$P"
+          rclone copyto /tmp/c.json "$P" $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: ca30x30-year-est-script}}

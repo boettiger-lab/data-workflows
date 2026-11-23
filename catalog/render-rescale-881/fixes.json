@@ -1,0 +1,1401 @@
+[
+ {
+  "collection": "public-wetlands/glwd/stac-collection.json",
+  "render": "glwd-cog-area",
+  "was": [
+   [
+    0.0,
+    133.87
+   ]
+  ],
+  "p2_p98": [
+   4.0,
+   188.0
+  ],
+  "rescale": [
+   [
+    0,
+    190.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/whp-2023-continuous-ak/stac-collection.json",
+  "render": "whp-2023-continuous-ak",
+  "was": [
+   [
+    0.0,
+    7161.291
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   11270.0
+  ],
+  "rescale": [
+   [
+    0,
+    12000.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-rps-ak/stac-collection.json",
+  "render": "wrc-2-rps-ak",
+  "was": [
+   [
+    0.0,
+    4.163270473480225
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   1.0137521028518677
+  ],
+  "rescale": [
+   [
+    0,
+    1.1
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-rps-conus/stac-collection.json",
+  "render": "wrc-2-rps-conus",
+  "was": [
+   [
+    0.0,
+    13.194137573242188
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   1.1975276470184326
+  ],
+  "rescale": [
+   [
+    0,
+    1.2
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-pa-huexposure-ak/stac-collection.json",
+  "render": "wrc-2-pa-huexposure-ak",
+  "was": [
+   [
+    0.0,
+    0.011197708547115326
+   ]
+  ],
+  "p2_p98": [
+   1.362400947613196e-08,
+   0.00013599946396425366
+  ],
+  "rescale": [
+   [
+    0,
+    0.00014
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-pa-huexposure-conus/stac-collection.json",
+  "render": "wrc-2-pa-huexposure-conus",
+  "was": [
+   [
+    0.0,
+    0.14124265313148499
+   ]
+  ],
+  "p2_p98": [
+   1.673878990970934e-08,
+   0.00012125678040320054
+  ],
+  "rescale": [
+   [
+    0,
+    0.00013
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-pa-hurisk-ak/stac-collection.json",
+  "render": "wrc-2-pa-hurisk-ak",
+  "was": [
+   [
+    0.0,
+    512290.0
+   ]
+  ],
+  "p2_p98": [
+   1.0,
+   14384.0
+  ],
+  "rescale": [
+   [
+    0,
+    15000.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-pa-hurisk-conus/stac-collection.json",
+  "render": "wrc-2-pa-hurisk-conus",
+  "was": [
+   [
+    0.0,
+    7294316.0
+   ]
+  ],
+  "p2_p98": [
+   1.0,
+   5926.0
+  ],
+  "rescale": [
+   [
+    0,
+    6000.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-bp-conus/stac-collection.json",
+  "render": "wrc-2-bp-conus",
+  "was": [
+   [
+    0.0,
+    0.1351630985736847
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   0.02472565695643425
+  ],
+  "rescale": [
+   [
+    0,
+    0.025
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-cfl-ak/stac-collection.json",
+  "render": "wrc-2-cfl-ak",
+  "was": [
+   [
+    0.0,
+    655.9505004882812
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   7.089828968048096
+  ],
+  "rescale": [
+   [
+    0,
+    7.1
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-cfl-conus/stac-collection.json",
+  "render": "wrc-2-cfl-conus",
+  "was": [
+   [
+    0.0,
+    861.6509399414062
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   16.204160690307617
+  ],
+  "rescale": [
+   [
+    0,
+    17.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-pa-buildingcount-conus/stac-collection.json",
+  "render": "wrc-2-pa-buildingcount-conus",
+  "was": [
+   [
+    0.0,
+    48.70639419555664
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   0.1963701993227005
+  ],
+  "rescale": [
+   [
+    0,
+    0.2
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-pa-buildingcount-ak/stac-collection.json",
+  "render": "wrc-2-pa-buildingcount-ak",
+  "was": [
+   [
+    0.0,
+    5.014981746673584
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   0.0001460039202356711
+  ],
+  "rescale": [
+   [
+    0,
+    0.00015
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-pa-huimpact-conus/stac-collection.json",
+  "render": "wrc-2-pa-huimpact-conus",
+  "was": [
+   [
+    0.0,
+    1625251968.0
+   ]
+  ],
+  "p2_p98": [
+   7645.259765625,
+   2025149.0
+  ],
+  "rescale": [
+   [
+    0,
+    2100000.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-fire/wrc-2-pa-huimpact-ak/stac-collection.json",
+  "render": "wrc-2-pa-huimpact-ak",
+  "was": [
+   [
+    0.0,
+    99213840.0
+   ]
+  ],
+  "p2_p98": [
+   4099.9951171875,
+   1175862.25
+  ],
+  "rescale": [
+   [
+    0,
+    1200000.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-rap/rap-pfg-biomass/stac-collection.json",
+  "render": "rap-pfg-biomass",
+  "was": [
+   [
+    0.0,
+    1488.185
+   ]
+  ],
+  "p2_p98": [
+   3.0,
+   2167.0
+  ],
+  "rescale": [
+   [
+    0,
+    2200.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-human-modification/stac-collection.json",
+  "render": "ghm",
+  "was": [
+   [
+    0.0,
+    0.515
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   0.6746624708175659
+  ],
+  "rescale": [
+   [
+    0,
+    0.68
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "aegilops-cylindrica-abundance",
+  "was": [
+   [
+    0.0,
+    50.144
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   60.0
+  ],
+  "rescale": [
+   [
+    0,
+    60.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "aegilops-cylindrica-abundance-masked",
+  "was": [
+   [
+    0.0,
+    50.144
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   60.0
+  ],
+  "rescale": [
+   [
+    0,
+    60.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "aegilops-cylindrica-high-abundance",
+  "was": [
+   [
+    0.0,
+    44.443
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   55.0
+  ],
+  "rescale": [
+   [
+    0,
+    55.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "aegilops-cylindrica-high-abundance-masked",
+  "was": [
+   [
+    0.0,
+    45.23
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   56.0
+  ],
+  "rescale": [
+   [
+    0,
+    56.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-arvensis-abundance",
+  "was": [
+   [
+    0.0,
+    72.804
+   ]
+  ],
+  "p2_p98": [
+   3.0,
+   85.0
+  ],
+  "rescale": [
+   [
+    0,
+    85.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-arvensis-abundance-masked",
+  "was": [
+   [
+    0.0,
+    72.951
+   ]
+  ],
+  "p2_p98": [
+   3.0,
+   85.0
+  ],
+  "rescale": [
+   [
+    0,
+    85.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-arvensis-occurrence",
+  "was": [
+   [
+    4.162,
+    59.446
+   ]
+  ],
+  "p2_p98": [
+   6.0,
+   69.0
+  ],
+  "rescale": [
+   [
+    6.0,
+    69.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-arvensis-occurrence-masked",
+  "was": [
+   [
+    3.417,
+    60.017
+   ]
+  ],
+  "p2_p98": [
+   5.0,
+   69.0
+  ],
+  "rescale": [
+   [
+    5.0,
+    69.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-japonicus-abundance",
+  "was": [
+   [
+    0.0,
+    71.718
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   86.0
+  ],
+  "rescale": [
+   [
+    0,
+    86.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-japonicus-abundance-masked",
+  "was": [
+   [
+    0.0,
+    71.745
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   86.0
+  ],
+  "rescale": [
+   [
+    0,
+    86.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-rubens-abundance",
+  "was": [
+   [
+    0.0,
+    31.813
+   ]
+  ],
+  "p2_p98": [
+   1.0,
+   58.0
+  ],
+  "rescale": [
+   [
+    0,
+    58.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-rubens-abundance-masked",
+  "was": [
+   [
+    0.0,
+    32.19
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   60.0
+  ],
+  "rescale": [
+   [
+    0,
+    60.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-rubens-high-abundance",
+  "was": [
+   [
+    0.0,
+    38.055
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   66.0
+  ],
+  "rescale": [
+   [
+    0,
+    66.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-rubens-high-abundance-masked",
+  "was": [
+   [
+    0.0,
+    38.47
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   67.0
+  ],
+  "rescale": [
+   [
+    0,
+    67.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-rubens-occurrence",
+  "was": [
+   [
+    0.0,
+    40.616
+   ]
+  ],
+  "p2_p98": [
+   7.0,
+   55.0
+  ],
+  "rescale": [
+   [
+    7.0,
+    55.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "bromus-rubens-occurrence-masked",
+  "was": [
+   [
+    0.0,
+    43.313
+   ]
+  ],
+  "p2_p98": [
+   1.0,
+   58.0
+  ],
+  "rescale": [
+   [
+    0,
+    58.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "cenchrus-ciliaris-abundance",
+  "was": [
+   [
+    0.0,
+    20.513
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   36.0
+  ],
+  "rescale": [
+   [
+    0,
+    36.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "cenchrus-ciliaris-abundance-masked",
+  "was": [
+   [
+    0.0,
+    21.124
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   41.0
+  ],
+  "rescale": [
+   [
+    0,
+    41.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "cenchrus-ciliaris-high-abundance",
+  "was": [
+   [
+    0.0,
+    19.22
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   34.0
+  ],
+  "rescale": [
+   [
+    0,
+    34.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "cenchrus-ciliaris-high-abundance-masked",
+  "was": [
+   [
+    0.0,
+    19.834
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   40.0
+  ],
+  "rescale": [
+   [
+    0,
+    40.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "cenchrus-ciliaris-occurrence",
+  "was": [
+   [
+    0.0,
+    30.308
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   41.0
+  ],
+  "rescale": [
+   [
+    0,
+    41.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "cenchrus-ciliaris-occurrence-masked",
+  "was": [
+   [
+    0.0,
+    32.407
+   ]
+  ],
+  "p2_p98": [
+   1.0,
+   44.0
+  ],
+  "rescale": [
+   [
+    0,
+    44.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "salsola-tragus-abundance",
+  "was": [
+   [
+    0.0,
+    64.243
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   82.0
+  ],
+  "rescale": [
+   [
+    0,
+    82.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "salsola-tragus-abundance-masked",
+  "was": [
+   [
+    0.0,
+    64.664
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   82.0
+  ],
+  "rescale": [
+   [
+    0,
+    82.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "salsola-tragus-high-abundance",
+  "was": [
+   [
+    0.0,
+    71.205
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   87.0
+  ],
+  "rescale": [
+   [
+    0,
+    87.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "salsola-tragus-high-abundance-masked",
+  "was": [
+   [
+    0.0,
+    71.482
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   87.0
+  ],
+  "rescale": [
+   [
+    0,
+    87.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "taeniatherum-caput-medusae-abundance",
+  "was": [
+   [
+    0.0,
+    40.142
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   57.0
+  ],
+  "rescale": [
+   [
+    0,
+    57.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "taeniatherum-caput-medusae-abundance-masked",
+  "was": [
+   [
+    0.0,
+    40.906
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   58.0
+  ],
+  "rescale": [
+   [
+    0,
+    58.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "taeniatherum-caput-medusae-high-abundance",
+  "was": [
+   [
+    0.0,
+    40.625
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   57.0
+  ],
+  "rescale": [
+   [
+    0,
+    57.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "taeniatherum-caput-medusae-high-abundance-masked",
+  "was": [
+   [
+    0.0,
+    41.822
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   59.0
+  ],
+  "rescale": [
+   [
+    0,
+    59.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "taeniatherum-caput-medusae-occurrence",
+  "was": [
+   [
+    0.0,
+    44.095
+   ]
+  ],
+  "p2_p98": [
+   7.0,
+   53.0
+  ],
+  "rescale": [
+   [
+    7.0,
+    53.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "taeniatherum-caput-medusae-occurrence-masked",
+  "was": [
+   [
+    0.0,
+    45.001
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   54.0
+  ],
+  "rescale": [
+   [
+    0,
+    54.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "ventenata-dubia-abundance",
+  "was": [
+   [
+    0.0,
+    55.929
+   ]
+  ],
+  "p2_p98": [
+   1.0,
+   66.0
+  ],
+  "rescale": [
+   [
+    0,
+    66.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "ventenata-dubia-abundance-masked",
+  "was": [
+   [
+    0.0,
+    58.591
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   68.0
+  ],
+  "rescale": [
+   [
+    0,
+    68.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "ventenata-dubia-high-abundance",
+  "was": [
+   [
+    0.0,
+    40.842
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   58.0
+  ],
+  "rescale": [
+   [
+    0,
+    58.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "ventenata-dubia-high-abundance-masked",
+  "was": [
+   [
+    0.0,
+    41.935
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   59.0
+  ],
+  "rescale": [
+   [
+    0,
+    59.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "ventenata-dubia-occurrence",
+  "was": [
+   [
+    0.0,
+    41.771
+   ]
+  ],
+  "p2_p98": [
+   2.0,
+   57.0
+  ],
+  "rescale": [
+   [
+    0,
+    57.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-invasives/inhabit-v4-2024/stac-collection.json",
+  "render": "ventenata-dubia-occurrence-masked",
+  "was": [
+   [
+    0.0,
+    42.819
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   58.0
+  ],
+  "rescale": [
+   [
+    0,
+    58.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/ocean-tipping-points/nearshore_dev/stac-collection.json",
+  "render": "nearshore_dev",
+  "was": [
+   [
+    0.0,
+    1.0
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   0.2455350160598755
+  ],
+  "rescale": [
+   [
+    0,
+    0.25
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/ocean-tipping-points/nearshore_sediment/stac-collection.json",
+  "render": "nearshore_sediment",
+  "was": [
+   [
+    1.3391147080099586e-09,
+    516.2531127929688
+   ]
+  ],
+  "p2_p98": [
+   0.0001716126425890252,
+   95.59806823730469
+  ],
+  "rescale": [
+   [
+    0,
+    96.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/ocean-tipping-points/osds_effluent/stac-collection.json",
+  "render": "osds_effluent",
+  "was": [
+   [
+    0.0,
+    118544.265625
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   14967.6396484375
+  ],
+  "rescale": [
+   [
+    0,
+    15000.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/ocean-tipping-points/osds_nitrogen/stac-collection.json",
+  "render": "osds_nitrogen",
+  "was": [
+   [
+    0.0,
+    24134.638671875
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   2492.875732421875
+  ],
+  "rescale": [
+   [
+    0,
+    2500.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/ocean-tipping-points/osds_phosphorus/stac-collection.json",
+  "render": "osds_phosphorus",
+  "was": [
+   [
+    0.0,
+    6717.8525390625
+   ]
+  ],
+  "p2_p98": [
+   0.0,
+   725.0250854492188
+  ],
+  "rescale": [
+   [
+    0,
+    730.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/roms-hiig-reanalysis/stac-collection.json",
+  "render": "roms-hiig-reanalysis-u",
+  "was": [
+   [
+    -0.497,
+    0.339
+   ]
+  ],
+  "p2_p98": [
+   -0.6399171352386475,
+   0.27278435230255127
+  ],
+  "rescale": [
+   [
+    -0.64,
+    0.64
+   ]
+  ],
+  "colormap_name": "rdbu_r"
+ },
+ {
+  "collection": "public-hawaii/ww3-hawaii/stac-collection.json",
+  "render": "ww3-hawaii-sdir",
+  "was": [
+   [
+    127.324,
+    359.997
+   ]
+  ],
+  "p2_p98": [
+   19.10466957092285,
+   351.53094482421875
+  ],
+  "rescale": [
+   [
+    0,
+    360
+   ]
+  ],
+  "colormap_name": "twilight"
+ },
+ {
+  "collection": "public-hawaii/ww3-hawaii/stac-collection.json",
+  "render": "ww3-hawaii-shgt-max",
+  "was": [
+   [
+    1.011,
+    2.99
+   ]
+  ],
+  "p2_p98": [
+   0.6399999856948853,
+   2.679999828338623
+  ],
+  "rescale": [
+   [
+    0.63,
+    2.7
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/ww3-hawaii/stac-collection.json",
+  "render": "ww3-hawaii-sper",
+  "was": [
+   [
+    10.313,
+    15.025
+   ]
+  ],
+  "p2_p98": [
+   8.523750305175781,
+   14.743332862854004
+  ],
+  "rescale": [
+   [
+    8.5,
+    15.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/ww3-hawaii/stac-collection.json",
+  "render": "ww3-hawaii-tdir",
+  "was": [
+   [
+    132.469,
+    359.853
+   ]
+  ],
+  "p2_p98": [
+   51.82445526123047,
+   351.87469482421875
+  ],
+  "rescale": [
+   [
+    0,
+    360
+   ]
+  ],
+  "colormap_name": "twilight"
+ },
+ {
+  "collection": "public-hawaii/ww3-hawaii/stac-collection.json",
+  "render": "ww3-hawaii-thgt",
+  "was": [
+   [
+    1.767,
+    2.998
+   ]
+  ],
+  "p2_p98": [
+   1.3124998807907104,
+   2.9683339595794678
+  ],
+  "rescale": [
+   [
+    1.3,
+    3.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/ww3-hawaii/stac-collection.json",
+  "render": "ww3-hawaii-thgt-max",
+  "was": [
+   [
+    1.955,
+    3.16
+   ]
+  ],
+  "p2_p98": [
+   1.5299999713897705,
+   3.0999999046325684
+  ],
+  "rescale": [
+   [
+    1.5,
+    3.1
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/ww3-hawaii/stac-collection.json",
+  "render": "ww3-hawaii-tper",
+  "was": [
+   [
+    9.993,
+    17.379
+   ]
+  ],
+  "p2_p98": [
+   8.489667892456055,
+   14.837138175964355
+  ],
+  "rescale": [
+   [
+    8.4,
+    15.0
+   ]
+  ]
+ },
+ {
+  "collection": "public-hawaii/ww3-hawaii/stac-collection.json",
+  "render": "ww3-hawaii-wdir",
+  "was": [
+   [
+    43.27,
+    133.018
+   ]
+  ],
+  "p2_p98": null,
+  "rescale": [
+   [
+    0,
+    360
+   ]
+  ],
+  "colormap_name": "twilight"
+ },
+ {
+  "collection": "public-hawaii/roms-hiig-reanalysis/stac-collection.json",
+  "render": "roms-hiig-reanalysis-v",
+  "was": [
+   [
+    -0.286,
+    0.434
+   ]
+  ],
+  "p2_p98": null,
+  "rescale": [
+   [
+    -0.64,
+    0.64
+   ]
+  ],
+  "colormap_name": "rdbu_r"
+ }
+]

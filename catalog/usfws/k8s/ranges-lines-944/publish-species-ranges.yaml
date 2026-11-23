@@ -1,0 +1,58 @@
+# HAND-ROLLED: the generator does not write STAC. Publishes the species-ranges collection written by
+# gen_species_ranges_stac.py and registers it as a child of the public-usfws catalog, both through
+# the publish guard (#944).
+#   python3 catalog/usfws/k8s/ranges-lines-944/gen_species_ranges_stac.py /tmp/species-ranges.json
+#   kubectl create configmap usfws-944-ranges -n geo-workflows \
+#     --from-file=collection.json=/tmp/species-ranges.json \
+#     --from-file=add_child.py=catalog/usfws/k8s/ranges-lines-944/add_child.py \
+#     --from-file=guard.py=scripts/stac-publish-guard.py
+#   kubectl create -f catalog/usfws/k8s/ranges-lines-944/publish-species-ranges.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: usfws-944-ranges
+  namespace: geo-workflows
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 900
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [k8s-haosu-20.sdsc.optiputer.net, k8s-haosu-21.sdsc.optiputer.net]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '1', memory: 1Gi}
+          limits: {cpu: '1', memory: 1Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: in, mountPath: /in, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          c=public-usfws/species-ranges/stac-collection.json
+          cp -L /in/collection.json /tmp/c.json
+          rclone cat "nrp:$c" > /tmp/live.json 2>/dev/null || : > /tmp/live.json
+          python3 /in/guard.py /tmp/c.json /tmp/live.json
+          rclone copyto /tmp/c.json "nrp:$c" --retries 6
+          p=public-usfws/stac-collection.json
+          rclone cat "nrp:$p" > /tmp/plive.json
+          cp /tmp/plive.json /tmp/p.json
+          python3 /in/add_child.py /tmp/p.json https://s3-west.nrp-nautilus.io/$c "USFWS Current Species Ranges"
+          python3 /in/guard.py /tmp/p.json /tmp/plive.json
+          rclone copyto /tmp/p.json "nrp:$p" --retries 6
+          echo DONE
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: in, configMap: {name: usfws-944-ranges}}

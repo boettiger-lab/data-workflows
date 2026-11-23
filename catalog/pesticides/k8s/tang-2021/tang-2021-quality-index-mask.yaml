@@ -1,0 +1,88 @@
+# HAND-ROLLED: cng-datasets --nodata takes discrete codes, not a valid range; this input fix is
+# specific to one upstream file (#865).
+#
+# Upstream Quality_index.tif documents a 0-1 range (Metadata.pdf) but holds 2,408 pixels valued
+# -1.12 to -1.31, every one of them water/no-data (-2) in the other four Tang 2021 layers. #865
+# records the decision: every value outside 0-1 is nodata. This job writes a masked copy with
+# those pixels set to -2, leaving the staged upstream original in raw/ untouched, and purges the
+# quality-index COG and hex built from the unmasked file (a re-hex does not remove h0 partitions
+# that no longer yield data), verifying the prefix is empty afterwards.
+#
+# Run after tang-2021-stage-raw, then rerun the quality-index workflow, which reads the masked
+# copy:
+#   kubectl apply -n geo-workflows -f catalog/pesticides/k8s/tang-2021/tang-2021-quality-index-mask.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tang-2021-quality-index-mask
+  namespace: geo-workflows
+  labels: {k8s-app: tang-2021-quality-index-mask}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: tang-2021-quality-index-mask}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: mask
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          rclone copyto nrp:public-pesticides/raw/Quality_index.tif Quality_index.tif $R
+          echo "2664da29aca615a6c3f2d71d94ef23ff  Quality_index.tif" | md5sum -c -
+
+          python3 - <<'PY'
+          import numpy as np
+          from osgeo import gdal
+          gdal.UseExceptions()
+          src = gdal.Open("Quality_index.tif")
+          a = src.GetRasterBand(1).ReadAsArray()
+          out_of_range = (a < 0) & (a != -1) & (a != -2) | (a > 1)
+          print(f"out-of-range pixels: {int(out_of_range.sum())}, "
+                f"min {a[out_of_range].min() if out_of_range.any() else None}, "
+                f"max {a[out_of_range].max() if out_of_range.any() else None}")
+          assert int(out_of_range.sum()) == 2408, "upstream changed: expected 2,408 out-of-range pixels"
+          a = np.where(out_of_range, np.float32(-2), a)
+          dst = gdal.GetDriverByName("GTiff").CreateCopy(
+              "Quality_index_masked.tif", src, options=["COMPRESS=DEFLATE", "TILED=YES"])
+          dst.GetRasterBand(1).WriteArray(a)
+          dst.FlushCache(); dst = None
+          chk_ds = gdal.Open("Quality_index_masked.tif")
+          chk = chk_ds.GetRasterBand(1).ReadAsArray()
+          v = chk[(chk != -1) & (chk != -2)]
+          assert v.min() >= 0 and v.max() <= 1, (v.min(), v.max())
+          print(f"masked: valid pixels {v.size}, range {v.min()}..{v.max()}")
+          PY
+
+          rclone copyto Quality_index_masked.tif nrp:public-pesticides/raw/derived/Quality_index_masked.tif $R
+          echo "masked sha256: $(sha256sum Quality_index_masked.tif | cut -d' ' -f1)"
+
+          rclone purge nrp:public-pesticides/tang-2021/quality-index/hex/ $R || true
+          rclone deletefile nrp:public-pesticides/tang-2021/quality-index-cog.tif $R || true
+          left=$(rclone lsf -R nrp:public-pesticides/tang-2021/quality-index/ | wc -l)
+          if [ "$left" != "0" ]; then echo "FATAL: $left objects remain under quality-index/" >&2; exit 1; fi
+          if rclone lsf nrp:public-pesticides/tang-2021/ | grep -qx quality-index-cog.tif; then
+            echo "FATAL: quality-index-cog.tif still present" >&2; exit 1
+          fi
+          echo "purged and verified empty"
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

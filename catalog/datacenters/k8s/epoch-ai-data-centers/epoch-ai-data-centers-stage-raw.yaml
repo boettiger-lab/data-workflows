@@ -1,0 +1,80 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step; this snapshots Epoch's download and map page
+# before the derive job builds the workflow inputs from them.
+#
+# Stage Epoch AI's "AI data centers" hub.
+#
+# Staged to s3://public-datacenters/raw/epoch/:
+#   data_centers.zip          Epoch's "All datasets" download: README.md (licence, citation),
+#                             data_centers.csv and the five companion tables
+#   ai-data-centers-map.html  https://epoch.ai/data/ai-data-centers/map, which embeds each
+#                             site's coordinate and annotated footprint polygons (the CSV has
+#                             addresses only)
+#   MANIFEST.sha256           sha256 + byte size of every staged file
+#
+#   Landing page: https://epoch.ai/data/ai-data-centers
+#   Docs:         https://epoch.ai/data/data-centers-documentation
+# The hub is updated continuously and has no edition label, so the staged files plus their
+# sha256 (MANIFEST.sha256, recorded in the STAC) are the provenance; the job prints the access
+# time. The map's satellite imagery tiles are out of scope and are not fetched.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/933
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: epoch-ai-data-centers-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: epoch-ai-data-centers-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: epoch-ai-data-centers-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 1800
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          DEST="nrp:public-datacenters/raw/epoch"
+          mkdir -p /work && cd /work
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+          C="curl -fsSL --retry 8 --retry-all-errors --retry-delay 30 --max-time 600"
+          $C -A "$UA" -o data_centers.zip https://epoch.ai/data/data_centers/data_centers.zip
+          $C -A "$UA" -o ai-data-centers-map.html https://epoch.ai/data/ai-data-centers/map
+          echo "accessed $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 -c "import zipfile; z=zipfile.ZipFile('data_centers.zip'); [print(i.file_size, i.filename) for i in z.infolist()]; print(z.read('README.md').decode()[:300])"
+          grep -c 'lngLat' ai-data-centers-map.html
+          python3 -c "import csv,io,zipfile; z=zipfile.ZipFile('data_centers.zip'); print(sum(1 for _ in csv.DictReader(io.StringIO(z.read('data_centers.csv').decode('utf-8-sig')))), 'sites in data_centers.csv')"
+          for f in data_centers.zip ai-data-centers-map.html; do
+            echo "$(sha256sum "$f" | cut -d' ' -f1)  $(stat -c %s "$f")  $f"
+          done > MANIFEST.sha256
+          cat MANIFEST.sha256
+          rclone copy . "$DEST" --s3-no-check-bucket
+          echo "staged -> s3://public-datacenters/raw/epoch/"
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

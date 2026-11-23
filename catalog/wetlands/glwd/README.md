@@ -18,7 +18,7 @@ python job.py \
   --i 42 \
   --zoom 8 \
   --parent-resolutions "0" \
-  --input-url https://minio.carlboettiger.info/public-wetlands/GLWD_v2_0/GLWD_v2_0_combined_classes/GLWD_v2_0_main_class.tif \
+  --input-url https://s3.carlboettiger.info/public-wetlands/GLWD_v2_0/GLWD_v2_0_combined_classes/GLWD_v2_0_main_class.tif \
   --output-url s3://public-wetlands/hex/ \
   --value-column wetland_class
 ```
@@ -102,7 +102,7 @@ To create a Cloud-Optimized GeoTIFF for web visualization:
 
 ```bash
 cng-datasets raster \
-  --input https://minio.carlboettiger.info/public-wetlands/GLWD_v2_0/GLWD_v2_0_combined_classes/GLWD_v2_0_main_class.tif \
+  --input https://s3.carlboettiger.info/public-wetlands/GLWD_v2_0/GLWD_v2_0_combined_classes/GLWD_v2_0_main_class.tif \
   --output-cog s3://public-wetlands/GLWD-cog.tif \
   --compression zstd
 ```

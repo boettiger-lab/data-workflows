@@ -56,6 +56,14 @@ spec:
         - -c
         - |
           set -euo pipefail
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
 
           # Measure the published objects + staged raw (size, MD5, mtime) so the STAC's
           # provenance fields are read from the objects rather than transcribed (#417).
@@ -85,12 +93,15 @@ spec:
 
           # Order matters: publish the children BEFORE overwriting the bucket root, so the
           # WWF collection is never unreachable at either URL.
+          guard_stac /tmp/stac/wwf-ecoregions-2017/stac-collection.json nrp:public-ecoregion/wwf-ecoregions-2017/stac-collection.json
           rclone copyto /tmp/stac/wwf-ecoregions-2017/stac-collection.json \
             nrp:public-ecoregion/wwf-ecoregions-2017/stac-collection.json
           for d in epa-ecoregions-l3 epa-ecoregions-l4; do
+            guard_stac /tmp/stac/$d/stac-collection.json nrp:public-ecoregion/$d/stac-collection.json
             rclone copyto /tmp/stac/$d/stac-collection.json nrp:public-ecoregion/$d/stac-collection.json
             rclone copyto /tmp/stac/$d/README.md          nrp:public-ecoregion/$d/README.md
           done
+          guard_stac /tmp/stac/stac-collection.json nrp:public-ecoregion/stac-collection.json
           rclone copyto /tmp/stac/stac-collection.json nrp:public-ecoregion/stac-collection.json
 
           echo "=== published ==="

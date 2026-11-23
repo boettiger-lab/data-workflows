@@ -1,0 +1,241 @@
+# HAND-ROLLED: the generator does not run models; this job runs InVEST Carbon and hands its
+# outputs to the generated raster workflows (#882).
+#
+# InVEST Peru (#882), Carbon build step 2 of 3. Run after carbon-1-cocoa-strips.
+#   1. Land cover on the CGLS-LC100 2019 100 m grid (EPSG:4326) over Peru plus a 0.06 degree
+#      margin; FDAP 2024 cocoa burned in as class 250 from the step 1 strips (rule (b)); FAO GEZ
+#      2010 zone per pixel. Land-use code = zone * 1000 + class (11112 = rainforest, closed
+#      evergreen broadleaf forest; 16250 = mountain system, cocoa).
+#   2. Warped to South America Albers Equal Area (ESRI:102033) at 100 m, nearest neighbour,
+#      because InVEST needs metres; cut to 5 km beyond Peru (the GAUL 2015 footprint of the
+#      cocoa layer).
+#   3. InVEST Carbon (natcap.invest 3.20.2, conda-forge), current land cover only. Outputs are
+#      Mg C/ha; the job asserts this on closed rainforest (144.3 + 31.9 + 2.1 + 52.0 = 230.3).
+#   4. Total carbon (c_storage_bas) and biomass carbon (c_above_bas + c_below_bas) warped back to
+#      the CGLS grid, clipped to Peru, written as Float32 GeoTIFFs with nodata -9999 to
+#      s3://public-ncp/raw/derived/invest-peru-2019/, with the land-use raster, the carbon pools
+#      table and the InVEST log beside them.
+# Carbon pool values are the agreed table in #882
+# (https://github.com/boettiger-lab/data-workflows/issues/882#issuecomment-6699924549 settles
+# the open decisions).
+#
+#   kubectl apply -n geo-workflows -f catalog/ncp/k8s/invest-peru-2019/carbon-2-invest.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: invest-peru-2019-carbon-2-invest
+  namespace: geo-workflows
+  labels: {k8s-app: invest-peru-2019-carbon-2-invest}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: invest-peru-2019-carbon-2-invest}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      dnsConfig:
+        nameservers: [8.8.8.8, 1.1.1.1]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # nrp-c17 hung on the image pull for every pod on 2026-11-10.
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}, {key: kubernetes.io/hostname, operator: NotIn, values: [nrp-c17.nysernet.org]}]}
+      containers:
+      - name: invest
+        image: condaforge/miniforge3:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        - {name: AWS_NO_SIGN_REQUEST, value: "YES"}
+        - {name: GDAL_CACHEMAX, value: "1024"}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          mamba create -q -y -n inv -c conda-forge python=3.12 natcap.invest=3.20.2 \
+            libgdal-arrow-parquet rclone >/tmp/mamba.log
+          source /opt/conda/etc/profile.d/conda.sh && conda activate inv
+          mkdir -p /tmp/w && cd /tmp/w
+          rclone copy nrp:public-ncp/raw/derived/invest-peru-2019/strips/ strips/
+          ls strips | wc -l
+          cat > run.py <<'PY'
+          import csv, glob, json, math, subprocess
+          import numpy as np
+          from osgeo import gdal, osr
+          import natcap.invest
+          gdal.UseExceptions()
+          run = lambda *a: subprocess.run(a, check=True)
+          print("natcap.invest", natcap.invest.__version__, "GDAL", gdal.__version__, flush=True)
+
+          # --- 1. land-use codes on the CGLS grid --------------------------------------------
+          for n in ("cocoa", "peru"):
+              assert len(glob.glob(f"strips/{n}-*.tif")) == 12, n
+              gdal.BuildVRT(f"{n}.vrt", sorted(glob.glob(f"strips/{n}-*.tif")))
+          ref = gdal.Open("cocoa.vrt"); gt = ref.GetGeoTransform()
+          W, H = ref.RasterXSize, ref.RasterYSize
+          RES = 1 / 1008
+          assert abs(gt[1] - RES) < 1e-12 and abs(gt[5] + RES) < 1e-12, gt
+          col0 = round((gt[0] + 180) / RES); row0 = round((80 - gt[3]) / RES)
+          gdal.Translate("lc.tif", "/vsis3/public-land-cover/cgls-lc100-2019-cog.tif",
+                         srcWin=[col0, row0, W, H], creationOptions=["TILED=YES", "COMPRESS=DEFLATE"])
+          lc_ds = gdal.Open("lc.tif")
+          assert all(abs(a - b) < 1e-9 for a, b in zip(lc_ds.GetGeoTransform(), gt)), "grids differ"
+
+          te = [gt[0], gt[3] + H * gt[5], gt[0] + W * gt[1], gt[3]]
+          gdal.Rasterize("zone.tif", "/vsis3/public-ncp/raw/derived/fao-gez-2010/gez2010-peru-box.parquet",
+                         outputBounds=te, width=W, height=H, attribute="gez_code",
+                         outputType=gdal.GDT_Byte, initValues=0, noData=0,
+                         creationOptions=["TILED=YES", "COMPRESS=DEFLATE"])
+          z = gdal.Open("zone.tif", gdal.GA_Update)
+          # fill slivers between zone polygons (coastlines, lake edges) from the nearest zone
+          gdal.FillNodata(z.GetRasterBand(1), None, 200, 0); z = None
+
+          lc = lc_ds.ReadAsArray(); lc_ds = None
+          zone = gdal.Open("zone.tif").ReadAsArray()
+          cocoa = gdal.Open("cocoa.vrt").ReadAsArray().astype(bool)
+          peru = gdal.Open("peru.vrt").ReadAsArray().astype(bool)
+          COCOA = 250
+          cls = np.where(cocoa, COCOA, lc).astype(np.uint16)
+          NODATA = 65535
+          lucode = (zone.astype(np.uint16) * 1000 + cls).astype(np.uint16)
+          lucode[(lc == 255) | (zone == 0)] = NODATA
+          # every Peru pixel has a zone. Tropical moist forest (12) is not a Peru zone: it covers
+          # buffer pixels and 2 border-sliver pixels inside Peru, all given rainforest values
+          # (#882). More than 100 such pixels would mean a real zone mismatch, so stop.
+          assert not (peru & (zone == 0)).any(), int((peru & (zone == 0)).sum())
+          n12 = int((peru & (zone == 12)).sum())
+          print("Peru pixels in Tropical moist forest (rainforest values):", n12, flush=True)
+          assert n12 <= 100, n12
+          print("cocoa pixels inside Peru:", int((cocoa & peru).sum()), flush=True)
+          del lc, cls, cocoa
+
+          drv = gdal.GetDriverByName("GTiff")
+          def write(path, arr, dtype, nodata=None, geo=gt, wkt=ref.GetProjection()):
+              d = drv.Create(path, arr.shape[1], arr.shape[0], 1, dtype,
+                             ["TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"])
+              d.SetGeoTransform(geo); d.SetProjection(wkt)
+              b = d.GetRasterBand(1)
+              if nodata is not None: b.SetNoDataValue(nodata)
+              b.WriteArray(arr); d = None
+          write("lucode_4326.tif", lucode, gdal.GDT_UInt16, NODATA)
+          write("peru_4326.tif", peru.astype(np.uint8), gdal.GDT_Byte)
+          present = sorted(int(v) for v in np.unique(lucode) if v != NODATA)
+          del lucode
+
+          # --- 2. Albers, 5 km beyond Peru -----------------------------------------------------
+          ALB = "ESRI:102033"
+          gdal.Warp("lulc_alb.tif", "lucode_4326.tif", dstSRS=ALB, xRes=100, yRes=100,
+                    targetAlignedPixels=True, resampleAlg="near", dstNodata=NODATA,
+                    creationOptions=["TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"])
+          a = gdal.Open("lulc_alb.tif")
+          gdal.Warp("peru_alb.tif", "peru_4326.tif", dstSRS=ALB, xRes=100, yRes=100,
+                    targetAlignedPixels=True, resampleAlg="near",
+                    creationOptions=["TILED=YES", "COMPRESS=DEFLATE"])
+          pa = gdal.Open("peru_alb.tif")
+          assert (pa.RasterXSize, pa.RasterYSize, pa.GetGeoTransform()) == \
+                 (a.RasterXSize, a.RasterYSize, a.GetGeoTransform()), "albers grids differ"
+          dist = drv.Create("dist.tif", a.RasterXSize, a.RasterYSize, 1, gdal.GDT_Float32,
+                            ["TILED=YES", "COMPRESS=DEFLATE"])
+          dist.SetGeoTransform(a.GetGeoTransform()); dist.SetProjection(a.GetProjection())
+          gdal.ComputeProximity(pa.GetRasterBand(1), dist.GetRasterBand(1),
+                                ["VALUES=1", "DISTUNITS=GEO", "MAXDIST=5000", "NODATA=-1"])
+          d = dist.ReadAsArray(); dist = None
+          lu = a.ReadAsArray(); a = None
+          inside = d >= 0
+          lu[~inside] = NODATA
+          print(f"albers grid {lu.shape}, pixels within 5 km of Peru: {int(inside.sum()):,}", flush=True)
+          ag = gdal.Open("lulc_alb.tif").GetGeoTransform(); awkt = pa.GetProjection(); pa = None
+          write("lulc_peru_5km_alb.tif", lu, gdal.GDT_UInt16, NODATA, ag, awkt)
+          del lu, d, inside
+
+          # --- carbon pools table (Mg C/ha), agreed in #882 ------------------------------------
+          CLOSED = range(111, 117); OPEN = range(121, 127); VEG = (20, 30, 90, 100)
+          ZERO = (0, 50, 60, 70, 80, 200)
+          # zone: (closed forest, open forest, other vegetation, cocoa, cultivated), each
+          # (above, below, dead, soil)
+          Z = {
+              11: ((144.3, 31.9, 2.1, 52.0), (97.0, 21.4, 2.1, 52.0), (2.9, 4.7, 0, 52.0),
+                   (24.0, 0, 0, 52.5), (5.0, 0, 0, 43.2)),                     # rainforest
+              16: ((91.6, 25.9, 2.1, 51.0), (86.7, 24.5, 2.1, 51.0), (1.1, 3.0, 0, 51.0),
+                   (24.0, 0, 0, 51.5), (5.0, 0, 0, 42.3)),                     # mountain system
+              14: ((33.6, 11.2, 2.1, 21.0), (33.6, 11.2, 2.1, 21.0), (1.1, 3.0, 0, 21.0),
+                   (24.0, 0, 0, 21.2), (5.0, 0, 0, 19.3)),                     # shrubland
+              13: ((59.9, 22.7, 2.1, 21.0), (55.9, 18.7, 2.1, 21.0), (1.1, 3.0, 0, 21.0),
+                   (24.0, 0, 0, 21.2), (5.0, 0, 0, 19.3)),                     # dry forest
+              15: ((59.9, 22.7, 2.1, 9.0), (55.9, 18.7, 2.1, 9.0), (1.1, 3.0, 0, 9.0),
+                   (24.0, 0, 0, 9.1), (5.0, 0, 0, 8.3)),                       # desert
+          }
+          Z[12] = Z[11]   # moist forest: buffer pixels plus a few border slivers in Peru (#882)
+          rows = []
+          for zc, (cf, of, veg, coc, cult) in Z.items():
+              for c in list(CLOSED) + list(OPEN) + list(VEG) + list(ZERO) + [40, COCOA]:
+                  v = (cf if c in CLOSED else of if c in OPEN else veg if c in VEG
+                       else coc if c == COCOA else cult if c == 40 else (0, 0, 0, 0))
+                  rows.append({"lucode": zc * 1000 + c, "c_above": v[0], "c_below": v[1],
+                               "c_dead": v[2], "c_soil": v[3]})
+          missing = set(present) - {r["lucode"] for r in rows}
+          assert not missing, f"land-use codes with no carbon row: {sorted(missing)}"
+          with open("carbon_pools.csv", "w", newline="") as f:
+              w = csv.DictWriter(f, ["lucode", "c_above", "c_below", "c_soil", "c_dead"])
+              w.writeheader(); w.writerows(rows)
+
+          # --- 3. InVEST Carbon ------------------------------------------------------------------
+          from natcap.invest import carbon
+          carbon.execute({"workspace_dir": "/tmp/w/invest", "lulc_bas_path": "lulc_peru_5km_alb.tif",
+                          "carbon_pools_path": "carbon_pools.csv", "calc_sequestration": False,
+                          "do_valuation": False, "n_workers": -1, "results_suffix": ""})
+          tot = gdal.Open("invest/c_storage_bas.tif")
+          lu = gdal.Open("lulc_peru_5km_alb.tif").ReadAsArray()
+          t = tot.ReadAsArray()
+          rf = lu == 11112
+          assert rf.any() and np.allclose(t[rf], 230.3, atol=1e-3), np.unique(t[rf])[:5]
+          print("units check: closed rainforest pixels =", float(t[rf][0]), "Mg C/ha", flush=True)
+          above = gdal.Open("invest/intermediate_outputs/c_above_bas.tif").ReadAsArray()
+          below = gdal.Open("invest/intermediate_outputs/c_below_bas.tif").ReadAsArray()
+          tnd = tot.GetRasterBand(1).GetNoDataValue()
+          bio = np.where(t == tnd, tnd, above + below).astype(np.float32)
+          write("biomass_alb.tif", bio, gdal.GDT_Float32, tnd, tot.GetGeoTransform(), tot.GetProjection())
+          del lu, t, above, below, bio, rf
+
+          # --- 4. back to the CGLS grid, clipped to Peru -------------------------------------------
+          lat = gt[3] + (np.arange(H) + 0.5) * gt[5]
+          R = 6371.0088
+          ha = (R * R * math.radians(RES) * np.abs(np.sin(np.radians(lat - RES / 2))
+                - np.sin(np.radians(lat + RES / 2))) * 100)[:, None]       # pixel area, ha
+          report = {"natcap_invest": natcap.invest.__version__}
+          for name, src in (("carbon-total", "invest/c_storage_bas.tif"), ("carbon-biomass", "biomass_alb.tif")):
+              gdal.Warp(f"{name}_w.tif", src, dstSRS="EPSG:4326", outputBounds=te, width=W, height=H,
+                        resampleAlg="near", srcNodata=tnd, dstNodata=-9999, outputType=gdal.GDT_Float32,
+                        creationOptions=["TILED=YES", "COMPRESS=DEFLATE"])
+              v = gdal.Open(f"{name}_w.tif").ReadAsArray()
+              v[~peru] = -9999
+              write(f"{name}.tif", v, gdal.GDT_Float32, -9999)
+              ok = v != -9999
+              report[name] = {"min": float(v[ok].min()), "max": float(v[ok].max()),
+                              "peru_total_Tg_C": float((np.where(ok, v, 0) * ha).sum() / 1e6),
+                              "pixels": int(ok.sum())}
+              print(name, json.dumps(report[name]), flush=True)
+          assert report["carbon-total"]["pixels"] == report["carbon-biomass"]["pixels"]
+          json.dump(report, open("report.json", "w"), indent=1)
+          PY
+          python3 run.py
+          D=nrp:public-ncp/raw/derived/invest-peru-2019
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          for f in carbon-total.tif carbon-biomass.tif lulc_peru_5km_alb.tif carbon_pools.csv report.json; do
+            rclone copyto $f $D/carbon/$f $R
+          done
+          rclone copy invest/ $D/carbon/invest-log/ --include 'InVEST-*.txt' $R
+          rclone lsl $D/carbon/
+        resources:
+          requests: {cpu: '4', memory: 24Gi, ephemeral-storage: 30Gi}
+          limits:   {cpu: '4', memory: 24Gi, ephemeral-storage: 30Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

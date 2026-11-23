@@ -2,13 +2,15 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: critical-habitat-proposed-hex
+  namespace: geo-workflows
   labels:
     k8s-app: critical-habitat-proposed-hex
 spec:
-  completions: 200
+  completions: 70
   parallelism: 50
   completionMode: Indexed
-  backoffLimit: 0
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -50,22 +52,23 @@ spec:
           value: public-usfws
         - name: DATASET
           value: critical-habitat-proposed
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 6963MiB
         command:
         - bash
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-usfws/critical-habitat/proposed.parquet --output s3://public-usfws/critical-habitat/proposed/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
+          cng-datasets vector --input s3://public-usfws/critical-habitat/proposed.parquet --output s3://public-usfws/critical-habitat/proposed/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0 --plan s3://public-usfws/critical-habitat/proposed/_hex_plan.parquet
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 8Gi
             ephemeral-storage: 10Gi
           limits:
             cpu: '4'
-            memory: 32Gi
+            memory: 8Gi
             ephemeral-storage: 10Gi
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

@@ -17,6 +17,7 @@ directly if it has no skill support.
 | `dataset-recipes` | starting an ingest that resembles a worked example |
 | `armada-pipeline` | `armadactl` will not authenticate, a k8s job hits the 200-completion cap, or you are choosing between the k8s and Armada pathways |
 | `pod-preemption` | indexed-job pods die and retry for no apparent reason, you are working out which indexes actually need re-running, you are choosing a priority class or sizing requests (NRP usage policy), or before submitting any job whose pods run over an hour |
+| `duckdb-geo` | the `mcp__duckdb-geo__*` tools fail to connect |
 
 Everything below is always in force, skill or no skill.
 
@@ -48,12 +49,12 @@ above: assess them against the upstream data and settle them with the user (GMW 
 
 ## ⛔ HARD BOUNDARY 0: Big-data compute runs on the cluster, NOT your laptop
 
-For ANY query/scan/aggregation over S3 parquet — catalog data **and** large intermediate/build files (e.g. a 24 GB consolidated GeoParquet) — use the **`mcp__duckdb-geo__query` MCP server**. It runs on generously-provisioned cluster metal with the **internal NRP S3 endpoint** and a **100 Gb/s** network, and DuckDB **streams** (larger-than-memory spills to disk) — so it does not hit the RAM limits or the slow public endpoint (~12 MB/s) that bottleneck the laptop.
+For ANY query/scan/aggregation over S3 parquet — catalog data **and** large intermediate/build files (e.g. a 24 GB consolidated GeoParquet) — use the **`mcp__duckdb-geo__query` MCP server**. It runs on generously-provisioned NRP cluster metal beside NRP S3, and DuckDB **streams** (larger-than-memory spills to disk) — so it does not hit the RAM limits or the slow laptop link (~12 MB/s) that bottleneck local work. It reads anonymously-readable buckets only.
 
 - ❌ Do NOT shell out to local `duckdb`/`python -c "import duckdb"`/`uv run --with duckdb`.
 - ❌ Do NOT spin up k8s jobs running `pyarrow`/`geopandas`/`duckdb` to scan big parquet, and never read big parquet over `https://s3-west.nrp-nautilus.io/...` (public endpoint) — use `s3://` (internal) inside jobs and the MCP for queries.
 - ✅ Verify counts/schema, scan for pathological geometries/bbox/validity, distinct counts, ST_*/h3_* → `mcp__duckdb-geo__query`.
-- The tool is deferred: `ToolSearch select:mcp__duckdb-geo__query` first. **If ToolSearch returns no match the MCP server is disconnected — ask the user to reconnect it; do NOT fall back to the slow RAM-bound path.**
+- The tool is deferred: `ToolSearch select:mcp__duckdb-geo__query` first. **If ToolSearch returns no match the MCP server is disconnected — load skill `duckdb-geo`; do NOT fall back to the slow RAM-bound path.**
 - Heavy *writes/transforms* the MCP can't do still run as cluster jobs, but over the **internal** endpoint (`rook-ceph-rgw-nautiluss3.rook`, `AWS_HTTPS=false`), never the laptop.
 
 ### ⛔ Serialization standard: keep parquet row groups small
@@ -72,12 +73,15 @@ already-published file: **skill `job-troubleshooting`**.
 
 Canonical STAC/data live on NRP S3 (`s3://public-<bucket>/`, public URL `https://s3-west.nrp-nautilus.io/<bucket>/...`). **This repo does NOT contain STAC JSON or README files.** Never create `catalog/*/stac/`, never `git add` STAC JSON or README.
 
-- Read: `curl https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json`
-- Write: edit in `/tmp/`, then `rclone copyto /tmp/... nrp:<bucket>/...`
+- Read: `curl https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json`; list with
+  `curl "https://s3-west.nrp-nautilus.io/<bucket>/?list-type=2&prefix=<path>/"`. No key needed.
+- Write: only from a publish job in `geo-workflows`, whose `rclone-config` secret is the only write key. Patterns: `catalog/bio-oracle/k8s/licence-886/` (edit the live file in place) and `catalog/ncp/k8s/invest-peru-2019/invest-peru-2019-publish-stac.yaml` (generate it). Files built locally go in through a ConfigMap (up to 1 MiB, binary included).
+  **Your machine holds no S3 write key and never should**: keys are kept in as few places
+  as possible, so do not ask for one to be restored.
 
 ### You publish to NRP. Downstream copies are NOT your job.
 
-NRP is where your work ends. **Backup and mirror tiers — source.coop, MinIO, and any other copy of
+NRP is where your work ends. **Backup and mirror tiers — source.coop, the office store, and any other copy of
 this data anywhere — are owned by a different agent, and nothing about them is in scope for this
 repo.** You do not add buckets to a mirror list, decide which prefixes are excluded from one,
 record a redistribution verdict in an inventory, or open a PR against the repo that holds those
@@ -169,10 +173,10 @@ kubectl -n geo-workflows get jobs | grep <name>
 - Orchestrator SAs `cng-datasets-workflow` / `workflow-runner` (create/watch/delete child Jobs).
 - Child job pods run as the `default` SA, **hardened to mount no k8s token** (they need only S3).
 - `rechunk-scratch` PVC (2Ti RWX) for >50Gi scratch (binds once Ceph is healthy).
-- **No enforced ResourceQuota** — but keep the good-practice targets anyway:
-  **≤200 simultaneous pods** and **~50Gi ephemeral per job** (`limits.ephemeral-storage`;
-  a default, not an enforced max — see below),
-  especially on large-completion fan-out jobs. Oversubscribing is antisocial on shared nodes.
+- **A 300-pod ResourceQuota** (`reached-quota`; `biodiversity`'s is 200). Keep to the
+  good-practice targets below it anyway: **≤200 simultaneous pods** and **~50Gi ephemeral per
+  job** (a default, not an enforced max; skill `job-troubleshooting`), especially on
+  large-completion fan-out jobs. Oversubscribing is antisocial on shared nodes.
 
 **Credentials you have, and the only two you ever need:**
 - **Public buckets (almost everything).** Build jobs read and write **NRP only**, with the
@@ -181,11 +185,14 @@ kubectl -n geo-workflows get jobs | grep <name>
   A workflow-namespace `rclone-config` holding only `[nrp]` is **correct, not a
   missing-remote bug** (internal endpoint `http://rook-ceph-rgw-nautiluss3.rook`,
   `upload_concurrency=16`, `chunk_size=64Mi`).
-- **Private buckets** (`private-wyoming`, `private-tpl`) live only on MinIO. Mount a
-  **scoped, single-bucket, on-demand EXPIRING mint** for that one bucket
-  (`mc admin user svcacct add <parent> --policy <one-bucket> --expiry …`; the
-  `wyoming-publish` model) — never a standing broad key. This is the only MinIO access a
-  build job ever has.
+- **Private buckets** (`private-wyoming`, `private-tpl`) live only on the office RustFS store,
+  `s3.carlboettiger.info` (path-style; it replaced MinIO on 2026-11-18, #985). Carl mints a
+  **scoped, single-bucket, on-demand EXPIRING key** for that one bucket by hand
+  (`rc admin service-account create <alias> <AK> <SK> --user <parent> --policy <one-bucket>
+  --expiry …`; the `wyoming-publish` model), and revokes it with `rc admin service-account rm`
+  after the job, since expiry enforcement is untested. Never a standing broad key. The job runs
+  in the consuming app's namespace (`biodiversity` for wyoming), not `geo-workflows`. This is
+  the only office-store access a build job ever has.
 
 ⛔ **Never add any other remote or secret to a workflow namespace.** If a job appears to need
 one, it is out of scope — stop and ask.
@@ -261,8 +268,8 @@ External downloads are slow/rate-limited; restart from S3 if conversion fails. S
 access date is the field that makes a provenance chain resolvable to an actual edition, and it is
 unrecoverable after the fact: publishers overwrite in place (FWS republishes the NWI every May and
 October at the same URL, with no dated archive) and links rot (the CAL FIRE FRAP raster has *no*
-stable public download URL at all). When either happens, **your staged copy plus its checksum ARE
-the provenance** — there is nothing else left to point at. Capture, on the collection: the upstream
+stable public download URL at all). When either happens, **the checksum and access date you
+recorded ARE the provenance** — the staged copy is deleted after the build (below). Capture, on the collection: the upstream
 **landing page** (stable, not a fragile direct-download link), the **edition label** if upstream
 publishes one, the **access date**, and the staged raw's **path + size + checksum**. Recompute the
 checksum from the object, never transcribe it. Worked examples: `wetlands/nwi` and `cwhr`/`cwhr13`
@@ -288,6 +295,16 @@ command: [bash, -c, |
 ]
 ```
 
+⛔ **Delete the staged raw once the build is done.** When the published outputs are verified
+(`verify-stac.py` exits 0 on the post-cluster run) and the provenance above is in the STAC, the
+last job of the task removes `s3://<bucket>/raw/<dataset>/`. Raw is a build cache: upstream
+still serves it, and we do not hold copies of other people's data on shared storage. A rebuild
+re-stages from upstream.
+
+**So an empty `raw/` is evidence of nothing.** Never conclude from a missing raw file that a
+source was never received, never processed or never staged. Ask the published data, the STAC
+and the issue instead.
+
 ### Step 1c: Preprocessing multi-file zipped datasets
 
 **`cng-convert-to-parquet` rejects multiple `.zip` URLs.** For per-state/per-region zips, run a
@@ -306,35 +323,18 @@ cng-datasets workflow \
 
 Add `--layer <LayerName>` for multi-layer sources (one workflow per layer). The `/` in `--dataset` creates hierarchical S3 paths; `-` is used in k8s job names.
 
-**Prefer `--backend armada` for hex-heavy workflows.** k8s backend caps at 200 indexed completions and 200 pods namespace-wide. Armada removes both and allows `--chunk-size 1` (one feature per job), critical when polygon sizes vary wildly (a single Russia/China chunk can run for hours while 199 others finish in minutes):
+**Prefer `--backend armada` for hex-heavy workflows.** k8s backend caps at 200 indexed completions, and the namespace quota caps pods (300 in `geo-workflows`). Armada removes both and allows `--chunk-size 1` (one feature per job), critical when polygon sizes vary wildly (a single Russia/China chunk can run for hours while 199 others finish in minutes):
 ```bash
 cng-datasets workflow ... --h3-resolution 8 --parent-resolutions "0" \
   --max-completions <N-features> --backend armada ...
 ```
-With `--backend armada` the CLI emits armada YAMLs for all steps alongside k8s manifests. Submit in order manually (no orchestrator):
-```bash
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-setup-bucket.yaml
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-convert.yaml
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-plan.yaml      # if emitted (cells-per-chunk plan, #124)
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-pmtiles.yaml
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-hex.yaml
-# wait for hex, then:
-armadactl submit catalog/<dataset>/k8s/<name>/armada-<name>-repartition.yaml
-```
-Monitor: **https://armada-lookout.nrp-nautilus.io**
+With `--backend armada` (or `auto`) the CLI emits `armada-<name>-<step>.yaml` for every step
+alongside the k8s manifests, and you submit them in order by hand.
 
-⛔ **Load this before your first `armadactl` command, not after it hangs** — auth is a device-code
-flow, not the documented PKCE one, and the code expires in 60 seconds. That, install/config, the
-queue-to-namespace mapping, priority classes, and when to microslice: **skill `armada-pipeline`**.
-
-Convert an existing k8s hex YAML to Armada (for rechunking):
-```python
-from cng_datasets.k8s.armada import k8s_indexed_job_to_armada, save_armada_yaml
-import yaml
-with open('<name>-hex.yaml') as f: job_spec = yaml.safe_load(f)
-armada_spec = k8s_indexed_job_to_armada(job_spec, queue='geo-workflows', job_set_id='<name>-hex')
-save_armada_yaml(armada_spec, 'armada-<name>-hex.yaml')
-```
+⛔ **Load skill `armada-pipeline` before your first `armadactl` command, not after it hangs** —
+auth is a device-code flow, not the documented PKCE one, and the code expires in 60 seconds. It
+also has the submit order, converting an existing manifest, priority classes, NRP's 6-hour pod
+limit, gap-fill, and when to microslice.
 
 #### Raster
 
@@ -412,11 +412,19 @@ A ~300K-feature vector run typically takes 1–2 hours.
 
 ### Step 5: Document
 
-**Write STAC/README to `/tmp/` only — never to `catalog/<dataset>/stac/`.** Upload directly:
+**Never write STAC/README into `catalog/<dataset>/stac/`.** Draft and check them in `/tmp/`, then
+publish from a job (Hard Boundary 1), which reads the live collection, runs the guard, and uploads:
 ```bash
-rclone copyto /tmp/README.md nrp:<bucket>/README.md
+rclone cat nrp:<bucket>/<dataset>/stac-collection.json > /tmp/live.json 2>/dev/null || : > /tmp/live.json
+python3 guard.py /tmp/stac-collection.json /tmp/live.json   # must exit 0
 rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.json
 ```
+
+**Replacing a live collection goes through `scripts/stac-publish-guard.py`.**
+It keeps the live default styles, renders and `rel: pmtiles` links the new file lacks, and
+refuses a file that would drop the live column dictionary or revert an asset-key rename. A job
+that uploads a collection must run it (CI checks, `scripts/check-stac-publish-guard.py`); the
+script's docstring has the job snippet.
 
 ⛔ **Do not hand-check the STAC rules — run the gate.**
 
@@ -429,9 +437,17 @@ Fix every HARD finding before `rclone copyto`; the post-cluster run must exit 0.
 verifier on the PR, deriving collections from the `s3://` paths in changed `catalog/**` YAMLs — so
 a RED check at PR-open is correct, and you re-fire it after the cluster jobs land.
 
+**Ship a default style with the data.** Every PMTiles file carries a MapLibre style file as a
+`style` asset (one marked `default` per file), and every COG a `renders` entry with its colormap
+and rescale (Portolan, #881). Reuse the paint the GLEN apps already use (`scripts/app-styles.py`);
+for a layer no app shows, examine the data, pick its primary variable and build the default on
+it with `scripts/default-style.py`. A one-colour default is refused unless the style says why
+the data has no variable worth showing. Then draw its thumbnail with `scripts/thumbnail.py`.
+In a job, cng-datasets 0.16.0 does both: `cng-datasets style` and `cng-datasets vector-thumbnail`.
+
 Everything about *what to write* — the user-facing description register, `table:columns`
 placement, SPDX license rules, categorical `values`, hex per-feature duplication notes, `h3:*`
-declarations, point/line notes — is in **skill `stac-authoring`**. Load it before writing or
+declarations, point/line notes, default styles — is in **skill `stac-authoring`**. Load it before writing or
 editing any `stac-collection.json` or README.
 ### Step 6: Register in the parent sub-catalog
 
@@ -440,56 +456,13 @@ Only touch the root when adding a **new** top-level sub-catalog. Procedure: **sk
 `stac-authoring`**.
 ### Step 7: Get the licence right
 
-**This is a metadata step and nothing else.** Every collection carries an accurate SPDX
-`license` plus a `{"rel": "license"}` link in its STAC (Step 5). Getting it wrong is how data
-ends up over- or under-published.
-
-- Record what upstream actually granted, with evidence.
-- **The test is decidability: a reader must be able to tell whether we may redistribute, and
-  under what restrictions.** An accurate SPDX id (`CC-BY-4.0`, `CC-BY-NC-4.0`, `public-domain`)
-  settles it by itself. A placeholder (`other` / `various` / `proprietary`) names no terms, so it
-  settles nothing on its own — it needs either a licence link that IS the terms document (WDPA's
-  `protectedplanet.net/en/legal`) or a description that states the terms. Either satisfies the
-  rule; boilerplate for its own sake does not. `verify-stac.py` reports
-  `license-terms-not-stated` (ADVISORY) when neither is present (#651).
-- If the terms are genuinely unconfirmed or no licence was granted, say so plainly in the
-  description — including "no grant has been located", when that is the honest answer. Never
-  assert an SPDX id upstream did not grant, and never name a provider as `licensor` when no
-  licence was granted. This has gone wrong in both directions — `rivers/american-rivers/*`
-  asserted `CC-BY-4.0` with no `licensor` behind it, and
-  `hazard/mid-century-habitat-climate-exposure` asserts `CC-BY-4.0` while its own description
-  says the terms "require confirmation".
-- **One terms page grants one thing.** Two collections citing the same licence URL must declare
-  the same `license`; `verify-stac.py` reports `license-inconsistent-for-terms` (ADVISORY) when
-  they do not — `wdpa` (`proprietary`) and `wdoecm-may-2026` (`other`) cite the same
-  Protected Planet legal page.
-- Do not invent a terms URL to clear the gate. If no public terms page exists, the finding
-  stands; record the facts in the description and say so in the issue.
-- **Restrictive terms are enforced by policy, not by access control. Match the provider's
-  access model; never exceed it.** Licence clauses such as "no redistribution", "not
-  downloadable", "non-commercial only" or "academic use only" are not a reason to keep data out
-  of a public bucket. If the provider serves open downloads and relies on its written terms
-  alone (no login, no credential check — UNEP-WCMC, Protected Planet/WDPA), we host it in an
-  ordinary `public-*` bucket and enforce the same way: the licence travels with the data (the
-  `license` field, the licence link, and the terms written into the description). We never
-  build a stronger gate than the provider uses. When the provider itself requires a login or
-  authorisation before the first download, the data goes behind an equivalent gate here, and
-  that is a scoping question for the issue. Whether such data may go on an open-reuse mirror like source.coop is the mirror
-  agent's decision, not yours (see "You publish to NRP" above).
-- **Obligations a licence places on the licensee are Carl's, as PI.** Examples are "notify the
-  Director", "request permission for commercial use" and "cite as …". State the obligation in
-  the collection description so users see it. Do not raise it as a blocker on the build, treat
-  a published layer as a breach, or ask whether "the ingest" triggers it. Note it in the issue
-  for Carl.
-- **One sanctioned exception, and only this one: data contributed directly to us, where no terms
-  were ever published.** Here "no public terms page" is not a gap to be researched — it is the
-  complete answer, so a permanently-red finding would be recording a fact as a defect. Publish the
-  statement of terms beside the data (`s3://<bucket>/<dataset>/LICENSE.md`) and link it. The
-  document must **grant nothing**: it records what was and was not given. `verify-stac.py` reports
-  `license-terms-self-hosted` (ADVISORY) whenever a licence link resolves to our own bucket, so this
-  can never be mistaken for a verified upstream grant. Worked example: `high-seas/mpa-candidates`
-  (#579). This does **not** licence guessing anywhere else — for data with a real publisher, an
-  absent terms page still leaves the finding standing.
+Every collection carries an accurate SPDX `license` and a `{"rel": "license"}` link, recording
+what upstream actually granted. A placeholder (`other`, `proprietary`) needs the terms linked or
+written out; never invent a grant, a licensor or a terms URL. Match the provider's access model,
+never exceed it: restrictive terms on openly downloadable data travel with the data in a
+`public-*` bucket. Obligations on the licensee are Carl's, as PI: state them, do not block on
+them. The full rules, and the one exception for directly contributed data: **skill
+`stac-authoring`**.
 
 ## Hex sizing and resolution
 
@@ -510,15 +483,17 @@ Full memory model, resolution and parent-set decision tables, vector/raster work
 and reprocessing failed chunks: **skill `hex-tuning`** (raster specifics: **`raster-hexing`**).
 ## Pod-count good practice (`geo-workflows`)
 
-**Keep ≤200 simultaneous pods** across all your jobs. `geo-workflows` has **no enforced
-ResourceQuota** (unlike the legacy `biodiversity` namespace, which hard-capped at 200), but
-≤200 is the good-practice target — oversubscribing is antisocial on shared nodes. Applies to
+**Keep ≤200 simultaneous pods** across all your jobs. `geo-workflows` enforces a
+ResourceQuota of **300 pods** (`reached-quota`; `biodiversity`'s is 200, checked 2026-11-17 with
+`kubectl -n <ns> get resourcequota`), so past 300 new pods are refused with `exceeded quota:
+reached-quota`. ≤200 is the good-practice target below that — oversubscribing is antisocial on
+shared nodes. Applies to
 the **k8s backend only** — armada queues externally and is not constrained.
 
 **Rule: never submit more than one k8s hex workflow at a time.** With `--max-parallelism 50`, a
 single hex job can take 50 pods; on the legacy `biodiversity` namespace concurrent hex workflows
-tripped its quota (`exceeded quota: reached-quota, used: pods=200`); on `geo-workflows` there is
-no wall, so self-limit. Run sequentially:
+tripped its quota (`exceeded quota: reached-quota, used: pods=200`); `geo-workflows` refuses
+pods past 300, and self-limiting well below that keeps the namespace usable for others. Run sequentially:
 ```bash
 for d in dataset-a dataset-b dataset-c; do
   kubectl apply -n geo-workflows -f catalog/.../k8s/$d/configmap.yaml -f catalog/.../k8s/$d/workflow.yaml
@@ -526,19 +501,13 @@ for d in dataset-a dataset-b dataset-c; do
 done
 ```
 
-With armada, submit freely — chunk-size 1 (one pod per feature) eliminates "one slow pod blocks everything."
-
-⛔ **Pod count is not what decides whether those pods survive.** At `opportunistic` priority a
-long pod is preempted rather than finished, and retries hide it — a job reports `Complete=True`
-while indexes are killed and restarted, and a retry-exhausted index leaves *stale* data, not
-missing data. Before submitting anything whose pods run over an hour: **skill `pod-preemption`**.
-
-⛔ **Default priority has its own cost: NRP's usage policy (#804).** NRP checks every non-opportunistic pod older than 30 minutes against its request. Memory is checked when the request is over 2 GiB and must be 20–150% used. CPU is checked when the request is over 1 core and must be 20–200% used. More than **4 out-of-range pods across the account** makes NRP deny every Deployment change on Carl's account. On 2026-10-26, a 16Gi-request backfill using 1–2.5Gi blocked a production rollout this way. A separate policy caps limit/request at **1.2**. So:
-- Pods under ~1 hour (setup-bucket, daily CronJob runs, short fan-out units) use `priorityClassName: opportunistic`.
-- Split long work into short units where practical.
-- Pods that must run long use default priority, sized to measured use, not to the generator's defaults. Check `kubectl top pod` ~30 minutes after launch.
-
-Full rule: **skill `pod-preemption`**.
+⛔ **Pod count is not what decides whether those pods survive; priority and runtime do.** Pods
+under ~1 hour run at `opportunistic`. At that priority a long pod is preempted and silently
+retried, and a retry-exhausted index leaves *stale* data, not missing data. Pods that must run
+long run at default priority (omit `priorityClassName`), where NRP's usage policy (#804) requires
+**zero out-of-range pods at any time**: size them to measured use, or Carl's account is locked
+and can be banned. Before submitting anything whose pods run over an hour: **skill
+`pod-preemption`**.
 
 ## S3 Bucket Layout
 
@@ -552,6 +521,12 @@ bucket/                                 bucket/
 ├── README.md                           └── stac-collection.json
 └── stac-collection.json
 ```
+
+`raw/` holds only upstream input staged for a build in progress, and is emptied when the build
+is done (Step 1b). The backup tier treats it as disposable,
+so **no STAC asset may point into `raw/`**. That includes an upstream file you also want to
+offer for download: publish a copy beside the dataset instead. `verify-stac.py` enforces this
+(`asset-under-raw`, #721).
 
 ## Troubleshooting
 
@@ -621,36 +596,12 @@ the whole point.
 
 - **Do not process data locally.** CLI generates YAML; the cluster does the work.
 - **Do not modify `cng_datasets/` source.** File an issue (see Hard Boundary 2).
-- **Ephemeral is requestable well past the 50Gi default, but the two eviction modes differ —
-  only one is fixed by raising it.** A *limit* eviction (`usage exceeds the total limit of
-  containers <N>`) means the pod passed its own declared limit: unconditional, priority
-  irrelevant, raise the limit. A *node DiskPressure* eviction means the node ran short, and
-  the kubelet picks victims in **priority order** — so a large ephemeral request and
-  `priorityClassName: opportunistic` compound badly. If you raise ephemeral, do not also run
-  at opportunistic (see the pod-preemption skill). Verified 2026-09-13 by server-side
-  admission: 80Gi, 200Gi and 1Ti are all admitted in **both** `geo-workflows` and
-  `biodiversity`; neither namespace's LimitRange carries a `max`, and no ResourceQuota in
-  either mentions ephemeral. The real ceiling is node free space, not policy.
-- **Coming: Armada on 4x GB10 nodes, each with ~4 TB of local/ephemeral storage, largely
-  free.** That changes the calculus recorded here. Today, scratch-heavy raster work is
-  constrained by shared-node disk and must be sized carefully; on that hardware the
-  constraint largely disappears, and Armada becomes the natural home for scratch-heavy and
-  finely-chunked work (datasets#173) rather than a way to escape the k8s completion cap.
-  Until then, size ephemeral from the intermediate and keep priority at default.
-- ⛔ **An ephemeral eviction is indistinguishable from an OOM in `kubectl get pods`.** Both
-  report **exit 137** with `ContainerStatusUnknown` or `Error`. Only `kubectl describe pod`
-  reveals it: `Reason: Evicted` / `Pod ephemeral local storage usage exceeds the total limit
-  of containers`. **If pods die at 137 while sitting far below their memory limit, check
-  ephemeral before touching memory** — on #515 five fvc pods died at 21–23 GiB of a 128 GiB
-  limit and the memory request was raised twice for nothing.
-  **Size hex ephemeral from the localized COG plus margin.** The full-grid fill-collapse
-  intermediate that evicted #515 (34 GB per pod on a 4.3 GB LANDFIRE COG) is gone since
-  datasets#209: with several `--nodata` codes an **integer** source is collapsed as a VRT
-  lookup table (no raster written), and only a **float** source materialises a
-  ZSTD-compressed copy; a single nodata code needs no collapse
-  (`_collapsed_aggregation_input`, `cng_datasets/raster/cog.py`). The multi-tile mosaic
-  (preprocess-cog) has written compressed, sparse intermediates since 0.11.3 (datasets#277).
-- **Keep ephemeral-storage modest.** Generator defaults: hex 10Gi (vector) / 20Gi (raster, `--hex-storage`), preprocess-cog 50Gi (`--cog-storage`), repartition 50Gi, raster merge 100Gi (`--merge-storage`). 50Gi is a good default and what most jobs need. It is **not a hard cap** in `geo-workflows`: the LimitRange there sets `default: 50Gi` with `max` empty, so a larger request is legal and passes validation. (The 50Gi *clamp* was the legacy `biodiversity` namespace, which these jobs no longer run in.) Go above 50Gi only with a reason recorded in the manifest — `wrc-2` warps a striped CONUS source at 60Gi (#592) — and keep it courteous on shared nodes.
+- **Ephemeral storage defaults to 50Gi, and that is not a cap.** A larger request is admitted;
+  the real ceiling is node free disk. Go above 50Gi only with a reason recorded in the manifest.
+  ⛔ **An ephemeral eviction looks exactly like an OOM** (exit 137) in `kubectl get pods`: if pods
+  die far below their memory limit, `kubectl describe pod` and check ephemeral before touching
+  memory. Sizing, the two eviction modes, and when to use the scratch PVC: **skill
+  `job-troubleshooting`**.
 - **Do not use multiple .zip URLs with `cng-datasets workflow`.** Preprocess first.
 - **Do not record operational/how-to-work lessons in agent memory (`~/.claude/.../memory`).** This repo is cloned and run by students — and soon by always-on headless agents (Hermes/openclaw). Anything that should shape how tasks run here belongs in **this AGENTS.md or a local skill (`.claude/skills/`)**, so every clone and headless run behaves the same. A lesson saved only to one VM's memory silently diverges your experience from everyone else's. (Memory remains fine for genuinely personal, non-shareable session context.)
 
@@ -665,7 +616,7 @@ Request form: **https://data-requests.nrp-nautilus.io/** (per-app routes, e.g. `
 Check at session start:
 ```bash
 curl -s https://data-requests.nrp-nautilus.io/api/requests | python3 -m json.tool
-rclone ls nrp:public-requests/dataset-requests/
+curl -s "https://s3-west.nrp-nautilus.io/public-requests/?list-type=2&prefix=dataset-requests/"
 ```
 Each submission: `app`, `timestamp`, plus user fields (dataset name, description, contact).
 

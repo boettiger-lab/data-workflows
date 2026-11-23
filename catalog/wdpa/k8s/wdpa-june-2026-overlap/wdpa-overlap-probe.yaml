@@ -1,0 +1,80 @@
+# HAND-ROLLED: cng-datasets polyfills polygons by cell centre only and has no
+# per-cell coverage fraction, so the 'overlap' + cover_frac hex is built by
+# hex_overlap.py in this directory (#1000; tool feature request datasets#363).
+#
+# Phase 1 probe: the three heaviest chunks of the FULL plan
+# (staging-1000/full/plan.parquet, 165 chunks) that the sample cannot
+# represent: the most vertices (80: 5.2M; 141: 4.7M, each with a ~1.95M-vertex
+# parcel) and the most features (42: 9,519). Times the real chunking. Output
+# only to s3://public-wdpa/wdpa/staging-1000/probe-b/. (A first probe, on an
+# 8M-cell-only plan, took 7-11+ min per chunk at 20-45M vertices, which is why
+# the plan now also caps vertices.)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wdpa-overlap-1000-probe-b
+  namespace: geo-workflows
+  labels:
+    k8s-app: wdpa-overlap-1000-probe-b
+spec:
+  completions: 3
+  parallelism: 3
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 3
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - type: DisruptionTarget
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: wdpa-overlap-1000-probe-b
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      containers:
+      - name: hex
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_PUBLIC_ENDPOINT, value: s3-west.nrp-nautilus.io}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PLAN, value: s3://public-wdpa/wdpa/staging-1000/full/plan.parquet}
+        - {name: OUT, value: s3://public-wdpa/wdpa/staging-1000/probe-b}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          MAP=(80 141 42)
+          CHUNK=${MAP[$JOB_COMPLETION_INDEX]}
+          python3 /opt/script/hex_overlap.py hex \
+            --source s3://public-wdpa/wdpa.parquet --plan "$PLAN" \
+            --chunk "$CHUNK" --out "$OUT" \
+            --res 9 --parents 8,0 --threads 4 --memory-limit 6GB
+          df -h /tmp | tail -1
+        volumeMounts:
+        - {name: script, mountPath: /opt/script, readOnly: true}
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: '4', memory: 8Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '4', memory: 8Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - name: script
+        configMap: {name: wdpa-overlap-1000-script}
+      - name: rclone-config
+        secret: {secretName: rclone-config}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - {key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}

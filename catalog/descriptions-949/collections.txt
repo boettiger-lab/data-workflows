@@ -1,0 +1,4 @@
+public-rivers/american-rivers/ira-watersheds/stac-collection.json
+public-rivers/american-rivers/roo-cjest/stac-collection.json
+public-barred-owl/stac-collection.json
+public-calenviroscreen/stac-collection.json

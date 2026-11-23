@@ -49,11 +49,12 @@ All commands from this directory. Steps 1–2 build the data, 3 verifies it, 4 p
 
 ```bash
 kubectl apply -n geo-workflows -f rap-pfg-biomass-rename-cog.yaml   # to the bucket's convention
-kubectl apply -n geo-workflows -f rap-pfg-biomass-hex.yaml          # 6 CONUS partitions
+kubectl apply -n geo-workflows -f configmap.yaml -f workflow.yaml   # generated hex, 6 CONUS partitions
 ```
 
-The rename copies server-side, compares byte counts, and only then deletes the old key. The hex
-asserts its input is single-band before running — the guard the cover collection lacked.
+The rename copies server-side, compares byte counts, and only then deletes the old key. The hex is
+a generated recipe (the command is in `configmap.yaml`); the tool refuses a multi-band input that
+names no band (datasets#220), the guard the cover collection lacked.
 
 `--h0-index` values are 12, 14, 20, 50, 71, 78 (the full CONUS set), resolved from the `i` column
 of `s3://public-grids/hex/h0-valid.parquet`. These are **not** H3 base cell numbers: the two
