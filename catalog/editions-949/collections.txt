@@ -1,0 +1,13 @@
+public-iucn/stac-collection.json
+public-land-cover/nlcd/stac-collection.json
+public-wui/stac-collection.json
+public-tpl/parkserve-2025/parks/stac-collection.json
+public-tpl/parkserve-2025/service-areas/stac-collection.json
+public-tpl/parkserve-2025/places/stac-collection.json
+public-tpl/parkserve-2025/urban-areas/stac-collection.json
+public-tpl/parkserve-2025/priority-areas-place/stac-collection.json
+public-tpl/parkserve-2025/priority-areas-urban-area/stac-collection.json
+public-tpl/parkserve-2025/parkscore/stac-collection.json
+public-swap/california/swap-2025/sgcn-ranges/stac-collection.json
+public-swap/california/swap-2025/sgcn-species/stac-collection.json
+public-swap/california/swap-2025/sgcn-species-units/stac-collection.json

@@ -57,15 +57,16 @@ spec:
               USE_SSL false, URL_STYLE 'path', REGION 'us-east-1')""")
           print("duckdb", duckdb.__version__)
 
-          # Ocean mask: EEZ cells at res 8, high-seas cells at res 4 (matched via parent).
+          # Ocean mask: EEZ cells and high-seas cells, both at res 8 (the high-seas hex is h8
+          # since #1016; it was h4 before, matched here via parent).
           con.execute("""CREATE TABLE realm AS
             WITH eez AS (SELECT DISTINCT h8 FROM read_parquet('s3://public-high-seas/iho/eez/hex/h0=*/data_00.parquet', hive_partitioning=false)),
-                 hs  AS (SELECT DISTINCT h4 FROM read_parquet('s3://public-high-seas/iho/high-seas/hex/h0=*/data_00.parquet', hive_partitioning=false)),
+                 hs  AS (SELECT DISTINCT h8 FROM read_parquet('s3://public-high-seas/iho/high-seas/hex/h0=*/data_00.parquet', hive_partitioning=false)),
                  k   AS (SELECT DISTINCT SitRecID, h8 FROM read_parquet('s3://public-kba/kba-2026-03/sites/hex/h0=*/data_0.parquet', hive_partitioning=false)),
                  f   AS (SELECT k.SitRecID,
-                                AVG(CASE WHEN e.h8 IS NOT NULL OR hs.h4 IS NOT NULL THEN 1.0 ELSE 0.0 END) AS marine_frac
+                                AVG(CASE WHEN e.h8 IS NOT NULL OR hs.h8 IS NOT NULL THEN 1.0 ELSE 0.0 END) AS marine_frac
                          FROM k LEFT JOIN eez e ON k.h8 = e.h8
-                                LEFT JOIN hs ON h3_cell_to_parent(k.h8, 4) = hs.h4
+                                LEFT JOIN hs ON k.h8 = hs.h8
                          GROUP BY k.SitRecID)
             SELECT SitRecID, marine_frac,
                    CASE WHEN marine_frac >= 0.9 THEN 'marine'

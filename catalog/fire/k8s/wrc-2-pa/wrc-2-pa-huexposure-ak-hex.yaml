@@ -18,8 +18,8 @@
 # within rounding. That invariant is #611's acceptance criterion for the amount layers and is the
 # thing to check first if this layer ever looks wrong.
 #
-# ⚠️ Its near-sibling `HURisk` in this same publication takes `mean`, not `sum` -- it is a unitless
-# index. Do not generalise one reducer across this publication.
+# ⚠️ `BuildingDensity`, `BuildingCover`, `PopDen` and `HUDen` in this publication are densities or
+# percentages and take `mean`. Do not generalise one reducer across this publication.
 #
 # Resolution 10 with parents 9, 8, 0: the source is 30 m and `h10` (0.0150 km^2) is the catalog's
 # finest, and native 10 -> 9, 8, 0 matches `roadless-areas-2001` (public-usfs), `silvis-wui-2020`

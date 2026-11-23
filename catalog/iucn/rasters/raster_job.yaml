@@ -105,74 +105,74 @@ spec:
               
               # Species Richness layers
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Amphibians_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Amphibians_SR_2025.tif \
                 --output-url s3://public-iucn/hex/amphibians_sr \
                 --layer-name amphibians_sr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Birds_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Birds_SR_2025.tif \
                 --output-url s3://public-iucn/hex/birds_sr \
                 --layer-name birds_sr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Mammals_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Mammals_SR_2025.tif \
                 --output-url s3://public-iucn/hex/mammals_sr \
                 --layer-name mammals_sr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Reptiles_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Reptiles_SR_2025.tif \
                 --output-url s3://public-iucn/hex/reptiles_sr \
                 --layer-name reptiles_sr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/FW_Fish_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/FW_Fish_SR_2025.tif \
                 --output-url s3://public-iucn/hex/fw_fish_sr \
                 --layer-name fw_fish_sr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Combined_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Combined_SR_2025.tif \
                 --output-url s3://public-iucn/hex/combined_sr \
                 --layer-name combined_sr
               
               # Threatened Species Richness layers
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Amphibians_THR_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Amphibians_THR_SR_2025.tif \
                 --output-url s3://public-iucn/hex/amphibians_thr_sr \
                 --layer-name amphibians_thr_sr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Birds_THR_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Birds_THR_SR_2025.tif \
                 --output-url s3://public-iucn/hex/birds_thr_sr \
                 --layer-name birds_thr_sr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Mammals_THR_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Mammals_THR_SR_2025.tif \
                 --output-url s3://public-iucn/hex/mammals_thr_sr \
                 --layer-name mammals_thr_sr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Reptiles_THR_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Reptiles_THR_SR_2025.tif \
                 --output-url s3://public-iucn/hex/reptiles_thr_sr \
                 --layer-name reptiles_thr_sr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/FW_Fish_THR_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/FW_Fish_THR_SR_2025.tif \
                 --output-url s3://public-iucn/hex/fw_fish_thr_sr \
                 --layer-name fw_fish_thr_sr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Combined_THR_SR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Combined_THR_SR_2025.tif \
                 --output-url s3://public-iucn/hex/combined_thr_sr \
                 --layer-name combined_thr_sr
               
               # Range-Weighted Richness layers
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Combined_RWR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Combined_RWR_2025.tif \
                 --output-url s3://public-iucn/hex/combined_rwr \
                 --layer-name combined_rwr
               
               python -u iucn/raster.py --i ${INDEX} --zoom 8 \
-                --input-url https://minio.carlboettiger.info/public-iucn/raw/richness/Combined_THR_RWR_2025.tif \
+                --input-url https://s3.carlboettiger.info/public-iucn/raw/richness/Combined_THR_RWR_2025.tif \
                 --output-url s3://public-iucn/hex/combined_thr_rwr \
                 --layer-name combined_thr_rwr
               

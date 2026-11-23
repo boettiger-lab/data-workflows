@@ -51,6 +51,14 @@ spec:
         - -c
         - |
           set -euo pipefail
+          # stac-publish-guard.py (#890): keep the live styles, renders and rel pmtiles links; refuse a
+          # file that would drop the live column dictionary or revert an asset-key rename.
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
           # Publishes only s3://public-land-cover/nlcd/stac-collection.json, from the
           # ConfigMap built by patch-stac.py:
           #   python3 patch-stac.py
@@ -60,6 +68,7 @@ spec:
           python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['id']=='nlcd'" "$f"
           # ConfigMap entries are symlinks; copy to a real file for rclone.
           cat "$f" > /tmp/payload
+          guard_stac /tmp/payload nrp:public-land-cover/nlcd/stac-collection.json
           rclone copyto /tmp/payload nrp:public-land-cover/nlcd/stac-collection.json
           rclone size nrp:public-land-cover/nlcd/stac-collection.json
           echo "ALL DONE"

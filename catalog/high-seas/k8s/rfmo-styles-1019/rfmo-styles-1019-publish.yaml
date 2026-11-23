@@ -1,0 +1,83 @@
+# HAND-ROLLED: the generator does not publish styles into an existing collection. Fixes the
+# two one-colour default styles verify-stac fails on the rfmo-maritime-governance collection
+# (#1019): the RFB PMTiles default becomes `style-rfb-rfb` (the 12 high-seas fisheries RFMOs by
+# RFB, the other 42 bodies as Other) and the VME default becomes `style-vme-owner` (OWNER, 8
+# RFMOs); `style-rfb` and `style-vme` stay as plain styles. Both built with
+# scripts/default-style.py from the live collection URL and merged into one spec.
+# DEVIATION from generated output (#1019): rfb-rfb.json was built with --colors naming the 12
+# RFMOs, through a shim answering the class counts with two aggregate queries because the shared
+# MCP proxy truncates the tool's 54-row GROUP BY; its description then said "the 12 most common
+# of 54 values", which is wrong for a named set, so it reads "12 of 54 values".
+#
+#  1. uploads styles/rfb-rfb.json and styles/vme-owner.json to rfmo/styles/;
+#  2. redraws rfmo/thumbnail.png (drawn from the RFB default) from style-rfb-rfb;
+#  3. edits the LIVE collection with set_styles.py, runs the publish guard, uploads it.
+#
+#   kubectl create configmap rfmo-styles-1019 -n geo-workflows \
+#     --from-file=catalog/high-seas/k8s/rfmo-styles-1019/styles/ --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -f catalog/high-seas/k8s/rfmo-styles-1019/rfmo-styles-1019-publish.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rfmo-styles-1019
+  namespace: geo-workflows
+  labels: {k8s-app: rfmo-styles-1019}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: rfmo-styles-1019}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          B=nrp:public-high-seas/rfmo
+          C=$B/stac-collection.json
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          rclone copyto --copy-links /opt/styles/rfb-rfb.json $B/styles/rfb-rfb.json $R
+          rclone copyto --copy-links /opt/styles/vme-owner.json $B/styles/vme-owner.json $R
+          cng-datasets vector-thumbnail --style https://s3-west.nrp-nautilus.io/public-high-seas/rfmo/styles/rfb-rfb.json \
+            --parquet s3://public-high-seas/rfmo/rfb.parquet --output /tmp/thumbnail.png
+          rclone copyto /tmp/thumbnail.png $B/thumbnail.png $R
+          rclone cat "$C" > /tmp/new.json
+          python3 /opt/styles/set_styles.py /tmp/new.json /opt/styles/style-assets.json
+          guard_stac /tmp/new.json "$C"
+          rclone copyto /tmp/new.json "$C" $R
+          echo PUBLISHED
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: styles, mountPath: /opt/styles, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: styles, configMap: {name: rfmo-styles-1019}}

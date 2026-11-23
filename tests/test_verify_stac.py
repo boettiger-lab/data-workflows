@@ -634,6 +634,12 @@ class SelfHostedLicenseTerms(unittest.TestCase):
         self.assertEqual([x.code for x in f], ["license-terms-self-hosted"])
         self.assertEqual(f[0].severity, vs.ADVISORY)
 
+    def test_copy_beside_upstream_link_is_silent(self):
+        # #886: a published copy of the publisher's terms, alongside the publisher's own link.
+        d = self._doc(f"{self.NRP}/public-x/d/terms.png")
+        d["links"].append({"rel": "license", "href": "https://tnc.app.box.com/s/x"})
+        self.assertEqual(vs.check_license(d), [])
+
     def test_upstream_terms_link_is_silent(self):
         # The ordinary case: terms hosted by the publisher. No finding at all.
         self.assertEqual(vs.check_license(self._doc("https://example.gov/terms")), [])
@@ -679,6 +685,102 @@ class CatalogNotCollection(unittest.TestCase):
             {"rel": "root", "href": "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"}]}
         self.assertIn("nav-parent-missing", [f.code for f in vs.check_nav_links(d)])
 
+
+class TestMcpUnavailable(unittest.TestCase):
+    """A server that cannot be reached fails a data run, but not a --no-data run (#897)."""
+
+    def run_verify(self, do_data):
+        import json, tempfile
+        from unittest import mock
+
+        class Dead:
+            endpoint = "https://example.invalid/mcp"
+
+            def initialize(self):
+                raise vs.MCPError("HTTP Error 401: Unauthorized")
+
+        doc = {"type": "Collection", "id": "x", "stac_version": "1.0.0", "description": "x",
+               "license": "CC-BY-4.0", "links": [], "assets": {},
+               "extent": {"spatial": {"bbox": [[0, 0, 1, 1]]},
+                          "temporal": {"interval": [["2020-01-01T00:00:00Z", None]]}}}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(doc, f)
+        with mock.patch.object(vs, "MCPClient", lambda *a, **k: Dead()):
+            _, findings = vs.verify(f.name, do_data=do_data, do_recall=True)
+        return [x for x in findings if x.code == "mcp-unavailable"]
+
+    def test_data_run_fails(self):
+        (f,) = self.run_verify(do_data=True)
+        self.assertEqual(f.severity, vs.HARD)
+
+    def test_no_data_run_stays_advisory(self):
+        (f,) = self.run_verify(do_data=False)
+        self.assertEqual(f.severity, vs.ADVISORY)
+
+U = "https://s3-west.nrp-nautilus.io/public-ncp"
+
+
+class ResolveCollectionUrl(unittest.TestCase):
+    """--yaml targets resolve to the nearest enclosing collection that exists (#903)."""
+
+    def resolve(self, dataset, live):
+        return vs.resolve_collection_url("public-ncp", dataset, exists=lambda u: u in live)
+
+    def test_own_collection_wins(self):
+        live = {f"{U}/a/b/stac-collection.json", f"{U}/a/stac-collection.json"}
+        self.assertEqual(self.resolve("a/b", live), f"{U}/a/b/stac-collection.json")
+
+    def test_parent_before_bucket_root(self):
+        # carbon-total is an asset of invest-peru-2019, not of the bucket collection.
+        live = {f"{U}/invest-peru-2019/stac-collection.json", f"{U}/stac-collection.json"}
+        self.assertEqual(self.resolve("invest-peru-2019/carbon-total", live),
+                         f"{U}/invest-peru-2019/stac-collection.json")
+
+    def test_bucket_root_last(self):
+        live = {f"{U}/stac-collection.json"}
+        self.assertEqual(self.resolve("a/b/c", live), f"{U}/stac-collection.json")
+
+    def test_nothing_published_keeps_dataset_url(self):
+        self.assertEqual(self.resolve("a/b", set()), f"{U}/a/b/stac-collection.json")
+
+
+class TargetsFromYaml(unittest.TestCase):
+    def test_shell_continuation_and_prose_punctuation(self):
+        text = (
+            "gdal_translate in.tif s3://public-ncp/invest-peru-2019/carbon-total-cog.tif\\\n"
+            "  --hex s3://public-ncp/invest-peru-2019/carbon-total/hex/\\\n"
+            "# see s3://public-ncp/invest-peru-2019/habitat-quality.parquet).\n"
+        )
+        self.assertEqual(vs.targets_from_yaml(text), {
+            ("public-ncp", "invest-peru-2019/carbon-total"),
+            ("public-ncp", "invest-peru-2019/habitat-quality"),
+        })
+
+
+
+class AssetNotUnderRaw(unittest.TestCase):
+    """#721: a published asset never resolves into a raw/ prefix."""
+
+    def codes(self, href):
+        doc = {"assets": {"x-cog": {"href": href}}}
+        return {f.code for f in vs.check_asset_not_under_raw(doc)}
+
+    def test_bucket_raw_is_hard(self):
+        self.assertEqual(self.codes(
+            "https://s3-west.nrp-nautilus.io/public-population/raw/ghs-pop-2020-cog.tif"),
+            {"asset-under-raw"})
+
+    def test_nested_raw_is_hard(self):
+        self.assertEqual(self.codes("s3://public-tpl/landvote/raw/Measures.csv"),
+                         {"asset-under-raw"})
+
+    def test_normal_location_passes(self):
+        self.assertEqual(self.codes(
+            "https://s3-west.nrp-nautilus.io/public-population/ghs-pop-2020-cog.tif"), set())
+
+    def test_raw_in_a_file_name_passes(self):
+        self.assertEqual(self.codes("s3://public-x/a/raw.parquet"), set())
+        self.assertEqual(self.codes("s3://public-x/raw-counts/a.parquet"), set())
 
 if __name__ == "__main__":
     unittest.main()
@@ -941,3 +1043,448 @@ class LicenceConsistencyAcrossCollections(unittest.TestCase):
             self._doc("wdoecm-may-2026", "other", LEGAL),
         ])
         self.assertEqual({cid for cid, _ in out}, {"wdpa", "wdoecm-may-2026"})
+
+
+class TestStyles(unittest.TestCase):
+    PM = {"href": "https://s3-west.nrp-nautilus.io/b/d.pmtiles",
+          "type": "application/vnd.pmtiles", "vector:layers": ["d"], "roles": ["visual"]}
+
+    def style(self, roles=("style",), **kw):
+        a = {"href": "https://s3-west.nrp-nautilus.io/b/styles/d.json",
+             "type": vs.STYLE_TYPE, "title": "D", "roles": list(roles)}
+        a.update(kw)
+        return a
+
+    def codes(self, assets):
+        return {(f.severity, f.code) for f in vs.check_styles({"assets": assets})}
+
+    def test_pmtiles_without_style_is_advisory(self):
+        self.assertEqual(self.codes({"d-pmtiles": self.PM}),
+                         {(vs.ADVISORY, "pmtiles-no-style")})
+
+    def test_single_style_needs_no_default(self):
+        self.assertEqual(self.codes({"d-pmtiles": self.PM, "style-d": self.style()}), set())
+
+    def test_several_styles_need_exactly_one_default(self):
+        two = {"d-pmtiles": self.PM, "style-a": self.style(), "style-b": self.style()}
+        self.assertIn((vs.HARD, "style-default-count"), self.codes(two))
+        two["style-a"] = self.style(roles=("style", "default"))
+        self.assertEqual(self.codes(two), set())
+
+    def test_wrong_media_type_and_location(self):
+        bad = self.style(type="application/json",
+                         href="https://s3-west.nrp-nautilus.io/b/d-style.json")
+        got = self.codes({"d-pmtiles": self.PM, "style-d": bad})
+        self.assertIn((vs.HARD, "style-media-type"), got)
+        self.assertIn((vs.HARD, "style-not-in-styles-dir"), got)
+
+    def test_one_default_per_pmtiles_file(self):
+        e = dict(self.PM, href="https://s3-west.nrp-nautilus.io/b/e.pmtiles")
+        both = {"d-pmtiles": self.PM, "e-pmtiles": e,
+                "style-d": self.style(roles=("style", "default")),
+                "style-d-x": self.style(),
+                "style-e-y": self.style(roles=("style", "default"))}
+        self.assertEqual(self.codes(both), set())
+        both["style-d-x"] = self.style(roles=("style", "default"))
+        self.assertIn((vs.HARD, "style-default-count"), self.codes(both))
+
+    def test_fallback_default_is_hard(self):
+        got = self.codes({"d-pmtiles": self.PM,
+                          "style-fallback-d": self.style(roles=("style", "default"))})
+        self.assertIn((vs.HARD, "style-fallback-default"), got)
+
+
+class TestThumbnail(unittest.TestCase):
+    STYLE = {"href": "s.json", "roles": ["style", "default"]}
+
+    def codes(self, assets, **extra):
+        return {f.code: f.severity for f in vs.check_thumbnail(dict(assets=assets, **extra))}
+
+    def test_missing_thumbnail_is_advisory_when_drawable(self):
+        self.assertEqual(self.codes({"s": self.STYLE}), {"thumbnail-missing": vs.ADVISORY})
+        self.assertEqual(self.codes({}, renders={"r": {"assets": ["c"]}}),
+                         {"thumbnail-missing": vs.ADVISORY})
+
+    def test_nothing_to_draw_needs_no_thumbnail(self):
+        self.assertEqual(self.codes({"p": {"href": "d.parquet"}}), {})
+
+    def test_thumbnail_type(self):
+        ok = {"href": "thumbnail.png", "type": "image/png", "roles": ["thumbnail"]}
+        self.assertEqual(self.codes({"s": self.STYLE, "thumbnail": ok}), {})
+        bad = dict(ok, type="application/octet-stream")
+        self.assertEqual(self.codes({"s": self.STYLE, "thumbnail": bad}),
+                         {"thumbnail-type": vs.HARD})
+
+
+class TestTree(unittest.TestCase):
+    ME = "https://h/b/x/stac-collection.json"
+
+    def doc(self, **kw):
+        d = {"type": "Collection", "links": [{"rel": "self", "href": self.ME},
+                                             {"rel": "parent", "href": "../stac-collection.json"}],
+             "assets": {}}
+        d.update(kw); return d
+
+    def parent(self, *kids):
+        return lambda u: {"links": [{"rel": "self", "href": u}] + [{"rel": "child", "href": k} for k in kids]}
+
+    def codes(self, d, fetch):
+        return {f.code: f.severity for f in vs.check_tree(d, fetch)}
+
+    def test_consistent_leaf(self):
+        self.assertEqual(self.codes(self.doc(), self.parent("./x/stac-collection.json")), {})
+
+    def test_parent_not_listing_me(self):
+        self.assertEqual(self.codes(self.doc(), self.parent("./y/stac-collection.json")),
+                         {"tree-parent-mismatch": vs.HARD})
+
+    def test_unreadable_parent_is_advisory(self):
+        self.assertEqual(self.codes(self.doc(), lambda u: None), {"tree-parent-unreadable": vs.ADVISORY})
+
+    def test_mixed_node(self):
+        d = self.doc(assets={"d": {"href": "d.parquet"}, "r": {"href": "README.md"},
+                             "s": {"href": "s.json", "roles": ["style"]}})
+        d["links"].append({"rel": "child", "href": "./c/stac-collection.json"})
+        self.assertEqual(self.codes(d, self.parent("./x/stac-collection.json")), {"tree-mixed-node": vs.HARD})
+
+    def test_grouping_node_typed_collection(self):  # #957: public-datacenters, public-pesticides
+        d = self.doc()
+        d["links"].append({"rel": "child", "href": "./c/stac-collection.json"})
+        self.assertEqual(self.codes(d, self.parent("./x/stac-collection.json")),
+                         {"tree-inner-collection": vs.HARD})
+
+    def test_grouping_catalog_passes(self):
+        d = self.doc(type="Catalog")
+        d["links"].append({"rel": "child", "href": "./c/stac-collection.json"})
+        self.assertEqual(self.codes(d, self.parent("./x/stac-collection.json")), {})
+
+
+class TestRenderRange(unittest.TestCase):
+    """A continuous render's rescale should cover where the data is (#881)."""
+
+    def codes(self, rescale, p2, p98, band=None, render=None):
+        doc = {"links": [{"rel": "self", "href": "https://h/b/c/stac-collection.json"}],
+               "assets": {"d-cog": {"href": "../d.tif", "raster:bands": [band or {}]}},
+               "renders": {"d": {"assets": ["d-cog"], "colormap_name": "viridis",
+                                 "rescale": [rescale], **(render or {})}}}
+        seen = []
+
+        def stats(href, nodata):
+            seen.append(href)
+            return {"percentile_2": p2, "percentile_98": p98}
+        out = {f.code for f in vs.check_render_range(doc, stats=stats)}
+        self.assertTrue(not seen or seen == ["https://h/b/d.tif"])
+        return out
+
+    def test_matching_range_passes(self):
+        self.assertEqual(self.codes([0, 17], 0, 16.2), set())
+
+    def test_range_far_too_wide(self):  # wrc-2 flame length
+        self.assertEqual(self.codes([0, 862], 0, 16.2), {"render-rescale-off-data"})
+
+    def test_top_clipped(self):
+        self.assertEqual(self.codes([0, 50], 2, 60), {"render-rescale-off-data"})
+
+    def test_bottom_clipped(self):
+        self.assertEqual(self.codes([127, 360], 19, 351), {"render-rescale-off-data"})
+
+    def test_percentiles_unscaled_before_comparing(self):
+        self.assertEqual(self.codes([0, 17], 0, 1620, band={"scale": 0.01}), set())
+
+    def test_cyclic_colormap_skipped(self):  # ww3 wind-wave direction: 0..360, data 51..127
+        self.assertEqual(self.codes([0, 360], 51, 127, render={"colormap_name": "twilight"}), set())
+
+    def test_classed_render_skipped(self):
+        doc = {"assets": {"d-cog": {"href": "d.tif"}},
+               "renders": {"d": {"assets": ["d-cog"], "colormap": {"1": "#fff"}, "rescale": [[0, 1]]}}}
+        self.assertEqual(vs.check_render_range(doc, stats=lambda *a: 1 / 0), [])
+
+    def test_unreadable_is_advisory(self):
+        doc = {"assets": {"d-cog": {"href": "d.tif"}},
+               "renders": {"d": {"assets": ["d-cog"], "colormap_name": "viridis", "rescale": [[0, 1]]}}}
+        (f,) = vs.check_render_range(doc, stats=lambda *a: 1 / 0)
+        self.assertEqual((f.severity, f.code), (vs.ADVISORY, "render-range-unchecked"))
+
+
+class TestRenderUnits(unittest.TestCase):
+    def codes(self, band, rescale):
+        doc = {"assets": {"d-cog": {"raster:bands": [band]}},
+               "renders": {"d": {"assets": ["d-cog"], "rescale": [rescale]}}}
+        return {(f.severity, f.code) for f in vs.check_render_units(doc)}
+
+    SCALED = {"data_type": "int16", "scale": 0.01, "offset": 0}
+
+    def test_stored_units_on_a_scaled_band_is_hard(self):
+        self.assertEqual(self.codes(self.SCALED, [-204, 3250]),
+                         {(vs.HARD, "render-rescale-raw-units")})
+
+    def test_real_units_pass(self):
+        self.assertEqual(self.codes(self.SCALED, [-2, 32]), set())
+
+    def test_far_outside_statistics_is_advisory(self):
+        band = dict(self.SCALED, statistics={"minimum": -200, "maximum": 3500})
+        self.assertEqual(self.codes(band, [-2, 32]), set())
+        self.assertEqual(self.codes(band, [100, 300]),
+                         {(vs.ADVISORY, "render-rescale-outside-statistics")})
+
+
+class TestDefaultStylePaint(unittest.TestCase):
+    def run_check(self, sty):
+        doc = {"assets": {"style-d": {"href": "x", "roles": ["style", "default"]},
+                          "style-d-other": {"href": "y", "roles": ["style"]}}}
+        return {(f.severity, f.code) for f in vs.check_default_style_paint(doc, lambda h: sty)}
+
+    def layer(self, color):
+        return {"layers": [{"type": "fill", "paint": {"fill-color": color}}]}
+
+    def test_constant_colour_is_hard(self):
+        self.assertEqual(self.run_check(self.layer("#4a7bb7")),
+                         {(vs.HARD, "style-single-colour-default")})
+
+    def test_stated_reason_passes(self):
+        sty = dict(self.layer("#4a7bb7"), metadata={"glen:single_colour_reason": "no attributes"})
+        self.assertEqual(self.run_check(sty), set())
+
+    def test_data_driven_colour_passes(self):
+        self.assertEqual(self.run_check(self.layer(["match", ["get", "a"], "x", "#f00", "#ccc"])),
+                         set())
+
+    def test_data_driven_width_passes(self):
+        sty = {"layers": [{"type": "line", "paint": {
+            "line-color": "#1E88E5",
+            "line-width": ["interpolate", ["linear"], ["get", "streamorde"], 1, 0.3, 7, 2.5]}}]}
+        self.assertEqual(self.run_check(sty), set())
+
+    def test_unreadable_style_is_advisory(self):
+        self.assertEqual(self.run_check(None), {(vs.ADVISORY, "style-unreadable")})
+
+
+# ---------------------------------------------------------------------------
+# Portolan column shape (PORTO-FMT-046/048, glen#441): one dictionary on the collection
+# ---------------------------------------------------------------------------
+
+FLAT_HREF = "https://s3-west.nrp-nautilus.io/public-x/d.parquet"
+TILES_HREF = "https://s3-west.nrp-nautilus.io/public-x/d.pmtiles"
+SELF_HREF = "https://s3-west.nrp-nautilus.io/public-x/d/stac-collection.json"
+
+
+def portolan_doc(hex_cols=("_cng_fid", "name", "h8", "h0"), flat_list=None, links=()):
+    """Dictionary covers flat + hex; flat matches it except for h*, so both keep lists."""
+    dictionary = [
+        {"name": "_cng_fid", "type": "int64", "description": "feature id"},
+        {"name": "name", "type": "string", "description": "site name"},
+        {"name": "kind", "type": "string", "description": "site kind",
+         "values": [{"value": "a", "description": "A"}]},
+        {"name": "geometry", "type": "binary", "description": "WKB"},
+        {"name": "h8", "type": "uint64", "description": "H3 res 8"},
+        {"name": "h0", "type": "uint64", "description": "H3 res 0"},
+    ]
+    flat = {"href": FLAT_HREF, "type": PARQUET}
+    if flat_list is not None:
+        flat["table:columns"] = flat_list
+    return {
+        "id": "d", "description": "", "table:columns": dictionary,
+        "links": [{"rel": "self", "href": SELF_HREF}, *links],
+        "assets": {
+            "d-parquet": flat,
+            "d-hex": {"href": HEX_HREF, "type": PARQUET,
+                      "table:columns": [{"name": c, "type": "uint64"} for c in hex_cols]},
+        },
+    }
+
+
+class ResolveColumns(unittest.TestCase):
+    def test_per_asset_shape_is_returned_unchanged(self):
+        doc = {"assets": {"d-hex": hex_asset(["h8"])}}
+        self.assertIs(vs.resolve_columns(doc), doc)
+
+    def test_asset_without_list_inherits_the_dictionary(self):
+        r = vs.resolve_columns(portolan_doc())
+        names = [c["name"] for c in r["assets"]["d-parquet"]["table:columns"]]
+        self.assertEqual(names, ["_cng_fid", "name", "kind", "geometry", "h8", "h0"])
+
+    def test_kept_list_takes_descriptions_and_values_by_name(self):
+        r = vs.resolve_columns(portolan_doc(hex_cols=("_cng_fid", "kind", "h8", "h0")))
+        cols = {c["name"]: c for c in r["assets"]["d-hex"]["table:columns"]}
+        self.assertEqual(cols["kind"]["description"], "site kind")
+        self.assertEqual(cols["kind"]["values"][0]["value"], "a")
+        self.assertEqual(cols["kind"]["type"], "uint64")  # the asset's own type wins
+
+    def test_resolution_does_not_mutate_the_published_doc(self):
+        doc = portolan_doc()
+        vs.resolve_columns(doc)
+        self.assertNotIn("table:columns", doc["assets"]["d-parquet"])
+
+
+class ColumnsPlacement(unittest.TestCase):
+    def codes(self, doc):
+        return {f.code: f.severity for f in vs.check_table_columns_placement(doc)}
+
+    def test_portolan_shape_is_clean(self):
+        self.assertEqual(self.codes(portolan_doc()), {})
+
+    def test_per_asset_shape_is_advisory(self):
+        doc = {"assets": {"d-hex": hex_asset(["h8", "h0"])}}
+        self.assertEqual(self.codes(doc), {"table-columns-per-asset": vs.ADVISORY})
+
+    def test_parquet_with_no_columns_anywhere_is_hard(self):
+        doc = {"assets": {"d-parquet": {"href": FLAT_HREF, "type": PARQUET}}}
+        self.assertEqual(self.codes(doc), {"parquet-no-table-columns": vs.HARD})
+
+    def test_asset_column_missing_from_dictionary_is_hard(self):
+        c = self.codes(portolan_doc(hex_cols=("_cng_fid", "ghost", "h0")))
+        self.assertEqual(c, {"column-not-in-dictionary": vs.HARD})
+
+    def test_duplicate_dictionary_entry_is_hard(self):
+        doc = portolan_doc()
+        doc["table:columns"].append({"name": "name", "type": "string"})
+        self.assertEqual(self.codes(doc), {"column-dictionary-duplicate": vs.HARD})
+
+    def test_described_asset_list_is_advisory(self):
+        doc = portolan_doc()
+        doc["assets"]["d-hex"]["table:columns"][1]["description"] = "site name"
+        self.assertEqual(self.codes(doc), {"asset-column-described": vs.ADVISORY})
+
+    def test_list_identical_to_dictionary_is_advisory(self):
+        doc = portolan_doc()
+        doc["assets"]["d-parquet"]["table:columns"] = [
+            {"name": c["name"], "type": c["type"]} for c in doc["table:columns"]]
+        self.assertEqual(self.codes(doc), {"asset-columns-redundant": vs.ADVISORY})
+
+
+class PortolanThroughTheOtherChecks(unittest.TestCase):
+    def test_hex_inheriting_geometry_from_the_dictionary_is_hard(self):
+        doc = portolan_doc()
+        del doc["assets"]["d-hex"]["table:columns"]
+        codes = [f.code for f in vs.check_parquet_columns_shape(vs.resolve_columns(doc))]
+        self.assertEqual(codes, ["hex-has-geom-column"])
+
+    def test_asset_text_disagreeing_with_dictionary_is_divergent(self):
+        doc = portolan_doc()
+        doc["assets"]["d-hex"]["table:columns"][1]["description"] = "another name"
+        codes = [f.code for f in vs.check_column_description_consistency(doc)]
+        self.assertEqual(codes, ["column-description-divergent"])
+
+    def test_verify_runs_clean_on_the_portolan_shape(self):
+        import json, os, tempfile
+        doc = portolan_doc()
+        doc.update({"license": "CC-BY-4.0", "extent": {"temporal": {"interval": [[None, None]]}}})
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as t:
+            json.dump(doc, t)
+        try:
+            _, findings = vs.verify(t.name, do_data=False, do_recall=False)
+        finally:
+            os.unlink(t.name)
+        codes = {f.code for f in findings}
+        for gone in ("parquet-no-table-columns", "table-columns-collection-level",
+                     "hex-has-geom-column", "column-not-in-dictionary"):
+            self.assertNotIn(gone, codes)
+
+
+class PmtilesLink(unittest.TestCase):
+    def doc(self, links=(), asset=True):
+        d = {"links": [{"rel": "self", "href": SELF_HREF}, *links], "assets": {}}
+        if asset:
+            d["assets"]["d-pmtiles"] = {"href": TILES_HREF, "type": "application/vnd.pmtiles"}
+        return d
+
+    def codes(self, doc):
+        return {f.code: f.severity for f in vs.check_pmtiles_link(doc)}
+
+    def test_missing_link_is_hard(self):
+        self.assertEqual(self.codes(self.doc()), {"pmtiles-no-link": vs.HARD})
+
+    def test_relative_link_matching_the_asset_is_clean(self):
+        link = {"rel": "pmtiles", "href": "../d.pmtiles", "type": "application/vnd.pmtiles"}
+        self.assertEqual(self.codes(self.doc([link])), {})
+
+    def test_link_without_asset_is_hard(self):
+        link = {"rel": "pmtiles", "href": TILES_HREF, "type": "application/vnd.pmtiles"}
+        self.assertEqual(self.codes(self.doc([link], asset=False)),
+                         {"pmtiles-link-without-asset": vs.HARD})
+
+    def test_wrong_link_type_is_hard(self):
+        link = {"rel": "pmtiles", "href": TILES_HREF, "type": "application/octet-stream"}
+        self.assertEqual(self.codes(self.doc([link])), {"pmtiles-link-type": vs.HARD})
+
+
+class TestCitation(unittest.TestCase):
+    """Apps cite a dataset from sci:citation, sci:doi or a cite-as link (#822)."""
+
+    def codes(self, **kw):
+        return [(f.severity, f.code) for f in vs.check_citation({"links": [], **kw})]
+
+    def test_nothing_is_advisory(self):
+        self.assertEqual(self.codes(), [(vs.ADVISORY, "citation-missing")])
+
+    def test_doi_without_text(self):
+        self.assertEqual(self.codes(**{"sci:doi": "10.1/x"}), [(vs.ADVISORY, "citation-text-missing")])
+
+    def test_cite_as_without_text(self):
+        d = {"links": [{"rel": "cite-as", "href": "https://doi.org/10.1/x"}]}
+        self.assertEqual([f.code for f in vs.check_citation(d)], ["citation-text-missing"])
+
+    def test_citation_text_passes(self):
+        self.assertEqual(self.codes(**{"sci:citation": "A. 2020. Data."}), [])
+
+
+class TestPortolanMetadata(unittest.TestCase):
+    SCHEMA = "https://schemas.portolan-sdi.org/portolan/v0.3.0/schema.json"
+    WML = "https://stac-extensions.github.io/web-map-links/v1.3.0/schema.json"
+    MIRROR = [{"name": "US Census Bureau", "roles": ["producer", "licensor"]},
+              {"name": "Boettiger Lab", "roles": ["host", "processor"]}]
+
+    def clean(self, **over):
+        d = {"type": "Collection", "stac_version": "1.1.0",
+             "stac_extensions": [self.SCHEMA, self.WML], "providers": self.MIRROR,
+             "updated": "2026-11-18T00:00:00Z",
+             "links": [{"rel": "via", "href": "https://example.org/", "type": "text/html"},
+                       {"rel": "pmtiles", "href": "d.pmtiles", "type": "application/vnd.pmtiles"}],
+             "assets": {
+                 "d-pmtiles": {"href": "d.pmtiles", "type": "application/vnd.pmtiles",
+                               "roles": ["visual"], "title": "T", "description": "D",
+                               "file:size": 1, "file:checksum": "1220ab"},
+                 "d-hex": {"href": "d/hex/h0=*/data_0.parquet", "roles": ["data"],
+                           "title": "T", "description": "D"}}}
+        d.update(over)
+        return d
+
+    def codes(self, doc):
+        return {f.code: f.severity for f in vs.check_portolan_metadata(doc)}
+
+    def test_compliant_collection_is_clean(self):
+        self.assertEqual(self.codes(self.clean()), {})
+
+    def test_every_gap_is_advisory(self):
+        doc = self.clean(stac_version="1.0.0", stac_extensions=[], updated=None)
+        doc["links"] = [l for l in doc["links"] if l["rel"] != "via"]
+        a = doc["assets"]["d-pmtiles"]
+        a["roles"] = ["data"]
+        del a["description"], a["file:checksum"]
+        self.assertEqual(self.codes(doc), {
+            "portolan-stac-version": vs.ADVISORY, "portolan-schema-uri": vs.ADVISORY,
+            "portolan-web-map-links": vs.ADVISORY, "portolan-pmtiles-visual": vs.ADVISORY,
+            "portolan-via-link": vs.ADVISORY, "portolan-updated": vs.ADVISORY,
+            "portolan-asset-text": vs.ADVISORY, "portolan-file-metadata": vs.ADVISORY})
+
+    def test_glob_asset_needs_no_file_metadata(self):
+        # the hex asset in clean() has a glob href and no file:* fields
+        self.assertNotIn("portolan-file-metadata", self.codes(self.clean()))
+
+    def test_via_and_updated_only_for_mirrors(self):
+        own = [{"name": "Boettiger Lab", "roles": ["producer", "host"]}]
+        doc = self.clean(providers=own, updated=None)
+        doc["links"] = [l for l in doc["links"] if l["rel"] != "via"]
+        self.assertEqual(self.codes(doc), {})
+        # undecidable provenance (no host) is skipped, as rashid does
+        self.assertEqual(self.codes(self.clean(providers=self.MIRROR[:1], updated=None)), {})
+
+    def test_via_link_must_be_html(self):
+        doc = self.clean()
+        doc["links"][0]["type"] = "application/json"
+        self.assertEqual(self.codes(doc), {"portolan-via-link": vs.ADVISORY})
+
+    def test_catalog_gets_only_version_and_schema(self):
+        self.assertEqual(self.codes({"type": "Catalog", "stac_version": "1.0.0", "links": []}),
+                         {"portolan-stac-version": vs.ADVISORY,
+                          "portolan-schema-uri": vs.ADVISORY})

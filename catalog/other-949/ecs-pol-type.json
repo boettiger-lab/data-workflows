@@ -1,0 +1,118 @@
+{
+  "version": 8,
+  "name": "Extended Continental Shelf PMTiles by POL_TYPE",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../ecs.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "ecs-fill",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "ecs",
+      "paint": {
+        "fill-color": [
+          "case",
+          [
+            "!",
+            [
+              "has",
+              "POL_TYPE"
+            ]
+          ],
+          "#cccccc",
+          [
+            "match",
+            [
+              "to-string",
+              [
+                "get",
+                "POL_TYPE"
+              ]
+            ],
+            "ECS Overlapping claim",
+            "#4e79a7",
+            "ECS CLCS Submission",
+            "#f28e2b",
+            "ECS CLCS Recommendation",
+            "#e15759",
+            "ECS DOALOS Deposit",
+            "#76b7b2",
+            "ECS Non-UNCLOS Claim",
+            "#59a14f",
+            "ECS Joint CLCS Recommendation",
+            "#edc948",
+            "ECS Joint CLCS Submission",
+            "#b07aa1",
+            "ECS Joint DOALOS Deposit",
+            "#ff9da7",
+            "#cccccc"
+          ]
+        ],
+        "fill-opacity": 0.7
+      }
+    },
+    {
+      "id": "ecs-outline",
+      "type": "line",
+      "source": "data",
+      "source-layer": "ecs",
+      "paint": {
+        "line-color": "#4d4d4d",
+        "line-width": 0.4,
+        "line-opacity": 0.6
+      }
+    }
+  ],
+  "metadata": {
+    "description": "Features coloured by POL_TYPE, 8 values.",
+    "glen:legend": {
+      "type": "categorical",
+      "label": "POL_TYPE",
+      "classes": [
+        {
+          "label": "ECS Overlapping claim",
+          "color": "#4e79a7"
+        },
+        {
+          "label": "ECS CLCS Submission",
+          "color": "#f28e2b"
+        },
+        {
+          "label": "ECS CLCS Recommendation",
+          "color": "#e15759"
+        },
+        {
+          "label": "ECS DOALOS Deposit",
+          "color": "#76b7b2"
+        },
+        {
+          "label": "ECS Non-UNCLOS Claim",
+          "color": "#59a14f"
+        },
+        {
+          "label": "ECS Joint CLCS Recommendation",
+          "color": "#edc948"
+        },
+        {
+          "label": "ECS Joint CLCS Submission",
+          "color": "#b07aa1"
+        },
+        {
+          "label": "ECS Joint DOALOS Deposit",
+          "color": "#ff9da7"
+        }
+      ]
+    },
+    "glen:tooltip_fields": [
+      "GEONAME",
+      "POL_TYPE",
+      "SOVEREIGN1",
+      "TERRITORY1",
+      "AREA_KM2"
+    ]
+  }
+}

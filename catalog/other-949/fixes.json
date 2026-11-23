@@ -1,0 +1,283 @@
+[
+ {
+  "collection": "public-high-seas/ecs/stac-collection.json",
+  "evidence": "verify-stac style-single-colour-default (HARD); POL_TYPE has 8 values in the GeoParquet (Overlapping claim 63, CLCS Submission 42, CLCS Recommendation 24, DOALOS Deposit 10, Non-UNCLOS Claim 3, Joint CLCS Recommendation 2, Joint CLCS Submission 2, Joint DOALOS Deposit 1)",
+  "assets_set": {
+   "style-ecs-pol-type": {
+    "href": "https://s3-west.nrp-nautilus.io/public-high-seas/ecs/styles/ecs-pol-type.json",
+    "type": "application/vnd.mapbox.style+json",
+    "title": "Extended Continental Shelf PMTiles by POL_TYPE",
+    "description": "Features coloured by POL_TYPE, 8 values.",
+    "roles": [
+     "style",
+     "default"
+    ]
+   }
+  },
+  "asset_roles": {
+   "style-ecs": [
+    "style"
+   ]
+  },
+  "asset_text_replace": {
+   "thumbnail": [
+    [
+     "default style style-ecs.",
+     "default style style-ecs-pol-type."
+    ]
+   ]
+  }
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/cave-karst-coa/stac-collection.json",
+  "evidence": "mdc.mo.gov/your-property/improve-your-property/conservation-planning-missouri and mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf return 404 (2026-11-17); https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer copyrightText 'Missouri Department of Conservation (MDC)', no licence; https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf (200, the same strategy document); redistribution cleared by the PI in #384",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer?f=pjson",
+    "type": "application/json",
+    "title": "MDC CCS map service: credits MDC and states no data licence"
+   }
+  ],
+  "description_replace": [
+   [
+    "The source agency publishes no formal data licence for this layer. It may be used and redistributed with attribution to the Missouri Department of Conservation.",
+    "The Missouri Department of Conservation publishes no data licence for this layer; its map service credits \"Missouri Department of Conservation (MDC)\". We redistribute it with attribution to MDC, as cleared by the lab's PI (boettiger-lab/data-workflows#384)."
+   ]
+  ],
+  "set": {
+   "sci:publications": [
+    {
+     "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf"
+    }
+   ]
+  }
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/forest-woodland-coa/stac-collection.json",
+  "evidence": "mdc.mo.gov/your-property/improve-your-property/conservation-planning-missouri and mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf return 404 (2026-11-17); https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer copyrightText 'Missouri Department of Conservation (MDC)', no licence; https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf (200, the same strategy document); redistribution cleared by the PI in #384",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer?f=pjson",
+    "type": "application/json",
+    "title": "MDC CCS map service: credits MDC and states no data licence"
+   }
+  ],
+  "description_replace": [
+   [
+    "The source agency publishes no formal data licence for this layer. It may be used and redistributed with attribution to the Missouri Department of Conservation.",
+    "The Missouri Department of Conservation publishes no data licence for this layer; its map service credits \"Missouri Department of Conservation (MDC)\". We redistribute it with attribution to MDC, as cleared by the lab's PI (boettiger-lab/data-workflows#384)."
+   ]
+  ],
+  "set": {
+   "sci:publications": [
+    {
+     "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf"
+    }
+   ]
+  }
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/glade-coa/stac-collection.json",
+  "evidence": "mdc.mo.gov/your-property/improve-your-property/conservation-planning-missouri and mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf return 404 (2026-11-17); https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer copyrightText 'Missouri Department of Conservation (MDC)', no licence; https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf (200, the same strategy document); redistribution cleared by the PI in #384",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer?f=pjson",
+    "type": "application/json",
+    "title": "MDC CCS map service: credits MDC and states no data licence"
+   }
+  ],
+  "description_replace": [
+   [
+    "The source agency publishes no formal data licence for this layer. It may be used and redistributed with attribution to the Missouri Department of Conservation.",
+    "The Missouri Department of Conservation publishes no data licence for this layer; its map service credits \"Missouri Department of Conservation (MDC)\". We redistribute it with attribution to MDC, as cleared by the lab's PI (boettiger-lab/data-workflows#384)."
+   ]
+  ],
+  "set": {
+   "sci:publications": [
+    {
+     "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf"
+    }
+   ]
+  }
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/grassland-prairie-savanna-coa/stac-collection.json",
+  "evidence": "mdc.mo.gov/your-property/improve-your-property/conservation-planning-missouri and mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf return 404 (2026-11-17); https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer copyrightText 'Missouri Department of Conservation (MDC)', no licence; https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf (200, the same strategy document); redistribution cleared by the PI in #384",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer?f=pjson",
+    "type": "application/json",
+    "title": "MDC CCS map service: credits MDC and states no data licence"
+   }
+  ],
+  "description_replace": [
+   [
+    "The source agency publishes no formal data licence for this layer. It may be used and redistributed with attribution to the Missouri Department of Conservation.",
+    "The Missouri Department of Conservation publishes no data licence for this layer; its map service credits \"Missouri Department of Conservation (MDC)\". We redistribute it with attribution to MDC, as cleared by the lab's PI (boettiger-lab/data-workflows#384)."
+   ]
+  ],
+  "set": {
+   "sci:publications": [
+    {
+     "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf"
+    }
+   ]
+  }
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/priority-geographies/stac-collection.json",
+  "evidence": "mdc.mo.gov/your-property/improve-your-property/conservation-planning-missouri and mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf return 404 (2026-11-17); https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer copyrightText 'Missouri Department of Conservation (MDC)', no licence; https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf (200, the same strategy document); redistribution cleared by the PI in #384",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer?f=pjson",
+    "type": "application/json",
+    "title": "MDC CCS map service: credits MDC and states no data licence"
+   }
+  ],
+  "description_replace": [
+   [
+    "The source agency publishes no formal data licence for this layer. It may be used and redistributed with attribution to the Missouri Department of Conservation.",
+    "The Missouri Department of Conservation publishes no data licence for this layer; its map service credits \"Missouri Department of Conservation (MDC)\". We redistribute it with attribution to MDC, as cleared by the lab's PI (boettiger-lab/data-workflows#384)."
+   ]
+  ],
+  "set": {
+   "sci:publications": [
+    {
+     "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf"
+    }
+   ]
+  }
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/stream-reach-coa/stac-collection.json",
+  "evidence": "mdc.mo.gov/your-property/improve-your-property/conservation-planning-missouri and mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf return 404 (2026-11-17); https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer copyrightText 'Missouri Department of Conservation (MDC)', no licence; https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf (200, the same strategy document); redistribution cleared by the PI in #384",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer?f=pjson",
+    "type": "application/json",
+    "title": "MDC CCS map service: credits MDC and states no data licence"
+   }
+  ],
+  "description_replace": [
+   [
+    "The source agency publishes no formal data licence for this layer. It may be used and redistributed with attribution to the Missouri Department of Conservation.",
+    "The Missouri Department of Conservation publishes no data licence for this layer; its map service credits \"Missouri Department of Conservation (MDC)\". We redistribute it with attribution to MDC, as cleared by the lab's PI (boettiger-lab/data-workflows#384)."
+   ]
+  ],
+  "set": {
+   "sci:publications": [
+    {
+     "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf"
+    }
+   ]
+  }
+ },
+ {
+  "collection": "public-swap/missouri/ccs-2022/wetland-coa/stac-collection.json",
+  "evidence": "mdc.mo.gov/your-property/improve-your-property/conservation-planning-missouri and mdc.mo.gov/sites/default/files/2022-04/2022-Missouri-CCS.pdf return 404 (2026-11-17); https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer copyrightText 'Missouri Department of Conservation (MDC)', no licence; https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf (200, the same strategy document); redistribution cleared by the PI in #384",
+  "license": "other",
+  "license_links": [
+   {
+    "rel": "license",
+    "href": "https://gisblue.mdc.mo.gov/arcgis/rest/services/Land_Cover/CCS/MapServer?f=pjson",
+    "type": "application/json",
+    "title": "MDC CCS map service: credits MDC and states no data licence"
+   }
+  ],
+  "description_replace": [
+   [
+    "The source agency publishes no formal data licence for this layer. It may be used and redistributed with attribution to the Missouri Department of Conservation.",
+    "The Missouri Department of Conservation publishes no data licence for this layer; its map service credits \"Missouri Department of Conservation (MDC)\". We redistribute it with attribution to MDC, as cleared by the lab's PI (boettiger-lab/data-workflows#384)."
+   ]
+  ],
+  "set": {
+   "sci:publications": [
+    {
+     "citation": "Missouri Department of Conservation. (2020). The Missouri Comprehensive Conservation Strategy: Responsibly addressing the challenges and opportunities of modern conservation through an integrated strategic approach. Missouri Department of Conservation. https://mdc.mo.gov/sites/default/files/2024-03/CCS.pdf"
+    }
+   ]
+  }
+ },
+ {
+  "collection": "public-high-seas/rfmo/stac-collection.json",
+  "evidence": "www.fao.org/fishery/en/rfb redirects to a 'Page not found' page; www.fao.org/in-action/vulnerable-marine-ecosystems/ returns 404 (2026-11-17); both WFS GetCapabilities documents respond",
+  "links_replace": {
+   "https://www.fao.org/fishery/en/rfb": {
+    "rel": "derived_from",
+    "type": "application/xml",
+    "href": "https://www.fao.org/fishery/geoserver/fifao/ows?service=WFS&request=GetCapabilities",
+    "title": "FAO FIGIS GeoServer WFS (RFB areas of competence, fifao:RFB_COMP)"
+   },
+   "https://www.fao.org/in-action/vulnerable-marine-ecosystems/": {
+    "rel": "derived_from",
+    "type": "application/xml",
+    "href": "https://www.fao.org/fishery/geoserver/vme/ows?service=WFS&request=GetCapabilities",
+    "title": "FAO Vulnerable Marine Ecosystems database GeoServer WFS (VME closures)"
+   }
+  },
+  "links_add": [
+   {
+    "rel": "about",
+    "href": "https://www.fao.org/fishery/geoserver/factsheets/vme.html",
+    "type": "text/html",
+    "title": "FAO Vulnerable Marine Ecosystems Database viewer"
+   }
+  ]
+ },
+ {
+  "collection": "public-blm/utah-federal-mineral-estate/stac-collection.json",
+  "evidence": "https://gis.blm.gov/utarcgis/rest/services/Lands/BLM_Utah_Federal_Minerals_Map_Service/FeatureServer?f=json returns 499 Token Required (2026-11-17); https://www.arcgis.com/home/item.html?id=a9059e4665fe4a8190c6d90fd767a591 (BLM Utah Federal Minerals Estate, owner blm_arcgis_hub_ut, service BLM_UT_Federal_Minerals/FeatureServer)",
+  "providers": {
+   "U.S. Bureau of Land Management, Utah State Office": {
+    "name": "U.S. Bureau of Land Management, Utah State Office",
+    "roles": [
+     "producer",
+     "licensor"
+    ],
+    "url": "https://www.arcgis.com/home/item.html?id=a9059e4665fe4a8190c6d90fd767a591"
+   }
+  },
+  "links_replace": {
+   "https://gis.blm.gov/utarcgis/rest/services/Lands/BLM_Utah_Federal_Minerals_Map_Service/FeatureServer": {
+    "rel": "about",
+    "href": "https://www.arcgis.com/home/item.html?id=a9059e4665fe4a8190c6d90fd767a591",
+    "type": "text/html",
+    "title": "BLM Utah Federal Minerals Estate (ArcGIS item; current public service)"
+   }
+  },
+  "description_append": "The service this snapshot was read from (BLM_Utah_Federal_Minerals_Map_Service) now requires a sign-in. BLM's public service is BLM_UT_Federal_Minerals (https://www.arcgis.com/home/item.html?id=a9059e4665fe4a8190c6d90fd767a591)."
+ },
+ {
+  "collection": "public-wdpa/wdoecm-may-2026/stac-collection.json",
+  "evidence": "the collection's own README citation, matching the WDPA citation form on public-wdpa/wdpa",
+  "set": {
+   "sci:citation": "UNEP-WCMC and IUCN (2026), Protected Planet: The World Database on Other Effective Area-Based Conservation Measures (WD-OECM) [On-line], May 2026, Cambridge, UK: UNEP-WCMC and IUCN. Available at: www.protectedplanet.net."
+  }
+ },
+ {
+  "collection": "public-utah/bears-ears/stac-collection.json",
+  "evidence": "sources named in the description; DOIs resolved at doi.org; Federal Register API (proclamation number, citation, dates)",
+  "set": {
+   "sci:citation": "Utah Geospatial Resource Center. Utah BLM Monuments and NCAs Historic [Data set]. Utah SGID. https://www.arcgis.com/home/item.html?id=d5560a571a86436fbb3a664c3edd5488; U.S. Geological Survey (USGS) Gap Analysis Project (GAP), 2020, Protected Areas Database of the United States (PAD-US) 2.1: U.S. Geological Survey data release, https://doi.org/10.5066/P92QM3NT; U.S. Geological Survey (USGS) Gap Analysis Project (GAP), 2024, Protected Areas Database of the United States (PAD-US) 4.1: U.S. Geological Survey data release, https://doi.org/10.5066/P96WBCHS; U.S. Bureau of Land Management, Utah State Office. BLM Utah National Monuments and NCAs [Data set]. https://gis.blm.gov/utarcgis/rest/services/NLCS/BLM_UT_NMNCA/FeatureServer/1; Proclamation 11043 of July 13, 2026, Modifying the Bears Ears National Monument, 91 FR 45169 (July 17, 2026)."
+  }
+ },
+ {
+  "collection": "public-utah/grand-staircase-escalante/stac-collection.json",
+  "evidence": "sources named in the description; DOIs resolved at doi.org; Federal Register API (proclamation number, citation, dates)",
+  "set": {
+   "sci:citation": "Utah Geospatial Resource Center. Utah BLM Monuments and NCAs Historic [Data set]. Utah SGID. https://www.arcgis.com/home/item.html?id=d5560a571a86436fbb3a664c3edd5488; U.S. Geological Survey (USGS) Gap Analysis Project (GAP), 2020, Protected Areas Database of the United States (PAD-US) 2.1: U.S. Geological Survey data release, https://doi.org/10.5066/P92QM3NT; U.S. Geological Survey (USGS) Gap Analysis Project (GAP), 2024, Protected Areas Database of the United States (PAD-US) 4.1: U.S. Geological Survey data release, https://doi.org/10.5066/P96WBCHS; U.S. Bureau of Land Management, Utah State Office. BLM Utah National Monuments and NCAs [Data set]. https://gis.blm.gov/utarcgis/rest/services/NLCS/BLM_UT_NMNCA/FeatureServer/1; Proclamation 11044 of July 13, 2026, Modifying the Grand Staircase-Escalante National Monument, 91 FR 45179 (July 17, 2026)."
+  }
+ }
+]

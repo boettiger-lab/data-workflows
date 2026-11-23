@@ -13,8 +13,7 @@
 # density is above zero, giving a one-populated-pixel cell that pixel's full value (#692 review).
 # make-cogs.yaml warps it with `-r sum`, so hex SUM(huimpact) must equal the COG pixel sum.
 #
-# ⚠️ HURisk (= HUImpact x burn probability) has the same lineage and was published as `mean` in
-# #611; tracked separately.
+# HURisk (= HUImpact x burn probability) has the same lineage and takes `sum` too (#828).
 #
 # Resolution 10 with parents 9, 8, 0: the source is 30 m and `h10` (0.0150 km^2) is the catalog's
 # finest, and native 10 -> 9, 8, 0 matches `roadless-areas-2001` (public-usfs), `silvis-wui-2020`

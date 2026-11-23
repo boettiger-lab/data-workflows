@@ -1,0 +1,20 @@
+{
+  "set": {
+    "style-ecoregions-realm": {
+      "href": "https://s3-west.nrp-nautilus.io/public-high-seas/meow/styles/ecoregions-realm.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "MEOW Ecoregions PMTiles by REALM",
+      "description": "Features coloured by REALM, 12 values. Realm is the top level of the MEOW hierarchy: its 12 classes show the biogeographic structure at a glance, where 232 ecoregions or 62 provinces are too many to tell apart.",
+      "roles": [
+        "style",
+        "default"
+      ]
+    }
+  },
+  "roles": {
+    "style-ecoregions": [
+      "style"
+    ]
+  },
+  "thumbnail": "style-ecoregions-realm"
+}

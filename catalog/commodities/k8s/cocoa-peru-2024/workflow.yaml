@@ -25,9 +25,16 @@ spec:
           \ -n geo-workflows\nwait_job fdap-2025b-cocoa-peru-2024-setup-bucket geo-workflows\
           \ 600\n\n# Step 1: H3 hexagonal tiling\necho \"Step 1: H3 hexagonal tiling...\"\
           \nkubectl apply -f /yamls/fdap-2025b-cocoa-peru-2024-hex.yaml -n geo-workflows\n\
-          wait_job fdap-2025b-cocoa-peru-2024-hex geo-workflows 7200\n\necho \"\u2713\
-          \ Workflow complete!\"\necho \"Clean up with:\"\necho \"  kubectl delete\
-          \ jobs fdap-2025b-cocoa-peru-2024-setup-bucket fdap-2025b-cocoa-peru-2024-hex\
+          wait_job fdap-2025b-cocoa-peru-2024-hex geo-workflows 7200\n\n# Step 2:\
+          \ Merge sub-h0 chunks into one file per h0 partition\necho \"Step 2: Merging\
+          \ hex chunks...\"\nkubectl apply -f /yamls/fdap-2025b-cocoa-peru-2024-merge.yaml\
+          \ -n geo-workflows\nwait_job fdap-2025b-cocoa-peru-2024-merge geo-workflows\
+          \ 7200\n\necho \"Sizes and checksums of the outputs...\"\nkubectl apply\
+          \ -f /yamls/fdap-2025b-cocoa-peru-2024-checksums.yaml -n geo-workflows\n\
+          wait_job fdap-2025b-cocoa-peru-2024-checksums geo-workflows 7200\n\necho\
+          \ \"\u2713 Workflow complete!\"\necho \"Clean up with:\"\necho \"  kubectl\
+          \ delete jobs fdap-2025b-cocoa-peru-2024-setup-bucket fdap-2025b-cocoa-peru-2024-hex\
+          \ fdap-2025b-cocoa-peru-2024-checksums fdap-2025b-cocoa-peru-2024-merge\
           \ fdap-2025b-cocoa-peru-2024-workflow -n geo-workflows\"\necho \"  kubectl\
           \ delete configmap fdap-2025b-cocoa-peru-2024-yamls -n geo-workflows\"\n"
         command:

@@ -22,12 +22,37 @@ Static checks (no data; just the STAC JSON):
     end), start not after end — pystac parses these eagerly, so a malformed value
     makes the whole collection unloadable for every MCP consumer
   - asset keys follow {last-segment}-{format}; no generic keys
+  - no asset href points into a `raw/` prefix: raw/ holds upstream input staged for a
+    rebuild, and the backup tier treats it as disposable (#721)
     (pmtiles/geoparquet/hex/parquet/cog/h3-parquet)
   - hex asset href uses the hive glob  …/hex/h0=*/data_0.parquet  (not a bare dir)
   - hex asset declares h3:native_resolution + h3:parent_resolutions (incl 0)
   - vector:layers on every PMTiles asset
-  - table:columns on each parquet asset (NOT collection-level); geometry column
-    included on the geoparquet asset, excluded on the hex asset
+  - Portolan styles (PORTO-CORE-069/070, PORTO-FMT-014/015): a style asset is typed
+    application/vnd.mapbox.style+json under styles/; with several, exactly one carries
+    the `default` role for each PMTiles file (glen matches a style to its file, glen#440).
+    A file's default is a considered style on its primary variable: a one-colour
+    `style-fallback-*` default is HARD, and so is a default whose colour is a constant
+    unless the style says why in `glen:single_colour_reason` (scripts/default-style.py).
+    ADVISORY: a PMTiles collection with no style asset (catalog-wide debt being
+    retrofitted from the GLEN app configs, #881)
+  - ADVISORY: a collection with no `sci:citation`, `sci:doi` or `cite-as` link
+    (`citation-missing`), or a DOI with no `sci:citation` text (`citation-text-missing`);
+    apps cite datasets from these fields (#822)
+  - a render's `rescale` is in real units: a map app unscales a band that declares a scale or
+    offset before TiTiler applies `rescale`. HARD when the range lies outside what the band's
+    data type can hold after unscaling (a range in stored units); ADVISORY when it lies far
+    outside the band's statistics, unscaled
+  - table:columns in the Portolan shape (PORTO-FMT-046/048, glen#441): one column dictionary
+    on the collection (name, type, description, values) covering every column of every
+    data asset; an asset keeps its own list, names and types only, where its schema
+    differs. An asset with no list of its own is described by the dictionary. The older
+    per-asset shape is ADVISORY until the catalog is migrated. Every check below reads
+    each asset's *effective* columns (resolve_columns). Geometry column included on the
+    geoparquet asset, excluded on the hex asset
+  - ADVISORY: a PMTiles collection with no collection-level `rel: pmtiles` link
+    (PORTO-FMT-011); HARD: a pmtiles link with no matching PMTiles asset, since the
+    deployed apps read the asset (FMT-013 allows both)
   - universal `_cng_fid` on vector assets (#369): HARD for a flat GeoParquet-with-
     geometry or a vector hex lacking it; raster-derived hex (no vector source in the
     collection) is exempt; a non-spatial table is ADVISORY (see the advisory list)
@@ -37,6 +62,11 @@ Static checks (no data; just the STAC JSON):
   - point datasets: a processing-resolution note in description/processing:notes
   - categorical column completeness (values + inline CODE=Name)  [reuses lint-stac-categorical]
   - PMTiles tile-accurate table:columns                          [reuses lint-stac-pmtiles-fields]
+  - ADVISORY: Portolan metadata that is additive (#761, matched to rashid 0.4.0):
+    stac_version 1.1.0, a Portolan schema URI, the web-map-links extension beside a
+    `rel: pmtiles` link, the `visual` role on PMTiles, a title and description on every
+    asset, file:size + file:checksum on every single-file asset, and on a mirror a
+    `rel: via` text/html link and a top-level `updated`
   - ADVISORY: a title naming one US state whose bbox reaches well outside it, with no
     footprint sentence in the description — a set of whole units is not a state extent
     and a state-shaped title is what a consumer trusts instead of masking (#528)
@@ -69,6 +99,11 @@ Data-backed checks (delegated to the duckdb-geo MCP server, --no-data to skip):
     dropped feature (rfmo/rfb lost CCAMLR) that leaves schema + partitions intact and no
     other check sees (#535/#520); COUNT(DISTINCT _cng_fid) vs flat COUNT(*)
 
+  - ADVISORY: a continuous render (`colormap_name` + `rescale`) whose range sits far from the
+    COG's own 2nd–98th percentile (TiTiler `/cog/statistics`), so most pixels draw at one
+    end of the ramp: wrc-2 flame length rescaled 0–862 over data at 0–16 (#881). Read from
+    TiTiler, not the MCP, so it runs whenever data checks do
+
 Advisory passes (never block):
   - recall: candidate string-categorical columns with a low DISTINCT count and no
     `values` array — catches the recall gap that missed PAD-US IUCN_Cat / Pub_Access
@@ -83,13 +118,19 @@ Usage:
 
 Exit 0 = no HARD findings. Exit 1 = one or more HARD findings.
 
-The heavy data check POSTs SQL to the public duckdb-geo MCP endpoint
-(https://duckdb-mcp.nrp-nautilus.io/mcp, no auth), so it is not bound by GitHub
-runner resources or the slow public S3 endpoint. Set MCP_ENDPOINT to override and
-MCP_AUTH_TOKEN for a bearer token if the endpoint is ever locked down.
+The heavy data check POSTs SQL to the geo-query MCP server
+(https://geo-query.nrp-nautilus.io/mcp), so it is not bound by GitHub runner
+resources or the slow public S3 endpoint. That route needs a bearer token in
+MCP_AUTH_TOKEN; without one the server answers HTTP 401 and the run reports a HARD
+`mcp-unavailable` (data checks that cannot run are not a pass). With --no-data the
+same failure is only advisory, so the static pre-publish run needs no key. Set
+MCP_ENDPOINT to use another server.
 """
 
 import argparse
+import collections
+import copy
+import tempfile
 import importlib.util
 import http.client
 import json
@@ -98,6 +139,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -155,7 +197,9 @@ def targets_from_yaml(text: str) -> set[tuple[str, str]]:
     for bucket, rest in re.findall(r"s3://(public-[a-z0-9-]+)/([^\s'\"]+)", text):
         if bucket in INFRA_BUCKETS:
             continue
-        rest = rest.strip("/")
+        # A path inside a shell script can end in a line-continuation `\` or sit in
+        # prose ("…/report.json)."). Neither character occurs in a dataset path.
+        rest = rest.rstrip("\\,.;:)").strip("/")
         # Skip raw/staging inputs — never a dataset collection. `raw` may be a
         # top-level prefix (public-census/raw/…) OR nested under a domain prefix
         # (public-rivers/american-rivers/raw/<ds>-src.parquet, the staging layout
@@ -191,12 +235,33 @@ def derive_url(bucket: str, dataset: str) -> str:
 
 
 def _collection_exists(url: str) -> bool:
-    """True if a STAC doc loads at url (used to fall back to a bucket-level collection)."""
+    """True if a STAC doc loads at url (used to fall back to an enclosing collection)."""
     try:
         load_doc(url)
         return True
     except Exception:
         return False
+
+
+def resolve_collection_url(bucket: str, dataset: str, exists=_collection_exists) -> str:
+    """The collection that holds (bucket, dataset): the nearest one that exists.
+
+    Many datasets share an enclosing collection rather than carrying their own:
+    `public-ncp/invest-peru-2019/carbon-total` is an asset of
+    `public-ncp/invest-peru-2019/stac-collection.json`, and whole buckets such as
+    public-carbon keep one collection at the root. So try the dataset, then each parent
+    prefix, then the bucket root. Jumping straight to the bucket root skips the
+    intermediate collection that actually holds the data (#903).
+
+    If none exists (recipe not run yet at PR-open), keep the per-dataset URL so the
+    load-error RED still fires, the intended pre-publish state.
+    """
+    parts = [p for p in dataset.strip("/").split("/") if p]
+    for i in range(len(parts), -1, -1):
+        url = derive_url(bucket, "/".join(parts[:i]))
+        if exists(url):
+            return url
+    return derive_url(bucket, dataset)
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +296,7 @@ KNOWN_SPDX = {
     "CDLA-Permissive-1.0", "CDLA-Permissive-2.0", "CDLA-Sharing-1.0",
     "ODbL-1.0", "ODC-By-1.0", "PDDL-1.0",
     "Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "GPL-3.0-only",
+    "GPL-1.0-or-later",  # an unversioned GPL grant: Bio-ORACLE (#886)
     "OGL-UK-3.0",
 }
 # Sanctioned non-SPDX values (AGENTS.md): escape hatches + US federal works.
@@ -338,8 +404,12 @@ def check_license(doc: dict) -> list[Finding]:
     # forbids. Reported as ADVISORY so the special case stays visible in every audit
     # rather than being re-litigated, and so a self-authored note can never be mistaken
     # for verified upstream terms.
+    # A copy of upstream terms published beside the data, next to a link to the publisher's own
+    # page, is a mirror of an upstream grant rather than terms we wrote (rcn-national, #886:
+    # TNC's Box share blocks downloads), so the advisory fires only when no upstream link exists.
+    upstream = any(NRP not in (l.get("href") or "") for l in license_links)
     for l in license_links:
-        if NRP in (l.get("href") or ""):
+        if NRP in (l.get("href") or "") and not upstream:
             out.append(Finding(ADVISORY, "license-terms-self-hosted",
                                 f"the {{'rel':'license'}} link points at our own bucket "
                                 f"({l.get('href')}), so these are terms WE stated, not an "
@@ -538,6 +608,22 @@ def check_asset_keys(doc: dict) -> list[Finding]:
     return out
 
 
+def check_asset_not_under_raw(doc: dict) -> list[Finding]:
+    """An asset href must not point into a `raw/` prefix (#721). `raw/` holds upstream
+    input staged so a build can restart, and the backup tier excludes it as re-downloadable.
+    A published file there is not backed up, or costs that tier a per-bucket exemption.
+    Publish a copy at a normal asset location instead, even when the file is upstream's own."""
+    out = []
+    for key, asset in doc.get("assets", {}).items():
+        path = urllib.parse.urlparse(asset.get("href", "")).path
+        if "raw" in path.split("/")[:-1]:
+            out.append(Finding(HARD, "asset-under-raw",
+                               f"asset '{key}' is published from a raw/ prefix ({asset['href']}). "
+                               f"raw/ is upstream input staged for a rebuild and is not backed up; "
+                               f"publish the file at a normal asset location."))
+    return out
+
+
 def check_hex_assets(doc: dict) -> list[Finding]:
     out = []
     for key, asset in doc.get("assets", {}).items():
@@ -577,30 +663,329 @@ def check_vector_layers(doc: dict) -> list[Finding]:
     return out
 
 
-def check_table_columns_placement(doc: dict) -> list[Finding]:
+STYLE_TYPE = "application/vnd.mapbox.style+json"
+
+
+def check_styles(doc: dict) -> list[Finding]:
+    """Portolan visualization styles (#881). Malformed style assets are HARD because they
+    are new and cheap to get right; a missing style is ADVISORY until the retrofit
+    (`scripts/app-styles.py`) has reached the whole catalog."""
     out = []
-    if "table:columns" in doc:
-        out.append(Finding(HARD, "table-columns-collection-level",
-                            "`table:columns` is at the collection level — it must live on "
-                            "each parquet asset, not the collection."))
+    assets = doc.get("assets", {})
+    styles = {k: a for k, a in assets.items() if "style" in (a.get("roles") or [])}
+    for key, a in styles.items():
+        if a.get("type") != STYLE_TYPE:
+            out.append(Finding(HARD, "style-media-type",
+                               f"style asset '{key}' type is {a.get('type')!r}; "
+                               f"Portolan requires {STYLE_TYPE!r} (PORTO-FMT-015)."))
+        if "/styles/" not in a.get("href", ""):
+            out.append(Finding(HARD, "style-not-in-styles-dir",
+                               f"style asset '{key}' href should sit in a styles/ "
+                               f"directory beside the data (PORTO-FMT-015)."))
+        if not a.get("title"):
+            out.append(Finding(HARD, "style-no-title",
+                               f"style asset '{key}' needs a human-readable title."))
+    defaults = [k for k, a in styles.items() if "default" in a.get("roles", [])]
+    stems = sorted((k.removesuffix("-pmtiles") for k, a in assets.items() if is_pmtiles(a)),
+                   key=len, reverse=True)
+    if len(stems) > 1:  # one default per PMTiles file (glen#440)
+        def stem_of(k):
+            k = k.removeprefix("style-fallback-").removeprefix("style-")
+            return next((s for s in stems if k == s or k.startswith(s + "-")), None)
+        per = collections.Counter(stem_of(k) for k in defaults)
+        for stem in sorted({stem_of(k) for k in styles} - {None}):
+            if per[stem] != 1:
+                out.append(Finding(HARD, "style-default-count",
+                                   f"PMTiles file '{stem}-pmtiles' has {per[stem]} default "
+                                   f"styles; exactly one must (PORTO-CORE-070, glen#440)."))
+    elif len(styles) > 1 and len(defaults) != 1:
+        out.append(Finding(HARD, "style-default-count",
+                           f"{len(styles)} style assets and {len(defaults)} carry the "
+                           f"'default' role; exactly one must (PORTO-CORE-070)."))
+    for k in defaults:
+        if k.startswith("style-fallback-"):
+            out.append(Finding(HARD, "style-fallback-default",
+                               f"default style '{k}' is a one-colour fallback. Build a default "
+                               f"on the file's primary variable with scripts/default-style.py "
+                               f"(skill stac-authoring, Step 5b)."))
+    if not styles and any(is_pmtiles(a) for a in assets.values()):
+        out.append(Finding(ADVISORY, "pmtiles-no-style",
+                           "collection has PMTiles but no MapLibre style asset "
+                           "(PORTO-CORE-069). Generate one with scripts/app-styles.py "
+                           "or write one (skill stac-authoring)."))
+    return out
+
+
+def _fetch_style(href: str) -> dict | None:
+    try:
+        with urllib.request.urlopen(href, timeout=30) as r:
+            return json.load(r)
+    except Exception:  # noqa: BLE001 — reported as a finding by the caller
+        return None
+
+
+def check_default_style_paint(doc: dict, fetch=_fetch_style) -> list[Finding]:
+    """A default style must colour its features by a variable, unless the style records why
+    the data has none worth showing (`glen:single_colour_reason`). Fetches each default."""
+    out = []
+    for key, a in doc.get("assets", {}).items():
+        roles = a.get("roles") or []
+        if "style" not in roles or "default" not in roles or key.startswith("style-fallback-"):
+            continue
+        sty = fetch(a.get("href", ""))
+        if not isinstance(sty, dict):
+            out.append(Finding(ADVISORY, "style-unreadable",
+                               f"default style '{key}' could not be read from {a.get('href')}."))
+            continue
+        if (sty.get("metadata") or {}).get("glen:single_colour_reason"):
+            continue
+        # Data-driven if any colour, width, radius or opacity is an expression: a river network
+        # in one colour with width by stream order shows its variable (NHDPlus flowlines, #914).
+        layers = [l for l in sty.get("layers", []) if l.get("type") in ("fill", "line", "circle")]
+        varying = [v for l in layers for k, v in (l.get("paint") or {}).items()
+                   if k.split("-", 1)[-1] in ("color", "width", "radius", "opacity", "stroke-color")]
+        if layers and not any(isinstance(v, list) for v in varying):
+            out.append(Finding(HARD, "style-single-colour-default",
+                               f"default style '{key}' draws every feature in one colour. Colour "
+                               f"it by the file's primary variable (scripts/default-style.py), or, "
+                               f"if the data has no variable worth showing, say why in the style's "
+                               f"metadata `glen:single_colour_reason` (--single-colour REASON)."))
+    return out
+
+
+DTYPE_RANGE = {"int8": (-128, 127), "uint8": (0, 255), "int16": (-32768, 32767),
+               "uint16": (0, 65535), "int32": (-2**31, 2**31 - 1), "uint32": (0, 2**32 - 1)}
+
+
+def check_render_units(doc: dict) -> list[Finding]:
+    """A render's rescale must be in the units a map app draws: real units once the band's
+    scale and offset are applied (TiTiler unscales, then rescales)."""
+    out = []
+    assets = doc.get("assets", {})
+    for rkey, r in (doc.get("renders") or {}).items():
+        if not r.get("rescale"):
+            continue
+        for akey in r.get("assets", []):
+            band = ((assets.get(akey) or {}).get("raster:bands") or [{}])[0]
+            scale, offset = band.get("scale") or 1, band.get("offset") or 0
+
+            def real(x):
+                return x * scale + offset
+            for lo, hi in r["rescale"][:1]:
+                dt = DTYPE_RANGE.get(band.get("data_type"))
+                if dt and (scale, offset) != (1, 0):
+                    a, b = sorted(real(x) for x in dt)
+                    if lo < a or hi > b:
+                        out.append(Finding(HARD, "render-rescale-raw-units",
+                                           f"render '{rkey}' rescales {lo}..{hi}, but asset '{akey}' "
+                                           f"({band['data_type']}, scale {scale}, offset {offset}) "
+                                           f"holds only {a:g}..{b:g} once unscaled: give the range "
+                                           f"in real units."))
+                        continue
+                st = band.get("statistics") or {}
+                if st.get("minimum") is not None and st.get("maximum") is not None:
+                    a, b = sorted(real(st[k]) for k in ("minimum", "maximum"))
+                    span = max(b - a, abs(b) * 1e-6, 1e-9)
+                    if hi < a or lo > b or lo < a - span or hi > b + span:
+                        out.append(Finding(ADVISORY, "render-rescale-outside-statistics",
+                                           f"render '{rkey}' rescales {lo}..{hi}, far outside the "
+                                           f"statistics of asset '{akey}' ({a:g}..{b:g} in real units)."))
+    return out
+
+
+TITILER = os.environ.get("TITILER_ENDPOINT", "https://titiler.nrp-nautilus.io")
+
+
+def _titiler_stats(href: str, nodata=None) -> dict:
+    """2nd/98th percentile of band 1, read from overviews (max_size 1024) by TiTiler."""
+    q = {"url": href, "max_size": 1024, "p": [2, 98]}
+    if nodata is not None:
+        q["nodata"] = nodata
+    url = f"{TITILER}/cog/statistics?" + urllib.parse.urlencode(q, doseq=True)
+    with urllib.request.urlopen(url, timeout=180) as r:
+        return next(iter(json.load(r).values()))
+
+
+CYCLIC_COLORMAPS = {"twilight", "twilight_shifted", "hsv"}
+
+
+def check_render_range(doc: dict, stats=_titiler_stats) -> list[Finding]:
+    """A continuous render's rescale should cover where the data is (#881). Flags a range in
+    which the 2nd–98th percentile fills under 30% of the ramp, or overshoots either end by
+    more than 15%. Classed renders (`colormap`) are not stretched, and a cyclic colormap spans
+    the whole circle by design (a direction in 0–360 whose data keeps to the trade winds), so
+    both are skipped."""
+    out = []
+    base = next((l.get("href") for l in doc.get("links", []) if l.get("rel") == "self"), "")
+    assets = doc.get("assets", {})
+    for rkey, r in (doc.get("renders") or {}).items():
+        if not r.get("rescale") or not r.get("colormap_name") or not r.get("assets"):
+            continue
+        if r["colormap_name"].removesuffix("_r") in CYCLIC_COLORMAPS:
+            continue
+        akey = r["assets"][0]
+        a = assets.get(akey) or {}
+        band = (a.get("raster:bands") or [{}])[0]
+        scale, offset = band.get("scale") or 1, band.get("offset") or 0
+        lo, hi = r["rescale"][0]
+        try:
+            st = stats(urllib.parse.urljoin(base, a.get("href", "")), r.get("nodata"))
+            p2, p98 = (st[k] * scale + offset for k in ("percentile_2", "percentile_98"))
+        except Exception as e:  # noqa: BLE001
+            out.append(Finding(ADVISORY, "render-range-unchecked",
+                               f"render '{rkey}': could not read statistics of asset '{akey}' "
+                               f"from TiTiler ({e})."))
+            continue
+        if hi == lo:
+            continue
+        pa, pb = (p2 - lo) / (hi - lo), (p98 - lo) / (hi - lo)
+        if pb - pa < 0.3 or pa < -0.15 or pb > 1.15:
+            out.append(Finding(ADVISORY, "render-rescale-off-data",
+                               f"render '{rkey}' rescales {lo:g}..{hi:g}, but 96% of asset "
+                               f"'{akey}' lies in {p2:.4g}..{p98:.4g} (2nd–98th percentile, real "
+                               f"units): most pixels draw at one end of the ramp. Rescale to "
+                               f"about that range."))
+    return out
+
+
+COLUMN_FIELDS_FROM_DICTIONARY = ("description", "values")
+
+
+def _carries_columns(asset: dict) -> bool:
+    """Data assets that have a column schema: parquet (flat or hex) and PMTiles."""
+    return is_parquet(asset) or is_pmtiles(asset)
+
+
+def resolve_columns(doc: dict) -> dict:
+    """The Portolan reading of `table:columns` (PORTO-FMT-046/048, glen#441).
+
+    The collection carries one column dictionary. An asset with no list of its own is
+    described by the whole dictionary; an asset that keeps a list (because its schema
+    differs) takes `description` and `values` for each of its columns from the dictionary
+    by name. Returns a copy in which every data asset carries its effective columns, so
+    the checks written against per-asset lists keep working on either shape. A doc with
+    no collection dictionary is returned unchanged (the older per-asset shape).
+    """
+    dictionary = {c.get("name"): c for c in doc.get("table:columns", []) or []
+                  if isinstance(c, dict) and c.get("name")}
+    if not dictionary:
+        return doc
+    out = copy.deepcopy(doc)
+    for asset in out.get("assets", {}).values():
+        if not _carries_columns(asset):
+            continue
+        own = asset.get("table:columns")
+        if not own:
+            asset["table:columns"] = copy.deepcopy(list(dictionary.values()))
+            continue
+        for col in own:
+            entry = dictionary.get(col.get("name"))
+            if not entry:
+                continue
+            for field in COLUMN_FIELDS_FROM_DICTIONARY:
+                if field not in col and field in entry:
+                    col[field] = copy.deepcopy(entry[field])
+    return out
+
+
+def check_table_columns_placement(doc: dict) -> list[Finding]:
+    """Reads the doc AS PUBLISHED (not resolved): where the columns live is the point."""
+    out = []
+    dictionary = {c.get("name"): c for c in doc.get("table:columns", []) or []
+                  if isinstance(c, dict) and c.get("name")}
+    data_assets = {k: a for k, a in doc.get("assets", {}).items() if _carries_columns(a)}
+    if not dictionary:
+        if any(a.get("table:columns") for a in data_assets.values()):
+            out.append(Finding(ADVISORY, "table-columns-per-asset",
+                               "columns are described per asset; Portolan puts one column "
+                               "dictionary on the collection (PORTO-FMT-046), with asset lists "
+                               "only where an asset's schema differs (FMT-048). See skill "
+                               "stac-authoring (glen#441)."))
+        for key, asset in data_assets.items():
+            if is_parquet(asset) and not asset.get("table:columns"):
+                out.append(Finding(HARD, "parquet-no-table-columns",
+                                   f"parquet asset '{key}' has no 'table:columns' and the "
+                                   f"collection has no column dictionary."))
+        return out
+
+    names = [c.get("name") for c in doc.get("table:columns", []) if isinstance(c, dict)]
+    dupes = sorted({n for n in names if n and names.count(n) > 1})
+    if dupes:
+        out.append(Finding(HARD, "column-dictionary-duplicate",
+                           f"the collection's column dictionary lists {dupes} more than "
+                           f"once; one entry per column name."))
+    for key, asset in data_assets.items():
+        own = asset.get("table:columns") or []
+        missing = sorted({c.get("name") for c in own if c.get("name")} - set(dictionary))
+        if missing:
+            out.append(Finding(HARD, "column-not-in-dictionary",
+                               f"asset '{key}' lists {missing}, which the collection's column "
+                               f"dictionary does not; the dictionary must cover every column "
+                               f"of every data asset, or their descriptions live nowhere."))
+        described = sorted(c.get("name") for c in own
+                           if c.get("name") in dictionary and c.get("description"))
+        if described:
+            out.append(Finding(ADVISORY, "asset-column-described",
+                               f"asset '{key}' repeats descriptions for {described[:5]}"
+                               f"{'…' if len(described) > 5 else ''}; descriptions belong in "
+                               f"the collection's dictionary, the asset list keeps names and "
+                               f"types only (PORTO-FMT-048)."))
+        if own and [(c.get("name"), c.get("type")) for c in own] == \
+                [(c.get("name"), c.get("type")) for c in doc["table:columns"]]:
+            out.append(Finding(ADVISORY, "asset-columns-redundant",
+                               f"asset '{key}' lists exactly the collection's columns; drop "
+                               f"its list, an asset without one is described by the "
+                               f"dictionary."))
+    return out
+
+
+def check_parquet_columns_shape(doc: dict) -> list[Finding]:
+    """Geometry column present on flat GeoParquet, absent on hex (effective columns)."""
+    out = []
     for key, asset in doc.get("assets", {}).items():
         if not is_parquet(asset):
             continue
         cols = asset.get("table:columns")
         if not cols:
-            out.append(Finding(HARD, "parquet-no-table-columns",
-                                f"parquet asset '{key}' has no 'table:columns'."))
-            continue
+            continue  # parquet-no-table-columns already reports it
         has_geom = any(_is_geom_col(c.get("name", "")) for c in cols)
         is_hex = is_hex_asset(key, asset)
         if is_hex and has_geom:
             out.append(Finding(HARD, "hex-has-geom-column",
                                 f"hex asset '{key}' lists a geometry column in "
-                                f"table:columns — hex parquet has no geometry; remove it."))
+                                f"table:columns — hex parquet has no geometry; remove it "
+                                f"(an asset with no list of its own inherits the collection's "
+                                f"dictionary, geometry included, so give the hex its own list)."))
         if not is_hex and not has_geom:
             out.append(Finding(ADVISORY, "geoparquet-no-geom-column",
                                 f"geoparquet asset '{key}' table:columns lists no geometry "
                                 f"column ({sorted(GEOM_COLS)}); confirm it isn't a hex asset."))
+    return out
+
+
+def check_pmtiles_link(doc: dict) -> list[Finding]:
+    """Portolan: PMTiles are reached through a collection-level `rel: pmtiles` link
+    (PORTO-FMT-011, MUST). The PMTiles asset stays too (FMT-013 allows it): the deployed
+    GLEN apps read the asset. A missing link is HARD: the catalog was backfilled (glen#441)."""
+    out = []
+    base = next((l.get("href") for l in doc.get("links", []) if l.get("rel") == "self"), "")
+    absolute = lambda h: urllib.parse.urljoin(base, h or "")
+    tiles = {absolute(a.get("href")) for a in doc.get("assets", {}).values() if is_pmtiles(a)}
+    links = [l for l in doc.get("links", []) if l.get("rel") == "pmtiles"]
+    if tiles and not links:
+        out.append(Finding(HARD, "pmtiles-no-link",
+                           "collection has a PMTiles asset but no `rel: pmtiles` link "
+                           "(PORTO-FMT-011). Add one per PMTiles file, with type "
+                           "application/vnd.pmtiles and pmtiles:layers; keep the asset."))
+    for l in links:
+        if l.get("type") != "application/vnd.pmtiles":
+            out.append(Finding(HARD, "pmtiles-link-type",
+                               f"pmtiles link '{l.get('href')}' must have type "
+                               f"application/vnd.pmtiles."))
+        if absolute(l.get("href")) not in tiles:
+            out.append(Finding(HARD, "pmtiles-link-without-asset",
+                               f"pmtiles link '{l.get('href')}' matches no PMTiles asset; keep "
+                               f"the asset alongside the link, the deployed apps read it."))
     return out
 
 
@@ -633,8 +1018,10 @@ def check_column_description_consistency(doc: dict) -> list[Finding]:
     out = []
     seen: dict[str, tuple[str, str]] = {}
     clashes: dict[str, set[str]] = {}
-    for key, asset in doc.get("assets", {}).items():
-        for col in asset.get("table:columns", []):
+    sources = [("collection", doc.get("table:columns", []) or [])] + [
+        (key, asset.get("table:columns", [])) for key, asset in doc.get("assets", {}).items()]
+    for key, columns in sources:
+        for col in columns:
             name, text = col.get("name", ""), col.get("description", "")
             if not name or not text:
                 continue
@@ -1121,14 +1508,187 @@ def check_license_consistency(docs: list[tuple[str, dict]]) -> list[tuple[str, F
     return out
 
 
+NON_DATA_ROLES = {"style", "thumbnail", "metadata", "overview"}
+
+
+def check_tree(doc: dict, fetch=_fetch_style) -> list[Finding]:
+    """Nested catalogs, flat collections (#762, PORTO-CORE-004/014/018): a node with children
+    holds no data assets itself and is typed Catalog, and a node's `parent` lists it as a child. A parent that
+    cannot be read is ADVISORY."""
+    out = []
+    links = doc.get("links", [])
+    me = next((l.get("href") for l in links if l.get("rel") == "self"), "")
+    children = [l for l in links if l.get("rel") == "child"]
+    data = sorted(k for k, a in doc.get("assets", {}).items()
+                  if not set(a.get("roles") or []) & NON_DATA_ROLES
+                  and not (a.get("href") or "").endswith(".md"))
+    if children and data:
+        out.append(Finding(HARD, "tree-mixed-node",
+                           f"node has {len(children)} children and data assets {data[:5]}; move the "
+                           f"data into a child collection so grouping nodes are Catalogs (#762)"))
+    elif children and doc.get("type") != "Catalog":
+        out.append(Finding(HARD, "tree-inner-collection",
+                           f"node has {len(children)} children but type {doc.get('type')!r}; a "
+                           f"grouping node is a Catalog (#762, #957): run scripts/to-catalog.py"))
+    parent = next((l.get("href") for l in links if l.get("rel") == "parent"), None)
+    if parent and me:
+        pu = urllib.parse.urljoin(me, parent)
+        p = fetch(pu)
+        if p is None:
+            out.append(Finding(ADVISORY, "tree-parent-unreadable", f"parent {pu} could not be read"))
+        else:
+            pself = next((l.get("href") for l in p.get("links", []) if l.get("rel") == "self"), pu)
+            kids = {urllib.parse.urljoin(pself, l.get("href", "")) for l in p.get("links", [])
+                    if l.get("rel") == "child"}
+            if urllib.parse.urljoin(me, me) not in kids:
+                out.append(Finding(HARD, "tree-parent-mismatch",
+                                   f"`parent` is {pu}, which does not list this node as a child; "
+                                   f"point `parent` at the node that links here (#762)"))
+    return out
+
+
+THUMBNAIL_TYPES = {"image/png", "image/jpeg", "image/webp"}
+
+
+def check_thumbnail(doc: dict) -> list[Finding]:
+    """Portolan: a collection with a render path carries a thumbnail drawn from its default
+    styling (PORTO-CORE-067), an asset with role `thumbnail` and an image type. A wrong type is
+    HARD; a missing thumbnail is ADVISORY until the backfill is done (#889). Build one with
+    scripts/thumbnail.py."""
+    assets = doc.get("assets", {})
+    thumbs = {k: a for k, a in assets.items() if "thumbnail" in (a.get("roles") or [])}
+    out = [Finding(HARD, "thumbnail-type",
+                   f"thumbnail '{k}' has type {a.get('type')!r}; use one of "
+                   f"{sorted(THUMBNAIL_TYPES)} (PORTO-CORE-067)")
+           for k, a in thumbs.items() if a.get("type") not in THUMBNAIL_TYPES]
+    drawable = doc.get("renders") or any(
+        "style" in (a.get("roles") or []) and "default" in a["roles"] for a in assets.values())
+    if drawable and not thumbs:
+        out.append(Finding(ADVISORY, "thumbnail-missing",
+                           "the collection has a default style or render but no `thumbnail` "
+                           "asset (PORTO-CORE-067); build one with scripts/thumbnail.py"))
+    return out
+
+
+def check_citation(doc: dict) -> list[Finding]:
+    """Apps cite a dataset from `sci:citation`, then `sci:doi`, then a `cite-as` link (the
+    geo-agent report generator, the Wallacea explorer), and print "no formal citation" when all
+    three are missing (#822). ADVISORY until the backfill is done. A DOI with no `sci:citation`
+    is noted too: doi.org returns the formatted text, so it is a cheap gap to close."""
+    links = doc.get("links", [])
+    cite_as = [l for l in links if l.get("rel") == "cite-as"]
+    if not (doc.get("sci:citation") or doc.get("sci:doi") or cite_as):
+        return [Finding(ADVISORY, "citation-missing",
+                        "no `sci:citation`, `sci:doi` or `cite-as` link: apps cannot cite this "
+                        "dataset. Add the citation in the form its producer asks for (#822).")]
+    if not doc.get("sci:citation"):
+        return [Finding(ADVISORY, "citation-text-missing",
+                        "a DOI or `cite-as` link but no `sci:citation` text; for a DOI, "
+                        "`curl -LH 'Accept: text/x-bibliography; style=apa' https://doi.org/<doi>` "
+                        "gives it (#822).")]
+    return []
+
+
+PORTOLAN_SCHEMA_URI = re.compile(
+    r"^https://schemas\.portolan-sdi\.org/portolan/v\d+\.\d+\.\d+/schema\.json$")
+PORTOLAN_SCHEMA_EXAMPLE = "https://schemas.portolan-sdi.org/portolan/v0.3.0/schema.json"
+WEB_MAP_LINKS_PREFIX = "https://stac-extensions.github.io/web-map-links/"
+
+
+def _is_mirror(doc: dict) -> bool:
+    """rashid's provenance test (rules/provenance.py): a collection with a producer and
+    exactly one host is a mirror unless a producer has the host's name. Anything else
+    is undecidable, and the mirror rules skip it."""
+    providers = [p for p in doc.get("providers") or [] if isinstance(p, dict)]
+    name = lambda p: " ".join(str(p.get("name") or "").split()).casefold()
+    producers = [p for p in providers if "producer" in (p.get("roles") or [])]
+    hosts = [p for p in providers if "host" in (p.get("roles") or [])]
+    if not producers or len(hosts) != 1 or not name(hosts[0]):
+        return False
+    return all(name(p) != name(hosts[0]) for p in producers)
+
+
+def check_portolan_metadata(doc: dict) -> list[Finding]:
+    """Portolan metadata that is additive and cheap to carry (#761 dry run, rashid 0.4.0).
+    Every finding is ADVISORY until the catalog is backfilled: no collection carries these
+    yet, so HARD would fail every PR. One finding per rule, naming the assets it covers.
+    The rashid rule each mirrors is in the message."""
+    out = []
+    collection = doc.get("type") == "Collection"
+    exts = [e for e in doc.get("stac_extensions") or [] if isinstance(e, str)]
+    links = [l for l in doc.get("links") or [] if isinstance(l, dict)]
+    assets = doc.get("assets") or {}
+
+    if doc.get("stac_version") != "1.1.0":
+        out.append(Finding(ADVISORY, "portolan-stac-version",
+                           f"stac_version is {doc.get('stac_version')!r}; Portolan requires "
+                           f"'1.1.0' (rashid PTL-STR-001)."))
+    if not any(PORTOLAN_SCHEMA_URI.match(e) for e in exts):
+        out.append(Finding(ADVISORY, "portolan-schema-uri",
+                           f"stac_extensions declares no Portolan schema URI; add "
+                           f"{PORTOLAN_SCHEMA_EXAMPLE} (rashid PTL-CNF-001)."))
+    if not collection:
+        return out
+
+    if (any(l.get("rel") == "pmtiles" for l in links)
+            and not any(e.startswith(WEB_MAP_LINKS_PREFIX) for e in exts)):
+        out.append(Finding(ADVISORY, "portolan-web-map-links",
+                           "a `rel: pmtiles` link without the web-map-links extension in "
+                           "stac_extensions; add https://stac-extensions.github.io/web-map-links/"
+                           "v1.3.0/schema.json (rashid PTL-VIZ-003)."))
+    no_visual = sorted(k for k, a in assets.items()
+                       if is_pmtiles(a) and "visual" not in (a.get("roles") or []))
+    if no_visual:
+        out.append(Finding(ADVISORY, "portolan-pmtiles-visual",
+                           f"PMTiles asset(s) {no_visual} lack the `visual` role "
+                           f"(rashid PTL-AST-009)."))
+    if _is_mirror(doc):
+        if not any(l.get("rel") == "via"
+                   and (l.get("type") or "").split(";")[0].strip() == "text/html"
+                   for l in links):
+            out.append(Finding(ADVISORY, "portolan-via-link",
+                               "a mirror (producer is not the host) with no `rel: via` link of "
+                               "type text/html to the upstream landing page (rashid PTL-PRO-001)."))
+        if not doc.get("updated"):
+            out.append(Finding(ADVISORY, "portolan-updated",
+                               "a mirror with no top-level `updated` (RFC 3339) recording when "
+                               "it was last synced from upstream (rashid PTL-PRO-003)."))
+    untexted = sorted(k for k, a in assets.items()
+                      if not all(isinstance(a.get(f), str) and a[f].strip()
+                                 for f in ("title", "description")))
+    if untexted:
+        out.append(Finding(ADVISORY, "portolan-asset-text",
+                           f"asset(s) {untexted} lack a title or description "
+                           f"(rashid PTL-AST-010)."))
+    # A glob href names many files, so it cannot carry one size or checksum.
+    unfiled = sorted(k for k, a in assets.items()
+                     if "*" not in str(a.get("href") or "")
+                     and not ("file:size" in a and "file:checksum" in a))
+    if unfiled:
+        out.append(Finding(ADVISORY, "portolan-file-metadata",
+                           f"asset(s) {unfiled} lack file:size or file:checksum (a multihash); "
+                           f"best written at build time (rashid PTL-AST-003)."))
+    return out
+
+
 STATIC_CHECKS = [
     check_license,
     check_nav_links,
     check_temporal_extent,
     check_asset_keys,
+    check_asset_not_under_raw,
     check_hex_assets,
     check_vector_layers,
+    check_styles,
+    check_default_style_paint,
+    check_render_units,
     check_table_columns_placement,
+    check_parquet_columns_shape,
+    check_pmtiles_link,
+    check_thumbnail,
+    check_citation,
+    check_portolan_metadata,
+    check_tree,
     check_cng_fid,
     check_hex_dup_warning,
     check_column_description_consistency,
@@ -1137,12 +1697,16 @@ STATIC_CHECKS = [
     check_region_title_vs_bbox,
 ]
 
+# Checks about WHERE columns are written read the doc as published; every other check reads
+# each asset's effective columns (resolve_columns, glen#441).
+AS_PUBLISHED_CHECKS = {check_table_columns_placement, check_column_description_consistency}
+
 
 # ---------------------------------------------------------------------------
 # MCP client (streamable HTTP, JSON-RPC 2.0, SSE-framed replies)
 # ---------------------------------------------------------------------------
 
-DEFAULT_MCP = os.environ.get("MCP_ENDPOINT", "https://duckdb-mcp.nrp-nautilus.io/mcp")
+DEFAULT_MCP = os.environ.get("MCP_ENDPOINT", "https://geo-query.nrp-nautilus.io/mcp")
 
 
 class MCPError(Exception):
@@ -1630,7 +2194,7 @@ def check_null_hex_index(doc: dict, mcp: MCPClient) -> list[Finding]:
     """A hex column with NULLs where a coarser column is fully populated means joining
     at that resolution silently drops the very large features that have no finer cell
     (WDPA: ~38% of rows have NULL h9 while h8/h0 are complete). HARD unless the asset
-    or collection description documents the NULL-parent / join-at-coarsest caveat."""
+    or collection description documents the NULL-parent / finest-cell fallback caveat (#880)."""
     out = []
     coll_desc = doc.get("description", "") or ""
     for key, asset in doc.get("assets", {}).items():
@@ -1667,8 +2231,9 @@ def check_null_hex_index(doc: dict, mcp: MCPClient) -> list[Finding]:
                     f"asset '{key}': column '{finest}' is NULL for {pct:.0f}% of rows "
                     f"while '{coarsest_full}' is fully populated — joining on '{finest}' "
                     f"silently drops the largest features. Document in the description: "
-                    f"join at the coarsest shared resolution (or via h3_cell_to_parent), "
-                    f"not '{finest}'."))
+                    f"use each feature's finest cell — '{finest}' where set, '{coarsest_full}' "
+                    f"only where '{finest}' is NULL (via h3_cell_to_parent) — not '{coarsest_full}' "
+                    f"for every row, which overstates coverage (#880)."))
     return out
 
 
@@ -2104,12 +2669,25 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
     if collect is not None:
         collect.append((collection_id, doc))
     findings: list[Finding] = []
+    resolved = resolve_columns(doc)
     for check in STATIC_CHECKS:
-        findings.extend(check(doc))
+        findings.extend(check(doc if check in AS_PUBLISHED_CHECKS else resolved))
 
-    # Reuse the two standalone linters (these fetch/parse the doc themselves).
-    findings.extend(run_sibling_linter(_categorical, source, "categorical"))
-    findings.extend(run_sibling_linter(_pmtiles, source, "pmtiles-fields"))
+    # Reuse the two standalone linters (these fetch/parse the doc themselves, so hand them
+    # the resolved doc as a file when the collection carries a column dictionary).
+    linted = source
+    if resolved is not doc:
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        json.dump(resolved, tmp)
+        tmp.close()
+        linted = tmp.name
+    try:
+        findings.extend(run_sibling_linter(_categorical, linted, "categorical"))
+        findings.extend(run_sibling_linter(_pmtiles, linted, "pmtiles-fields"))
+    finally:
+        if linted != source:
+            os.unlink(linted)
+    doc = resolved  # the data-backed checks compare effective columns with the files
 
     if do_data or do_recall:
         client = mcp
@@ -2118,8 +2696,13 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
             try:
                 client.initialize()
             except Exception as e:
-                findings.append(Finding(ADVISORY, "mcp-unavailable",
-                                        f"data checks skipped — MCP not reachable: {e}"))
+                # Data checks that cannot run are not a pass: a dead route or a missing
+                # key let CI skip every data check and report green (#897). The recall
+                # pass alone (--no-data) stays advisory so the static run needs no key.
+                findings.append(Finding(
+                    HARD if do_data else ADVISORY, "mcp-unavailable",
+                    f"data checks could not run — MCP not reachable ({client.endpoint}): {e}"
+                    + (". UNVERIFIED, not clean." if do_data else "")))
                 client = None
         if client is not None:
             if do_data:
@@ -2145,6 +2728,8 @@ def verify(source: str, do_data: bool = True, do_recall: bool = True,
                             f"is UNVERIFIED for that check, not clean. Re-run it."))
             if do_recall:
                 findings.extend(recall_pass(doc, client))
+    if do_data:
+        findings.extend(check_render_range(doc))  # TiTiler, not the MCP (#881)
 
     return collection_id, findings
 
@@ -2180,17 +2765,8 @@ def main():
             except OSError as e:
                 print(f"[warn] could not read {path}: {e}", file=sys.stderr)
         for bucket, dataset in sorted(targets):
-            url = derive_url(bucket, dataset)
-            # Bucket-level collections: many datasets can share ONE collection at the
-            # bucket root (e.g. public-carbon, public-nci-frontiers) instead of a
-            # per-dataset stac-collection.json. If the per-dataset STAC 404s but a
-            # bucket-level one exists, verify that instead. De-dup (below) then collapses
-            # all the bucket's datasets to the single bucket-level collection. If NEITHER
-            # exists (recipe not run yet at PR-open), keep the per-dataset URL so the
-            # load-error RED still fires (the intended pre-publish state).
-            if not _collection_exists(url) and _collection_exists(derive_url(bucket, "")):
-                url = derive_url(bucket, "")
-            sources.append(url)
+            # De-dup (below) collapses datasets that share a collection to one check.
+            sources.append(resolve_collection_url(bucket, dataset))
         if not targets:
             print("No dataset collection targets derived from the given YAML(s) — "
                   "nothing to verify.", file=sys.stderr)

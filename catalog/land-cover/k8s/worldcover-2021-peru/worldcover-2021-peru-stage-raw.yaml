@@ -1,0 +1,77 @@
+# HAND-ROLLED: staging an upstream tile set is not a step cng-datasets generates (#984).
+#
+# Copies the 26 ESA WorldCover 2021 v200 3-degree map tiles that intersect Peru, unchanged, from the
+# AWS Open Data bucket (no login) to
+#   s3://public-land-cover/raw/worldcover-2021/map/<file>
+# plus the upstream tile grid. Tile list = WorldCover grid (esa_worldcover_grid.geojson) intersected
+# with the Overture 2026-02-18.0 Peru polygon. Records path, bytes, sha256, AWS ETag, URL and access
+# time in s3://public-land-cover/raw/worldcover-2021/manifest.tsv. A tile counts as good only if
+# GDAL opens it. Short job (~0.8 GB), so opportunistic priority.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: worldcover-2021-peru-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: worldcover-2021-peru-stage-raw
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        k8s-app: worldcover-2021-peru-stage-raw
+    spec:
+      priorityClassName: opportunistic
+      restartPolicy: Never
+      dnsConfig:
+        nameservers: ["8.8.8.8", "1.1.1.1"]
+        options:
+        - {name: timeout, value: "2"}
+        - {name: attempts, value: "3"}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          B=https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021
+          DST=nrp:public-land-cover/raw/worldcover-2021
+          TILES="S03W072 S03W075 S03W078 S06W072 S06W075 S06W078 S06W081 S06W084 S09W075 S09W078
+                 S09W081 S09W084 S12W069 S12W072 S12W075 S12W078 S12W081 S15W069 S15W072 S15W075
+                 S15W078 S18W069 S18W072 S18W075 S18W078 S21W072"
+          mkdir -p /tmp/t && cd /tmp/t
+          printf 'path\tbytes\tsha256\taws_etag\tsource\taccessed\n' > manifest.tsv
+          get() {  # get <url> <file>
+            curl -fsSL --retry 8 --retry-delay 5 --retry-all-errors -D hdr -o "$2" "$1"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "raw/worldcover-2021/$3$2" "$(stat -c%s "$2")" \
+              "$(sha256sum "$2" | cut -d' ' -f1)" "$(grep -i '^etag:' hdr | tr -d '\r"' | awk '{print $2}')" \
+              "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> manifest.tsv
+          }
+          n=0
+          for t in $TILES; do
+            f=ESA_WorldCover_10m_2021_v200_${t}_Map.tif
+            get "$B/map/$f" "$f" map/
+            gdalinfo "$f" >/dev/null
+            n=$((n+1)); echo "ok $n $f"
+          done
+          [ "$n" = 26 ] || { echo "expected 26 tiles, got $n"; exit 1; }
+          get "$B/esa_worldcover_grid.geojson" esa_worldcover_grid.geojson ""
+          rclone copy . "$DST/map/" --include '*_Map.tif' --s3-no-check-bucket --retries 5
+          rclone copyto esa_worldcover_grid.geojson "$DST/esa_worldcover_grid.geojson" --s3-no-check-bucket
+          rclone copyto manifest.tsv "$DST/manifest.tsv" --s3-no-check-bucket
+          [ "$(rclone lsf "$DST/map/" | grep -c '_Map.tif$')" = 26 ] || { echo "upload count mismatch"; exit 1; }
+          cat manifest.tsv
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - name: rclone-config
+        secret: {secretName: rclone-config}

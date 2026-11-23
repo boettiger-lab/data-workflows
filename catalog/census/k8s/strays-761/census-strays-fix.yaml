@@ -1,0 +1,94 @@
+# HAND-ROLLED (#761): one-off bucket cleanup, not a build step the generator emits.
+# STAC-PUBLISH-GUARD: not needed: uploads no collection; it only deletes stray copies stored under <x>/stac-collection.json/, which nothing links to.
+# The Portolan dry run found objects that earlier uploads wrote *inside* a key named like the
+# target (rclone copy to a file path creates <path>/<file>). This moves the four census-2024
+# READMEs to the keys their collections link (`describedby`), and deletes the stale
+# stac-collection copies (Feb-Mar 2026), which nothing links to. The second job does the same for
+# the per-collection READMEs: sldl/sldu moved to their linked keys, and four census-2024 copies
+# that are byte-identical to the linked README-<x>.md deleted.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-strays-fix-761
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:0.12.6
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          B=nrp:public-census
+          for x in cd county state tract; do
+            rclone moveto "$B/census-2024/README-$x.md/$x-README.md" "$B/census-2024/README-$x.md" --s3-no-check-bucket
+          done
+          for k in census-2024/cd/stac-collection.json/cd-stac-collection.json \
+                   census-2024/county/stac-collection.json/county-stac-collection.json \
+                   census-2024/state/stac-collection.json/state-stac-collection.json \
+                   census-2024/tract/stac-collection.json/tract-stac-collection.json \
+                   census-2025/sldl/stac-collection.json/sldl-stac-collection.json \
+                   census-2025/sldu/stac-collection.json/sldu-stac-collection.json \
+                   census-2024/county/county-stac-collection.json; do
+            rclone deletefile "$B/$k"
+          done
+          rclone lsf -R "$B" --include "*.md" --include "*.json" --exclude "*/styles/**"
+        resources:
+          requests: {cpu: "1", memory: 1Gi}
+          limits: {cpu: "1", memory: 1Gi}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-strays-fix-761b
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: fix
+        image: ghcr.io/boettiger-lab/datasets:0.12.6
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          B=nrp:public-census
+          for x in sldl sldu; do
+            rclone moveto "$B/census-2025/$x/README.md/$x-README.md" "$B/census-2025/$x/README.md" --s3-no-check-bucket
+          done
+          # Byte-identical to census-2024/README-<x>.md, which the collections link.
+          for x in cd county state tract; do
+            rclone deletefile "$B/census-2024/$x/README.md/$x-README.md"
+          done
+          rclone lsf -R "$B" --filter "+ *.md" --filter "+ */stac-collection.json" --filter "+ stac-collection.json" --filter "- *"
+        resources:
+          requests: {cpu: "1", memory: 1Gi}
+          limits: {cpu: "1", memory: 1Gi}
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config

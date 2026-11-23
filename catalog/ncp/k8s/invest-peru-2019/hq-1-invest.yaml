@@ -1,0 +1,190 @@
+# HAND-ROLLED: the generator does not run models; this job runs InVEST Habitat Quality and hands
+# its outputs to the generated raster workflows (#882).
+#
+# InVEST Peru (#882), Habitat Quality build step 1 of 2 (provisional v1). Run after
+# carbon-2-invest, whose land-use raster it reuses so both models see the same land cover.
+#   1. Land use: s3://public-ncp/raw/derived/invest-peru-2019/carbon/lulc_peru_5km_alb.tif
+#      (CGLS-LC100 2019 + FDAP 2024 cocoa as class 250 by rule (b), South America Albers 100 m,
+#      5 km beyond Peru; code = GEZ zone * 1000 + class). Habitat and sensitivity depend on the
+#      class only.
+#   2. Threats, presence/absence (agreed 2026-11-12, #882 comment 6832742859): urban = class 50,
+#      cropland = class 40, cocoa = class 250, from the same raster.
+#   3. Threat and sensitivity tables: the draft tables in #882 comment 6690236388, run as a
+#      provisional v1 pending expert review (agreed 2026-11-11, comment 6804657811).
+#   4. Half-saturation k: first run at the InVEST default 0.05, then k = half the highest
+#      degradation value on the landscape, as the InVEST guide recommends; degradation does not
+#      depend on k and the second run reuses the first run's cached intermediates. The k used is
+#      logged and written to report.json; scenarios must reuse it.
+#   5. Quality and degradation warped back to the CGLS grid, clipped to Peru, Float32 with nodata
+#      -9999, to s3://public-ncp/raw/derived/invest-peru-2019/habitat-quality/ with the tables,
+#      report.json and the InVEST logs.
+#
+#   kubectl apply -n geo-workflows -f catalog/ncp/k8s/invest-peru-2019/hq-1-invest.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: invest-peru-2019-hq-1-invest
+  namespace: geo-workflows
+  labels: {k8s-app: invest-peru-2019-hq-1-invest}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: invest-peru-2019-hq-1-invest}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 10800
+      # Expected well under an hour (Carbon on the same raster took 8 min); opportunistic per
+      # skill pod-preemption. If it runs over an hour, move it to default priority sized to use.
+      priorityClassName: opportunistic
+      dnsConfig:
+        nameservers: [8.8.8.8, 1.1.1.1]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # nrp-c17 hung on the image pull for every pod on 2026-11-10.
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}, {key: kubernetes.io/hostname, operator: NotIn, values: [nrp-c17.nysernet.org]}]}
+      containers:
+      - name: invest
+        image: condaforge/miniforge3:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: "false"}
+        - {name: AWS_VIRTUAL_HOSTING, value: "FALSE"}
+        - {name: AWS_NO_SIGN_REQUEST, value: "YES"}
+        - {name: GDAL_CACHEMAX, value: "1024"}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          mamba create -q -y -n inv -c conda-forge python=3.12 natcap.invest=3.20.2 rclone >/tmp/mamba.log
+          source /opt/conda/etc/profile.d/conda.sh && conda activate inv
+          mkdir -p /tmp/w && cd /tmp/w
+          D=nrp:public-ncp/raw/derived/invest-peru-2019
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          rclone copyto $D/carbon/lulc_peru_5km_alb.tif lulc_peru_5km_alb.tif $R
+          rclone copy $D/strips/ strips/ --include 'peru-*.tif' $R
+          cat > run.py <<'PY'
+          import csv, glob, json, time
+          import numpy as np
+          from osgeo import gdal
+          import natcap.invest
+          from natcap.invest import habitat_quality
+          gdal.UseExceptions()
+          print("natcap.invest", natcap.invest.__version__, "GDAL", gdal.__version__, flush=True)
+          drv = gdal.GetDriverByName("GTiff")
+          def write(path, arr, dtype, geo, wkt, nodata=None):
+              d = drv.Create(path, arr.shape[1], arr.shape[0], 1, dtype,
+                             ["TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"])
+              d.SetGeoTransform(geo); d.SetProjection(wkt)
+              b = d.GetRasterBand(1)
+              if nodata is not None: b.SetNoDataValue(nodata)
+              b.WriteArray(arr); d = None
+
+          # --- 1-2. land use and presence/absence threat rasters --------------------------------
+          L = gdal.Open("lulc_peru_5km_alb.tif"); ag, awkt = L.GetGeoTransform(), L.GetProjection()
+          NODATA = int(L.GetRasterBand(1).GetNoDataValue())
+          lu = L.ReadAsArray(); L = None
+          valid = lu != NODATA
+          cls = np.where(valid, lu % 1000, 0)
+          present = sorted(int(v) for v in np.unique(lu[valid]))
+          # max_dist in METRES: InVEST >= 3.14 reads it as m, not km (InVEST #1252).
+          THREATS = {  # name: (class, max_dist m, weight, decay)
+              "urban": (50, 5000, 1.0, "exponential"),
+              "cropland": (40, 3000, 0.7, "linear"),
+              "cocoa": (250, 1000, 0.4, "linear"),
+          }
+          for name, (c, *_ ) in THREATS.items():
+              t = (valid & (cls == c)).astype(np.float32)   # intensity 0/1; InVEST reads floats
+              write(f"threat_{name}.tif", t, gdal.GDT_Float32, ag, awkt)
+              print(f"threat {name}: {int(t.sum()):,} pixels", flush=True)
+          del cls, valid, t
+          with open("threats.csv", "w", newline="") as f:
+              w = csv.writer(f); w.writerow(["threat", "max_dist", "weight", "decay", "cur_path"])
+              for name, (c, md, wt, dc) in THREATS.items():
+                  w.writerow([name, md, wt, dc, f"/tmp/w/threat_{name}.tif"])
+
+          # --- 3. habitat suitability and sensitivity, by class (draft tables, #882) -----------
+          S = {}  # class: (name, habitat, urban, cropland, cocoa)
+          for c in range(111, 117): S[c] = ("closed forest", 1.0, 0.8, 0.7, 0.5)
+          for c in range(121, 127): S[c] = ("open forest", 0.9, 0.8, 0.7, 0.5)
+          S[90] = ("herbaceous wetland", 0.9, 0.9, 0.8, 0.6)
+          S[20] = ("shrubs", 0.7, 0.6, 0.5, 0.4)
+          S[30] = ("herbaceous vegetation", 0.6, 0.6, 0.5, 0.4)
+          S[100] = ("moss and lichen", 0.5, 0.5, 0.4, 0.3)
+          S[250] = ("cocoa", 0.3, 0.5, 0.4, 0.0)
+          for c, n in ((0, "no data"), (40, "cultivated"), (50, "built-up"), (60, "bare"),
+                       (70, "snow and ice"), (80, "water"), (200, "open sea")):
+              S[c] = (n, 0.0, 0.0, 0.0, 0.0)
+          ZONES = (11, 12, 13, 14, 15, 16)
+          rows = [(z * 1000 + c, *v) for z in ZONES for c, v in S.items()]
+          missing = set(present) - {r[0] for r in rows}
+          assert not missing, f"land-use codes with no sensitivity row: {sorted(missing)}"
+          with open("sensitivity.csv", "w", newline="") as f:
+              w = csv.writer(f); w.writerow(["lucode", "name", "habitat", "urban", "cropland", "cocoa"])
+              w.writerows(rows)
+
+          # --- 4. InVEST Habitat Quality, k = 0.05 then k = max degradation / 2 ---------------
+          def hq(k):
+              args = {"workspace_dir": "/tmp/w/invest", "results_suffix": "", "n_workers": 3,
+                      "lulc_cur_path": "/tmp/w/lulc_peru_5km_alb.tif",
+                      "threats_table_path": "/tmp/w/threats.csv",
+                      "sensitivity_table_path": "/tmp/w/sensitivity.csv",
+                      "half_saturation_constant": k}
+              v = habitat_quality.validate(args)
+              assert not v, v
+              t0 = time.time(); habitat_quality.execute(args)
+              print(f"habitat_quality k={k}: {time.time() - t0:.0f} s", flush=True)
+          def one(pattern):
+              m = glob.glob(f"/tmp/w/invest/{pattern}"); assert len(m) == 1, (pattern, m); return m[0]
+          hq(0.05)
+          deg = gdal.Open(one("deg_sum_c*.tif")); dnd = deg.GetRasterBand(1).GetNoDataValue()
+          d = deg.ReadAsArray(); deg = None
+          dmax = float(d[(d != dnd) & np.isfinite(d)].max()); del d
+          K = dmax / 2
+          print(f"max degradation {dmax:.6g} -> k = {K:.6g}", flush=True)
+          hq(K)
+
+          # --- 5. back to the CGLS grid, clipped to Peru ---------------------------------------
+          gdal.BuildVRT("peru.vrt", sorted(glob.glob("strips/peru-*.tif")))
+          ref = gdal.Open("peru.vrt"); gt = ref.GetGeoTransform(); W, H = ref.RasterXSize, ref.RasterYSize
+          peru = ref.ReadAsArray().astype(bool); wkt = ref.GetProjection()
+          te = [gt[0], gt[3] + H * gt[5], gt[0] + W * gt[1], gt[3]]
+          report = {"natcap_invest": natcap.invest.__version__, "k": K, "max_degradation": dmax,
+                    "threats": {n: dict(zip(("class", "max_dist_m", "weight", "decay"), v))
+                                for n, v in THREATS.items()}}
+          for name, pat in (("habitat-quality", "quality_c*.tif"), ("habitat-degradation", "deg_sum_c*.tif")):
+              src = one(pat)
+              sds = gdal.Open(src); snd = sds.GetRasterBand(1).GetNoDataValue(); sds = None  # keep the dataset alive while its band is used
+              gdal.Warp(f"{name}_w.tif", src, dstSRS="EPSG:4326", outputBounds=te, width=W, height=H,
+                        resampleAlg="near", srcNodata=snd, dstNodata=-9999, outputType=gdal.GDT_Float32,
+                        creationOptions=["TILED=YES", "COMPRESS=DEFLATE"])
+              v = gdal.Open(f"{name}_w.tif").ReadAsArray()
+              v[~peru] = -9999
+              write(f"{name}.tif", v, gdal.GDT_Float32, gt, wkt, -9999)
+              ok = v != -9999
+              report[name] = {"min": float(v[ok].min()), "max": float(v[ok].max()),
+                              "mean": float(v[ok].mean()), "pixels": int(ok.sum()),
+                              "pixels_zero": int((v[ok] == 0).sum())}
+              print(name, json.dumps(report[name]), flush=True)
+          q = report["habitat-quality"]
+          assert q["pixels"] == report["habitat-degradation"]["pixels"]
+          assert 0 <= q["min"] and q["max"] <= 1, q
+          json.dump(report, open("report.json", "w"), indent=1)
+          PY
+          python3 run.py
+          for f in habitat-quality.tif habitat-degradation.tif threats.csv sensitivity.csv report.json; do
+            rclone copyto $f $D/habitat-quality/$f $R
+          done
+          rclone copy invest/ $D/habitat-quality/invest-log/ --include 'InVEST-*.txt' $R
+          rclone lsl $D/habitat-quality/
+        resources:
+          requests: {cpu: '4', memory: 24Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '4', memory: 24Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

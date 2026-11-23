@@ -1,0 +1,53 @@
+# HAND-ROLLED: preprocess (AGENTS.md Step 1c). The FWS range download is one zip holding two shapefiles
+# with the same schema (1,000 + 1,297 features), which `cng-datasets workflow` cannot take as one
+# source. Merges them into one GeoParquet under raw/, the workflow's source (#944).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: usfws-944-merge-ranges
+  namespace: geo-workflows
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              # gpu-05 pulled a 2.7 GB object from internal S3 at ~1.2 MB/s on 2026-11-17.
+              - {key: kubernetes.io/hostname, operator: NotIn, values: [gpu-05.nrp.mghpcc.org]}
+      containers:
+      - name: merge
+        image: ghcr.io/boettiger-lab/datasets@sha256:246dc706ea34728a75c0bf1bc8589fd8f5c2e6526876f6c7192660a272cec1b3
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 20Gi}
+          limits: {cpu: '2', memory: 8Gi, ephemeral-storage: 20Gi}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          rclone copyto nrp:public-usfws/raw/usfws_complete_species_current_range.zip r.zip
+          unzip -q r.zip && rm r.zip
+          ogr2ogr -f Parquet -t_srs EPSG:4326 -nln species_ranges -lco ROW_GROUP_SIZE=200 \
+            -lco COMPRESSION=ZSTD ranges.parquet usfws_complete_species_current_range_1.shp
+          ogr2ogr -f Parquet -append -nln species_ranges ranges.parquet usfws_complete_species_current_range_2.shp \
+            || { echo "append unsupported; merging via GPKG"; rm ranges.parquet;
+                 ogr2ogr -f GPKG -t_srs EPSG:4326 -nln species_ranges m.gpkg usfws_complete_species_current_range_1.shp;
+                 ogr2ogr -f GPKG -append -t_srs EPSG:4326 -nln species_ranges m.gpkg usfws_complete_species_current_range_2.shp;
+                 ogr2ogr -f Parquet -lco ROW_GROUP_SIZE=200 -lco COMPRESSION=ZSTD ranges.parquet m.gpkg; }
+          ogrinfo -so -al ranges.parquet | grep -E "Feature Count|Extent"
+          rclone copyto ranges.parquet nrp:public-usfws/raw/usfws-species-ranges-2026-11-12.parquet --retries 6
+          ls -la ranges.parquet
+          echo DONE
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

@@ -1,0 +1,56 @@
+# HAND-ROLLED: the generator does not write STAC. #957: the public-pesticides bucket node has a
+# child and no data assets but was typed Collection; a grouping node is a Catalog (#762).
+# scripts/to-catalog.py (fetched from main) retypes the LIVE node, keeping id, title,
+# description, links, keywords and providers.
+#   kubectl apply -n geo-workflows -f catalog/pesticides/k8s/bucket-catalog-957/public-pesticides-to-catalog.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: public-pesticides-to-catalog
+  namespace: geo-workflows
+  labels: {k8s-app: public-pesticides-to-catalog}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: public-pesticides-to-catalog}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/to-catalog.py -o /tmp/to-catalog.py
+          C=nrp:public-pesticides/stac-collection.json
+          rclone cat "$C" > /tmp/live.json
+          python3 /tmp/to-catalog.py /tmp/live.json /tmp/c.json
+          guard_stac /tmp/c.json "$C"
+          rclone copyto /tmp/c.json "$C" $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

@@ -1,14 +1,14 @@
 ---
 name: stac-authoring
 description: >-
-  Author and verify STAC collection metadata for a published dataset: the verify-stac.py gate, the user-facing description register, table:columns placement, SPDX license rules, categorical values arrays, hex per-feature duplication notes, h3:* resolution declarations, and registering a collection in its parent sub-catalog. Use whenever writing or editing a stac-collection.json or a dataset README.
+  Author and verify STAC collection metadata for a published dataset: the verify-stac.py gate, the user-facing description register, table:columns placement, SPDX license rules, categorical values arrays, hex per-feature duplication notes, h3:* resolution declarations, the default MapLibre style (PMTiles) or render (COG) every collection carries, and registering a collection in its parent sub-catalog. Use whenever writing or editing a stac-collection.json or a dataset README.
 ---
 
 # STAC Authoring
 
 Everything needed for **Step 5 (Document)** and **Step 6 (Register in the parent sub-catalog)**.
 
-Write STAC and README to `/tmp/` and upload with `rclone` — this repo never contains STAC JSON or README files (AGENTS.md Hard Boundary 1).
+Draft STAC and README in `/tmp/` and upload them from a publish job in `geo-workflows`, never from your machine. This repo never contains STAC JSON or README files (AGENTS.md Hard Boundary 1).
 
 ### ⛔ Verify the STAC — don't hand-check the rules
 
@@ -132,23 +132,49 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
 
 **stac-collection.json MUST include:**
 
-- **License — REQUIRED on every collection.** Set the top-level STAC `license` field to the **SPDX identifier** of the upstream data license (e.g. `CC-BY-4.0`, `CC-BY-NC-4.0`, `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`). Use `"other"` **only** when no SPDX id applies, and `"various"` **only** for a meta-collection whose children genuinely differ — never as a lazy default. For `other`/`various` (and recommended for all), add a license link: `{"rel": "license", "href": "<canonical terms URL>", "type": "text/html"}`. **Exception — a meta-collection (one with `child` links) may use `various`/`other` WITHOUT a license link:** its real licenses live on the child collections (each carrying + verified for its own license), and redistribution gating (source.coop excludes, etc.) keys on those per-child licenses, not the parent. A single parent-level link would misrepresent genuinely mixed children. `verify-stac.py` enforces the link only on **leaf** collections (and always for `proprietary`). **Verify the real upstream terms — do not guess `proprietary`.** The license drives redistribution decisions (e.g. whether a dataset may be mirrored to source.coop); a wrong value is a compliance risk. NonCommercial / ShareAlike licenses are fine but MUST be recorded as such (`CC-BY-NC-*`, `CC-BY-SA-*`) so downstream users aren't misled. US federal works = `public-domain`.
-
-- **Directly contributed data with no published terms — you are the one who states them.** A
-  dataset handed over by a colleague with **no citation, no attribution, and no URL** has a
-  *complete* provenance: there is nothing upstream to find. Do not treat it as missing metadata
-  to backfill, and do not invent a terms URL to clear the gate. But `proprietary` without a
-  `{"rel": "license"}` link is a HARD finding, and no upstream page exists to link — the rule
-  assumes one always does, so the gate is otherwise unsatisfiable. The resolution: **publish the
-  terms statement beside the data** (`s3://<bucket>/<dataset>/LICENSE.md`) and link that, exactly
-  as #417 treats a stored raw + checksum as the provenance when no stable public link exists.
-  The document must **grant nothing** — it records what was and was not given: contributed
-  directly, no public source, no citation, no named attribution, no redistribution right, reuse
-  elsewhere needs the owner's permission. Keep `license: "proprietary"`, which is the correct
-  advisory signal to the mirror-scope auditor (no grant → not mirrored). `verify-stac.py` reports
-  `license-terms-self-hosted` (ADVISORY) whenever a license link resolves to our own bucket, so
-  the special case stays visible and is never mistaken for a verified upstream grant. Worked
-  example: `high-seas/mpa-candidates` (#579).
+- **License — REQUIRED on every collection: an accurate SPDX `license` plus a `{"rel": "license"}` link.**
+  The licence is the whole of this repo's say in redistribution: the mirror tier routes on it, so a
+  wrong value over- or under-publishes data.
+  - **Use the SPDX id upstream actually granted, with evidence** (`CC-BY-4.0`, `CC-BY-NC-4.0`,
+    `CC-BY-SA-4.0`, `CDLA-Permissive-2.0`, `public-domain`; US federal works are `public-domain`).
+    NonCommercial and ShareAlike are fine but must be recorded as such. Never guess `proprietary`.
+  - **The test is decidability:** a reader must be able to tell whether we may redistribute, and
+    under what restrictions. An SPDX id settles it alone. A placeholder (`other`, `various`,
+    `proprietary`) settles nothing alone: it needs a licence link that IS the terms document
+    (WDPA's `protectedplanet.net/en/legal`) or a description that states the terms
+    (`license-terms-not-stated`, ADVISORY, #651). Use `other` only when no SPDX id applies, and
+    `various` only for a meta-collection whose children genuinely differ. A meta-collection (one
+    with `child` links) may omit the link, since each child carries its own; `verify-stac.py`
+    requires it on leaf collections, and always for `proprietary`.
+  - **Unconfirmed or ungranted terms are stated plainly**, including "no grant has been located".
+    Never assert an SPDX id upstream did not grant, and never name a `licensor` when no licence was
+    granted (`rivers/american-rivers/*` asserted `CC-BY-4.0` with no licensor;
+    `hazard/mid-century-habitat-climate-exposure` asserts it while its description says the terms
+    "require confirmation"). Do not invent a terms URL to clear the gate: if no public terms page
+    exists, the finding stands, and the facts go in the description and the issue.
+  - **One terms page grants one thing.** Two collections citing the same licence URL declare the
+    same `license` (`license-inconsistent-for-terms`, ADVISORY; `wdpa` and `wdoecm-may-2026` cite
+    the same Protected Planet page as `proprietary` and `other`).
+  - **Match the provider's access model; never exceed it.** "No redistribution", "non-commercial
+    only" or "academic use only" are not reasons to keep data out of a public bucket. If the
+    provider serves open downloads under written terms alone (UNEP-WCMC, Protected Planet/WDPA),
+    host it in an ordinary `public-*` bucket and let the licence travel with the data (field, link,
+    terms in the description). If the provider requires a login before the first download, the data
+    goes behind an equivalent gate here, and that is a scoping question for the issue.
+  - **Obligations on the licensee are Carl's, as PI** ("notify the Director", "request permission
+    for commercial use", "cite as …"). State them in the description and note them in the issue
+    for Carl. Do not block the build on them or treat a published layer as a breach.
+  - **One exception: data contributed directly to us, where no terms were ever published.** No
+    citation, no attribution and no URL is a complete provenance, not missing metadata, and the
+    link rule would otherwise be unsatisfiable. Publish a terms statement beside the data
+    (`s3://<bucket>/<dataset>/LICENSE.md`) and link it. It must **grant nothing**: it records that
+    the data was contributed directly, with no public source, citation or named attribution, no
+    redistribution right, and reuse elsewhere needing the owner's permission. Keep
+    `license: "proprietary"` (no grant, so not mirrored). `verify-stac.py` reports
+    `license-terms-self-hosted` (ADVISORY) for any licence link into our own bucket, so this is
+    never mistaken for an upstream grant. Worked example: `high-seas/mpa-candidates` (#579). This
+    licenses no guessing elsewhere: for data with a real publisher, an absent terms page leaves
+    the finding standing.
 
 - **Provenance — record the access date and the staged raw's fingerprint (#417).** A provenance
   *chain* (`rel: about` to the landing page, `rel: source` to where you actually read it,
@@ -230,27 +256,83 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   - ❌ `.../census-2025/sldl/hex/`
   - ✅ `.../census-2025/sldl/hex/h0=*/data_0.parquet`
 
+- **Hex partitions: add the partition extension fields beside the hex asset, never instead of
+  it** (Carl, 2026-11-19, datasets#340). Portolan describes partitioned data with collection-level
+  `partition:*` fields. Add them, and keep the hex asset: consumers find hex by its asset key, a
+  collection can hold several hex outputs, and only the asset carries `h3:*`, its own
+  `table:columns` and `created`.
+
+  ```json
+  "stac_extensions": [..., "https://schemas.portolan-sdi.org/incubating/partition/v1.0.0/schema.json"],
+  "partition:scheme": "hive",
+  "partition:strategy": "h3",
+  "partition:keys": [{"name": "h0", "type": "int64", "description": "H3 resolution-0 cell id"}],
+  "partition:glob": "s3://<bucket>/<dataset>/hex/h0=*/data_0.parquet",
+  "partition:file_count": 122
+  ```
+
+  Each key is an object, not a bare string; a per-year raster hex has `year` (`int32`) before
+  `h0`, with the glob `hex/year=*/h0=*/data_0.parquet`. The glob is `s3://`, because HTTPS
+  cannot be listed. Take `partition:file_count` from `prefixes` in `<dataset>.checksums.json`,
+  which cng-datasets writes beside the data (or `cng-datasets checksums` backfills). rashid still
+  reports the hex asset's glob href (PTL-AST-012) and its missing `file:checksum` (PTL-AST-003).
+  These two findings are a known deviation, raised with Portolan in
+  [portolan-spec#278](https://github.com/portolan-sdi/portolan-spec/issues/278); do not drop the
+  asset to clear them.
+
 - **Any vector asset with named layers** (PMTiles, GDB, GPKG, etc.) MUST include `"vector:layers": ["<name>"]`. For PMTiles the layer name = last segment of `--dataset`.
 
-- **`table:columns` goes on each parquet asset — NOT at the collection level.** Put it inside the asset object for the GeoParquet and hex assets. Do not add a top-level `table:columns` to the collection. `verify-stac.py` HARD-fails a collection-level `table:columns`.
+- **`table:columns`: one column dictionary on the collection (Portolan PORTO-FMT-046/048, glen#441).**
+  The collection carries a top-level `table:columns` listing **every column of every data
+  asset** (flat GeoParquet, hex, PMTiles) once, each with `name`, `type`, `description` and, for
+  coded columns, `values`. That dictionary is the single place a column is described.
 
-  **Every queryable parquet asset is fully self-describing** — it carries the full per-column schema (name, type, description, `values`), the SAME text on the flat GeoParquet and the hex. This is deliberate: the mcp-data-server renderer dedups identical per-column descriptions across assets at read time (mcp-data-server#303), so full-both costs nothing to the LLM; and a consumer targeting a single asset directly still gets the full schema. That last point is not optional — **raster-derived datasets have a hex but no GeoParquet**, so the hex must stand alone. The single authority is the **build/relocation tool** (one source schema written identically to every asset), never a hand-edit of one asset — identical text means the #303 "first-seen wins" merge never drops anything.
+  An asset carries its own `table:columns` **only where its schema differs** from the
+  dictionary, and then with **`name` and `type` only**: no descriptions, no `values` (they come
+  from the dictionary by name). An asset with no list of its own is described by the whole
+  dictionary. In practice:
+  - **GeoParquet asset:** the dictionary covers it, geometry column included (`Shape`, `geom`
+    or `geometry`). It keeps a list only when another asset adds columns it lacks, such as the
+    hex's `h*` indexes.
+  - **Hex asset:** almost always keeps a list, because it drops the geometry and adds `h0`,
+    `h8`, `h9`, `h10` etc. A hex with no list inherits the dictionary's geometry column, and
+    `verify-stac.py` HARD-fails that (`hex-has-geom-column`).
+  - **PMTiles asset:** keeps a list with the tile types (String/Number/Boolean, coarser than the
+    parquet's); see the PMTiles bullet below.
+  - **COG assets**: no `table:columns` (not SQL-queryable).
 
-  Each parquet asset documents exactly the columns it contains:
-  - **GeoParquet asset** (vector, when present): include the geometry column (`Shape`, `geom`, or `geometry`).
-  - **Hex asset**: full per-column descriptions identical to the flat (minus the geometry column); include the H3 index columns (`h0`, `h8`, `h9`, `h10` etc.) and `_cng_fid`/`bbox`. The hex is the primary query target (and the sole one for rasters), so it is never "lean."
-  - **COG assets**: no `table:columns` needed (not SQL-queryable).
+  Write each column's description once, true for every asset that has the column. A note that
+  holds for one asset only (a hex dedup warning) goes in that asset's `description`, never in a
+  second text for the column. `verify-stac.py` HARD-fails a column the dictionary does not
+  cover (`column-not-in-dictionary`) and a column described two different ways
+  (`column-description-divergent`). It reports the older per-asset shape as ADVISORY
+  (`table-columns-per-asset`) while the catalog migrates. To rewrite an existing collection,
+  use `scripts/portolan-columns.py <stac-url> --out /tmp/pc`, which builds the dictionary from
+  the asset lists, keeps names and types where an asset differs, adds the `rel: pmtiles` link,
+  and refuses a collection whose assets disagree on a description or on coded `values`.
 
 - **`_cng_fid` is the universal per-feature id — REQUIRED on every vector asset, flat GeoParquet *and* hex (#369).** cng-datasets `convert_to_parquet` synthesizes it on every conversion (always, additive, row-unique), so one uniform key works for dedup / `COUNT(DISTINCT)` across all datasets instead of per-dataset id discovery (the over-count class behind #309). Source ids (`ramsarid`, `tpl_id`, `GEOID`) may accompany it for cross-collection joins but never replace it. `verify-stac.py` **HARD**-fails a vector flat GeoParquet (has a geometry column) or a vector hex that lacks `_cng_fid`; if the data genuinely lacks it, reprocess through cng-datasets. **Exempt:** raster-derived hex (a raster reduce into H3, not a feature conversion — detected as a hex/`h0=*`-partitioned asset in a collection with no vector source; covers carbon/ghs-pop *and* the richness/cwhr/gbif reductions). A **non-spatial** parquet table (no geometry, not a hex) is **ADVISORY** — it may be a feature fact table that should carry `_cng_fid` (e.g. tpl `…-funding`) or a legit lookup/crosswalk/coefficient/scores table; use judgment.
 
-- **PMTiles assets MUST carry tile-accurate `table:columns` (data-workflows #283/#320), in LEAN form.** GLEN (and human app authors) can only learn which fields are stylable/filterable in MapLibre from the PMTiles asset's own schema — an empty `table:columns` forces them to byte-range the `.pmtiles` footer. **Empirically, our tippecanoe step keeps ALL attribute columns: the tile field set is just `GeoParquet attrs − geometry + _cng_fid`** (types coarsened to String/Number/Boolean). So the standard is to **mirror the canonical GeoParquet schema onto the PMTiles asset** — do NOT hand-scrape thin metadata from the footer, and do NOT duplicate the prose:
-  - **Lean columns:** each PMTiles column carries **`name` + `type` + `values`** (the `values` enumeration is the styling-critical part for categoricals) — copied from the GeoParquet column of the same name. **Omit the prose `description`** — it stays CANONICAL on the GeoParquet asset (duplicating it across 3 assets just bloats agent context; the agent reads definitions there).
-  - Drop the geometry column; include `_cng_fid` (present in tiles).
+- **PMTiles: a `rel: pmtiles` link AND the asset, with a tile-accurate column list.** Portolan
+  reaches PMTiles through a collection-level link (PORTO-FMT-011):
+  `{"rel": "pmtiles", "href": "<same href as the asset>", "type": "application/vnd.pmtiles",
+  "title": "…", "pmtiles:layers": ["<source-layer>"]}`. **Keep the PMTiles asset as well**
+  (FMT-013 allows both): the deployed GLEN apps read the asset. `verify-stac.py` HARD-fails a
+  missing link (`pmtiles-no-link`) and a link with no matching asset.
+
+  GLEN and app authors learn which fields are stylable from the PMTiles asset's columns, so
+  the asset keeps a `table:columns` list of **`name` + `type`** for the fields actually in the
+  tiles (data-workflows #283/#320). Our tippecanoe step keeps all attribute columns, so the
+  tile field set is `GeoParquet attrs − geometry + _cng_fid`, with types coarsened to
+  String/Number/Boolean. Descriptions and coded `values` come from the collection dictionary.
   - Keep `vector:layers` (the source-layer id list).
-  - **Continuous (choropleth) layers only:** add the **nodata sentinel** and flag the **intended value column** for styling, as a short `description` on that one column (e.g. SVI `RPL_THEMES = -999`) — these are viz-specific and not inferable from the GeoParquet schema.
-  - **Generate it** with `scripts/mirror-pmtiles-columns.py <stac-url>` — it reads the footer to *validate* the field set (and flags the rare genuine-subset case, e.g. SVI, where tippecanoe really did drop columns), mirrors the GeoParquet `name`/`type`/`values`, and writes the updated STAC to `/tmp`. Then `rclone copyto` to S3.
-  - Because PMTiles mirrors the GeoParquet, **fix the GeoParquet/hex categoricals FIRST** (the #303 work), then mirror — otherwise you copy incomplete `values`.
-  - Gate with `scripts/lint-stac-pmtiles-fields.py <stac-collection.json|url>` (companion to `lint-stac-categorical.py`); it requires `name` + `type` and does NOT require descriptions.
+  - **Continuous (choropleth) layers:** state the **nodata sentinel** and the intended value
+    column (e.g. SVI `RPL_THEMES = -999`) in that column's dictionary description, or in the
+    PMTiles asset's `description` if it holds for the tiles only.
+  - The rare genuine subset (e.g. SVI, where tippecanoe really did drop columns) is read from
+    the PMTiles footer; list only the fields present.
+  - Gate with `scripts/lint-stac-pmtiles-fields.py` (run by `verify-stac.py`); it requires
+    `name` + `type` and does not require descriptions.
 
 - **Hex assets MUST declare their H3 resolutions explicitly** via `h3:native_resolution` and `h3:parent_resolutions` on the asset itself. Column-name presence (`h10`, `h9`, …) is not enough — downstream tools shouldn't have to enumerate `table:columns` to find out what resolutions exist. `h3:native_resolution` is the finest resolution (one row per feature-cell at this res); `h3:parent_resolutions` is the list of rollup resolutions, which MUST include `0` (the partition key).
 
@@ -268,7 +350,7 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   ```bash
   scripts/audit-feature-dup.py <parquet-url|stac-url --asset KEY> --key <feature-id-col>
   ```
-  It reports rows vs `COUNT(DISTINCT key)`, warns on blank keys, classifies each column REPEATED vs VARIES, and quantifies raw-vs-deduped `SUM` inflation. Then document the verdict in the asset's `table:columns`: name the key, mark REPEATED columns "dedup before SUM", and (if any) note VARIES columns are safe to SUM. A clean one-row-per-feature file needs no note.
+  It reports rows vs `COUNT(DISTINCT key)`, warns on blank keys, classifies each column REPEATED vs VARIES, and quantifies raw-vs-deduped `SUM` inflation. Then document the verdict in the collection's column dictionary (or in one asset's `description` when it holds for that asset only): name the key, mark REPEATED columns "dedup before SUM", and (if any) note VARIES columns are safe to SUM. A clean one-row-per-feature file needs no note.
 
 - **Hex assets MUST flag per-feature duplication — at the hex ASSET-description level, NOT per-column.** One hex row = one (feature, cell) pair, so any column that represents a per-feature total — area (`GIS_Acres`, `SHAPE_Area`), length (`SHAPE_Length`), population, count, amount, funding, intensity — is repeated on every cell the feature covers. Put this warning (name the pattern + the **dedup key**, list the affected columns) in the **hex asset's `description`**, because the mcp-data-server#303 renderer keeps per-column descriptions identical across the flat and hex (single authority) and would silently drop a per-column note that differs between them — whereas the per-asset `description` line is always rendered. `verify-stac.py` accepts the note at the asset (or collection) level. (Raster hex: the asset note states reducer semantics instead — e.g. "`sum` reducer, SUM is the catalog total" or "mean density → × cell area for totals".) The two safe patterns:
   - **SUM after dedup** (the attribute is a real per-feature value): `SELECT DISTINCT <feature_key>, <attr> …` or `ROW_NUMBER() OVER (PARTITION BY <feature_key>)` before aggregating.
@@ -277,31 +359,40 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   Columns that are safe to aggregate on hex (H3 indexes, `_cng_fid`, `bbox`) don't need a warning. If no column on the hex asset is safe to SUM, say so once in the collection description too.
 
   ```json
+  "table:columns": [
+    {"name": "GEOID", "type": "string", "description": "…"},
+    {"name": "ALAND", "type": "int64", "description": "Land area in m² of the source district polygon."},
+    {"name": "geometry", "type": "geometry", "description": "Feature geometry (GeoParquet)"},
+    {"name": "h10", "type": "uint64", "description": "H3 cell ID at resolution 10 (native resolution)."},
+    {"name": "h9",  "type": "uint64", "description": "H3 cell ID at resolution 9."},
+    {"name": "h8",  "type": "uint64", "description": "H3 cell ID at resolution 8."},
+    {"name": "h0",  "type": "int64",  "description": "H3 cell ID at resolution 0, used as the partition key for hive-partitioned reads."}
+  ],
   "assets": {
     "sldl-parquet": {
       "href": "https://…/sldl.parquet",
       "type": "application/x-parquet",
       "title": "…",
       "table:columns": [
-        {"name": "GEOID", "type": "string", "description": "…"},
-        {"name": "ALAND", "type": "int64", "description": "Land area in m² of the source district polygon."},
-        {"name": "geometry", "type": "geometry", "description": "Feature geometry (GeoParquet)"}
+        {"name": "GEOID", "type": "string"},
+        {"name": "ALAND", "type": "int64"},
+        {"name": "geometry", "type": "geometry"}
       ]
     },
     "sldl-hex": {
       "href": "https://…/sldl/hex/h0=*/data_0.parquet",
       "type": "application/x-parquet",
       "title": "…",
+      "description": "One row per (district, h10 cell). ALAND is repeated on every row a district covers — never SUM(ALAND) on hex data; dedup first (SELECT DISTINCT GEOID, ALAND). For area from the H3 footprint see the h3-guide.",
       "h3:native_resolution": 10,
       "h3:parent_resolutions": [9, 8, 0],
       "table:columns": [
-        {"name": "GEOID", "type": "string", "description": "…"},
-        {"name": "ALAND", "type": "int64",
-         "description": "Land area in m² of the source district polygon. **Repeated on every hex row the district covers — never SUM(ALAND) on hex data; dedup first (SELECT DISTINCT GEOID, ALAND).** For area from the H3 footprint see the h3-guide."},
-        {"name": "h10", "type": "uint64", "description": "H3 cell ID at resolution 10 (native resolution; one row per (feature, h10) pair)."},
-        {"name": "h9",  "type": "uint64", "description": "H3 cell ID at resolution 9."},
-        {"name": "h8",  "type": "uint64", "description": "H3 cell ID at resolution 8."},
-        {"name": "h0",  "type": "int64",  "description": "H3 cell ID at resolution 0, used as the partition key for hive-partitioned reads."}
+        {"name": "GEOID", "type": "string"},
+        {"name": "ALAND", "type": "int64"},
+        {"name": "h10", "type": "uint64"},
+        {"name": "h9",  "type": "uint64"},
+        {"name": "h8",  "type": "uint64"},
+        {"name": "h0",  "type": "int64"}
       ]
     }
   }
@@ -341,7 +432,7 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
 
 - **Per-feature row duplication / NULL finest-parent cells / no-data sentinels (data-workflows #309, gated by #311).** Three aggregation traps the GLEN accuracy sweep surfaced — document each on the relevant asset:
   - **Repeated features (polygon/point assets).** Handled by the REPEATED-vs-VARIES per-feature row-duplication rule above — run `scripts/audit-feature-dup.py` to get the verdict and document it. `verify-stac.py`'s `polygon-row-dup-candidate` **ADVISORY** is just the automatic CI tripwire that flags a `rows ≫ COUNT(DISTINCT id)` candidate; treat it as a prompt to run that auditor, not a defect on its own (the signal over-flags — the column may be a label or provenance key, not the feature id).
-  - **NULL finest-parent cells.** If the hex build caps very large features at a coarser native resolution (WDPA: `h9` is NULL for the 1,297 biggest features, `h8` is complete), the hex asset description MUST name the complete column and say joins should use the coarsest shared resolution (or `h3_cell_to_parent()`), not the finest. `verify-stac.py` **HARD**-flags an undocumented NULL finest hex column.
+  - **NULL finest-parent cells.** If the hex build caps very large features at a coarser native resolution (WDPA: `h9` is NULL for the 1,297 biggest features, `h8` is complete), the hex asset description MUST name the complete column and say how to use each feature's **finest** cell: the fine column where it is set, the coarse column only for the rows where the fine one is NULL (join those through `h3_cell_to_parent(other.h9, 8) = h8`). Do NOT tell consumers to roll every feature up to the complete coarse column: that credits a whole coarse cell to a feature touching one of its children and overstates coverage (#880: an h8 rollup of WDPA turned 388 ecoregions at ≥17% protected into 418, and 248.5M people in PAs/OECMs into 385.5M). `verify-stac.py` **HARD**-flags an undocumented NULL finest hex column.
   - **No-data sentinels.** Document sentinel/fill codes (e.g. land-cover `0`/`200`) so consumers `WHERE col NOT IN (...)` before `SUM`/`AVG` — an undocumented sentinel poisons aggregates to `NaN`.
 
   ⛔ **MEASURE every added column's range and sentinels — never document one from upstream docs or
@@ -363,6 +454,135 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
 
 - **Point datasets:** `description` or `"processing:notes"` MUST state each point resolved to one H3 cell at the processing resolution, and name the resolution. Example: *"Point observations were hexed to H3 resolution 10 (each point → one ~15 000 m² cell). Multiple points within the same cell are not deduplicated."*
 
+## Step 5b: Ship a default style with the data
+
+Every collection says how to draw itself. This is a Portolan rule (PORTO-CORE-069/070,
+PORTO-FMT-014/015), and it means an app, or any other Portolan client, gets a sensible map from
+the catalog alone instead of each app re-inventing the paint in its own `layers-input.json`.
+
+**PMTiles → a MapLibre style file.** One or more complete MapLibre GL style v8 files in a
+`styles/` directory beside the collection JSON, each registered as a collection-level asset:
+
+```json
+"style-fee": {
+  "href": "https://s3-west.nrp-nautilus.io/public-padus/padus-4-1/fee/styles/fee.json",
+  "type": "application/vnd.mapbox.style+json",
+  "title": "Fee lands by GAP status",
+  "description": "Features coloured by GAP status: dark green 1, green 2, blue 3, grey 4.",
+  "roles": ["style", "default"]
+}
+```
+
+- The file sets `version: 8`, a `name`, `sources.data` = `{"type": "vector", "url":
+  "pmtiles://<path from styles/ to the .pmtiles>"}` (e.g. `pmtiles://../../fee.pmtiles`; a bare
+  relative path does not load in MapLibre), and every layer has `source: "data"` and
+  `source-layer` = the PMTiles asset's `vector:layers` entry.
+- Polygons get a `fill` layer plus an outline `line` layer; lines a `line`; points a `circle`.
+- Several styles (one per interesting attribute) are welcome; **exactly one per PMTiles file
+  carries the `default` role** (glen matches a style to its file, glen#440). Put `default` on
+  a lone style too.
+- `description` says what the colours mean, in the user-facing register below.
+- Legend and hover hints go in the style's `metadata` under `glen:` keys
+  (`glen:legend` = `{type, classes, label}`, `glen:tooltip_fields`), which MapLibre ignores.
+
+**COG → a `renders` entry**, since Portolan has not settled raster style files yet
+(portolan-spec#41). Add the render extension
+(`https://stac-extensions.github.io/render/v2.0.0/schema.json`) and one entry per COG with the
+same values the apps pass to titiler:
+
+```json
+"renders": {"v2-irrecoverable-2024": {"title": "Irrecoverable carbon 2024",
+  "assets": ["v2-irrecoverable-2024-cog"], "colormap_name": "reds", "rescale": [[0, 150]]}}
+```
+
+A categorical COG whose colours are embedded as a colour table needs no entry.
+
+`raster-workflow` (cng-datasets 0.16.0 and later) writes `s3://<bucket>/<dataset>.render.json`
+with one render per COG it wrote: the colour table when the COG has one, otherwise `viridis`
+over the 2nd-98th percentile in real units. Add `title` and `assets` to each entry and put it
+under `renders`. It is a default, not the answer: diverging data, a categorical raster without a
+colour table, or log-scaled data needs `cng-datasets cog-render ... --colormap`, `--rescale` or
+`--colormap-json`, run in a job.
+
+**Where the colours come from.** When any GLEN app already shows the layer, reuse its paint:
+`scripts/app-styles.py` reads every app's `layers-input.json` (the list is glen-ops `APPS.md`),
+picks one style when apps disagree (most apps wins, then the app named for the bucket), and writes
+the style files and the patched collection to a scratch directory, with a report of every choice.
+
+```bash
+scripts/app-styles.py --fetch --out /tmp/styles --only public-padus   # then review /tmp/styles/report.md
+scripts/verify-stac.py --no-data /tmp/styles/public-padus/padus-4-1/fee/stac-collection.json
+```
+
+Then upload `/tmp/styles/public-padus/` (only styles/ files and the patched collection JSON are
+in it) from a publish job, through a ConfigMap; nothing uploads from your machine (AGENTS.md,
+Hard Boundary 1).
+
+**For a new dataset no app shows yet, the default is a considered style on its primary
+variable, built from the data the way you write its STAC.** Part of every ingest, before any app
+draws the layer:
+
+1. Examine the data: `scripts/default-style.py profile <collection-url>` lists each PMTiles
+   file's attributes (type, distinct count, range or values) beside the column descriptions.
+2. Decide which variable is primary: a categorical one, or a continuous one if that is the main
+   thing the data measures. An identifier, a name or a per-feature area is not a variable.
+3. Build the style on it, with a sentence on why that variable:
+
+```bash
+scripts/default-style.py build <url> --asset d-pmtiles --column CLASS --kind categorical \
+  --label "habitat class" --why "..." [--colors '{"A":"#..."}'] [--labels '{"A":"..."}'] --out /tmp/styles
+scripts/default-style.py build <url> --asset d-pmtiles --column VALUE --kind continuous \
+  --label "..." --why "..." [--palette ylorrd] [--unit "%"] [--nodata -9999] --out /tmp/styles
+```
+
+Categorical colours the most frequent values (counted in the GeoParquet through the duckdb-geo
+server), labelled from the column's `CODE=Definition` description, the rest as Other; give
+`--colors` for classes that have a meaning (wildfire red, GAP greens) and it also sets the legend
+order. Continuous shades quantile classes of the real range, with missing values in no-data
+grey. `A/B` as the column shades a ratio of two columns. Both write `glen:legend` classes.
+
+`cng-datasets style-profile` and `cng-datasets style` (0.16.0) are the same profile and build
+with the same flags, run in a job. They read the GeoParquet directly instead of through the MCP,
+and write only the style JSON (`--output s3://.../styles/<stem>-<column>.json`), so the job
+still adds the style asset to the collection and runs the guard. Pass `--collection` and
+`--asset` for `CODE=meaning` labels.
+
+A one-colour default is refused (`stac-publish-guard.py` and `verify-stac.py`) unless the data
+really has no variable worth showing, such as an outline with no attributes or tiles that carry
+only identifiers. Then `--single-colour "why"` records the reason as the style's description
+and `glen:single_colour_reason`. An app that later adds the layer should read the catalog style
+rather than copy it.
+
+**A recipe job that overwrites a live collection** (a `*-publish-stac.yaml` that copies a
+ConfigMap file over `stac-collection.json`) would drop the styles, renders and thumbnail. Run
+`scripts/stac-publish-guard.py` before each such `rclone copyto` (its docstring has the job
+snippet); it merges them back from the live collection.
+
+`verify-stac.py` fails a malformed style asset (wrong media type, not under `styles/`, no title,
+not exactly one `default` per PMTiles file), a `style-fallback-*` default, and a one-colour
+default with no `glen:single_colour_reason`; it advises `pmtiles-no-style` on a PMTiles
+collection without one.
+
+### Thumbnail
+
+Every collection with a default style or render carries a thumbnail drawn from it
+(PORTO-CORE-067, #889). Build it after the style, and publish it with the collection:
+
+```bash
+scripts/thumbnail.py <collection-url> --out /tmp/thumbs   # writes thumbnail.png + the collection
+```
+
+It draws the first default style (PMTiles, MapLibre in headless Chromium via Playwright) or
+the newest COG render (TiTiler `/cog/preview.png`, unscaled like the apps), and adds a
+`thumbnail` asset (`image/png`). The guard keeps a live thumbnail the new file lacks.
+
+In a job, without Chromium, use cng-datasets 0.16.0 instead. `cng-datasets vector-thumbnail
+--style <style json> --parquet <gpq> --output <png>` draws the style with GDAL. It applies each
+layer's `filter` and frames the drawn features, so a filtered-out placeholder does not widen the
+view. A COG's thumbnail comes with its render (`<cog stem>.thumbnail.png`, named in
+`render.json`). Either way, add the `thumbnail` asset yourself.
+`verify-stac.py` fails a thumbnail that is not an image and advises `thumbnail-missing`.
+
 ## Step 6: Register in the parent sub-catalog
 
 **The STAC catalog is a TREE.** Datasets belong in their domain/bucket sub-catalog, not the root. Root `public-data/stac/catalog.json` only links top-level sub-catalogs (e.g. `public-high-seas`, `public-padus`, `public-census`).
@@ -373,8 +593,9 @@ Before linking:
 3. Brand-new bucket/domain → create bucket-level `stac-collection.json`, register children in it, then link that bucket-level collection from root.
 
 ```bash
-curl -s https://s3-west.nrp-nautilus.io/<bucket>/stac-collection.json > /tmp/parent.json
-# Edit /tmp/parent.json to append {"rel": "child", "id": "...", "href": "...", "title": "..."}
+# In the publish job, so the edit lands on the live file:
+rclone cat nrp:<bucket>/stac-collection.json > /tmp/parent.json
+# append {"rel": "child", "id": "...", "href": "...", "title": "..."} to /tmp/parent.json
 rclone copyto /tmp/parent.json nrp:<bucket>/stac-collection.json
 ```
 
