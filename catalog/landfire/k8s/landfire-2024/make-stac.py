@@ -18,6 +18,42 @@ Writes to /tmp only -- this repo never contains STAC JSON (AGENTS.md Hard Bounda
 """
 import argparse, csv, json, pathlib, sys
 
+
+def v2_classes(doc):
+    """Classification v2 (#761): a class's label goes to `title` and `name` becomes its slug,
+    with `-<value>` added where a label repeats. Same rule as
+    catalog/portolan/k8s/classes-761/fix_classes.py, so a rebuild keeps the published names."""
+    import re, unicodedata
+
+    def slug(s):
+        s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
+        return re.sub(r"[^0-9a-z]+", "-", s.lower()).strip("-")
+
+    def fix(classes):
+        todo = [c for c in classes if isinstance(c, dict) and "title" not in c
+                and (c.get("name") or c.get("description"))]
+        taken = {c["name"] for c in classes if isinstance(c, dict) and "title" in c and c.get("name")}
+        labels = [c.get("name") or c["description"] for c in todo]
+        slugs = [slug(x) for x in labels]
+        for c, label, s in zip(todo, labels, slugs):
+            if not s or slugs.count(s) > 1 or s in taken:
+                s = f"{s}-{re.sub(r'[^0-9A-Za-z_-]', '-', str(c.get('value')))}".strip("-")
+            taken.add(s)
+            c["title"], c["name"] = label, s
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "classification:classes" and isinstance(v, list):
+                    fix(v)
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(doc)
+    return doc
+
 BUCKET = "public-landfire"
 BASE = f"https://s3-west.nrp-nautilus.io/{BUCKET}"
 ROOT = "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
@@ -322,7 +358,7 @@ def main():
     for layer, cfg in LAYERS.items():
         coll, n_vals, n_cls = build(layer, cfg, a.legends, a.hist)
         p = out / f"landfire-2024-{layer}.json"
-        p.write_text(json.dumps(coll, indent=2))
+        p.write_text(json.dumps(v2_classes(coll), indent=2))
         print(f"{p}  values={n_vals}  classes={n_cls}  {p.stat().st_size/1024:.0f} KiB")
     p = out / "landfire-bucket.json"
     p.write_text(json.dumps(bucket_collection(), indent=2))

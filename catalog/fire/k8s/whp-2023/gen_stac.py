@@ -19,6 +19,42 @@ import copy
 import json
 import urllib.request
 
+
+def v2_classes(doc):
+    """Classification v2 (#761): a class's label goes to `title` and `name` becomes its slug,
+    with `-<value>` added where a label repeats. Same rule as
+    catalog/portolan/k8s/classes-761/fix_classes.py, so a rebuild keeps the published names."""
+    import re, unicodedata
+
+    def slug(s):
+        s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
+        return re.sub(r"[^0-9a-z]+", "-", s.lower()).strip("-")
+
+    def fix(classes):
+        todo = [c for c in classes if isinstance(c, dict) and "title" not in c
+                and (c.get("name") or c.get("description"))]
+        taken = {c["name"] for c in classes if isinstance(c, dict) and "title" in c and c.get("name")}
+        labels = [c.get("name") or c["description"] for c in todo]
+        slugs = [slug(x) for x in labels]
+        for c, label, s in zip(todo, labels, slugs):
+            if not s or slugs.count(s) > 1 or s in taken:
+                s = f"{s}-{re.sub(r'[^0-9A-Za-z_-]', '-', str(c.get('value')))}".strip("-")
+            taken.add(s)
+            c["title"], c["name"] = label, s
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "classification:classes" and isinstance(v, list):
+                    fix(v)
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(doc)
+    return doc
+
 BUCKET = "public-fire"
 BASE = f"https://s3-west.nrp-nautilus.io/{BUCKET}"
 ROOT = "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
@@ -335,7 +371,7 @@ def dataset_collection(name, cfg):
         "stac_extensions": [
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
-            "https://stac-extensions.github.io/classification/v1.1.0/schema.json",
+            "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
         ] if is_cls else [
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
@@ -560,7 +596,7 @@ if __name__ == "__main__":
     for name, cfg in DATASETS.items():
         path = f"/tmp/{name}-stac.json"
         with open(path, "w") as f:
-            json.dump(dataset_collection(name, cfg), f, indent=2)
+            json.dump(v2_classes(dataset_collection(name, cfg)), f, indent=2)
             f.write("\n")
         written.append(path)
 
