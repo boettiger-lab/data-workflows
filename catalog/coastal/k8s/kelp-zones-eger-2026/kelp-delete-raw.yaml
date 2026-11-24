@@ -1,0 +1,31 @@
+# HAND-ROLLED: the generator has no cleanup step. Deletes the staged raw build cache
+# (raw/kelp-eger-2026/: the kelp GeoPackage taken from the OSF archive) once the published
+# collection passes verify-stac.py; its provenance (archive, sha256, access date) is in the
+# STAC description (#1040). A rebuild re-stages from OSF with kelp-stage-raw.yaml.
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/kelp-zones-eger-2026/kelp-delete-raw.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kelp-eger-2026-delete-raw
+  namespace: geo-workflows
+  labels: {k8s-app: kelp-eger-2026-delete-raw}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: kelp-eger-2026-delete-raw}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 600
+      priorityClassName: opportunistic
+      containers:
+      - name: cleanup
+        image: ghcr.io/boettiger-lab/datasets:latest
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command: [bash, -c, "set -euo pipefail; rclone lsl nrp:public-coastal/raw/kelp-eger-2026/; rclone purge nrp:public-coastal/raw/kelp-eger-2026/; echo OK"]
+        resources:
+          requests: {cpu: '1', memory: 512Mi}
+          limits:   {cpu: '1', memory: 512Mi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
