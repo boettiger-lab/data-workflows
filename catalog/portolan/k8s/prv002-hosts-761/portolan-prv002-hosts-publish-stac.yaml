@@ -1,0 +1,59 @@
+# HAND-ROLLED: the generator does not write STAC. A metadata-only fix (#761), Portolan PTL-PRV-002:
+# each collection gets exactly one host provider (us), listed last. Upstream distributors drop the
+# `host` role and keep their other roles. 136 collections in collections.txt; public-high-seas is
+# left out (in progress elsewhere). fix_hosts.py edits each LIVE collection, so nothing else changes.
+#   kubectl create configmap portolan-prv002-hosts-script -n geo-workflows \
+#     --from-file=catalog/portolan/k8s/prv002-hosts-761/fix_hosts.py \
+#     --from-file=catalog/portolan/k8s/prv002-hosts-761/collections.txt \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/portolan/k8s/prv002-hosts-761/portolan-prv002-hosts-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: portolan-prv002-hosts-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: portolan-prv002-hosts-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: portolan-prv002-hosts-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3000
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          n=0
+          while read -r p; do
+            [ -n "$p" ] || continue
+            rclone cat "nrp:$p" > /tmp/c.json
+            python3 /script/fix_hosts.py /tmp/c.json "${p%%/*}"
+            guard_stac /tmp/c.json "nrp:$p"
+            rclone copyto /tmp/c.json "nrp:$p" $R
+            n=$((n+1))
+          done < /script/collections.txt
+          echo "OK $n"
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: portolan-prv002-hosts-script}}
