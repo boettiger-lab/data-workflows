@@ -18,6 +18,42 @@ import json
 import os
 import sys
 
+
+def v2_classes(doc):
+    """Classification v2 (#761): a class's label goes to `title` and `name` becomes its slug,
+    with `-<value>` added where a label repeats. Same rule as
+    catalog/portolan/k8s/classes-761/fix_classes.py, so a rebuild keeps the published names."""
+    import re, unicodedata
+
+    def slug(s):
+        s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
+        return re.sub(r"[^0-9a-z]+", "-", s.lower()).strip("-")
+
+    def fix(classes):
+        todo = [c for c in classes if isinstance(c, dict) and "title" not in c
+                and (c.get("name") or c.get("description"))]
+        taken = {c["name"] for c in classes if isinstance(c, dict) and "title" in c and c.get("name")}
+        labels = [c.get("name") or c["description"] for c in todo]
+        slugs = [slug(x) for x in labels]
+        for c, label, s in zip(todo, labels, slugs):
+            if not s or slugs.count(s) > 1 or s in taken:
+                s = f"{s}-{re.sub(r'[^0-9A-Za-z_-]', '-', str(c.get('value')))}".strip("-")
+            taken.add(s)
+            c["title"], c["name"] = label, s
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "classification:classes" and isinstance(v, list):
+                    fix(v)
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(doc)
+    return doc
+
 BUCKET = "public-pesticides"
 DATASET = "tang-2021"
 BASE = f"https://s3-west.nrp-nautilus.io/{BUCKET}"
@@ -432,7 +468,7 @@ def main():
     objs = objects(objs_path)
     coll = build_collection(objs, access_date)
     os.makedirs(f"{out}/{DATASET}", exist_ok=True)
-    json.dump(coll, open(f"{out}/{DATASET}/stac-collection.json", "w"), indent=2,
+    json.dump(v2_classes(coll), open(f"{out}/{DATASET}/stac-collection.json", "w"), indent=2,
               ensure_ascii=False)
     open(f"{out}/{DATASET}/README.md", "w").write(readme(coll))
     json.dump(build_parent(objs), open(f"{out}/stac-collection.json", "w"), indent=2,

@@ -24,6 +24,42 @@ import io
 import json
 import urllib.request
 
+
+def v2_classes(doc):
+    """Classification v2 (#761): a class's label goes to `title` and `name` becomes its slug,
+    with `-<value>` added where a label repeats. Same rule as
+    catalog/portolan/k8s/classes-761/fix_classes.py, so a rebuild keeps the published names."""
+    import re, unicodedata
+
+    def slug(s):
+        s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
+        return re.sub(r"[^0-9a-z]+", "-", s.lower()).strip("-")
+
+    def fix(classes):
+        todo = [c for c in classes if isinstance(c, dict) and "title" not in c
+                and (c.get("name") or c.get("description"))]
+        taken = {c["name"] for c in classes if isinstance(c, dict) and "title" in c and c.get("name")}
+        labels = [c.get("name") or c["description"] for c in todo]
+        slugs = [slug(x) for x in labels]
+        for c, label, s in zip(todo, labels, slugs):
+            if not s or slugs.count(s) > 1 or s in taken:
+                s = f"{s}-{re.sub(r'[^0-9A-Za-z_-]', '-', str(c.get('value')))}".strip("-")
+            taken.add(s)
+            c["title"], c["name"] = label, s
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "classification:classes" and isinstance(v, list):
+                    fix(v)
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(doc)
+    return doc
+
 BUCKET = "https://s3-west.nrp-nautilus.io/public-connectivity"
 VAT_URL = f"{BUCKET}/raw/vat/a00000020_vat_RCN_National_2024.csv"
 
@@ -443,7 +479,7 @@ def collection():
 def main():
     out = "/tmp/stac-collection.json"
     with open(out, "w") as f:
-        json.dump(collection(), f, indent=2)
+        json.dump(v2_classes(collection()), f, indent=2)
         f.write("\n")
     with open("/tmp/parent.json", "w") as f:
         json.dump(parent(), f, indent=2)
