@@ -1,0 +1,111 @@
+# HAND-ROLLED: the generator does not write STAC. Publishes the global-delta-change collection and
+# README, builds a default style per PMTiles layer with `cng-datasets style`, draws the thumbnail
+# from the basins style, and adds a child link to the public-coastal bucket collection (#796).
+# The collection and README come from gen_stac.py (committed beside this file):
+#   python3 catalog/coastal/k8s/global-delta-change/gen_stac.py /tmp/deltastac
+#   kubectl create configmap delta-stac-files -n geo-workflows \
+#     --from-file=stac-collection.json=/tmp/deltastac/stac-collection.json \
+#     --from-file=README.md=/tmp/deltastac/README.md --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/global-delta-change/delta-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: global-delta-change-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: global-delta-change-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: global-delta-change-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: files, mountPath: /files, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          H=https://s3-west.nrp-nautilus.io/public-coastal/global-delta-change
+          D=public-coastal/global-delta-change
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          mkdir -p /work/styles && cd /work
+          # ConfigMap files are symlinks, which rclone will not copy: take real copies first.
+          cp -L /files/stac-collection.json c.json && cp -L /files/README.md README.md
+
+          # One default style per PMTiles layer, on the change in sediment supply.
+          for n in mouths rivers basins delta_areas; do
+            cng-datasets style "$H/$n.pmtiles" --output styles/$n-sediment_change_pct.json \
+              --column sediment_change_pct --kind continuous --palette oranges --reverse \
+              --breaks=-75,-50,-25,-5,5 --unit % --label "change in sediment supply" \
+              --title "Delta $n" --tooltip delta_name,sediment_change_pct,qriver_dist_kgs \
+              --why "The change in sediment supply from pristine to present-day is what this dataset adds: it shows where dams have starved deltas of the sediment that builds them."
+            python3 - "$n" <<'PY'
+          import json, sys
+          n = sys.argv[1]; p = f"styles/{n}-sediment_change_pct.json"
+          s = json.load(open(p))
+          s["sources"]["data"]["url"] = f"pmtiles://../{n}.pmtiles"
+          json.dump(s, open(p, "w"), indent=2, ensure_ascii=False)
+          PY
+          done
+
+          # Thumbnail drawn from the basins style over the published GeoParquet.
+          rclone copyto nrp:$D/basins.parquet basins.parquet $R
+          cng-datasets vector-thumbnail --style styles/basins-sediment_change_pct.json --parquet basins.parquet --output thumbnail.png
+          python3 - <<'PY'
+          import json
+          d = json.load(open("c.json"))
+          d["assets"]["thumbnail"] = {
+              "href": "https://s3-west.nrp-nautilus.io/public-coastal/global-delta-change/thumbnail.png",
+              "type": "image/png", "roles": ["thumbnail"],
+              "title": "Delta drainage basins coloured by change in sediment supply"}
+          json.dump(d, open("c.json", "w"), indent=2, ensure_ascii=False)
+          PY
+
+          rclone copy styles nrp:$D/styles $R
+          rclone copyto thumbnail.png nrp:$D/thumbnail.png $R
+          rclone copyto README.md nrp:$D/README.md $R
+          guard_stac c.json nrp:$D/stac-collection.json
+          rclone copyto c.json nrp:$D/stac-collection.json $R
+
+          # Child link on the bucket collection, added only if absent; every other field kept.
+          rclone cat nrp:public-coastal/stac-collection.json > parent.json
+          python3 - <<'PY'
+          import json
+          p = json.load(open("parent.json"))
+          href = "https://s3-west.nrp-nautilus.io/public-coastal/global-delta-change/stac-collection.json"
+          if not any(l.get("href") == href for l in p["links"]):
+              p["links"].append({"rel": "child", "href": href, "type": "application/json",
+                                 "title": "Global river deltas: sediment supply, land change and sea-level rise"})
+          json.dump(p, open("parent.json", "w"), indent=2, ensure_ascii=False)
+          PY
+          guard_stac parent.json nrp:public-coastal/stac-collection.json
+          rclone copyto parent.json nrp:public-coastal/stac-collection.json $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: files, configMap: {name: delta-stac-files}}
