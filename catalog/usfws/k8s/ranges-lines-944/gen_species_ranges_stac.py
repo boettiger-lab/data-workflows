@@ -133,7 +133,7 @@ def main(out):
             },
             "species-ranges-pmtiles": {
                 "href": f"{BASE}/species-ranges.pmtiles", "type": "application/vnd.pmtiles",
-                "title": "USFWS Current Species Ranges — PMTiles", "roles": ["data"],
+                "title": "USFWS Current Species Ranges — PMTiles", "roles": ["data", "visual"],
                 "description": "Vector tiles of the range polygons for web maps; overlapping ranges are drawn on top of one another.",
                 "created": pm_time, "file:size": pm_size, "vector:layers": ["species-ranges"],
                 "table:columns": [{"name": n, "type": TILE_TYPE[t]} for n, t, _ in COLUMNS if n in ATTRS],

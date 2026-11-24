@@ -305,7 +305,7 @@ def main(out):
         if path not in objs:
             raise SystemExit(f"missing object {path}")
         a = {"href": f"{PUB}/{path}", "type": typ, "title": title, "description": desc,
-             "roles": list(roles), "created": objs[path][1], "file:size": objs[path][0]}
+             "roles": list(roles) + (["visual"] if typ == "application/vnd.pmtiles" else []), "created": objs[path][1], "file:size": objs[path][0]}
         a.update(kw)
         return a
 

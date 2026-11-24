@@ -1,0 +1,5 @@
+public-high-seas/mpa-candidates/stac-collection.json
+public-high-seas/ebsa/stac-collection.json
+public-high-seas/ebsa-2023/stac-collection.json
+public-high-seas/longhurst/stac-collection.json
+public-high-seas/ecs/stac-collection.json
