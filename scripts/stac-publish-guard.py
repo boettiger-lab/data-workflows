@@ -13,6 +13,7 @@ It edits NEW.json in place to KEEP what the new file lacks:
   * style assets (`style` role), `renders`, and the render extension (#881)
   * the `thumbnail` asset, when the new file has none (#889)
   * `rel: pmtiles` links whose file is still a PMTiles asset of the new collection (#890)
+  * the `rel: describedby` link to the node's own README.md, beside its STAC file (#761)
 
 and REFUSES (exit 3, NEW.json untouched) when the new file would undo a change:
   * `columns`: the live collection has a `table:columns` dictionary and the new one has none
@@ -27,7 +28,8 @@ A deliberate change of either kind sets STAC_GUARD_ALLOW=columns,keys (or one of
 job, which records the decision where a reviewer sees it.
 
 A missing or unreadable LIVE.json means a new collection: nothing to keep, nothing refused.
-A NEW.json of type Catalog (a grouping node, #762) keeps nothing: Catalogs carry no assets.
+A NEW.json of type Catalog (a grouping node, #762) keeps only its README link: Catalogs carry
+no assets.
 Exit 0 means NEW.json is safe to upload.
 
 In a job (the image has no repo checkout, so fetch it; `curl -f` fails closed):
@@ -61,6 +63,13 @@ def _is_pmtiles(asset: dict) -> bool:
     return "pmtiles" in asset.get("type", "")
 
 
+def _own_readme(doc: dict) -> list[dict]:
+    """`describedby` links to the README.md beside the node's own STAC file (Portolan FIL-003)."""
+    readme = _absolute(doc, "README.md")
+    return [l for l in doc.get("links", []) if l.get("rel") == "describedby"
+            and _absolute(doc, l.get("href")) == readme]
+
+
 def guard(new: dict, live: dict, allow: set[str]) -> tuple[list[str], list[str]]:
     """Mutates `new`. Returns (kept, refused) human-readable lists."""
     kept, refused = [], []
@@ -78,6 +87,13 @@ def guard(new: dict, live: dict, allow: set[str]) -> tuple[list[str], list[str]]
                            f"key rename, or set STAC_GUARD_ALLOW=keys")
     if refused:
         return kept, refused
+
+    # #761: a generator that writes no README link would drop the one added to the live node
+    if _base(new) and _base(new) == _base(live) and not _own_readme(new):
+        readme = _own_readme(live)[:1]
+        if readme:
+            new.setdefault("links", []).extend(json.loads(json.dumps(readme)))
+            kept.append("1 README link")
 
     if new.get("type") == "Catalog":  # #762: a Catalog carries no assets or renders to keep
         return kept, refused
