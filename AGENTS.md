@@ -106,6 +106,15 @@ Two things will tempt you across this line, and both have:
 If a task genuinely seems to require a mirror-side change, that is a signal to stop and hand it
 over, not to make the change.
 
+### The app that asked for the dataset is in scope
+
+Mirrors are not yours; the app a dataset was requested for is. Publishing does not put a
+dataset in front of that app's users: its layer config and dataset pages are hand-kept in the
+app's repo and go stale silently. When the issue carries an app label (`coasts`, tracked in
+#797), finish by adding the dataset there, following that repo's AGENTS.md (coasts:
+"Syncing with the catalog" in SchmidtDSE/coasts). Pushing an app's `main` deploys it, so get
+the owner's OK first.
+
 ## Git workflow
 
 **Use a worktree for every dataset task.** Sessions in this repo frequently open on a stale in-flight branch (e.g. last week's paused ingest); committing there silently mixes unrelated work and forces cherry-picks later. Before staging changes:
@@ -116,7 +125,7 @@ over, not to make the change.
 
 ## ⛔ HARD BOUNDARY 2: Do NOT Touch the `cng-datasets` Tool Repo
 
-Work only in `data-workflows`. Do not edit/commit/push/PR to `boettiger-lab/datasets` or any other repo. If `cng-datasets` has a bug: file a GitHub issue on `boettiger-lab/datasets` with a minimal reproducible example (see below), tell the user, and wait. Prior hotfixes have caused production failures — the tool has tests and a deploy pipeline, and unreviewed hotfixes bypass them.
+Work only in `data-workflows`. Do not edit/commit/push/PR to `boettiger-lab/datasets` or any other repo, except the requesting app's layer config and dataset pages (below Hard Boundary 1). If `cng-datasets` has a bug: file a GitHub issue on `boettiger-lab/datasets` with a minimal reproducible example (see below), tell the user, and wait. Prior hotfixes have caused production failures — the tool has tests and a deploy pipeline, and unreviewed hotfixes bypass them.
 
 ### Bug reports must include a tested MRE
 
