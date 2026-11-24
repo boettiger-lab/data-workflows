@@ -20,18 +20,17 @@ KELP = {"laminarian": "Laminarian kelps (order Laminariales), the large canopy-f
         "both": "Both laminarian and fucoid kelp forests."}
 COLS = [
     {"name": "kelptype", "type": "string",
-     "description": "Kelp forest type on the segment: laminarian, fucoid or both.",
-     "values": [{"value": k, "description": v} for k, v in KELP.items()]},
+     "description": "Kelp forest type on the segment: laminarian (laminarian kelps, order Laminariales, the large canopy-forming kelps), fucoid (fucoid seaweed forests, order Fucales) or both.",
+     "values": list(KELP)},
     {"name": "major_minor", "type": "string",
-     "description": "Whether kelp forests are a major or a minor feature of this stretch of coast, as classed by the authors.",
-     "values": [{"value": "major", "description": "Kelp forests are a major feature of this coast."},
-                {"value": "minor", "description": "Kelp forests occur but are a minor feature of this coast."}]},
+     "description": "Whether kelp forests are a major or a minor feature of this stretch of coast, as classed by the authors: major or minor.",
+     "values": ["major", "minor"]},
     {"name": "combo", "type": "string",
      "description": "The authors' concatenation of kelptype and major_minor. 66 segments spell it laminariamajor rather than laminarianmajor; use kelptype and major_minor instead.",
-     "values": [{"value": v, "description": v} for v in
+     "values": [v for v in
                 ["bothmajor", "bothminor", "fucoidmajor", "fucoidminor", "laminariamajor", "laminarianmajor", "laminarianminor"]]},
     {"name": "featurecla", "type": "string", "description": "Natural Earth feature class of the coastline segment.",
-     "values": [{"value": "Coastline", "description": "Coastline."}]},
+     "values": ["Coastline"]},
     {"name": "scalerank", "type": "int64", "description": "Natural Earth scale rank of the coastline segment (0 shows at the smallest map scales)."},
     {"name": "min_zoom", "type": "double", "description": "Natural Earth minimum web-map zoom at which the coastline segment is meant to show."},
     {"name": "fid", "type": "int64", "description": "Feature id of the segment in the authors' GeoPackage."},
