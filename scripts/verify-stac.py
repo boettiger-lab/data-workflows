@@ -1671,6 +1671,53 @@ def check_portolan_metadata(doc: dict) -> list[Finding]:
     return out
 
 
+STORAGE_EXT = "https://stac-extensions.github.io/storage/v2.0.0/schema.json"
+NRP_ENDPOINT = "https://s3-west.nrp-nautilus.io"
+
+
+def check_partition_storage(doc: dict) -> list[Finding]:
+    """An `s3://` `partition:glob` declares that its bucket is on NRP, not Amazon S3
+    (Portolan PORTO-FMT-066, #1025). Clients, rashid included, read a bare `s3://` URL as
+    AWS, so the collection carries a Storage v2.0.0 `storage:schemes` entry of type
+    `custom-s3` whose `platform` is the NRP endpoint and whose `bucket` is the glob's.
+    An asset or alternate with an `s3://` href on that bucket names the entry in
+    `storage:refs`."""
+    glob = doc.get("partition:glob")
+    if doc.get("type") != "Collection" or not isinstance(glob, str) or not glob.startswith("s3://"):
+        return []
+    out = []
+    bucket = glob[len("s3://"):].split("/", 1)[0]
+    snippet = (f'"storage:schemes": {{"nrp": {{"type": "custom-s3", "platform": '
+               f'"{NRP_ENDPOINT}", "bucket": "{bucket}"}}}}')
+    if STORAGE_EXT not in (doc.get("stac_extensions") or []):
+        out.append(Finding(HARD, "partition-storage-extension",
+                           f"partition:glob is s3:// but stac_extensions lacks {STORAGE_EXT}."))
+    schemes = doc.get("storage:schemes")
+    schemes = schemes if isinstance(schemes, dict) else {}
+    names = [n for n, e in schemes.items()
+             if isinstance(e, dict) and e.get("type") == "custom-s3" and e.get("bucket") == bucket
+             and str(e.get("platform") or "").rstrip("/") == NRP_ENDPOINT]
+    if not names:
+        out.append(Finding(HARD, "partition-storage-scheme",
+                           f"partition:glob {glob} is read as Amazon S3: no storage:schemes "
+                           f"entry names NRP and bucket {bucket!r}. Add {snippet}."))
+        return out
+    unref = []
+    for key, a in (doc.get("assets") or {}).items():
+        if not isinstance(a, dict):
+            continue
+        alts = a.get("alternate") if isinstance(a.get("alternate"), dict) else {}
+        for where, obj in [(key, a)] + [(f"{key}.alternate.{k}", v) for k, v in alts.items()]:
+            if (isinstance(obj, dict) and str(obj.get("href") or "").startswith(f"s3://{bucket}/")
+                    and not set(obj.get("storage:refs") or []) & set(names)):
+                unref.append(where)
+    if unref:
+        out.append(Finding(HARD, "partition-storage-refs",
+                           f"s3:// href(s) at {sorted(unref)} need \"storage:refs\": "
+                           f'["{names[0]}"].'))
+    return out
+
+
 STATIC_CHECKS = [
     check_license,
     check_nav_links,
@@ -1688,6 +1735,7 @@ STATIC_CHECKS = [
     check_thumbnail,
     check_citation,
     check_portolan_metadata,
+    check_partition_storage,
     check_tree,
     check_cng_fid,
     check_hex_dup_warning,

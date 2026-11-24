@@ -263,13 +263,23 @@ was 8.5 points wrong — the same mechanism as the pinyon-juniper defect (#505).
   `table:columns` and `created`.
 
   ```json
-  "stac_extensions": [..., "https://schemas.portolan-sdi.org/incubating/partition/v1.0.0/schema.json"],
+  "stac_extensions": [...,
+    "https://schemas.portolan-sdi.org/incubating/partition/v1.0.0/schema.json",
+    "https://stac-extensions.github.io/storage/v2.0.0/schema.json"],
   "partition:scheme": "hive",
   "partition:strategy": "h3",
   "partition:keys": [{"name": "h0", "type": "int64", "description": "H3 resolution-0 cell id"}],
   "partition:glob": "s3://<bucket>/<dataset>/hex/h0=*/data_0.parquet",
-  "partition:file_count": 122
+  "partition:file_count": 122,
+  "storage:schemes": {"nrp": {"type": "custom-s3",
+    "platform": "https://s3-west.nrp-nautilus.io", "bucket": "<bucket>"}}
   ```
+
+  Clients, rashid included, read a bare `s3://` URL as Amazon S3, so the `storage:schemes`
+  entry is what points the glob at NRP (Portolan PORTO-FMT-066, #1025). Its `bucket` is the
+  bucket in the glob. An asset or alternate whose `href` is `s3://` adds
+  `"storage:refs": ["nrp"]`. `verify-stac.py` fails a glob without them
+  (`partition-storage-*`).
 
   Each key is an object, not a bare string; a per-year raster hex has `year` (`int32`) before
   `h0`, with the glob `hex/year=*/h0=*/data_0.parquet`. The glob is `s3://`, because HTTPS
