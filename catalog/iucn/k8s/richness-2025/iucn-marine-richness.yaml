@@ -1,0 +1,67 @@
+# HAND-ROLLED: the generator has no step that derives a layer from other catalog data. This
+# job counts species from iucn-ranges-2025 joined to iucn-taxonomy-2025 at H3 resolution 5
+# and writes the hex and COG layers marine_sr and marine_thr_sr (#807). The script,
+# marine_richness.py, is committed beside this file and mounted from a ConfigMap:
+#   kubectl create configmap iucn-marine-richness-script -n geo-workflows \
+#     --from-file=marine_richness.py=catalog/iucn/k8s/richness-2025/marine_richness.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/iucn/k8s/richness-2025/iucn-marine-richness.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iucn-marine-richness
+  namespace: geo-workflows
+  labels: {k8s-app: iucn-marine-richness}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: iucn-marine-richness}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 5400
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: build
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          PROJ_DB=$(find /usr /opt -name "proj.db" 2>/dev/null | head -1)
+          if [ -n "$PROJ_DB" ]; then export PROJ_DATA="$(dirname $PROJ_DB)"; export PROJ_LIB="$PROJ_DATA"; fi
+          python3 -c "import duckdb; print('duckdb', duckdb.__version__)"
+          mkdir -p /work/tmp
+          python3 /script/marine_richness.py /work
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          for L in marine_sr marine_thr_sr; do
+            rclone copy /work/hex/$L nrp:public-iucn/hex/$L $R
+          done
+          for N in Marine_SR_2025 Marine_THR_SR_2025; do
+            rclone copyto /work/${N}_4326.tif nrp:public-iucn/cog/richness/${N}_4326.tif $R
+          done
+          echo OK
+        resources:
+          requests: {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+          limits:   {cpu: '8', memory: 32Gi, ephemeral-storage: 50Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: iucn-marine-richness-script}}
