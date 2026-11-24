@@ -81,7 +81,8 @@ attrs = pd.DataFrame({
     "land_net_km2yr": fin(v(a, "net_aqua")),
 })
 p, d = attrs.qriver_prist_kgs, attrs.qriver_dist_kgs
-attrs["sediment_change_pct"] = np.where(p > 0, 100 * (d - p) / p, np.nan)
+# 1e-10 kg/s is a floor value upstream (9 deltas), not a flux, so no percentage there.
+attrs["sediment_change_pct"] = np.where(p > 1e-9, 100 * (d - p) / p, np.nan)
 
 W = dict(index=False, compression="zstd", row_group_size=2000)
 mouths = gpd.GeoDataFrame(attrs, geometry=shapely.points(lon, lat), crs="EPSG:4326")
