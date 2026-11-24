@@ -1,3 +1,4 @@
+# HAND-ROLLED: one pod per h0 hexes all 35 rasters (7 variables x 5 GCM members) and joins them into one wide row per cell; the generator emits one raster per job and has no multi-dimension fan-out (datasets#172).
 # CHELSA v2.1 future bioclimate hex (data-workflows #564).
 #
 # One pod per h0; each pod hexes all 7 variables x 5 GCM members (35 rasters) and joins them

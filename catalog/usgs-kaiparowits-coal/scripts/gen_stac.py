@@ -10,6 +10,7 @@ Writes to an output directory; nothing is committed. Upload with:
 
     scripts/verify-stac.py --no-data <file>            # every file, before publishing
     rclone copyto <file> nrp:public-usgs/kaiparowits-coal-resources/<cov>/stac-collection.json
+    Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 
 Usage: gen_stac.py --out /tmp/kaiparowits-stac --facts /tmp/kaiparowits-facts.json
 """

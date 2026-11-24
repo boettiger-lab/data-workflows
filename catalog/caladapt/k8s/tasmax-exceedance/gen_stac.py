@@ -7,6 +7,7 @@ Writes to /tmp only -- this repo never contains STAC JSON (AGENTS.md Hard Bounda
     rclone copyto /tmp/caladapt-tasmax-exceedance.json nrp:public-caladapt/loca2-hybrid/tasmax-exceedance/stac-collection.json
     rclone copyto /tmp/caladapt-tasmax-annual-max.json nrp:public-caladapt/loca2-hybrid/tasmax-annual-max/stac-collection.json
     rclone copyto /tmp/caladapt-bucket.json            nrp:public-caladapt/stac-collection.json
+    Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 
 Measured values below were taken with the duckdb-geo MCP against the published parquet on
 2026-10-26, after the clamped-mean rebuild; `created` is the parquet objects' mtime.

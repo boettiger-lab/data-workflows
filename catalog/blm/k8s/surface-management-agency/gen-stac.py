@@ -6,6 +6,7 @@ was measured on the published GeoParquet / hex via the duckdb-geo MCP; see BUILD
 Publish with:
     rclone copyto /tmp/blm-sma-stac/stac-collection.json \
         nrp:public-blm/surface-management-agency/stac-collection.json
+        Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 """
 import json
 import os

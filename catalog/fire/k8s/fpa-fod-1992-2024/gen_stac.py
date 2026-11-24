@@ -15,6 +15,7 @@ Writes /tmp/stac-collection.json. Then:
   scripts/lint-stac-categorical.py /tmp/stac-collection.json
   scripts/lint-stac-pmtiles-fields.py /tmp/stac-collection.json
   rclone copyto /tmp/stac-collection.json nrp:public-fire/fpa-fod-1992-2024/stac-collection.json
+  Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 """
 import json
 import pathlib

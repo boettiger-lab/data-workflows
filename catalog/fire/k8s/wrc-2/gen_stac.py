@@ -5,6 +5,7 @@ Writes to /tmp only -- this repo never contains STAC JSON (AGENTS.md Hard Bounda
 Upload with:
 
     rclone copyto /tmp/<dataset>-stac-collection.json nrp:public-fire/<dataset>/stac-collection.json
+    Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 
 Every number that describes the *ingested data* (row counts, value ranges, populated h0
 partitions, footprints) is read from `facts.json`, which is populated from measured

@@ -14,6 +14,7 @@ Usage:
 Then verify and publish:
   scripts/verify-stac.py --no-data /tmp/stac-collection.json
   rclone copyto /tmp/stac-collection.json nrp:public-high-seas/ship-density/stac-collection.json
+  Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 """
 import argparse
 import json
