@@ -147,6 +147,61 @@ class Fallbacks(unittest.TestCase):
         self.assertEqual(list(new["renders"]), ["other-key"])
 
 
+README = {"rel": "describedby", "href": BASE + "README.md", "type": "text/markdown"}
+
+
+class ReadmeLink(unittest.TestCase):
+    def test_keeps_live_readme_link(self):
+        lv = live(); lv["links"].append(dict(README))
+        new = new_from(lv)
+        new["links"] = [l for l in new["links"] if l["rel"] != "describedby"]
+        kept, _ = g.guard(new, lv, set())
+        self.assertIn("1 README link", kept)
+        self.assertEqual([l for l in new["links"] if l["rel"] == "describedby"], [README])
+
+    def test_relative_live_link_counts(self):
+        lv = live(); lv["links"].append(dict(README, href="./README.md"))
+        new = new_from(live())
+        g.guard(new, lv, set())
+        self.assertEqual([l["href"] for l in new["links"] if l["rel"] == "describedby"], ["./README.md"])
+
+    def test_new_readme_link_is_not_doubled(self):
+        lv = live(); lv["links"].append(dict(README, href="./README.md"))
+        new = new_from(live()); new["links"].append(dict(README))
+        kept, _ = g.guard(new, lv, set())
+        self.assertNotIn("1 README link", kept)
+        self.assertEqual(sum(l["rel"] == "describedby" for l in new["links"]), 1)
+
+    def test_foreign_describedby_is_not_kept(self):
+        lv = live()
+        lv["links"] += [{"rel": "describedby", "href": "https://example.org/meta.xml"},
+                        {"rel": "describedby", "href": "https://s3-west.nrp-nautilus.io/public-x/README.md"}]
+        new = new_from(live())
+        g.guard(new, lv, set())
+        self.assertFalse(any(l["rel"] == "describedby" for l in new["links"]))
+
+    def test_foreign_describedby_in_new_does_not_block(self):
+        lv = live(); lv["links"].append(dict(README))
+        new = new_from(live())
+        new["links"].append({"rel": "describedby", "href": "https://docs.google.com/x", "type": "text/html"})
+        g.guard(new, lv, set())
+        self.assertEqual(sum(l["rel"] == "describedby" for l in new["links"]), 2)
+
+    def test_moved_node_keeps_nothing(self):
+        lv = live(); lv["links"].append(dict(README))
+        new = new_from(live())
+        new["links"][0]["href"] = "https://s3-west.nrp-nautilus.io/public-y/d/stac-collection.json"
+        g.guard(new, lv, set())
+        self.assertFalse(any(l["rel"] == "describedby" for l in new["links"]))
+
+    def test_catalog_keeps_readme_link(self):
+        lv = {"type": "Catalog", "links": [{"rel": "self", "href": BASE + "stac-collection.json"},
+                                           dict(README)]}
+        new = {"type": "Catalog", "links": [{"rel": "self", "href": BASE + "stac-collection.json"}]}
+        kept, refused = g.guard(new, lv, set())
+        self.assertEqual((kept, refused), (["1 README link"], []))
+
+
 class Refuses(unittest.TestCase):
     def test_dropping_the_column_dictionary_is_refused_and_file_untouched(self):
         new = new_from(live()); new.pop("table:columns")

@@ -430,7 +430,7 @@ rclone copyto /tmp/stac-collection.json nrp:<bucket>/<dataset>/stac-collection.j
 ```
 
 **Replacing a live collection goes through `scripts/stac-publish-guard.py`.**
-It keeps the live default styles, renders and `rel: pmtiles` links the new file lacks, and
+It keeps the live default styles, renders, `rel: pmtiles` links and README link the new file lacks, and
 refuses a file that would drop the live column dictionary or revert an asset-key rename. A job
 that uploads a collection must run it (CI checks, `scripts/check-stac-publish-guard.py`); the
 script's docstring has the job snippet.
