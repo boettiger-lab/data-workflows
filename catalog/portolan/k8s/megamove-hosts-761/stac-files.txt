@@ -1,0 +1,5 @@
+public-high-seas/megamove/stac-collection.json
+public-high-seas/megamove/corridors/stac-collection.json
+public-high-seas/megamove/residencies/stac-collection.json
+public-high-seas/megamove/immegas/stac-collection.json
+public-high-seas/megamove/tracked-individuals/stac-collection.json
