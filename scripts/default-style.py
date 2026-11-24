@@ -27,7 +27,7 @@ Writes <out>/<collection dir>/styles/<stem>-<column>.json and the patched collec
 the new style as the file's default and any fallback style for the file removed. Publishes
 nothing; upload with rclone after review (skill stac-authoring, Step 5b).
 
-The MCP endpoint is MCP_ENDPOINT (default http://localhost:8000/mcp, the port-forward), with the
+The MCP endpoint is MCP_ENDPOINT (default https://duckdb-mcp.nrp-nautilus.io/mcp), with the
 token from MCP_AUTH_TOKEN or GEO_WORKFLOWS_MCP_TOKEN.
 """
 from __future__ import annotations
@@ -119,7 +119,7 @@ def parquet_for(doc: dict, stem: str) -> str | None:
 def mcp():
     vs = _load("verify_stac", "verify-stac.py")
     tok = os.environ.get("MCP_AUTH_TOKEN") or os.environ.get("GEO_WORKFLOWS_MCP_TOKEN")
-    return vs.MCPClient(os.environ.get("MCP_ENDPOINT", "http://localhost:8000/mcp"), tok)
+    return vs.MCPClient(os.environ.get("MCP_ENDPOINT", "https://duckdb-mcp.nrp-nautilus.io/mcp"), tok)
 
 
 def q(s: str) -> str:
