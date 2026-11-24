@@ -4,8 +4,8 @@
 
 Each gets its producer, as its own citation names it, then the lab as processor and host,
 listed last, in the form the bucket's other collections use. mpa-candidates is a direct
-contribution whose owner is deliberately not named (#579), so it gets the host only.
-A collection that already has providers is left alone.
+contribution whose owner is deliberately not named (#579); its producer is a placeholder that
+says so (Carl, 2026-11-24). A collection that already has a producer is left alone.
 """
 import json
 import sys
@@ -16,15 +16,19 @@ VLIZ = {"name": "Marine Regions / Flanders Marine Institute (VLIZ)", "roles": ["
         "url": "https://www.marineregions.org/"}
 CBD = {"name": "Secretariat of the Convention on Biological Diversity", "roles": ["producer", "licensor"],
        "url": "https://www.cbd.int/ebsa/"}
+UNNAMED = {"name": "Data owner (direct contribution, not named)", "roles": ["producer"],
+           "description": "The boundaries were contributed directly by their owner, who is not "
+                          "named. There is no public source, citation or terms page."}
 PRODUCER = {"longhurst-provinces": VLIZ, "ecs-extended-continental-shelf": VLIZ,
-            "ebsa": CBD, "ebsa-2023": CBD, "mpa-candidates": None}
+            "ebsa": CBD, "ebsa-2023": CBD, "mpa-candidates": UNNAMED}
 
 
 def fix(doc):
-    if doc.get("providers") or doc.get("id") not in PRODUCER:
+    provs = doc.get("providers") or []
+    if doc.get("id") not in PRODUCER or any("producer" in (p.get("roles") or []) for p in provs):
         return doc
-    p = PRODUCER[doc["id"]]
-    doc["providers"] = ([dict(p)] if p else []) + [dict(HOST)]
+    hosts = [p for p in provs if "host" in (p.get("roles") or [])] or [dict(HOST)]
+    doc["providers"] = [dict(PRODUCER[doc["id"]])] + [p for p in provs if p not in hosts] + hosts
     return doc
 
 
