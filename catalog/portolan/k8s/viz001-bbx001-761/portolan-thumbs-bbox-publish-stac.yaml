@@ -53,9 +53,11 @@ spec:
             guard_stac /tmp/c.json "nrp:$p"
             rclone copyto /tmp/c.json "nrp:$p" $R
           }
-          rclone copyto /script/peru.png nrp:public-land-cover/worldcover-2021/peru/thumbnail.png $R
+          # ConfigMap files are symlinks, which rclone will not read: copy them out first
+          mkdir -p /tmp/png && cp -L /script/peru.png /script/calflora.png /tmp/png/
+          rclone copyto /tmp/png/peru.png nrp:public-land-cover/worldcover-2021/peru/thumbnail.png $R
           edit public-land-cover/worldcover-2021/peru thumb worldcover-2021-peru
-          rclone copyto /script/calflora.png nrp:public-ca-ccca5/calflora-ranges/thumbnail.png $R
+          rclone copyto /tmp/png/calflora.png nrp:public-ca-ccca5/calflora-ranges/thumbnail.png $R
           edit public-ca-ccca5/calflora-ranges thumb queagr
           edit public-high-seas/ship-density clamp
           echo OK
