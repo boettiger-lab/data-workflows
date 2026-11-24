@@ -158,5 +158,28 @@ class FractionalHexMayCarryTheNodataCode(unittest.TestCase):
         self.assertTrue(any("cross-check failed" in e and "[99]" in e for e in errs), errs)
 
 
+class TitleIsTheLabel(unittest.TestCase):
+    """Classification v2 (#761): `name` is a slug identifier and `title` the label. The
+    human-readable checks read `title` when it is present, else `name`."""
+
+    @staticmethod
+    def v2(value, slug, title, color="808080"):
+        return {"value": value, "name": slug, "title": title, "color_hint": color,
+                "description": f"{title} (test fixture)."}
+
+    def test_slugged_names_with_titles_pass(self):
+        doc = collection([self.v2(1, "open-water", "Open Water"),
+                          self.v2(2, "barren", "Barren")])
+        self.assertEqual(lint(doc), [])
+
+    def test_abbreviation_in_title_is_flagged(self):
+        errs = lint(collection([self.v2(1, "ow", "OW")]))
+        self.assertTrue(any("abbreviation-style label='OW'" in e for e in errs), errs)
+
+    def test_fill_title_is_flagged_behind_an_innocent_slug(self):
+        errs = lint(collection([self.v2(5, "class-5", "Fill-NoData")]))
+        self.assertTrue(any("fill/no-data sentinel" in e for e in errs), errs)
+
+
 if __name__ == "__main__":
     unittest.main()
