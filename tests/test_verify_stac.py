@@ -1488,3 +1488,51 @@ class TestPortolanMetadata(unittest.TestCase):
         self.assertEqual(self.codes({"type": "Catalog", "stac_version": "1.0.0", "links": []}),
                          {"portolan-stac-version": vs.ADVISORY,
                           "portolan-schema-uri": vs.ADVISORY})
+
+
+class TestPartitionStorage(unittest.TestCase):
+    """#1025: an s3:// partition:glob names its NRP bucket in storage:schemes."""
+
+    def doc(self, **over):
+        d = {"type": "Collection",
+             "stac_extensions": [vs.STORAGE_EXT],
+             "partition:glob": "s3://public-x/d/hex/h0=*/data_0.parquet",
+             "storage:schemes": {"nrp": {"type": "custom-s3", "platform": vs.NRP_ENDPOINT,
+                                         "bucket": "public-x"}},
+             "assets": {"d-hex": {"href": "https://s3-west.nrp-nautilus.io/public-x/d/hex/"
+                                          "h0=*/data_0.parquet"}}}
+        d.update(over)
+        return d
+
+    def codes(self, doc):
+        return {f.code: f.severity for f in vs.check_partition_storage(doc)}
+
+    def test_declared_glob_is_clean(self):
+        self.assertEqual(self.codes(self.doc()), {})
+
+    def test_no_glob_is_not_checked(self):
+        doc = self.doc()
+        del doc["partition:glob"], doc["storage:schemes"]
+        doc["stac_extensions"] = []
+        self.assertEqual(self.codes(doc), {})
+
+    def test_undeclared_glob_fails(self):
+        self.assertEqual(self.codes(self.doc(stac_extensions=[], **{"storage:schemes": {}})),
+                         {"partition-storage-extension": vs.HARD,
+                          "partition-storage-scheme": vs.HARD})
+
+    def test_scheme_must_name_nrp_and_the_bucket(self):
+        for entry in ({"type": "aws-s3", "platform": "https://s3.amazonaws.com", "bucket": "public-x"},
+                      {"type": "custom-s3", "platform": vs.NRP_ENDPOINT, "bucket": "public-y"},
+                      {"type": "custom-s3", "platform": "https://example.org", "bucket": "public-x"}):
+            self.assertEqual(self.codes(self.doc(**{"storage:schemes": {"nrp": entry}})),
+                             {"partition-storage-scheme": vs.HARD}, entry)
+
+    def test_s3_hrefs_need_refs(self):
+        doc = self.doc()
+        doc["assets"]["d-parquet"] = {
+            "href": "https://s3-west.nrp-nautilus.io/public-x/d.parquet",
+            "alternate": {"s3": {"href": "s3://public-x/d.parquet"}}}
+        self.assertEqual(self.codes(doc), {"partition-storage-refs": vs.HARD})
+        doc["assets"]["d-parquet"]["alternate"]["s3"]["storage:refs"] = ["nrp"]
+        self.assertEqual(self.codes(doc), {})
