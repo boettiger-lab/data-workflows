@@ -1,0 +1,44 @@
+# HAND-ROLLED: the generator cannot take one member out of a remote zip archive (#1040).
+# Downloads the Eger et al. (2026) OSF archive (osf.io/csngb, kelp_people_osf.zip), checks its
+# sha256 against the OSF record, and stages the kelp layer to raw/kelp-eger-2026/ for
+# `cng-datasets workflow`.
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/kelp-zones-eger-2026/kelp-stage-raw.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kelp-eger-2026-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: kelp-eger-2026-stage-raw}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: kelp-eger-2026-stage-raw}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          cd /tmp
+          curl -fsSL --retry 5 -o kelp.zip https://osf.io/download/t2kcj/
+          echo "80b40f73d58c5ba8bf24391955c4a10fb41a2d920161083f843c026638096df2  kelp.zip" | sha256sum -c -
+          unzip -q -j kelp.zip kelp_people_osf/data/kelp/new_kelp_zones_major_minor_6933.gpkg
+          sha256sum new_kelp_zones_major_minor_6933.gpkg
+          rclone copyto new_kelp_zones_major_minor_6933.gpkg \
+            nrp:public-coastal/raw/kelp-eger-2026/new_kelp_zones_major_minor_6933.gpkg --retries 10
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 4Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 4Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
