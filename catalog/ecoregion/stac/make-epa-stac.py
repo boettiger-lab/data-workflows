@@ -507,7 +507,7 @@ def build_collection(ds, meta, con, hex_stats):
         assets[f"{ds}-hex"]["created"] = rfc3339(MANIFEST_OBJ[hex_obj[-1]]["ModTime"])
 
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
             "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
@@ -615,7 +615,7 @@ def relocate_wwf():
 
 def build_parent(children):
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "type": "Collection",
         "id": "ecoregion",
         "title": "Ecoregions",

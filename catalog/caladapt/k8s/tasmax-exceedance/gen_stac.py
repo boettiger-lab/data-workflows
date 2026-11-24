@@ -7,6 +7,7 @@ Writes to /tmp only -- this repo never contains STAC JSON (AGENTS.md Hard Bounda
     rclone copyto /tmp/caladapt-tasmax-exceedance.json nrp:public-caladapt/loca2-hybrid/tasmax-exceedance/stac-collection.json
     rclone copyto /tmp/caladapt-tasmax-annual-max.json nrp:public-caladapt/loca2-hybrid/tasmax-annual-max/stac-collection.json
     rclone copyto /tmp/caladapt-bucket.json            nrp:public-caladapt/stac-collection.json
+    Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 
 Measured values below were taken with the duckdb-geo MCP against the published parquet on
 2026-10-26, after the clamped-mean rebuild; `created` is the parquet objects' mtime.
@@ -126,7 +127,7 @@ def links(path: str) -> list:
 def collection(cid, title, path, description, asset_key, asset_title, asset_desc, columns, keywords):
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
             "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
@@ -248,7 +249,7 @@ def annual_max() -> dict:
 def bucket(children: list[dict]) -> dict:
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "id": "caladapt",
         "title": "Cal-Adapt Climate Projections",
         "description": (

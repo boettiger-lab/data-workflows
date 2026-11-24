@@ -1,3 +1,4 @@
+# HAND-ROLLED: one pod per h0 hexes all 35 rasters (7 variables x 5 GCM members) and joins them into one wide row per cell; the generator emits one raster per job and has no multi-dimension fan-out (datasets#172).
 # PILOT hex (data-workflows #564): bio1, ssp370, 2041-2070 -> one wide hex, res 8, parents 5,4,0.
 #
 # 122 completions = one pod per h0. Each pod hexes all FIVE GCM members straight from the staged

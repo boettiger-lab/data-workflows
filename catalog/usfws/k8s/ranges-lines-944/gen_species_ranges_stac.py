@@ -78,7 +78,7 @@ def main(out):
             c["values"] = VIP
         dic.append(c)
     doc = {
-        "type": "Collection", "stac_version": "1.0.0", "id": "usfws-species-ranges",
+        "type": "Collection", "stac_version": "1.1.0", "id": "usfws-species-ranges",
         "title": "USFWS Current Species Ranges",
         "description": (
             "Current range of every species and population that the U.S. Fish and Wildlife Service "

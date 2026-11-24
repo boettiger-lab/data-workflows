@@ -314,7 +314,7 @@ Five layers, each published as a WGS84 cloud-optimized GeoTIFF on the source gri
 **Provenance.** Figshare article 10302218, version 1 (published 2021-03-08), retrieved {access_date}. The staged upstream files in `s3://{BUCKET}/raw/`, each matching the MD5 Figshare publishes: {"; ".join(raw)}. The masked quality index used for the build is `raw/derived/Quality_index_masked.tif` ({masked['Size']:,} bytes, MD5 {masked['Hashes']['md5']})."""
 
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
@@ -378,7 +378,7 @@ def build_parent(objs):
     # The bucket node groups child collections and holds no data, so it is a STAC Catalog:
     # no license or extent (#957).
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "type": "Catalog",
         "id": "public-pesticides",
         "title": "Pesticides",

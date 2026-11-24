@@ -213,7 +213,7 @@ METHOD = (
 def proximity_collection():
     ds = "ira-road-proximity"
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "type": "Collection",
         "id": ds,
         "title": "Roadless Area road-proximity acreage by distance, road stratum and denominator",
@@ -267,7 +267,7 @@ def distance_collection():
     ds = "ira-road-distance"
     n_rows = M.get("n_dist_hex_rows")
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "type": "Collection",
         "id": ds,
         "title": "Distance to nearest road within Inventoried Roadless Areas — H3 resolution 10",

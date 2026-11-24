@@ -161,7 +161,7 @@ pt = build("points", "Seagrass Point Records (UNEP-WCMC WCMC-013 v7.1)", pt_desc
            "Polars. 17,668 point records.")
 
 bucket = {
-    "type": "Collection", "stac_version": "1.0.0",
+    "type": "Collection", "stac_version": "1.1.0",
     "id": "seagrass", "title": "Seagrass Datasets",
     "description": (
         "Global maps of seagrass occurrence and mapped extent.\n\n"

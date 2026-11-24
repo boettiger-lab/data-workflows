@@ -5,6 +5,7 @@ Writes to /tmp only -- this repo never contains STAC JSON (AGENTS.md Hard Bounda
 Upload with:
 
     rclone copyto /tmp/<dataset>-stac-collection.json nrp:public-fire/<dataset>/stac-collection.json
+    Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 
 ⚠️ A DIFFERENT DOI from catalog/fire/k8s/wrc-2/gen_stac.py. That one emits the LANDSCAPE-WIDE
 publication RDS-2020-0016-2 (RPS, BP, CFL, Exposure). This one emits RDS-2020-0060-2, the
@@ -423,7 +424,7 @@ def build_collection(dataset: str, facts: dict) -> dict:
 
     coll = {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",

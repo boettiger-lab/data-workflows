@@ -181,7 +181,7 @@ for _ds in [x for x in _os.environ.get("COG_LAYERS","").split(",") if x]:
       "type":"image/tiff; application=geotiff; profile=cloud-optimized","title":_title,"roles":["data","visual"],
       "raster:bands":[{"name":_col,"data_type":_dt,"nodata":_nd,"unit":"USD/ha","description":"Net production value density (USD/ha); negative = net loss. "+SRC}]}
 
-coll={"stac_version":"1.0.0",
+coll={"stac_version":"1.1.0",
  "stac_extensions":["https://stac-extensions.github.io/table/v1.2.0/schema.json",
    "https://stac-extensions.github.io/raster/v1.1.0/schema.json"],
  "type":"Collection","id":"nci-frontiers",

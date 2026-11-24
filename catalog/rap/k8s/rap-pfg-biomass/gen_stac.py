@@ -113,7 +113,7 @@ COL_DESC = ("Area-weighted mean aboveground biomass of perennial forbs and grass
 
 col = {
     "type": "Collection",
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "id": DS,
     "title": "RAP Perennial Forb & Grass Biomass 2024 (CONUS)",
     "description": DESC,

@@ -197,7 +197,7 @@ def collection(objects):
                  "color_hint": "A6CEE3"}]
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
             "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
@@ -327,7 +327,7 @@ def collection(objects):
 def bucket_catalog():
     return {
         "type": "Catalog",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "id": "forest-change",
         "title": "Forest change",
         "description": "Global forest change layers republished by the Boettiger Lab. Child "

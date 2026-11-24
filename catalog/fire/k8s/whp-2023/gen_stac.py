@@ -367,7 +367,7 @@ def dataset_collection(name, cfg):
         ]
 
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",

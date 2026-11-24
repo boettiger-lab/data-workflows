@@ -134,7 +134,7 @@ CITATION = ("NOAA Raster Nautical Charts, 2002; Hawaii Statewide GIS Program, Of
 
 stac = {
     "type": "Collection",
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "stac_extensions": [
         "https://stac-extensions.github.io/table/v1.2.0/schema.json",
         "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
@@ -211,7 +211,7 @@ stac = {
 
 BUCKET_STAC = {
     "type": "Collection",
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "id": "public-hawaii",
     "title": "Hawaiʻi Datasets",
     "description": "Datasets specific to the Hawaiian Islands, from state and federal sources.",

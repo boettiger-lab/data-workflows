@@ -358,7 +358,7 @@ def provenance(layer):
 
 def common(layer, dsid, cfg, description, assets):
     return {
-        "type": "Collection", "stac_version": "1.0.0", "id": dsid,
+        "type": "Collection", "stac_version": "1.1.0", "id": dsid,
         "stac_extensions": [
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
@@ -591,7 +591,7 @@ PUBLISHED_ALL = [
 
 def bucket_collection():
     return {
-        "type": "Collection", "stac_version": "1.0.0", "id": "landfire",
+        "type": "Collection", "stac_version": "1.1.0", "id": "landfire",
         "title": "LANDFIRE",
         "description": (
             "LANDFIRE is a shared program of the US Geological Survey and the USDA Forest Service "

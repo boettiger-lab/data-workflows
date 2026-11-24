@@ -87,7 +87,7 @@ def main():
     akey = f"{slug}-hex"
 
     d = {
-        "type": "Collection", "stac_version": "1.0.0",
+        "type": "Collection", "stac_version": "1.1.0",
         "stac_extensions": ["https://stac-extensions.github.io/table/v1.2.0/schema.json"],
         "id": f"chelsa-2-1-{slug}",
         "title": f"CHELSA 2.1 Future Bioclimate — {label}, {y0}-{y1} (global land)",

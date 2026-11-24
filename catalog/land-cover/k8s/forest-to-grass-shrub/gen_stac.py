@@ -151,7 +151,7 @@ Coverage is the western conterminous US, from about 124.7°W to 97.0°W and 25.8
 Source: Ilangakoon, N. (2026), Zenodo record 10.5281/zenodo.23045000, published 2026-09-29 with no edition label, accessed 2026-10-01. Raw files staged at s3://public-land-cover/raw/forest-to-grass-shrub/ (sha256): forest_to_grassshrub_binary.tif 56,867,440 bytes 86a7ca5f03936b41cfd89a0c3594ca6c76aed907e5b4df5076e7184d3d3f115a; forest_to_grassshrub_max_run_years.tif 580,895,176 bytes 84ecb2e10efd63a148db9d699834abe533eea4ddac7f61f99770109032f4b5da; forest_to_grassshrub_change_year.tif 96,972,304 bytes 8e0438efec9d36aee945673c9a7480591ab7f294923a54b38c009ed7f96bfaa5; forest_to_grassshrub_metadata.xml 20,836 bytes 463c5f7c8bd5d4a12889da051003f2dbb1238a7a2b22b075266626daa7be6d15. Licensed CC-BY-4.0."""
 
 stac = {
-    "type": "Collection", "stac_version": "1.0.0",
+    "type": "Collection", "stac_version": "1.1.0",
     "stac_extensions": [
         "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
         "https://stac-extensions.github.io/classification/v2.0.0/schema.json",

@@ -15,6 +15,7 @@ Writes /tmp/stac-collection.json. Then:
   scripts/lint-stac-categorical.py /tmp/stac-collection.json
   scripts/lint-stac-pmtiles-fields.py /tmp/stac-collection.json
   rclone copyto /tmp/stac-collection.json nrp:public-fire/fpa-fod-1992-2024/stac-collection.json
+  Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 """
 import json
 import pathlib
@@ -303,7 +304,7 @@ count ignitions per stratum, and divide by the stratum's H3 footprint area.
 
 collection = {
     "type": "Collection",
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "stac_extensions": [
         "https://stac-extensions.github.io/table/v1.2.0/schema.json",
         "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",

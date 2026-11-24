@@ -6,6 +6,7 @@ was measured on the published GeoParquet / hex via the duckdb-geo MCP; see BUILD
 Publish with:
     rclone copyto /tmp/blm-sma-stac/stac-collection.json \
         nrp:public-blm/surface-management-agency/stac-collection.json
+        Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 """
 import json
 import os
@@ -270,7 +271,7 @@ if HEX_CREATED:
     assets[f"{DS}-hex"]["created"] = HEX_CREATED
 
 stac = {
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "stac_extensions": [
         "https://stac-extensions.github.io/table/v1.2.0/schema.json",
         "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",

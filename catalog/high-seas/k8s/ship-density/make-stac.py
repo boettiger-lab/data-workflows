@@ -14,6 +14,7 @@ Usage:
 Then verify and publish:
   scripts/verify-stac.py --no-data /tmp/stac-collection.json
   rclone copyto /tmp/stac-collection.json nrp:public-high-seas/ship-density/stac-collection.json
+  Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 """
 import argparse
 import json
@@ -215,7 +216,7 @@ def build(rows=None):
 
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",

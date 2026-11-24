@@ -10,6 +10,7 @@ Writes to an output directory; nothing is committed. Upload with:
 
     scripts/verify-stac.py --no-data <file>            # every file, before publishing
     rclone copyto <file> nrp:public-usgs/kaiparowits-coal-resources/<cov>/stac-collection.json
+    Upload only from a publish job that first runs scripts/stac-publish-guard.py on the file against the live collection (see its docstring).
 
 Usage: gen_stac.py --out /tmp/kaiparowits-stac --facts /tmp/kaiparowits-facts.json
 """
@@ -671,7 +672,7 @@ def build(cov: str, spec: dict, bbox: list[float], created: dict) -> dict:
 
     doc = {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
             "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
@@ -744,7 +745,7 @@ def build(cov: str, spec: dict, bbox: list[float], created: dict) -> dict:
 def build_parent(bbox: list[float], created: str) -> dict:
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
             "https://stac-extensions.github.io/version/v1.2.0/schema.json",

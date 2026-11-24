@@ -732,7 +732,7 @@ DESCRIPTION = (
 )
 
 coll = {
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "stac_extensions": [
         "https://stac-extensions.github.io/table/v1.2.0/schema.json",
         "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
@@ -803,7 +803,7 @@ if READY is not None:
         f"{_tail}]")
 
 bucket = {
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "type": "Collection",
     "id": "public-invasives",
     "title": "Invasive species — habitat suitability and distribution",

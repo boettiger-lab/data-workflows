@@ -166,7 +166,7 @@ def build(layer, stats):
     ]
 
     coll = {
-        "type": "Collection", "stac_version": "1.0.0",
+        "type": "Collection", "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
@@ -262,7 +262,7 @@ def main():
         print(f"wrote {prefix}/{name}/stac-collection.json")
 
     parent = {
-        "type": "Collection", "stac_version": "1.0.0",
+        "type": "Collection", "stac_version": "1.1.0",
         "id": "bio-oracle",
         "title": "Bio-ORACLE v3.0 — Global Marine Environmental Layers",
         "description": (
