@@ -1,0 +1,84 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: global-delta-change-mouths-workflow
+  namespace: geo-workflows
+spec:
+  template:
+    spec:
+      containers:
+      - args:
+        - "\nset -e\n\nwait_job() {\n  local job=\"$1\" ns=\"$2\" timeout=\"$3\" waited=0\
+          \ state\n  echo \"Waiting for $job (up to ${timeout}s)...\"\n  while :;\
+          \ do\n    state=$(kubectl get job \"$job\" -n \"$ns\" -o jsonpath='{.status.conditions[?(@.status==\"\
+          True\")].type}')\n    case \" $state \" in\n      *\" Complete \"*) echo\
+          \ \"\u2713 $job complete\"; return 0 ;;\n      *\" Failed \"*)\n       \
+          \ echo \"\u2717 $job failed, so the workflow stops here:\"\n        kubectl\
+          \ get job \"$job\" -n \"$ns\" -o jsonpath='{range .status.conditions[*]}\
+          \  {.type}: {.reason} {.message}{\"\\n\"}{end}'\n        echo \"  Inspect\
+          \ it with: kubectl logs job/$job -n $ns\"\n        exit 1 ;;\n    esac\n\
+          \    if [ \"$waited\" -ge \"$timeout\" ]; then\n      echo \"\u2717 $job\
+          \ did not finish within ${timeout}s\"\n      exit 1\n    fi\n    sleep 30\n\
+          \    waited=$((waited + 30))\n  done\n}\n\necho \"Starting global-delta-change-mouths\
+          \ workflow...\"\n\n# Step 0: Setup bucket with public access and CORS\n\
+          echo \"Step 0: Setting up bucket...\"\nkubectl apply -f /yamls/global-delta-change-mouths-setup-bucket.yaml\
+          \ -n geo-workflows\n\necho \"Waiting for bucket setup to complete...\"\n\
+          wait_job global-delta-change-mouths-setup-bucket geo-workflows 600\n\n#\
+          \ Step 1: Convert to optimized GeoParquet (needed by both pmtiles and hex\
+          \ jobs)\necho \"Step 1: Converting to optimized GeoParquet...\"\nkubectl\
+          \ apply -f /yamls/global-delta-change-mouths-convert.yaml -n geo-workflows\n\
+          \necho \"Waiting for GeoParquet conversion to complete...\"\nwait_job global-delta-change-mouths-convert\
+          \ geo-workflows 3600\n\n# Step 2: Run pmtiles and hex tiling in parallel\
+          \ (both use the converted geoparquet)\necho \"Step 2: H3 hexagonal tiling\
+          \ and PMTiles generation (parallel)...\"\nkubectl apply -f /yamls/global-delta-change-mouths-pmtiles.yaml\
+          \ -n geo-workflows\necho \"Planning hex chunks by estimated cells...\"\n\
+          kubectl apply -f /yamls/global-delta-change-mouths-plan.yaml -n geo-workflows\n\
+          wait_job global-delta-change-mouths-plan geo-workflows 7200\nMSG=$(kubectl\
+          \ get pods -n geo-workflows -l job-name=global-delta-change-mouths-plan\
+          \ \\\n  -o jsonpath='{.items[*].status.containerStatuses[0].state.terminated.message}')\n\
+          CHUNKS=$(echo \"$MSG\" | tr ' ' '\\n' | sed -n 's/^chunks=\\([0-9][0-9]*\\\
+          )$/\\1/p' | tail -1)\nif [ -z \"$CHUNKS\" ] || [ \"$CHUNKS\" -lt 1 ]; then\n\
+          \  echo \"The plan step reported no chunk count (termination message: '$MSG');\
+          \ refusing to guess.\"\n  exit 1\nfi\nPAR=$(( CHUNKS < 50 ? CHUNKS : 50\
+          \ ))\necho \"Plan: $CHUNKS hex chunks; parallelism $PAR\"\nkubectl patch\
+          \ --local -f /yamls/global-delta-change-mouths-hex.yaml --type merge \\\n\
+          \  -p \"{\\\"spec\\\":{\\\"completions\\\":$CHUNKS,\\\"parallelism\\\":$PAR}}\"\
+          \ -o yaml \\\n  | kubectl apply -n geo-workflows -f -\n\necho \"Waiting\
+          \ for hex tiling to complete (PMTiles continues in background)...\"\necho\
+          \ \"Timeout set to 48 hours (172800s)...\"\nwait_job global-delta-change-mouths-hex\
+          \ geo-workflows 172800\n\necho \"Step 3: Repartitioning by h0...\"\nkubectl\
+          \ apply -f /yamls/global-delta-change-mouths-repartition.yaml -n geo-workflows\n\
+          \necho \"Waiting for repartition to complete...\"\nwait_job global-delta-change-mouths-repartition\
+          \ geo-workflows 3600\n\necho \"Step 4: Waiting for PMTiles...\"\nwait_job\
+          \ global-delta-change-mouths-pmtiles geo-workflows 172800\n\necho \"Step\
+          \ 5: Sizes and checksums of the outputs...\"\nkubectl apply -f /yamls/global-delta-change-mouths-checksums.yaml\
+          \ -n geo-workflows\nwait_job global-delta-change-mouths-checksums geo-workflows\
+          \ 14400\n\necho \"\u2713 Workflow complete!\"\necho \"\"\necho \"Clean up\
+          \ with:\"\necho \"  kubectl delete jobs global-delta-change-mouths-setup-bucket\
+          \ global-delta-change-mouths-convert global-delta-change-mouths-plan global-delta-change-mouths-pmtiles\
+          \ global-delta-change-mouths-hex global-delta-change-mouths-repartition\
+          \ global-delta-change-mouths-checksums global-delta-change-mouths-workflow\
+          \ -n geo-workflows --ignore-not-found\"\necho \"  kubectl delete configmap\
+          \ global-delta-change-mouths-yamls -n geo-workflows\"\n"
+        command:
+        - bash
+        - -c
+        image: bitnami/kubectl:latest
+        name: workflow
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /yamls
+          name: yamls
+      restartPolicy: OnFailure
+      serviceAccountName: cng-datasets-workflow
+      volumes:
+      - configMap:
+          name: global-delta-change-mouths-yamls
+        name: yamls
+  ttlSecondsAfterFinished: 10800
