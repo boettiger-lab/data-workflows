@@ -149,7 +149,7 @@ def main(out):
                 "table:columns": [{"name": n, "type": t} for n, t, _, _ in C if n not in ("h8", "h0")],
             },
             "aiannh-pmtiles": {
-                "href": f"{BASE}/aiannh.pmtiles", "type": "application/vnd.pmtiles", "roles": ["data"],
+                "href": f"{BASE}/aiannh.pmtiles", "type": "application/vnd.pmtiles", "roles": ["data", "visual"],
                 "title": "AIANNH areas 2024 — PMTiles", "description": "Vector tiles of the area boundaries for web maps.",
                 "created": pm_time, "file:size": pm_size, "vector:layers": ["aiannh"],
                 "table:columns": [{"name": n, "type": TILE[t]} for n, t, _, _ in C if n in ATTRS],
