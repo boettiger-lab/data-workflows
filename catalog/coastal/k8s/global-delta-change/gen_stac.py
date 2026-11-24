@@ -241,7 +241,9 @@ now = max(a["created"] for a in assets.values() if "created" in a)
 col = {
     "stac_version": "1.1.0",
     "stac_extensions": ["https://stac-extensions.github.io/table/v1.2.0/schema.json",
-                        "https://stac-extensions.github.io/scientific/v1.0.0/schema.json"],
+                        "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
+                        "https://stac-extensions.github.io/web-map-links/v1.3.0/schema.json",
+                        "https://schemas.portolan-sdi.org/portolan/v0.3.0/schema.json"],
     "type": "Collection", "id": "global-delta-change",
     "title": "Global river deltas: sediment supply, land change and sea-level rise",
     "description": DESC, "license": "MIT",
@@ -267,6 +269,7 @@ col = {
         {"rel": "parent", "href": f"{B}/stac-collection.json", "type": "application/json"},
         {"rel": "license", "href": f"{REPO}/blob/{COMMIT}/LICENSE", "type": "text/html", "title": "MIT License"},
         {"rel": "about", "href": REPO, "type": "text/html", "title": "GlobalDeltaChange on GitHub"},
+        {"rel": "via", "href": REPO, "type": "text/html", "title": "GlobalDeltaChange on GitHub"},
         {"rel": "cite-as", "href": "https://doi.org/10.1038/s41586-019-1905-9", "type": "text/html"},
         {"rel": "describedby", "href": f"{D}/README.md", "type": "text/markdown", "title": "README"},
     ] + links_pm,
