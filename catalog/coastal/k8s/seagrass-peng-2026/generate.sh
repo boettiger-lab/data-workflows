@@ -12,7 +12,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 for p in 2019-2020 2023-2024; do
   urls=()
-  while read -r t; do urls+=(--source-url "s3://public-coastal/raw/seagrass-peng-2026/$p/$t"); done < "tiles-$p.txt"
+  inner="GlobalSeagrass${p/-/_}"   # each zip holds one folder, kept by stage-raw.yaml
+  while read -r t; do urls+=(--source-url "s3://public-coastal/raw/seagrass-peng-2026/$p/$inner/$t"); done < "tiles-$p.txt"
   cng-datasets raster-workflow --dataset "seagrass-peng-2026/staging-$p" "${urls[@]}" \
     --bucket public-coastal --namespace geo-workflows \
     --output-cog-name "seagrass-peng-2026/seagrass-$p-cog.tif" --cog-storage 100Gi \
