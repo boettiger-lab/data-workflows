@@ -1,0 +1,74 @@
+# HAND-ROLLED: the generator cannot pull a set of files from a GitHub repository or rebuild a
+# layer's attributes from MATLAB files (#796). Fetches the GlobalDeltaChange files at a pinned
+# commit, prints their sha256 for the STAC provenance, stages them to raw/global-delta-change/,
+# then runs delta_prep.py (committed beside this file) to build the four layer GeoParquets, which
+# `cng-datasets workflow` then converts, tiles and hexes, and the projections table, which is
+# published beside the dataset.
+#   kubectl create configmap delta-prep-script -n geo-workflows \
+#     --from-file=delta_prep.py=catalog/coastal/k8s/global-delta-change/delta_prep.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/global-delta-change/delta-prep.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: global-delta-change-prep
+  namespace: geo-workflows
+  labels: {k8s-app: global-delta-change-prep}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: global-delta-change-prep}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: prep
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          python3 -c "import h5py" 2>/dev/null || pip install -q --break-system-packages h5py
+          # jhnienhuis/GlobalDeltaChange master, 2023-03-13 (release 3.0 plus the 2023 webpage exports)
+          C=99fa08a4d86755db4e0b5deea4e03bcc81f77bbf
+          B=https://raw.githubusercontent.com/jhnienhuis/GlobalDeltaChange/$C
+          mkdir -p /work/in /work/out && cd /work/in
+          for p in GlobalDeltaData.mat land_area_change/GlobalDeltaData_AreaChange.mat \
+                   export_data/GlobalDeltaData.xlsx export_data/GlobalDeltaData.nc \
+                   export_data/GlobalDeltaMouth_shp.zip export_data/GlobalDeltaRivers_shp.zip \
+                   export_data/GlobalDeltaBasins_shp.zip \
+                   export_data/webpage/GlobalDeltaAreaWeb_shp.zip \
+                   export_data/webpage/GlobalDelta_FluxesWeb.csv \
+                   export_data/webpage/GlobalDelta_DeltaAreaWeb.csv \
+                   export_data/webpage/GlobalDelta_DeltaSLRWeb.csv; do
+            curl -fsSL --retry 5 -o "$(basename $p)" "$B/$p"
+          done
+          echo "accessed $(date -u +%F)"; ls -l; sha256sum *
+          rclone copy /work/in nrp:public-coastal/raw/global-delta-change/ $R
+          python3 /script/delta_prep.py /work/in /work/out
+          for t in mouths rivers basins delta_areas; do
+            rclone copyto /work/out/$t.parquet nrp:public-coastal/raw/global-delta-change/layers/$t.parquet $R
+          done
+          rclone copyto /work/out/projections.parquet nrp:public-coastal/global-delta-change/projections.parquet $R
+          echo OK
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 5Gi}
+          limits:   {cpu: '2', memory: 4Gi, ephemeral-storage: 5Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: delta-prep-script}}
