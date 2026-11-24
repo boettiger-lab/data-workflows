@@ -10,7 +10,9 @@ Checks enforced (per AGENTS.md standards):
 
 2. COG raster:bands classification:classes must have:
    - Each entry with value, name, description, color_hint
-   - name must not look like a code/abbreviation (all-caps ≤4 chars, or equals value)
+   - the label must not look like a code/abbreviation (all-caps ≤4 chars, or equals value).
+     The label is `title` when present, else `name`: in classification v2 `name` is a
+     machine identifier and `title` the human label (#761)
    - NO fill / no-data sentinel entries: not the band's own `nodata`, and nothing
      named Fill / NoData / Not Mapped / Background. Consumers build a render
      colormap from this list, so a fill code in it is painted as an ordinary class
@@ -128,6 +130,7 @@ def lint(source: str) -> list[str]:
             for cls in classes:
                 v = cls.get("value")
                 n = cls.get("name", "")
+                label = cls.get("title") or n  # v2: title is the label, name an identifier
                 d = cls.get("description", "")
                 ch = cls.get("color_hint", "")
 
@@ -163,24 +166,24 @@ def lint(source: str) -> list[str]:
                         f"value={v}, which is the band's own nodata — drop it; a nodata code is "
                         f"not a class (document it in the description instead)"
                     )
-                elif is_fill_name(n):
+                elif is_fill_name(label):
                     errors.append(
                         f"[{collection_id}] asset '{asset_key}': classification:classes value={v} "
-                        f"is a fill/no-data sentinel (name='{n}') — drop it; a consumer builds its "
+                        f"is a fill/no-data sentinel (label='{label}') — drop it; a consumer builds its "
                         f"render colormap from this list and will paint it as an ordinary class "
                         f"(document fill codes in the description instead)"
                     )
 
                 # Check name is human-readable
-                if n and v is not None and is_abbrev_name(n, v):
+                if label and v is not None and is_abbrev_name(label, v):
                     errors.append(
                         f"[{collection_id}] asset '{asset_key}': classification:classes value={v} "
-                        f"has abbreviation-style name='{n}' — use the full human-readable name "
-                        f"(keep the abbreviation in 'description')"
+                        f"has abbreviation-style label='{label}' — use the full human-readable "
+                        f"label in 'title' (keep the abbreviation in 'description')"
                     )
 
                 if v is not None:
-                    cog_classes[asset_key][int(v)] = n
+                    cog_classes[asset_key][int(v)] = label
 
     # Check parquet assets for categorical column completeness
     for asset_key, asset in doc.get("assets", {}).items():
