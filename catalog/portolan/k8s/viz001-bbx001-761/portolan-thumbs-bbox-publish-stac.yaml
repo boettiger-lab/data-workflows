@@ -1,0 +1,67 @@
+# HAND-ROLLED: the generator does not write STAC. A metadata-only fix (#761) on 3 live collections:
+#   PTL-VIZ-001 thumbnail: land-cover/worldcover-2021/peru (render worldcover-2021-peru) and
+#     ca-ccca5/calflora-ranges (render queagr, coast live oak: the first render, a rare fir, draws blank).
+#   PTL-BBX-001: high-seas/ship-density west edge -180.000311 clamped to -180.
+# The PNGs are drawn locally and go in through the ConfigMap; they are not committed:
+#   OUT=$(mktemp -d)
+#   scripts/thumbnail.py https://s3-west.nrp-nautilus.io/public-land-cover/worldcover-2021/peru/stac-collection.json --out $OUT
+#   (calflora: thumbnail.thumbnail() on the collection with render queagr moved first)
+#   kubectl create configmap portolan-thumbs-bbox-script -n geo-workflows \
+#     --from-file=catalog/portolan/k8s/viz001-bbx001-761/fix_viz_bbox.py \
+#     --from-file=peru.png=$OUT/public-land-cover/worldcover-2021/peru/thumbnail.png \
+#     --from-file=calflora.png=$OUT/public-ca-ccca5/calflora-ranges/thumbnail.png \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/portolan/k8s/viz001-bbx001-761/portolan-thumbs-bbox-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: portolan-thumbs-bbox-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: portolan-thumbs-bbox-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: portolan-thumbs-bbox-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          edit() {  # edit <collection dir> <op> [arg]
+            p="$1/stac-collection.json"
+            rclone cat "nrp:$p" > /tmp/c.json
+            python3 /script/fix_viz_bbox.py "$2" /tmp/c.json ${3:-}
+            guard_stac /tmp/c.json "nrp:$p"
+            rclone copyto /tmp/c.json "nrp:$p" $R
+          }
+          rclone copyto /script/peru.png nrp:public-land-cover/worldcover-2021/peru/thumbnail.png $R
+          edit public-land-cover/worldcover-2021/peru thumb worldcover-2021-peru
+          rclone copyto /script/calflora.png nrp:public-ca-ccca5/calflora-ranges/thumbnail.png $R
+          edit public-ca-ccca5/calflora-ranges thumb queagr
+          edit public-high-seas/ship-density clamp
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: portolan-thumbs-bbox-script}}
