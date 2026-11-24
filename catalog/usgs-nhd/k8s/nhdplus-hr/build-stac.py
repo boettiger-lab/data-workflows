@@ -248,7 +248,7 @@ HEX_NOTE = (
 )
 
 stac = {
- "stac_version": "1.0.0",
+ "stac_version": "1.1.0",
  "stac_extensions": ["https://stac-extensions.github.io/table/v1.2.0/schema.json"],
  "type": "Collection",
  "id": "usgs-nhdplus-hr-flowline",

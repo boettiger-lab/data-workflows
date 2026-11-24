@@ -288,7 +288,7 @@ def collection(cid, title, desc, path, bbox, interval, dic, assets, keywords, pm
     pm = assets[pmkey]
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
-        "type": "Collection", "stac_version": "1.0.0", "stac_extensions": EXT, "id": cid,
+        "type": "Collection", "stac_version": "1.1.0", "stac_extensions": EXT, "id": cid,
         "title": title, "description": desc, "keywords": keywords, "license": "CC-BY-4.0",
         "providers": PROVIDERS, "sci:citation": CITATION, "created": now, "updated": now,
         "extent": {"spatial": {"bbox": [bbox]}, "temporal": {"interval": [interval]}},

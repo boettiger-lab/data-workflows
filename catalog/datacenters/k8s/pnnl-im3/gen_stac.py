@@ -216,7 +216,7 @@ def collection(cid, title, desc, path, bbox, interval, dic, assets, keywords, pm
                 {"rel": "license", "href": CCBY, "type": "text/html",
                  "title": "Creative Commons Attribution 4.0 International"})
     return {
-        "type": "Collection", "stac_version": "1.0.0", "stac_extensions": EXT, "id": cid,
+        "type": "Collection", "stac_version": "1.1.0", "stac_extensions": EXT, "id": cid,
         "title": title, "description": desc, "keywords": keywords, "license": lic,
         "providers": providers, "sci:citation": citation, "sci:doi": doi.replace("https://doi.org/", ""),
         "version": version, "created": now, "updated": now,

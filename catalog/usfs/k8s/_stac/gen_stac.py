@@ -233,7 +233,7 @@ def dataset_collection(ds, meta, hex_rows):
     pm_cols = cols(meta["columns"], lean=True)
     title = meta["title"]
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "type": "Collection",
         "id": ds,
         "title": f"{title} — national",
@@ -316,7 +316,7 @@ def bucket_collection():
     links += [{"rel": "child", "href": f"{BASE}/{ds}/stac-collection.json",
                "type": "application/json", "title": t} for ds, t in children]
     return {
-        "stac_version": "1.0.0", "type": "Collection", "id": "usfs-datasets",
+        "stac_version": "1.1.0", "type": "Collection", "id": "usfs-datasets",
         "title": "USDA Forest Service (USFS) Datasets",
         "description": BUCKET_DESC,
         "license": "public-domain",

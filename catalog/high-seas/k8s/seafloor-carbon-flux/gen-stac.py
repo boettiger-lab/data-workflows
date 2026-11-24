@@ -129,7 +129,7 @@ def leaf(v):
     ])
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": EXT,
         "id": name,
         "title": v["title"],
@@ -226,7 +226,7 @@ def leaf(v):
 
 PARENT = {
     "type": "Collection",
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "stac_extensions": ["https://stac-extensions.github.io/scientific/v1.0.0/schema.json"],
     "id": "seafloor-carbon-flux",
     "title": "Seafloor Organic Carbon Flux (NEMO-MEDUSA, 2006-2015)",

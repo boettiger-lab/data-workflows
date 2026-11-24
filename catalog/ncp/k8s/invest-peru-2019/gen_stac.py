@@ -202,7 +202,7 @@ Values are densities in megagrams of carbon per hectare (Mg C/ha). To turn them 
 **Provenance.** Land cover and cocoa were read from this catalog's copies (`public-land-cover/cgls-lc100-2019`, `public-commodities/fdap-2025b/cocoa-peru-2024`). The FAO Global Ecological Zones zip was retrieved {GEZ_ACCESS} from the FAO Map Catalog and staged as `raw/fao-gez-2010/gez2010.zip` ({gez['Size']:,} bytes, MD5 {gez['Hashes']['md5']}). Model run with natcap.invest {NATCAP_INVEST} on 2026-11-10."""
 
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
@@ -385,7 +385,7 @@ Both are relative scores without units. Compare places with them; do not read th
 **Provenance.** Land cover and cocoa were read from this catalog's copies (`public-land-cover/cgls-lc100-2019`, `public-commodities/fdap-2025b/cocoa-peru-2024`). Model run with natcap.invest {NATCAP_INVEST} on {HQ_RUN}."""
 
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",

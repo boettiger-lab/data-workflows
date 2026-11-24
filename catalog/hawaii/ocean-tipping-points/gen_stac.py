@@ -174,7 +174,7 @@ def leaf(short, meta, stage, st):
         cols[2]["description"] = "H3 cell index at resolution 8, parent of h9; the catalog's common join key."
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
@@ -244,7 +244,7 @@ def parent(kids):
     bb = [k["extent"]["spatial"]["bbox"][0] for k in kids]
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": ["https://stac-extensions.github.io/scientific/v1.0.0/schema.json"],
         "id": P,
         "title": "Ocean Tipping Points stressor layers for the Main Hawaiian Islands",

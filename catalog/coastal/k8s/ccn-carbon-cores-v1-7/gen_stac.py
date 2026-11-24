@@ -263,7 +263,7 @@ Companion tables hold the full depth series, sites, dominant species, impacts, m
 Source: Coastal Carbon Network (2025), Coastal Carbon Data Library version 1.7.0, Smithsonian Environmental Research Center, https://doi.org/10.25573/serc.21565671.v9 (figshare version 9, published 2025-11-19), accessed {ACCESSED}. Licensed CC BY 4.0; the network asks users to credit the library version with the date downloaded and to cite the original studies. Staged files (MD5 checked against the figshare record): CCN_cores.csv 5,111,526 bytes, MD5 3c2072b33925f8d2dcf8e54e8db3904f; CCN_depthseries.csv 30,303,567 bytes, MD5 c5304e494ef535c006fba628006dae0f."""
 
 col = {
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "stac_extensions": ["https://stac-extensions.github.io/table/v1.2.0/schema.json",
                         "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
                         "https://stac-extensions.github.io/version/v1.2.0/schema.json"],

@@ -215,7 +215,7 @@ def build(ds, var, title, blurb, caveat, extent_note, licence, licence_url, lice
 
     col = {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "id": ds,
         "title": title,
         "description": desc,
@@ -348,7 +348,7 @@ def parent(cols):
              max(b[2] for b in bboxes), max(b[3] for b in bboxes)]
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "id": "public-rap",
         "title": "Rangeland vegetation cover (RAP / rangeland-s2)",
         "description": (

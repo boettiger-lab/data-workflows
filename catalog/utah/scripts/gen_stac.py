@@ -165,7 +165,7 @@ def build_collection(m):
     }
 
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/table/v1.2.0/schema.json"],
         "type": "Collection",
@@ -225,7 +225,7 @@ def build_bucket():
          "type": "application/json", "title": m["disp"]}
         for m in MONUMENTS]
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "type": "Collection",
         "id": "public-utah",
         "title": "Utah Public Lands",

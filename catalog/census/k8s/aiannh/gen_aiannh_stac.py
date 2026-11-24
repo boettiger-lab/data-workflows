@@ -99,7 +99,7 @@ def main(out):
             col["values"] = values
         dic.append(col)
     doc = {
-        "type": "Collection", "stac_version": "1.0.0", "id": "census-2024-aiannh",
+        "type": "Collection", "stac_version": "1.1.0", "id": "census-2024-aiannh",
         "title": "American Indian, Alaska Native and Native Hawaiian Areas (Census TIGER/Line 2024)",
         "description": (
             "Boundaries of American Indian, Alaska Native and Native Hawaiian areas from the US Census "

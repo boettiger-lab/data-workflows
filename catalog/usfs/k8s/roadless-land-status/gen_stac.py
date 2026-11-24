@@ -233,7 +233,7 @@ CITATION = (
 def dataset_collection():
     extent = f"({BBOX[0]:.3f}, {BBOX[1]:.3f}, {BBOX[2]:.3f}, {BBOX[3]:.3f})"
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "type": "Collection",
         "id": DATASET,
         "title": f"{TITLE} — national",

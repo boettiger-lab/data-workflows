@@ -159,7 +159,7 @@ def dataset_collection():
     pm_cols = cols(COLUMNS, lean=True)
     extent = f"({BBOX[0]}, {BBOX[1]}, {BBOX[2]}, {BBOX[3]})"
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "type": "Collection",
         "id": DATASET,
         "title": f"{TITLE} — national",
@@ -226,7 +226,7 @@ def dataset_collection():
 
 def bucket_collection():
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "type": "Collection",
         "id": "usfs-datasets",
         "title": "USDA Forest Service (USFS) Datasets",

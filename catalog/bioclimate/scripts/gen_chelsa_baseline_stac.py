@@ -53,7 +53,7 @@ def main() -> int:
     ]
 
     d = {
-        "type": "Collection", "stac_version": "1.0.0",
+        "type": "Collection", "stac_version": "1.1.0",
         "stac_extensions": ["https://stac-extensions.github.io/table/v1.2.0/schema.json"],
         "id": f"chelsa-2-1-baseline-{args.period}",
         "title": f"CHELSA 2.1 Bioclimate — observed baseline, {y0}-{y1} (global land)",

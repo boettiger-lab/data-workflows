@@ -671,7 +671,7 @@ def build(cov: str, spec: dict, bbox: list[float], created: dict) -> dict:
 
     doc = {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
             "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
@@ -744,7 +744,7 @@ def build(cov: str, spec: dict, bbox: list[float], created: dict) -> dict:
 def build_parent(bbox: list[float], created: str) -> dict:
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [
             "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
             "https://stac-extensions.github.io/version/v1.2.0/schema.json",

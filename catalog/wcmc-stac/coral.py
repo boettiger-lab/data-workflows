@@ -198,7 +198,7 @@ def collection(name, title, desc, bbox, temporal, n_feat, is_point, assets_extra
     }
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": EXTENSIONS,
         "id": f"unep-wcmc-coral-reefs-{name}",
         "title": title,
@@ -284,7 +284,7 @@ pt["assets"]["points-parquet"]["description"] = (
 
 bucket = {
     "type": "Collection",
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "id": "coral-reefs",
     "title": "Coral Reef Datasets",
     "description": (

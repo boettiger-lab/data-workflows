@@ -437,7 +437,7 @@ def collection(ds):
 
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [TABLE_EXT, SCI_EXT],
         "id": f"wgfd-{ds}",
         "title": t["title"],
@@ -474,7 +474,7 @@ def collection(ds):
 def bucket_collection():
     return {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "id": "wgfd",
         "title": "Wyoming Game & Fish Department (WGFD)",
         "description": (

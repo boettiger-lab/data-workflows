@@ -53,7 +53,7 @@ def build(name, title, desc, bbox, temporal, cols, extra_flat, hex_desc, flat_de
             "table:columns": hex_cols},
     }
     return {
-        "type": "Collection", "stac_version": "1.0.0", "stac_extensions": EXTENSIONS,
+        "type": "Collection", "stac_version": "1.1.0", "stac_extensions": EXTENSIONS,
         "id": f"unep-wcmc-seagrass-{name}", "title": title, "description": desc,
         "license": "other", "version": "7.1",
         "sci:citation": (

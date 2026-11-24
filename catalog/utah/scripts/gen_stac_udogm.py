@@ -296,7 +296,7 @@ def build_collection():
         "the Utah SGID; licensed CC-BY-4.0 (steward: Utah DNR Division of Oil, Gas and Mining; "
         "Utah Geospatial Resource Center).")
     return {
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": ["https://stac-extensions.github.io/table/v1.2.0/schema.json"],
         "type": "Collection",
         "id": "udogm",
