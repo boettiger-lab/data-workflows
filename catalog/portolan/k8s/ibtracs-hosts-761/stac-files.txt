@@ -1,0 +1,3 @@
+public-storms/stac-collection.json
+public-storms/ibtracs-v04r01/points/stac-collection.json
+public-storms/ibtracs-v04r01/lines/stac-collection.json
