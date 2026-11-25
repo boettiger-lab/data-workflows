@@ -1,0 +1,9 @@
+public-fire	move	twig-treatment-index-2026-08
+public-land-cover	move	cgls-lc100-2019
+public-facts	move	common-attributes-2026-06
+public-ecoregion	move	wwf-ecoregions-2017
+public-high-seas	replace	-
+public-dem	replace	-
+public-landfire	keep	-
+public-parks	keep	-
+public-datacenters	rename	README-cloud-infrastructure-map.md

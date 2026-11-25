@@ -1,0 +1,98 @@
+# HAND-ROLLED: the generator does not write READMEs for existing nodes. Portolan FIL-003/005 (#1056).
+# Part 1, buckets.tsv: 9 bucket catalogs whose README.md is not the bucket's own.
+#   move    a dataset's hand-written README sits at the bucket root: copy it over the README that
+#           #1064 generated for that dataset (only if it is still the generated one), then write a
+#           generated bucket README
+#   replace the dataset already has its own README: write a generated bucket README
+#   keep    the README describes the whole bucket (landfire, parks): link it only
+#   rename  datacenters: the README documents the uncatalogued data_centers.csv/.geojson at the
+#           bucket root; keep it as README-cloud-infrastructure-map.md, write a bucket README
+# Each copy is checked against its source before the original is replaced. Each bucket catalog then
+# links ./README.md, in place on the LIVE file, through the guard.
+# Part 2, append.txt: 19 READMEs that never mention a licence (or a source) get that section
+# appended from their node's STAC. Nothing already in them changes. American Rivers is left out
+# until its licence is settled.
+#   kubectl create configmap portolan-readme-fixes-script -n geo-workflows \
+#     --from-file=catalog/portolan/k8s/readmes-1056/gen_readme.py \
+#     --from-file=catalog/portolan/k8s/readme-fixes-1056/fix_readme.py \
+#     --from-file=catalog/portolan/k8s/readme-fixes-1056/buckets.tsv \
+#     --from-file=catalog/portolan/k8s/readme-fixes-1056/append.txt \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/portolan/k8s/readme-fixes-1056/portolan-readme-fixes-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: portolan-readme-fixes-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: portolan-readme-fixes-publish-stac}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: portolan-readme-fixes-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          same() { cmp -s <(rclone cat "$1") <(rclone cat "$2"); }
+          exists() { rclone lsf "$1" 2>/dev/null | grep -q .; }
+          while IFS=$'\t' read -r b action arg; do
+            p="$b/stac-collection.json"
+            rclone cat "nrp:$p" > /tmp/c.json
+            case "$action" in
+              move)
+                child="nrp:$b/$arg/README.md"
+                if ! rclone cat "$child" | grep -q '^## Metadata$'; then
+                  echo "skip $b: $arg/README.md is not the generated one"; continue
+                fi
+                rclone copyto "nrp:$b/README.md" "$child" $R
+                same "nrp:$b/README.md" "$child" || { echo "copy check failed: $child"; exit 1; } ;;
+              rename)
+                exists "nrp:$b/$arg" && { echo "skip $b: $arg exists"; continue; }
+                rclone copyto "nrp:$b/README.md" "nrp:$b/$arg" $R
+                same "nrp:$b/README.md" "nrp:$b/$arg" || { echo "copy check failed: $b/$arg"; exit 1; } ;;
+              replace|keep) ;;
+              *) echo "unknown action $action"; exit 1 ;;
+            esac
+            if [ "$action" != keep ]; then
+              python3 /script/gen_readme.py readme /tmp/c.json /tmp/README.md
+              rclone copyto /tmp/README.md "nrp:$b/README.md" $R --header-upload "Content-Type: text/markdown"
+            fi
+            python3 /script/gen_readme.py link /tmp/c.json
+            guard_stac /tmp/c.json "nrp:$p"
+            rclone copyto /tmp/c.json "nrp:$p" $R
+            echo "$b: $action done"
+          done < /script/buckets.tsv
+          while read -r n; do
+            rclone cat "nrp:$n/stac-collection.json" > /tmp/c.json
+            rclone cat "nrp:$n/README.md" > /tmp/README.md
+            cp /tmp/README.md /tmp/README.before
+            echo -n "$n: "; python3 /script/fix_readme.py /tmp/c.json /tmp/README.md
+            cmp -s /tmp/README.md /tmp/README.before || rclone copyto /tmp/README.md "nrp:$n/README.md" $R --header-upload "Content-Type: text/markdown"
+          done < /script/append.txt
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: portolan-readme-fixes-script}}
