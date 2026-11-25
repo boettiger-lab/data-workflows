@@ -1,0 +1,76 @@
+# HAND-ROLLED: staging a multi-band tile release from a public GCS bucket is not a step cng-datasets
+# generates (#800). Lists gs://gic-archive/gic-2019-v1-0/v1-0-1/ through the GCS JSON API
+# (anonymous), downloads each tile, checks it against the MD5 GCS publishes, and stages it to
+# raw/tidal-wetland-change-v1-0-1/<band>/. Size, MD5, SHA-256, upstream update time and access time
+# go to raw/tidal-wetland-change-v1-0-1/MANIFEST.tsv. gcs-listing-v1-0-1.tsv beside this file is
+# the listing read on 2026-11-25, for reference.
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/tidal-wetland-change-v1-0-1/stage-raw.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tidal-wetland-change-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: tidal-wetland-change-stage-raw}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: tidal-wetland-change-stage-raw}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 10800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          mkdir -p /work/dl && cd /work
+          python3 - <<'PY'
+          import json, urllib.request
+          base = "https://storage.googleapis.com/storage/v1/b/gic-archive/o"
+          q = "prefix=gic-2019-v1-0/v1-0-1/&maxResults=1000&fields=nextPageToken,items(name,size,md5Hash,updated)"
+          out, tok = [], ""
+          while True:
+              d = json.load(urllib.request.urlopen(f"{base}?{q}" + (f"&pageToken={tok}" if tok else "")))
+              out += [i for i in d.get("items", []) if i["name"].endswith(".tif")]
+              tok = d.get("nextPageToken")
+              if not tok: break
+          with open("list.tsv", "w") as f:
+              for i in out:
+                  f.write(f"{i['name']}\t{i['size']}\t{i['md5Hash']}\t{i['updated']}\n")
+          print(len(out), "tiles,", round(sum(int(i["size"]) for i in out) / 1e9, 1), "GB")
+          PY
+          stage() {  # stage <name> <size> <md5 base64> <updated>
+            local f=dl/$(basename "$1") band
+            band=$(basename "$1" | sed -E 's/^murray-gic-v1\.0\.1-([A-Za-z]+)-.*/\1/')
+            curl -fsS --retry 5 -o "$f" "https://storage.googleapis.com/gic-archive/$1"
+            [ "$(openssl dgst -md5 -binary "$f" | base64)" = "$3" ] || { echo "MD5 MISMATCH $1"; return 1; }
+            rclone copyto "$f" "nrp:public-coastal/raw/tidal-wetland-change-v1-0-1/$band/$(basename "$1")" \
+              --retries 10 --low-level-retries 20 --s3-no-check-bucket
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(basename "$1")" "$2" "$3" "$(sha256sum "$f" | cut -d' ' -f1)" "$4" "$(date -u +%FT%TZ)"
+            rm -f "$f"
+          }
+          export -f stage
+          printf 'file\tbytes\tmd5_base64\tsha256\tupstream_updated\taccessed_utc\n' > MANIFEST.tsv
+          tr '\t' ' ' < list.tsv | xargs -P 16 -L 1 bash -c 'stage "$@"' _ >> MANIFEST.tsv
+          echo "staged $(($(wc -l < MANIFEST.tsv) - 1)) of $(wc -l < list.tsv)"
+          [ "$(($(wc -l < MANIFEST.tsv) - 1))" = "$(wc -l < list.tsv)" ]
+          rclone copyto MANIFEST.tsv nrp:public-coastal/raw/tidal-wetland-change-v1-0-1/MANIFEST.tsv --s3-no-check-bucket
+          echo OK
+        resources:
+          requests: {cpu: '4', memory: 4Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 4Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

@@ -1,0 +1,46 @@
+# HAND-ROLLED: the generator has no cleanup step. Once the published collection passes
+# verify-stac.py, deletes the staged raw build cache (raw/tidal-wetland-change-v1-0-1/: the 1,176
+# v1.0.1 tiles and MANIFEST.tsv) and the intermediate build outputs, none of which the STAC points
+# to: staging/ (the loss and gain class rasters cogs.yaml wrote for the hex) and the staging-loss,
+# staging-gain and staging-gain-heavy fractions tables that consolidate.yaml merged into hex/.
+# Provenance (release, access date, MD5 check) is in the STAC description (#800). A rebuild
+# re-stages from gs://gic-archive with stage-raw.yaml.
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/tidal-wetland-change-v1-0-1/delete-raw.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tidal-wetland-change-delete-raw
+  namespace: geo-workflows
+  labels: {k8s-app: tidal-wetland-change-delete-raw}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: tidal-wetland-change-delete-raw}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: cleanup
+        image: ghcr.io/boettiger-lab/datasets:latest
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          for p in raw/tidal-wetland-change-v1-0-1 \
+                   tidal-wetland-change-v1-0-1/staging \
+                   tidal-wetland-change-v1-0-1/staging-loss \
+                   tidal-wetland-change-v1-0-1/staging-gain \
+                   tidal-wetland-change-v1-0-1/staging-gain-heavy; do
+            echo "== $p"; rclone size "nrp:public-coastal/$p/"; rclone purge "nrp:public-coastal/$p/"
+          done
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 512Mi}
+          limits:   {cpu: '1', memory: 512Mi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
