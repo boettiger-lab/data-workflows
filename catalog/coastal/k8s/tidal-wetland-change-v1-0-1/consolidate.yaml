@@ -2,7 +2,8 @@
 # decodes the class codes and joins loss and gain into the published hex. Pattern follows
 # catalog/coastal/k8s/seagrass-peng-2026/consolidate.yaml.
 #
-# Input:  tidal-wetland-change-v1-0-1/staging-<loss|gain>/hex-fractions/h0=*/data_0.parquet,
+# Input:  tidal-wetland-change-v1-0-1/staging-<loss|gain>/hex-fractions/h0=*/data_0.parquet (gain
+#         also staging-gain-heavy/, its slowest h0 cells built in res-1 units; see generate.sh),
 #         one row per (class, h10 cell): class = type x 100 + year (9/99 = missing), frac = the
 #         class's coverage-weighted share of the cell; nodata rows (class 0) are dropped.
 # Output: tidal-wetland-change-v1-0-1/hex/h0=<h0>/data_0.parquet with
@@ -63,20 +64,21 @@ spec:
               SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
               URL_STYLE 'path', USE_SSL false)""")
 
-          def h0s_of(c):
+          def h0s_of(x):
               out = subprocess.run(["rclone", "lsf", "--dirs-only",
-                                    f"nrp:public-coastal/tidal-wetland-change-v1-0-1/staging-{c}/hex-fractions/"],
+                                    f"nrp:public-coastal/tidal-wetland-change-v1-0-1/staging-{x}/hex-fractions/"],
                                    capture_output=True, text=True, check=True).stdout
               return {d.strip("/").split("=")[1] for d in out.split() if d.startswith("h0=")}
-          per = {c: h0s_of(c) for c in ("loss", "gain")}
-          for c in per: print(f"{c}: {len(per[c])} h0 partitions", flush=True)
+          per = {x: h0s_of(x) for x in ("loss", "gain", "gain-heavy")}
+          for x in per: print(f"{x}: {len(per[x])} h0 partitions", flush=True)
+          assert not (per["gain"] & per["gain-heavy"]), sorted(per["gain"] & per["gain-heavy"])
           print(con.sql(f"DESCRIBE SELECT * FROM read_parquet('{B}/staging-loss/hex-fractions/h0={sorted(per['loss'])[0]}/data_0.parquet')"))
-          for h0 in sorted(per["loss"] | per["gain"]):
-              lst = ", ".join(f"'{B}/staging-{c}/hex-fractions/h0={h0}/data_0.parquet'" for c in per if h0 in per[c])
+          for h0 in sorted(set().union(*per.values())):
+              lst = ", ".join(f"'{B}/staging-{x}/hex-fractions/h0={h0}/data_0.parquet'" for x in per if h0 in per[x])
               con.execute(f"""
                 COPY (
                   WITH f AS (
-                    SELECT regexp_extract(filename, 'staging-(loss|gain)/', 1) AS change,
+                    SELECT regexp_extract(filename, 'staging-(loss|gain)(-heavy)?/', 1) AS change,
                            class::INTEGER AS class, frac, h10, h8, h0
                     FROM read_parquet([{lst}], filename = true, hive_partitioning = false)
                     WHERE class IS NOT NULL AND class > 0 AND frac > 0

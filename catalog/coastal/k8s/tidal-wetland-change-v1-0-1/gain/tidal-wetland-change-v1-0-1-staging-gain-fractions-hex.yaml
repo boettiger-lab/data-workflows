@@ -1,3 +1,8 @@
+# DEVIATION from generated output (#800): the input is the class raster cogs.yaml writes, read
+# directly. Generated after that raster existed, the tool flags it "not a COG" (it has no
+# overviews, which the hex step does not need) and points the hex at a preprocess-cog copy; the
+# loss hex read the same kind of raster directly and is correct. The preprocess-cog and render
+# manifests are removed, and workflow.yaml (the orchestrator) is not used for this recipe.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -6,7 +11,7 @@ metadata:
   labels:
     k8s-app: tidal-wetland-change-v1-0-1-staging-gain-fractions-hex
 spec:
-  completions: 122
+  completions: 116
   parallelism: 40
   completionMode: Indexed
   backoffLimitPerIndex: 2
@@ -65,10 +70,20 @@ spec:
         command:
         - bash
         - -c
-        - |-
-          set -e
-
-          cng-datasets raster --input "s3://public-coastal/tidal-wetland-change-v1-0-1/staging/gain-class-cog.tif" --output-parquet s3://public-coastal/tidal-wetland-change-v1-0-1/staging-gain/hex-fractions/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 10 --parent-resolutions 8,0 --value-column class --hex-resampling fractions --nodata "0"
+        - "set -e\n\n# Positions in the h0 grid's own ordering, not H3 base cell numbers\n\
+          # (--h0-subset / --h0-cells). The completion index selects one.\nH0S=(0\
+          \ 1 2 3 5 6 7 8 9 10 11 12 13 15 16 17 18 19 20 22 23 24 25 26 27 28 29\
+          \ 30 31 32 33 34 35 36 37 38 39 40 41 42 43 45 46 47 48 49 50 51 52 53 54\
+          \ 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 79\
+          \ 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102\
+          \ 103 104 105 106 108 109 110 111 112 113 114 115 116 117 118 119 120 121)\n\
+          H0=${H0S[$JOB_COMPLETION_INDEX]}\nif [ -z \"${JOB_COMPLETION_INDEX}\" ]\
+          \ || [ -z \"$H0\" ]; then\n  echo \"No h0 cell for completion index '${JOB_COMPLETION_INDEX}'\
+          \ in (${H0S[*]}) \u2014 completions must match the --h0-subset length\"\
+          \ >&2\n  exit 1\nfi\n\ncng-datasets raster --input \"s3://public-coastal/tidal-wetland-change-v1-0-1/staging/gain-class-cog.tif\"\
+          \ --output-parquet s3://public-coastal/tidal-wetland-change-v1-0-1/staging-gain/hex-fractions/\
+          \ --h0-index ${H0} --resolution 10 --parent-resolutions 8,0 --value-column\
+          \ class --hex-resampling fractions --nodata \"0\""
         resources:
           requests:
             cpu: '4'

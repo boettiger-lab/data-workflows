@@ -44,7 +44,7 @@ spec:
         - -c
         - |
           set -e
-          cng-datasets checksums s3://public-coastal/tidal-wetland-change-v1-0-1/staging-gain/hex-fractions/ --output s3://public-coastal/tidal-wetland-change-v1-0-1/staging-gain-fractions.checksums.json --workers 8
+          cng-datasets checksums s3://public-coastal/tidal-wetland-change-v1-0-1/staging-gain-cog.tif s3://public-coastal/tidal-wetland-change-v1-0-1/staging-gain/hex-fractions/ --output s3://public-coastal/tidal-wetland-change-v1-0-1/staging-gain-fractions.checksums.json --workers 8
         resources:
           requests:
             cpu: '4'

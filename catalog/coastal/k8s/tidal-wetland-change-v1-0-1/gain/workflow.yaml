@@ -23,15 +23,24 @@ spec:
           \ raster workflow...\"\n\n# Step 0: Setup bucket\necho \"Step 0: Setting\
           \ up bucket...\"\nkubectl apply -f /yamls/tidal-wetland-change-v1-0-1-staging-gain-fractions-setup-bucket.yaml\
           \ -n geo-workflows\nwait_job tidal-wetland-change-v1-0-1-staging-gain-fractions-setup-bucket\
-          \ geo-workflows 600\n\n# Step 1: H3 hexagonal tiling\necho \"Step 1: H3\
+          \ geo-workflows 600\n\n# Step 1: Preprocess \u2014 mosaic tiles into a single\
+          \ COG on S3\necho \"Step 1: Preprocessing COG mosaic...\"\nkubectl apply\
+          \ -f /yamls/tidal-wetland-change-v1-0-1-staging-gain-fractions-preprocess-cog.yaml\
+          \ -n geo-workflows\n\necho \"Waiting for preprocess-cog (may take 30-60\
+          \ min for large tile sets)...\"\nwait_job tidal-wetland-change-v1-0-1-staging-gain-fractions-preprocess-cog\
+          \ geo-workflows 7200\n\n# Step 2: H3 hexagonal tiling\necho \"Step 2: H3\
           \ hexagonal tiling...\"\nkubectl apply -f /yamls/tidal-wetland-change-v1-0-1-staging-gain-fractions-hex.yaml\
           \ -n geo-workflows\nwait_job tidal-wetland-change-v1-0-1-staging-gain-fractions-hex\
+          \ geo-workflows 7200\n\necho \"Default render and thumbnail of each COG...\"\
+          \nkubectl apply -f /yamls/tidal-wetland-change-v1-0-1-staging-gain-fractions-render.yaml\
+          \ -n geo-workflows\nwait_job tidal-wetland-change-v1-0-1-staging-gain-fractions-render\
           \ geo-workflows 7200\n\necho \"Sizes and checksums of the outputs...\"\n\
           kubectl apply -f /yamls/tidal-wetland-change-v1-0-1-staging-gain-fractions-checksums.yaml\
           \ -n geo-workflows\nwait_job tidal-wetland-change-v1-0-1-staging-gain-fractions-checksums\
           \ geo-workflows 7200\n\necho \"\u2713 Workflow complete!\"\necho \"Clean\
           \ up with:\"\necho \"  kubectl delete jobs tidal-wetland-change-v1-0-1-staging-gain-fractions-setup-bucket\
-          \ tidal-wetland-change-v1-0-1-staging-gain-fractions-hex tidal-wetland-change-v1-0-1-staging-gain-fractions-checksums\
+          \ tidal-wetland-change-v1-0-1-staging-gain-fractions-preprocess-cog tidal-wetland-change-v1-0-1-staging-gain-fractions-hex\
+          \ tidal-wetland-change-v1-0-1-staging-gain-fractions-render tidal-wetland-change-v1-0-1-staging-gain-fractions-checksums\
           \ tidal-wetland-change-v1-0-1-staging-gain-fractions-workflow -n geo-workflows\"\
           \necho \"  kubectl delete configmap tidal-wetland-change-v1-0-1-staging-gain-fractions-yamls\
           \ -n geo-workflows\"\n"
