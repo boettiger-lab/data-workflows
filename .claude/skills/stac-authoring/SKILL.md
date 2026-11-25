@@ -593,6 +593,23 @@ view. A COG's thumbnail comes with its render (`<cog stem>.thumbnail.png`, named
 `render.json`). Either way, add the `thumbnail` asset yourself.
 `verify-stac.py` fails a thumbnail that is not an image and advises `thumbnail-missing`.
 
+## Portolan: deliberate divergences
+
+The catalog follows the Portolan profile (tracker #1061), and rashid runs advisory in CI.
+These findings are intentional. Do not "fix" them:
+
+- **`public-domain` licence** (PTL-LIC-001) for US federal works, and **`proprietary`** where
+  upstream grants nothing (PTL-LIC-003). Step 7 has the rules.
+- **One `default` style per PMTiles file**, so a collection with several files has several
+  defaults (PTL-VIZ-006).
+- **Dotted collection ids** such as `pad-us-4.1-combined` (PTL-COL-003): apps pin them.
+- **A COG is styled through `renders`**, not a style file (PTL-VIZ-002). Portolan has not
+  defined raster style files yet (portolan-spec#41).
+- **The hex asset's href is a glob, and it has no checksum** (PTL-AST-012, PTL-AST-003),
+  raised in portolan-spec#278. Keep the asset beside the `partition:*` fields.
+- **Absolute hrefs and the `stac-collection.json` file name** (PTL-LNK-006 and others) until the
+  layout question in the tracker is settled. `scripts/rashid-advisory.py` shims them locally.
+
 ## Step 6: Register in the parent sub-catalog
 
 **The STAC catalog is a TREE.** Datasets belong in their domain/bucket sub-catalog, not the root. Root `public-data/stac/catalog.json` only links top-level sub-catalogs (e.g. `public-high-seas`, `public-padus`, `public-census`).
