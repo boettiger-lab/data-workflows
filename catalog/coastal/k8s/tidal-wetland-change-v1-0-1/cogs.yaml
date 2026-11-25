@@ -17,6 +17,8 @@
 # Overviews (indexes 0-7) are built per tile, in parallel, down to 1/256, and the COG reuses them:
 # building them in the COG step (OVERVIEWS=IGNORE_EXISTING) reads the mosaic single-threaded through
 # fractional windows, and on #788 passed a 6-hour pod deadline twice without finishing.
+# Each tile converter gets a 1 GB block cache: at 512 MB the four used ~1.1 GiB, under NRP's 20%
+# memory floor for the 8Gi request the COG step needs. An index whose COG exists is skipped.
 # Default priority (runs past the preemption window): requests sized to use, limit = request.
 #   kubectl apply -n geo-workflows -f catalog/coastal/k8s/tidal-wetland-change-v1-0-1/cogs.yaml
 apiVersion: batch/v1
@@ -76,6 +78,9 @@ spec:
           )"
           W=/tmp/w && mkdir -p $W && cd $W
           echo "index=$I name=$NAME band=$BAND overviews=$OVR nodata=$NODATA"
+          # Rerunnable: an index whose COG is already on S3 is done.
+          if [ $I -le 7 ]; then K=tidal-wetland-change-v1-0-1/$NAME-cog.tif; else K=tidal-wetland-change-v1-0-1/staging/$NAME-cog.tif; fi
+          if rclone lsf "nrp:public-coastal/$K" 2>/dev/null | grep -q .; then echo "already published: $K"; exit 0; fi
           if [ $I -le 7 ]; then
             time rclone copy "$RAW/$BAND/" tiles/ $R
             echo "tiles=$(find tiles -name '*.tif' | wc -l) size=$(du -sh tiles | cut -f1)"
