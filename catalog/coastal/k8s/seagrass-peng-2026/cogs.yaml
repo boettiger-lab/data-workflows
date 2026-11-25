@@ -9,8 +9,11 @@
 # and written as one COG. The tiles are already 256x256-blocked COGs, so no re-tiling.
 # Overviews are rebuilt rather than taken from the tiles: theirs stop at 1/32 (still 125k pixels
 # wide, so a world-scale tile took 7 s) and their nearest sampling drops thin meadows, which left
-# a world preview blank. MODE over the valid pixels keeps any seagrass in a coarse pixel visible;
-# full-resolution values are unchanged.
+# a world preview blank. They are built per tile, in parallel (AVERAGE over the valid pixels: any
+# seagrass in a coarse pixel keeps it 1), down to 1/256, and the COG reuses them. Building them in
+# the COG step instead (OVERVIEWS=IGNORE_EXISTING) read the mosaic single-threaded through
+# fractional windows and passed the old 6-hour pod deadline twice without finishing. Per tile it is
+# 25 s for the densest tile (Bahamas). Full-resolution values are unchanged.
 #   index 0: 2019-2020 (299 tiles), index 1: 2023-2024 (301 tiles)
 # Default priority (runs past the preemption window): requests sized to use, limit = request.
 #   kubectl apply -n geo-workflows -f catalog/coastal/k8s/seagrass-peng-2026/cogs.yaml
@@ -31,7 +34,7 @@ spec:
     metadata: {labels: {k8s-app: seagrass-peng-2026-cogs}}
     spec:
       restartPolicy: Never
-      activeDeadlineSeconds: 21600
+      activeDeadlineSeconds: 43200
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -58,7 +61,15 @@ spec:
           time rclone copy "nrp:public-coastal/raw/seagrass-peng-2026/$p/$inner/" tiles/ \
             --transfers 16 --retries 10 --low-level-retries 20
           echo "tiles=$(find tiles -name '*.tif' | wc -l) size=$(du -sh tiles | cut -f1)"
-          find tiles -name '*.tif' | sort > tiles.txt
+          mkdir -p tiled
+          conv() { GDAL_CACHEMAX=512 gdal_translate -q "$1" "tiled/$(basename "$1")" \
+                     -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 -co COMPRESS=ZSTD -co SPARSE_OK=TRUE -co BIGTIFF=YES \
+                   && GDAL_CACHEMAX=512 gdaladdo -q -r average "tiled/$(basename "$1")" 2 4 8 16 32 64 128 256 \
+                   && rm "$1"; }
+          export -f conv
+          time (find tiles -name '*.tif' | xargs -P 4 -I{} bash -c 'conv {}')
+          find tiled -name '*.tif' | sort > tiles.txt
+          echo "tiled=$(wc -l < tiles.txt)"
           gdalbuildvrt -q -resolution highest -srcnodata 0 -vrtnodata 0 -input_file_list tiles.txt mosaic.vrt
           python3 -c "
           from osgeo import gdal; gdal.UseExceptions()
@@ -68,8 +79,8 @@ spec:
                 'overviews', b.GetOverviewCount())"
           time gdal_translate mosaic.vrt $OUT -of COG \
             -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co SPARSE_OK=TRUE -co NUM_THREADS=ALL_CPUS \
-            -co BIGTIFF=YES -co OVERVIEWS=IGNORE_EXISTING -co OVERVIEW_RESAMPLING=MODE
-          rm -rf tiles mosaic.vrt
+            -co BIGTIFF=YES -co OVERVIEWS=FORCE_USE_EXISTING
+          rm -rf tiles tiled mosaic.vrt
           gdalinfo $OUT | grep -E 'Size is|Pixel Size|Origin|NoData|Description|Overviews' | head
           ls -la $OUT
           rclone copyto $OUT nrp:public-coastal/seagrass-peng-2026/$OUT --s3-no-check-bucket \
