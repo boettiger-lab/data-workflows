@@ -1,0 +1,69 @@
+# HAND-ROLLED: the generator does not write READMEs for existing nodes. Portolan PTL-FIL-003 (#1056):
+# the 3 nodes readmes-1056 left out while #1020 was in flight (closed since), which have no README:
+# unep-wcmc-coral-reefs points and polygons, and high-seas/iho. Same steps as readmes-1056, with its
+# gen_readme.py: draft from the node's own STAC, upload beside it, link ./README.md through the
+# guard. A node that has gained a README.md since is skipped.
+#   kubectl create configmap portolan-readmes-3-script -n geo-workflows \
+#     --from-file=catalog/portolan/k8s/readmes-1056/gen_readme.py \
+#     --from-file=catalog/portolan/k8s/readmes-3-1056/nodes.tsv \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/portolan/k8s/readmes-3-1056/portolan-readmes-3-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: portolan-readmes-3-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: portolan-readmes-3-publish-stac}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: portolan-readmes-3-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 4800
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          done=0; skipped=0
+          while IFS=$'\t' read -r p src; do
+            d="${p%/*}"
+            if rclone lsf "nrp:$d/README.md" 2>/dev/null | grep -qx README.md; then
+              echo "skip (README.md exists): $p"; skipped=$((skipped+1)); continue
+            fi
+            rclone cat "nrp:$p" > /tmp/c.json
+            if [ "$src" = "-" ]; then
+              python3 /script/gen_readme.py readme /tmp/c.json /tmp/README.md
+              rclone copyto /tmp/README.md "nrp:$d/README.md" $R --header-upload "Content-Type: text/markdown"
+            else
+              rclone copyto "nrp:$src" "nrp:$d/README.md" $R
+            fi
+            python3 /script/gen_readme.py link /tmp/c.json
+            guard_stac /tmp/c.json "nrp:$p"
+            rclone copyto /tmp/c.json "nrp:$p" $R
+            done=$((done+1))
+          done < /script/nodes.tsv
+          echo "OK: $done written, $skipped skipped"
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: portolan-readmes-3-script}}
