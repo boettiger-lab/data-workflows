@@ -107,7 +107,8 @@ spec:
             mkdir -p cls
             mk() {  # mk <tile suffix>
               local s=$1 C=$2
-              gdal_calc.py --quiet -A tiles/$C/murray-gic-v1.0.1-$C-$s -B tiles/${C}Type/murray-gic-v1.0.1-${C}Type-$s \
+              # 1 GB cache per process: the pod-wide 4000 MB times four processes was OOM-killed at 8Gi.
+              GDAL_CACHEMAX=1024 gdal_calc.py --quiet -A tiles/$C/murray-gic-v1.0.1-$C-$s -B tiles/${C}Type/murray-gic-v1.0.1-${C}Type-$s \
                 -C tiles/${C}Year/murray-gic-v1.0.1-${C}Year-$s --outfile cls/$s --type UInt16 --NoDataValue 0 \
                 --hideNoData --calc "where(A==1, where(B>0,B,9).astype(uint16)*100 + where(C>0,C,99).astype(uint16), 0)" \
                 --co TILED=YES --co BLOCKXSIZE=512 --co BLOCKYSIZE=512 --co COMPRESS=ZSTD --co SPARSE_OK=TRUE --co BIGTIFF=YES
