@@ -14,6 +14,8 @@
 # the COG step instead (OVERVIEWS=IGNORE_EXISTING) read the mosaic single-threaded through
 # fractional windows and passed the old 6-hour pod deadline twice without finishing. Per tile it is
 # 25 s for the densest tile (Bahamas). Full-resolution values are unchanged.
+# Each converter gets a 1 GB block cache: at 512 MB the four used ~1.5 GiB, under NRP's 20%
+# memory floor for the 8Gi request the COG step needs.
 #   index 0: 2019-2020 (299 tiles), index 1: 2023-2024 (301 tiles)
 # Default priority (runs past the preemption window): requests sized to use, limit = request.
 #   kubectl apply -n geo-workflows -f catalog/coastal/k8s/seagrass-peng-2026/cogs.yaml
@@ -62,9 +64,9 @@ spec:
             --transfers 16 --retries 10 --low-level-retries 20
           echo "tiles=$(find tiles -name '*.tif' | wc -l) size=$(du -sh tiles | cut -f1)"
           mkdir -p tiled
-          conv() { GDAL_CACHEMAX=512 gdal_translate -q "$1" "tiled/$(basename "$1")" \
+          conv() { GDAL_CACHEMAX=1024 gdal_translate -q "$1" "tiled/$(basename "$1")" \
                      -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 -co COMPRESS=ZSTD -co SPARSE_OK=TRUE -co BIGTIFF=YES \
-                   && GDAL_CACHEMAX=512 gdaladdo -q -r average "tiled/$(basename "$1")" 2 4 8 16 32 64 128 256 \
+                   && GDAL_CACHEMAX=1024 gdaladdo -q -r average "tiled/$(basename "$1")" 2 4 8 16 32 64 128 256 \
                    && rm "$1"; }
           export -f conv
           time (find tiles -name '*.tif' | xargs -P 4 -I{} bash -c 'conv {}')
