@@ -1,0 +1,64 @@
+# HAND-ROLLED: staging a zipped tile release is not a step cng-datasets generates (#788).
+# Downloads the two period zips of "Global 10-meter seagrass maps" (Zenodo record 18612240),
+# checks each against the MD5 Zenodo publishes, records size, MD5, SHA-256, URL and access time in
+# raw/seagrass-peng-2026/MANIFEST.tsv, and stages the tiles (COGs, 1 = seagrass, 0 = nodata) to
+# raw/seagrass-peng-2026/<period>/ for the generated preprocess-cog steps. One period at a time to
+# stay within ephemeral storage (each unzips to ~12 GB).
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/seagrass-peng-2026/stage-raw.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seagrass-peng-2026-stage-raw
+  namespace: geo-workflows
+  labels: {k8s-app: seagrass-peng-2026-stage-raw}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: seagrass-peng-2026-stage-raw}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 5400
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: stage
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s --transfers 16 --s3-no-check-bucket"
+          Z=https://zenodo.org/api/records/18612240/files
+          mkdir -p /work && cd /work
+          printf 'file\tbytes\tmd5\tsha256\turl\taccessed_utc\n' > MANIFEST.tsv
+          # period  zip  md5 (from the Zenodo record)
+          while read -r period zip md5; do
+            curl -fsSL --retry 5 -o "$zip" "$Z/$zip/content"
+            echo "$md5  $zip" | md5sum -c -
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$zip" "$(stat -c %s "$zip")" "$md5" \
+              "$(sha256sum "$zip" | cut -d' ' -f1)" "$Z/$zip/content" "$(date -u +%FT%TZ)" >> MANIFEST.tsv
+            unzip -q "$zip" -d "$period" && rm "$zip"
+            n=$(find "$period" -name '*.tif' | wc -l); echo "$period: $n tiles"
+            rclone copy "$period" "nrp:public-coastal/raw/seagrass-peng-2026/$period/" --include '*.tif' $R
+            rm -rf "$period"
+          done <<'EOF'
+          2019-2020 GlobalSeagrass2019_2020.zip 2046bf6c62d85f4d57e678bf6ef1cd07
+          2023-2024 GlobalSeagrass2023_2024.zip d371628f0e343244eb47f188f0a89726
+          EOF
+          cat MANIFEST.tsv
+          rclone copyto MANIFEST.tsv nrp:public-coastal/raw/seagrass-peng-2026/MANIFEST.tsv $R
+          echo OK
+        resources:
+          requests: {cpu: '4', memory: 4Gi, ephemeral-storage: 30Gi}
+          limits:   {cpu: '4', memory: 4Gi, ephemeral-storage: 30Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
