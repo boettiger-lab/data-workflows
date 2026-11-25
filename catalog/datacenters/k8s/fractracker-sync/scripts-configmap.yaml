@@ -368,7 +368,7 @@ data:
     def collection(cid, title, desc, path, box, interval, dic, assets, keywords, pmkey, extra, citation):
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         return {
-            "type": "Collection", "stac_version": "1.0.0", "stac_extensions": EXT, "id": cid,
+            "type": "Collection", "stac_version": "1.1.0", "stac_extensions": EXT, "id": cid,
             "title": title, "description": desc, "keywords": keywords, "license": "other",
             "providers": PROVIDERS, "sci:citation": citation, "created": now, "updated": now,
             "extent": {"spatial": {"bbox": [box]}, "temporal": {"interval": [interval]}},
@@ -398,7 +398,8 @@ data:
             if path not in objs:
                 raise SystemExit(f"missing object {path}")
             a = {"href": f"{PUB}/{path}", "type": typ, "title": title, "description": desc,
-                 "roles": ["data"], "created": objs[path][1], "file:size": objs[path][0]}
+                 "roles": ["data"] + (["visual"] if typ == "application/vnd.pmtiles" else []),  # Portolan PTL-AST-009
+                 "created": objs[path][1], "file:size": objs[path][0]}
             a.update(kw)
             return a
 
