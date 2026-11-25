@@ -150,6 +150,31 @@ class Fallbacks(unittest.TestCase):
 README = {"rel": "describedby", "href": BASE + "README.md", "type": "text/markdown"}
 
 
+AGENTS = {"rel": "agents", "href": "./AGENTS.md", "type": "text/markdown"}
+
+
+class AgentsLink(unittest.TestCase):
+    def test_keeps_live_agents_link(self):
+        lv = live(); lv["links"].append(dict(AGENTS))
+        new = new_from(live())
+        kept, _ = g.guard(new, lv, set())
+        self.assertIn("1 AGENTS.md link", kept)
+        self.assertEqual([l for l in new["links"] if l["rel"] == "agents"], [AGENTS])
+
+    def test_new_agents_link_is_not_doubled(self):
+        lv = live(); lv["links"].append(dict(AGENTS))
+        new = new_from(live()); new["links"].append(dict(AGENTS, href=BASE + "AGENTS.md"))
+        kept, _ = g.guard(new, lv, set())
+        self.assertNotIn("1 AGENTS.md link", kept)
+        self.assertEqual(sum(l["rel"] == "agents" for l in new["links"]), 1)
+
+    def test_catalog_keeps_agents_link(self):
+        lv = {"type": "Catalog", "links": [{"rel": "self", "href": BASE + "catalog.json"}, dict(AGENTS)]}
+        new = {"type": "Catalog", "links": [{"rel": "self", "href": BASE + "catalog.json"}]}
+        kept, _ = g.guard(new, lv, set())
+        self.assertIn("1 AGENTS.md link", kept)
+
+
 class ReadmeLink(unittest.TestCase):
     def test_keeps_live_readme_link(self):
         lv = live(); lv["links"].append(dict(README))

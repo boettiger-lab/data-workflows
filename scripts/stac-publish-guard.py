@@ -14,6 +14,7 @@ It edits NEW.json in place to KEEP what the new file lacks:
   * the `thumbnail` asset, when the new file has none (#889)
   * `rel: pmtiles` links whose file is still a PMTiles asset of the new collection (#890)
   * the `rel: describedby` link to the node's own README.md, beside its STAC file (#761)
+  * the `rel: agents` link to the node's own AGENTS.md, beside its STAC file (#1057)
 
 and REFUSES (exit 3, NEW.json untouched) when the new file would undo a change:
   * `columns`: the live collection has a `table:columns` dictionary and the new one has none
@@ -28,8 +29,8 @@ A deliberate change of either kind sets STAC_GUARD_ALLOW=columns,keys (or one of
 job, which records the decision where a reviewer sees it.
 
 A missing or unreadable LIVE.json means a new collection: nothing to keep, nothing refused.
-A NEW.json of type Catalog (a grouping node, #762) keeps only its README link: Catalogs carry
-no assets.
+A NEW.json of type Catalog (a grouping node, #762) keeps only its README and AGENTS.md links:
+Catalogs carry no assets.
 Exit 0 means NEW.json is safe to upload.
 
 In a job (the image has no repo checkout, so fetch it; `curl -f` fails closed):
@@ -63,11 +64,15 @@ def _is_pmtiles(asset: dict) -> bool:
     return "pmtiles" in asset.get("type", "")
 
 
+def _own_doc(doc: dict, rel: str, name: str) -> list[dict]:
+    """`rel` links to the file `name` beside the node's own STAC file (Portolan FIL-001/003)."""
+    target = _absolute(doc, name)
+    return [l for l in doc.get("links", []) if l.get("rel") == rel
+            and _absolute(doc, l.get("href")) == target]
+
+
 def _own_readme(doc: dict) -> list[dict]:
-    """`describedby` links to the README.md beside the node's own STAC file (Portolan FIL-003)."""
-    readme = _absolute(doc, "README.md")
-    return [l for l in doc.get("links", []) if l.get("rel") == "describedby"
-            and _absolute(doc, l.get("href")) == readme]
+    return _own_doc(doc, "describedby", "README.md")
 
 
 def guard(new: dict, live: dict, allow: set[str]) -> tuple[list[str], list[str]]:
@@ -94,6 +99,12 @@ def guard(new: dict, live: dict, allow: set[str]) -> tuple[list[str], list[str]]
         if readme:
             new.setdefault("links", []).extend(json.loads(json.dumps(readme)))
             kept.append("1 README link")
+    # #1057: likewise the AGENTS.md link
+    if _base(new) and _base(new) == _base(live) and not _own_doc(new, "agents", "AGENTS.md"):
+        agents = _own_doc(live, "agents", "AGENTS.md")[:1]
+        if agents:
+            new.setdefault("links", []).extend(json.loads(json.dumps(agents)))
+            kept.append("1 AGENTS.md link")
 
     if new.get("type") == "Catalog":  # #762: a Catalog carries no assets or renders to keep
         return kept, refused

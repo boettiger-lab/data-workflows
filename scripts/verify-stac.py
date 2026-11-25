@@ -1627,6 +1627,13 @@ def check_portolan_metadata(doc: dict) -> list[Finding]:
         out.append(Finding(ADVISORY, "portolan-schema-uri",
                            f"stac_extensions declares no Portolan schema URI; add "
                            f"{PORTOLAN_SCHEMA_EXAMPLE} (rashid PTL-CNF-001)."))
+    for rel, name, rule in (("describedby", "README.md", "FIL-003"), ("agents", "AGENTS.md", "FIL-002")):
+        if not any(l.get("rel") == rel and l.get("type") == "text/markdown"
+                   and str(l.get("href", "")).rstrip("/").endswith(name) for l in links):
+            out.append(Finding(ADVISORY, f"portolan-{rel}-link",
+                               f'no {{"rel": "{rel}", "href": "./{name}", "type": "text/markdown"}} '
+                               f"link to the {name} beside this file (rashid PTL-{rule}; "
+                               f"skill stac-authoring)."))
     if not collection:
         return out
 

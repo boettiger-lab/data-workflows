@@ -1439,6 +1439,8 @@ class TestPortolanMetadata(unittest.TestCase):
              "stac_extensions": [self.SCHEMA, self.WML], "providers": self.MIRROR,
              "updated": "2026-11-18T00:00:00Z",
              "links": [{"rel": "via", "href": "https://example.org/", "type": "text/html"},
+                       {"rel": "describedby", "href": "./README.md", "type": "text/markdown"},
+                       {"rel": "agents", "href": "./AGENTS.md", "type": "text/markdown"},
                        {"rel": "pmtiles", "href": "d.pmtiles", "type": "application/vnd.pmtiles"}],
              "assets": {
                  "d-pmtiles": {"href": "d.pmtiles", "type": "application/vnd.pmtiles",
@@ -1487,7 +1489,17 @@ class TestPortolanMetadata(unittest.TestCase):
     def test_catalog_gets_only_version_and_schema(self):
         self.assertEqual(self.codes({"type": "Catalog", "stac_version": "1.0.0", "links": []}),
                          {"portolan-stac-version": vs.ADVISORY,
-                          "portolan-schema-uri": vs.ADVISORY})
+                          "portolan-schema-uri": vs.ADVISORY,
+                          "portolan-describedby-link": vs.ADVISORY,
+                          "portolan-agents-link": vs.ADVISORY})
+
+    def test_readme_and_agents_links(self):
+        doc = self.clean()
+        doc["links"] = [l for l in doc["links"] if l["rel"] not in ("describedby", "agents")]
+        doc["links"].append({"rel": "describedby", "href": "https://example.org/meta.xml",
+                             "type": "text/html"})
+        self.assertEqual(self.codes(doc), {"portolan-describedby-link": vs.ADVISORY,
+                                           "portolan-agents-link": vs.ADVISORY})
 
 
 class TestPartitionStorage(unittest.TestCase):
