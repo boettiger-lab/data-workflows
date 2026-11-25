@@ -14,6 +14,9 @@
 #     missing year (some change pixels carry neither), 0 elsewhere. Not published.
 #     The uint16 casts matter: the inputs are Byte, and 5 x 100 wraps to 244 in 8 bits. Checked on a
 #     San Francisco Bay window: all 26,461 loss pixels classified, 3,959 of them 999 (no type, no year).
+# Overviews (indexes 0-7) are built per tile, in parallel, down to 1/256, and the COG reuses them:
+# building them in the COG step (OVERVIEWS=IGNORE_EXISTING) reads the mosaic single-threaded through
+# fractional windows, and on #788 passed a 6-hour pod deadline twice without finishing.
 # Default priority (runs past the preemption window): requests sized to use, limit = request.
 #   kubectl apply -n geo-workflows -f catalog/coastal/k8s/tidal-wetland-change-v1-0-1/cogs.yaml
 apiVersion: batch/v1
@@ -75,12 +78,22 @@ spec:
           echo "index=$I name=$NAME band=$BAND overviews=$OVR nodata=$NODATA"
           if [ $I -le 7 ]; then
             time rclone copy "$RAW/$BAND/" tiles/ $R
-            find tiles -name '*.tif' | sort > tiles.txt
-            echo "tiles=$(wc -l < tiles.txt) size=$(du -sh tiles | cut -f1)"
-            if [ "$NODATA" = 255 ]; then SRCND=None; else SRCND=0; fi
+            echo "tiles=$(find tiles -name '*.tif' | wc -l) size=$(du -sh tiles | cut -f1)"
+            # Change bands: 0 = no change, declared nodata so overviews ignore it. Probability: 0 is a value.
+            if [ "$NODATA" = 255 ]; then SRCND=None; AND=""; else SRCND=0; AND="-a_nodata 0"; fi
+            export AND OVR
+            mkdir -p tiled
+            conv() { GDAL_CACHEMAX=512 gdal_translate -q $AND "$1" "tiled/$(basename "$1")" \
+                       -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 -co COMPRESS=ZSTD -co SPARSE_OK=TRUE -co BIGTIFF=YES \
+                     && GDAL_CACHEMAX=512 gdaladdo -q -r "${OVR,,}" "tiled/$(basename "$1")" 2 4 8 16 32 64 128 256 \
+                     && rm "$1"; }
+            export -f conv
+            time (find tiles -name '*.tif' | xargs -P 4 -I{} bash -c 'conv {}')
+            find tiled -name '*.tif' | sort > tiles.txt
+            echo "tiled=$(wc -l < tiles.txt)"
             gdalbuildvrt -q -resolution highest -srcnodata $SRCND -vrtnodata $NODATA -input_file_list tiles.txt mosaic.vrt
             OUT=$NAME-cog.tif; DEST=tidal-wetland-change-v1-0-1/$OUT
-            COGOPTS="-co OVERVIEWS=IGNORE_EXISTING -co OVERVIEW_RESAMPLING=$OVR"
+            COGOPTS="-co OVERVIEWS=FORCE_USE_EXISTING"
           else
             # loss-class / gain-class from <change>, <change>Type, <change>Year, tile by tile.
             C=$BAND
@@ -109,7 +122,7 @@ spec:
           print('size', ds.RasterXSize, ds.RasterYSize, 'gt', ds.GetGeoTransform(), 'nodata', b.GetNoDataValue(), 'type', gdal.GetDataTypeName(b.DataType))"
           time gdal_translate mosaic.vrt $OUT -of COG \
             -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co SPARSE_OK=TRUE -co NUM_THREADS=ALL_CPUS -co BIGTIFF=YES $COGOPTS
-          rm -rf tiles cls mosaic.vrt
+          rm -rf tiles tiled cls mosaic.vrt
           gdalinfo $OUT | grep -E 'Size is|Pixel Size|Origin|NoData|Description|Overviews' | head
           ls -la $OUT
           rclone copyto $OUT nrp:public-coastal/$DEST --s3-no-check-bucket --retries 10 --low-level-retries 20
