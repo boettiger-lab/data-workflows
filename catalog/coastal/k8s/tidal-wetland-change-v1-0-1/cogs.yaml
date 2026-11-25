@@ -1,0 +1,121 @@
+# HAND-ROLLED (#800): one global COG per band from the tiles staged by stage-raw.yaml, plus two
+# derived class rasters for the hex. The generator's preprocess-cog opens each tile through the
+# public endpoint and was preempted twice doing so on #788 (seagrass); this copies the tiles in over
+# the internal endpoint and mosaics them locally. Pattern follows
+# catalog/coastal/k8s/seagrass-peng-2026/cogs.yaml.
+#
+#   index 0-7: published COGs, values as published, tidal-wetland-change-v1-0-1/<name>-cog.tif
+#     loss, gain              1 = change, 0 = none (nodata 0); overviews AVERAGE (= 1 wherever any change)
+#     loss-year, gain-year    end year of the time step, 0 = none (nodata 0); overviews MODE
+#     loss-type, gain-type    2 tidal flat, 3 mangrove, 5 tidal marsh, 0 = none (nodata 0); overviews MODE
+#     tw-probability-start/end  0-100, 0 is a value; 255 = outside the tiles; overviews AVERAGE
+#   index 8-9: loss-class, gain-class (UInt16, no overviews), staging/<name>-cog.tif, read by the
+#     hex: class = type x 100 + year where change = 1, with 9 for a missing type and 99 for a
+#     missing year (some change pixels carry neither), 0 elsewhere. Not published.
+#     The uint16 casts matter: the inputs are Byte, and 5 x 100 wraps to 244 in 8 bits. Checked on a
+#     San Francisco Bay window: all 26,461 loss pixels classified, 3,959 of them 999 (no type, no year).
+# Default priority (runs past the preemption window): requests sized to use, limit = request.
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/tidal-wetland-change-v1-0-1/cogs.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tidal-wetland-change-cogs
+  namespace: geo-workflows
+  labels: {k8s-app: tidal-wetland-change-cogs}
+spec:
+  completions: 10
+  parallelism: 5
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 3
+  ttlSecondsAfterFinished: 259200
+  template:
+    metadata: {labels: {k8s-app: tidal-wetland-change-cogs}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 43200
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: cog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: GDAL_DATA, value: /usr/share/gdal}
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        - {name: GDAL_CACHEMAX, value: '4000'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          I=$JOB_COMPLETION_INDEX
+          RAW=nrp:public-coastal/raw/tidal-wetland-change-v1-0-1
+          R="--transfers 16 --retries 10 --low-level-retries 20"
+          # name  upstream-band  overview-resampling  nodata  description
+          read -r NAME BAND OVR NODATA DESC <<< "$(sed -n "$((I+1))p" <<'EOF'
+          loss loss AVERAGE 0 loss
+          gain gain AVERAGE 0 gain
+          loss-year lossYear MODE 0 loss_year
+          gain-year gainYear MODE 0 gain_year
+          loss-type lossType MODE 0 loss_type
+          gain-type gainType MODE 0 gain_type
+          tw-probability-start twprobabilityStart AVERAGE 255 tw_probability_start
+          tw-probability-end twprobabilityEnd AVERAGE 255 tw_probability_end
+          loss-class loss - 0 loss_class
+          gain-class gain - 0 gain_class
+          EOF
+          )"
+          W=/tmp/w && mkdir -p $W && cd $W
+          echo "index=$I name=$NAME band=$BAND overviews=$OVR nodata=$NODATA"
+          if [ $I -le 7 ]; then
+            time rclone copy "$RAW/$BAND/" tiles/ $R
+            find tiles -name '*.tif' | sort > tiles.txt
+            echo "tiles=$(wc -l < tiles.txt) size=$(du -sh tiles | cut -f1)"
+            if [ "$NODATA" = 255 ]; then SRCND=None; else SRCND=0; fi
+            gdalbuildvrt -q -resolution highest -srcnodata $SRCND -vrtnodata $NODATA -input_file_list tiles.txt mosaic.vrt
+            OUT=$NAME-cog.tif; DEST=tidal-wetland-change-v1-0-1/$OUT
+            COGOPTS="-co OVERVIEWS=IGNORE_EXISTING -co OVERVIEW_RESAMPLING=$OVR"
+          else
+            # loss-class / gain-class from <change>, <change>Type, <change>Year, tile by tile.
+            C=$BAND
+            for b in $C ${C}Type ${C}Year; do rclone copy "$RAW/$b/" tiles/$b/ $R; done
+            echo "tiles per band: $(ls tiles/$C | wc -l)"
+            mkdir -p cls
+            mk() {  # mk <tile suffix>
+              local s=$1 C=$2
+              gdal_calc.py --quiet -A tiles/$C/murray-gic-v1.0.1-$C-$s -B tiles/${C}Type/murray-gic-v1.0.1-${C}Type-$s \
+                -C tiles/${C}Year/murray-gic-v1.0.1-${C}Year-$s --outfile cls/$s --type UInt16 --NoDataValue 0 \
+                --hideNoData --calc "where(A==1, where(B>0,B,9).astype(uint16)*100 + where(C>0,C,99).astype(uint16), 0)" \
+                --co TILED=YES --co BLOCKXSIZE=512 --co BLOCKYSIZE=512 --co COMPRESS=ZSTD --co SPARSE_OK=TRUE --co BIGTIFF=YES
+            }
+            export -f mk
+            time (ls tiles/$C | sed -E "s/^murray-gic-v1\.0\.1-$C-//" | xargs -P 4 -I{} bash -c "mk {} $C")
+            rm -rf tiles
+            find cls -name '*.tif' | sort > tiles.txt
+            gdalbuildvrt -q -resolution highest -srcnodata 0 -vrtnodata 0 -input_file_list tiles.txt mosaic.vrt
+            OUT=$NAME-cog.tif; DEST=tidal-wetland-change-v1-0-1/staging/$OUT
+            COGOPTS="-co OVERVIEWS=NONE"
+          fi
+          python3 -c "
+          from osgeo import gdal; gdal.UseExceptions()
+          ds = gdal.Open('mosaic.vrt', gdal.GA_Update); ds.GetRasterBand(1).SetDescription('$DESC'); ds = None
+          ds = gdal.Open('mosaic.vrt'); b = ds.GetRasterBand(1)
+          print('size', ds.RasterXSize, ds.RasterYSize, 'gt', ds.GetGeoTransform(), 'nodata', b.GetNoDataValue(), 'type', gdal.GetDataTypeName(b.DataType))"
+          time gdal_translate mosaic.vrt $OUT -of COG \
+            -co COMPRESS=DEFLATE -co BLOCKSIZE=512 -co SPARSE_OK=TRUE -co NUM_THREADS=ALL_CPUS -co BIGTIFF=YES $COGOPTS
+          rm -rf tiles cls mosaic.vrt
+          gdalinfo $OUT | grep -E 'Size is|Pixel Size|Origin|NoData|Description|Overviews' | head
+          ls -la $OUT
+          rclone copyto $OUT nrp:public-coastal/$DEST --s3-no-check-bucket --retries 10 --low-level-retries 20
+          echo OK
+        resources:
+          requests: {cpu: '4', memory: 8Gi, ephemeral-storage: 80Gi}
+          limits:   {cpu: '4', memory: 8Gi, ephemeral-storage: 80Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
