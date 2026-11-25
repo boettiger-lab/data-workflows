@@ -1,0 +1,130 @@
+# HAND-ROLLED: the generator does not write STAC (#931, #932, #933).
+#
+# Step 6: the bucket-level collection for public-datacenters, and its child link in the root
+# catalog. Read-modify-write runs here, beside the write, so a child added by another build in the
+# meantime is kept. Idempotent: a child link already present is left alone, and the root catalog is
+# written only when the bucket is not yet registered.
+#
+# To add a dataset to the bucket, add its collection to CHILDREN below and re-apply. A child whose
+# collection is not live yet is skipped with a message, never linked.
+#
+#   kubectl apply -n geo-workflows -f catalog/datacenters/k8s/public-datacenters-catalog/public-datacenters-catalog.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: public-datacenters-catalog
+  namespace: geo-workflows
+  labels: {k8s-app: public-datacenters-catalog}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: public-datacenters-catalog}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 900
+      priorityClassName: opportunistic
+      containers:
+      - name: catalog
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/guard.py
+          mkdir -p /tmp/w && cd /tmp/w
+          rclone cat nrp:public-datacenters/stac-collection.json > live.json 2>/dev/null || : > live.json
+          rclone copyto nrp:public-data/stac/catalog.json root.json $R
+          python3 - <<'PY'
+          import json, os, subprocess
+          PUB = "https://s3-west.nrp-nautilus.io/public-datacenters"
+          ROOT = "https://s3-west.nrp-nautilus.io/public-data/stac/catalog.json"
+          CHILDREN = [  # (collection id, path under the bucket)
+              ("fractracker-data-centers", "fractracker/data-centers"),
+              ("fractracker-moratoriums", "fractracker/moratoriums"),
+              ("epoch-ai-data-centers", "epoch/ai-data-centers"),
+              ("epoch-ai-data-center-footprints", "epoch/ai-data-center-footprints"),
+              ("pnnl-im3-atlas-point", "pnnl-im3/atlas-point"),
+              ("pnnl-im3-atlas-building", "pnnl-im3/atlas-building"),
+              ("pnnl-im3-atlas-campus", "pnnl-im3/atlas-campus"),
+              ("pnnl-im3-projected", "pnnl-im3/projected"),
+          ]
+          DESC = (
+              "Data centers and the local response to them, from several independent sources: "
+              "FracTracker Alliance's U.S. Data Centers Tracker (existing, permitted and proposed "
+              "facilities, and local moratoriums, bans and zoning restrictions); Epoch AI's "
+              "database of large AI data centers worldwide with their building footprints; and "
+              "PNNL's IM3 Open Source Data Center Atlas (existing U.S. facilities from OpenStreetMap) "
+              "with its projected U.S. data center sites to 2035. The sources differ in scope and none "
+              "is a complete inventory of U.S. data centers: their totals range from 128 mapped facility "
+              "points (PNNL) to 1,733 facilities (FracTracker). Each child collection states its own "
+              "coverage, snapshot or edition date, licence and citation.")
+          live = json.load(open("live.json")) if os.path.getsize("live.json") else None
+          col = live or {
+              "type": "Collection", "stac_version": "1.0.0", "id": "public-datacenters",
+              "title": "Data centers",
+              "description": DESC,
+              "keywords": ["data centers", "energy", "infrastructure", "AI"],
+              "license": "various",
+              "providers": [{"name": "Boettiger Lab, UC Berkeley", "roles": ["processor"],
+                             "url": "https://github.com/boettiger-lab/data-workflows"},
+                            {"name": "National Research Platform", "roles": ["host"],
+                             "url": "https://nationalresearchplatform.org"}],
+              "extent": {"spatial": {"bbox": [[-180, -90, 180, 90]]},
+                         "temporal": {"interval": [["2018-12-18T00:00:00Z", None]]}},
+              "links": [
+                  {"rel": "self", "href": f"{PUB}/stac-collection.json", "type": "application/json"},
+                  {"rel": "root", "href": ROOT, "type": "application/json"},
+                  {"rel": "parent", "href": ROOT, "type": "application/json"},
+              ],
+          }
+          if live:  # the description is ours: refresh it as sources are added
+              col["description"] = DESC
+          have = {l["href"] for l in col["links"] if l["rel"] == "child"}
+          for cid, path in CHILDREN:
+              href = f"{PUB}/{path}/stac-collection.json"
+              if href in have:
+                  continue
+              r = subprocess.run(["rclone", "cat", f"nrp:public-datacenters/{path}/stac-collection.json"],
+                                 capture_output=True, text=True)
+              if r.returncode:
+                  print("skip (not live):", cid)
+                  continue
+              c = json.loads(r.stdout)
+              assert c["id"] == cid, (c["id"], cid)
+              col["links"].append({"rel": "child", "id": cid, "href": href, "type": "application/json",
+                                   "title": c["title"]})
+              print("child added:", cid)
+          json.dump(col, open("bucket.json", "w"), indent=2)
+
+          root = json.load(open("root.json"))
+          child = {"rel": "child", "id": "public-datacenters", "href": f"{PUB}/stac-collection.json",
+                   "type": "application/json", "title": "Data centers"}
+          if any(l.get("href") == child["href"] for l in root["links"]):
+              print("root: already registered")
+          else:
+              n = len(root["links"])
+              new = dict(root, links=root["links"] + [child])
+              assert new["links"][:n] == root["links"] and len(new["links"]) == n + 1
+              json.dump(new, open("root.new.json", "w"), indent=2)
+              print("root: child link prepared")
+          PY
+          python3 /tmp/guard.py bucket.json live.json
+          rclone copyto bucket.json nrp:public-datacenters/stac-collection.json $R --s3-no-check-bucket
+          echo "put bucket collection"
+          if [ -f root.new.json ]; then
+            rclone copyto root.new.json nrp:public-data/stac/catalog.json $R
+            rclone cat nrp:public-data/stac/catalog.json | grep -q 'public-datacenters/stac-collection.json'
+            echo "registered in root catalog"
+          fi
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

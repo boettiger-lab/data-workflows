@@ -1,0 +1,40 @@
+# HAND-ROLLED (#931): created by sync.sh, the weekly FracTracker sync; not applied by hand.
+# Short (minutes), so opportunistic. sync.sh fills in __DATASETS_IMAGE__.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fractracker-sync-stage
+  namespace: geo-workflows
+  labels: {k8s-app: fractracker-sync}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: fractracker-sync}}
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 3000
+      automountServiceAccountToken: false
+      dnsConfig:
+        nameservers: [8.8.8.8, 1.1.1.1]
+      containers:
+      - name: stage
+        image: __DATASETS_IMAGE__
+        imagePullPolicy: IfNotPresent
+        command: [bash, /sync/stage.sh]
+        env:
+        - {name: AWS_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}}
+        - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: sync, mountPath: /sync, readOnly: true}
+        - {name: scripts, mountPath: /scripts, readOnly: true}
+        resources:
+          requests: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+          limits: {cpu: '2', memory: 4Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: sync, configMap: {name: fractracker-sync-scripts}}
+      - {name: scripts, configMap: {name: fractracker-moratoriums-scripts}}

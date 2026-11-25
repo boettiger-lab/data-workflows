@@ -1,0 +1,69 @@
+# HAND-ROLLED: the generator emits no CronJob and no change-detecting refresh (#931).
+#
+# Weekly FracTracker sync. Mondays 17:00 UTC, sync.sh downloads both FracTracker sheets and stops
+# if neither changed. Otherwise it stages the new snapshot (kept under
+# s3://public-datacenters/raw/fractracker/snapshots/), reruns the generated convert, pmtiles, hex
+# and repartition jobs for each changed layer, and republishes its STAC with counts measured from
+# the new data. A sheet with new columns or coded values, or far fewer rows, fails the stage step
+# before anything is rebuilt: the published layers stay as they were, and the failed run shows in
+# `kubectl get jobs -n geo-workflows -l k8s-app=fractracker-sync`. Extend gen_stac.py's code
+# lists, then rerun with:
+#   kubectl create job -n geo-workflows --from=cronjob/fractracker-sync fractracker-sync-manual
+#
+# Apply (after any change to the scripts, or to a generated configmap.yaml it reads):
+#   kubectl create configmap fractracker-sync-scripts -n geo-workflows --dry-run=client -o yaml \
+#     --from-file=catalog/datacenters/k8s/fractracker-sync/{sync.sh,stage.sh,publish.sh,stage-job.yaml,publish-job.yaml} \
+#     --from-file=catalog/datacenters/k8s/fractracker-data-centers/gen_stac.py \
+#     > catalog/datacenters/k8s/fractracker-sync/scripts-configmap.yaml
+#   kubectl apply -n geo-workflows -f catalog/datacenters/k8s/fractracker-sync/scripts-configmap.yaml \
+#     -f catalog/datacenters/k8s/fractracker-data-centers/configmap.yaml \
+#     -f catalog/datacenters/k8s/fractracker-moratoriums/configmap.yaml \
+#     -f catalog/datacenters/k8s/fractracker-moratoriums/scripts-configmap.yaml \
+#     -f catalog/datacenters/k8s/fractracker-sync/fractracker-sync-cronjob.yaml
+#
+# The orchestrator pod is tiny and waits for hours, so it runs at default priority (NRP's usage
+# checks skip pods requesting at most 1 core and 2 GiB). It uses the cng-datasets-workflow service
+# account, as the generated workflow.yaml does, to create the child jobs.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/931
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fractracker-sync
+  namespace: geo-workflows
+  labels: {k8s-app: fractracker-sync}
+spec:
+  schedule: "0 17 * * 1"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 43200
+      template:
+        metadata:
+          labels: {k8s-app: fractracker-sync}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: cng-datasets-workflow
+          containers:
+          - name: sync
+            image: alpine/k8s:1.30.14
+            command: [bash, /sync/sync.sh]
+            env:
+            - name: DATASETS_IMAGE  # DEVIATION (#931): every job of the run uses this tested image, not :latest; bump deliberately
+              value: ghcr.io/boettiger-lab/datasets:0.12.2@sha256:ae0ced1543c3ce4d8a84d7652f5f01ae9cddb61a3efa98e9ed2fcc82ff8c33bd
+            volumeMounts:
+            - {name: sync, mountPath: /sync, readOnly: true}
+            - {name: dc, mountPath: /dc, readOnly: true}
+            - {name: mo, mountPath: /mo, readOnly: true}
+            resources:
+              requests: {cpu: 100m, memory: 256Mi}
+              limits: {cpu: 100m, memory: 256Mi}
+          volumes:
+          - {name: sync, configMap: {name: fractracker-sync-scripts}}
+          - {name: dc, configMap: {name: fractracker-data-centers-yamls}}
+          - {name: mo, configMap: {name: fractracker-moratoriums-yamls}}

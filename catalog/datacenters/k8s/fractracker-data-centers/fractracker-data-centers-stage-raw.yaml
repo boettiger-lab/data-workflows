@@ -1,0 +1,84 @@
+# HAND-ROLLED: cng-datasets has no stage-raw step for a Google Sheets export; this snapshots the
+# sheet before the generated workflow converts it.
+#
+# Stage FracTracker Alliance's U.S. Data Centers Tracker, as published in its public Google Sheet.
+#
+# Staged to s3://public-datacenters/raw/fractracker/:
+#   data-centers.csv              the "FracTracker Data Centers" tab (gid 386766486), CSV export
+#   data-centers-workbook.xlsx    the whole workbook, including FracTracker's README tab
+#                                 (dataset description, preferred citation, terms of use)
+#   data-dictionary.xlsx          FracTracker's field definitions
+#   MANIFEST.sha256               sha256 + byte size of every staged file
+#
+#   Landing page: https://www.fractracker.org/data-centers/
+#   Sheet:        https://docs.google.com/spreadsheets/d/1JJ6kcVo-NjlAYtznwHOki2DVl4WWV6lhy-eXhFCdKKU
+#   Dictionary:   https://docs.google.com/spreadsheets/d/1KVab4niu8X_GGne3WyyH_CdTP9Bt4uJSe6iK0fu9C48
+# The tracker is updated continuously and has no edition label, so the staged files plus their
+# sha256 (MANIFEST.sha256, recorded in the STAC) are the provenance; the job prints the access time.
+#
+# The convert step asserts --expect-features 1733 (the row count on 2026-11-15). If the live sheet
+# has changed by the time this runs, convert fails on the count: regenerate with the new count.
+# This job made the first staging; the weekly sync (catalog/datacenters/k8s/fractracker-sync/)
+# restages each change and passes convert the new count.
+#
+#   Issue: https://github.com/boettiger-lab/data-workflows/issues/931
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fractracker-data-centers-stage-raw
+  namespace: geo-workflows
+  labels:
+    k8s-app: fractracker-data-centers-stage-raw
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        k8s-app: fractracker-data-centers-stage-raw
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      activeDeadlineSeconds: 1800
+      dnsConfig:
+        nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+      containers:
+      - name: stage-raw
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          DEST="nrp:public-datacenters/raw/fractracker"
+          mkdir -p /work && cd /work
+          C="curl -fsSL --retry 8 --retry-all-errors --retry-delay 30 --max-time 600"
+          S="https://docs.google.com/spreadsheets/d/1JJ6kcVo-NjlAYtznwHOki2DVl4WWV6lhy-eXhFCdKKU"
+          $C -o data-centers.csv "$S/export?format=csv&gid=386766486"
+          $C -o data-centers-workbook.xlsx "$S/export?format=xlsx"
+          $C -o data-dictionary.xlsx "https://docs.google.com/spreadsheets/d/1KVab4niu8X_GGne3WyyH_CdTP9Bt4uJSe6iK0fu9C48/export?format=xlsx"
+          head -1 data-centers.csv | grep -q '^facility_name,.*,lat,long,' || { echo "unexpected CSV header"; head -c 500 data-centers.csv; exit 1; }
+          python3 -c "import csv; print(sum(1 for _ in csv.DictReader(open('data-centers.csv', encoding='utf-8'))), 'data rows')"
+          echo "accessed $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          for f in data-centers.csv data-centers-workbook.xlsx data-dictionary.xlsx; do
+            echo "$(sha256sum "$f" | cut -d' ' -f1)  $(stat -c %s "$f")  $f"
+          done > MANIFEST.sha256
+          cat MANIFEST.sha256
+          rclone copy . "$DEST" --s3-no-check-bucket
+          echo "staged -> s3://public-datacenters/raw/fractracker/"
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
