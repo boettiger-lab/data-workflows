@@ -1,0 +1,95 @@
+# HAND-ROLLED: the generator does not write STAC. Publishes the tidal-wetland-change-v1-0-1 collection
+# and README, draws the thumbnail from the loss render with TiTiler, and adds a child link to the
+# public-coastal bucket collection (#800). The collection and README come from gen_stac.py
+# (committed beside this file), generated after the COGs and hex are final:
+#   python3 catalog/coastal/k8s/tidal-wetland-change-v1-0-1/gen_stac.py /tmp/gicstac
+#   kubectl create configmap tidal-wetland-change-stac-files -n geo-workflows \
+#     --from-file=stac-collection.json=/tmp/gicstac/stac-collection.json \
+#     --from-file=README.md=/tmp/gicstac/README.md --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/tidal-wetland-change-v1-0-1/publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tidal-wetland-change-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: tidal-wetland-change-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: tidal-wetland-change-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: files, mountPath: /files, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          H=https://s3-west.nrp-nautilus.io/public-coastal/tidal-wetland-change-v1-0-1
+          D=public-coastal/tidal-wetland-change-v1-0-1
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          mkdir -p /work && cd /work
+          # ConfigMap files are symlinks, which rclone will not copy: take real copies first.
+          cp -L /files/stac-collection.json c.json && cp -L /files/README.md README.md
+
+          # Thumbnail: the loss render (red, nearest) through TiTiler's preview.
+          curl -fsS --retry 3 --max-time 300 -o thumbnail.png \
+            "https://titiler.nrp-nautilus.io/cog/preview.png?url=$H/loss-cog.tif&max_size=1024&resampling=nearest&colormap=%7B%221%22%3A%22%23D7301F%22%7D"
+          sz=$(stat -c %s thumbnail.png); echo "thumbnail $sz bytes"; [ "$sz" -gt 2000 ] || { echo "thumbnail looks blank"; exit 1; }
+          python3 - <<'PY'
+          import json
+          d = json.load(open("c.json"))
+          d["assets"]["thumbnail"] = {
+              "href": "https://s3-west.nrp-nautilus.io/public-coastal/tidal-wetland-change-v1-0-1/thumbnail.png",
+              "type": "image/png", "roles": ["thumbnail"], "title": "Thumbnail",
+              "description": "Preview drawn from the collection's render loss."}
+          json.dump(d, open("c.json", "w"), indent=2, ensure_ascii=False)
+          PY
+
+          rclone copyto thumbnail.png nrp:$D/thumbnail.png $R
+          rclone copyto README.md nrp:$D/README.md $R
+          guard_stac c.json nrp:$D/stac-collection.json
+          rclone copyto c.json nrp:$D/stac-collection.json $R
+
+          # Child link on the bucket collection, added only if absent; every other field kept.
+          rclone cat nrp:public-coastal/stac-collection.json > parent.json
+          python3 - <<'PY'
+          import json
+          p = json.load(open("parent.json"))
+          href = "https://s3-west.nrp-nautilus.io/public-coastal/tidal-wetland-change-v1-0-1/stac-collection.json"
+          if not any(l.get("href") == href for l in p["links"]):
+              p["links"].append({"rel": "child", "href": href, "type": "application/json",
+                                 "title": "Global tidal wetland change 1999–2019 (Murray et al. 2022, v1.0.1)"})
+          json.dump(p, open("parent.json", "w"), indent=2, ensure_ascii=False)
+          PY
+          guard_stac parent.json nrp:public-coastal/stac-collection.json
+          rclone copyto parent.json nrp:public-coastal/stac-collection.json $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: files, configMap: {name: tidal-wetland-change-stac-files}}
