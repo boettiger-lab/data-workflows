@@ -76,7 +76,7 @@ data:
       labels:
         k8s-app: seagrass-peng-2026-staging-2023-2024-hex
     spec:
-      completions: 122
+      completions: 105
       parallelism: 40
       completionMode: Indexed
       backoffLimitPerIndex: 2
@@ -135,10 +135,20 @@ data:
             command:
             - bash
             - -c
-            - |-
-              set -e
-
-              cng-datasets raster --input "s3://public-coastal/seagrass-peng-2026/seagrass-2023-2024-cog.tif" --output-parquet s3://public-coastal/seagrass-peng-2026/staging-2023-2024/hex/ --h0-index ${JOB_COMPLETION_INDEX} --resolution 10 --parent-resolutions 8,0 --value-column seagrass_km2 --hex-resampling total --nodata "0" --value-units km2/km2
+            - "set -e\n\n# Positions in the h0 grid's own ordering, not H3 base cell numbers\n\
+              # (--h0-subset / --h0-cells). The completion index selects one.\nH0S=(1\
+              \ 2 3 4 6 7 8 9 10 11 12 13 15 16 17 18 19 21 22 23 24 25 26 27 28 29 30\
+              \ 31 32 33 36 37 38 39 40 41 42 44 46 47 48 49 50 51 53 54 55 56 57 58 59\
+              \ 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 76 77 79 80 81 82 83 84 85\
+              \ 86 87 89 90 91 92 94 95 97 99 101 102 103 104 106 107 108 109 110 111\
+              \ 112 113 114 115 116 117 118 119 120 121)\nH0=${H0S[$JOB_COMPLETION_INDEX]}\n\
+              if [ -z \"${JOB_COMPLETION_INDEX}\" ] || [ -z \"$H0\" ]; then\n  echo \"\
+              No h0 cell for completion index '${JOB_COMPLETION_INDEX}' in (${H0S[*]})\
+              \ \u2014 completions must match the --h0-subset length\" >&2\n  exit 1\n\
+              fi\n\ncng-datasets raster --input \"s3://public-coastal/seagrass-peng-2026/seagrass-2023-2024-cog.tif\"\
+              \ --output-parquet s3://public-coastal/seagrass-peng-2026/staging-2023-2024/hex/\
+              \ --h0-index ${H0} --resolution 10 --parent-resolutions 8,0 --value-column\
+              \ seagrass_km2 --hex-resampling total --nodata \"0\" --value-units km2/km2"
             resources:
               requests:
                 cpu: '4'
