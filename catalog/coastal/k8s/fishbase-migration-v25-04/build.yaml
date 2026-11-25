@@ -1,0 +1,101 @@
+# HAND-ROLLED: a name join between two published tables is not a step cng-datasets generates (#1072).
+# Stages FishBase v25.04 species.parquet and families.parquet from the Hugging Face mirror to
+# raw/fishbase-migration-v25-04/ (size, SHA-256, access time in MANIFEST.tsv), then builds one row
+# per FishBase species that has a migration type (species.AnaCat, a trailing "?" ignored) and
+# matches, by exact scientific name, a species with a range in iucn-ranges-2025:
+#   id_no, sci_name, common_name, family, migration, fishbase_spec_code, red_list_category
+# and writes it to fishbase-migration-v25-04/fishbase-migration.parquet. Prints counts per class;
+# the four diadromous classes should reproduce the coasts explorer's 617 species.
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/fishbase-migration-v25-04/build.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fishbase-migration-build
+  namespace: geo-workflows
+  labels: {k8s-app: fishbase-migration-build}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {k8s-app: fishbase-migration-build}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: build
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --s3-no-check-bucket"
+          HF=https://huggingface.co/datasets/cboettig/fishbase/resolve/main/data/fb/v25.04/parquet
+          mkdir -p /work/in && cd /work
+          printf 'file\tbytes\tsha256\turl\taccessed_utc\n' > in/MANIFEST.tsv
+          for f in species families; do
+            curl -fsSL --retry 5 -o in/$f.parquet "$HF/$f.parquet"
+            printf '%s\t%s\t%s\t%s\t%s\n' $f.parquet "$(stat -c %s in/$f.parquet)" \
+              "$(sha256sum in/$f.parquet | cut -d' ' -f1)" "$HF/$f.parquet" "$(date -u +%FT%TZ)" >> in/MANIFEST.tsv
+          done
+          cat in/MANIFEST.tsv
+          rclone copy in nrp:public-coastal/raw/fishbase-migration-v25-04/ $R
+          python3 - <<'PY'
+          import duckdb, os
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute(f"""CREATE SECRET s3 (TYPE S3, KEY_ID '{os.environ["AWS_ACCESS_KEY_ID"]}',
+              SECRET '{os.environ["AWS_SECRET_ACCESS_KEY"]}', ENDPOINT '{os.environ["AWS_S3_ENDPOINT"]}',
+              URL_STYLE 'path', USE_SSL false)""")
+          print(con.sql("""SELECT regexp_replace(AnaCat, '\\?$', '') AS migration, COUNT(*) AS fishbase_species
+                           FROM read_parquet('/work/in/species.parquet') GROUP BY 1 ORDER BY 2 DESC"""))
+          con.execute("""
+            CREATE TABLE t AS
+            WITH fb AS (
+              SELECT s.SpecCode AS fishbase_spec_code, s.Genus || ' ' || s.Species AS sci,
+                     NULLIF(trim(s.FBname), '') AS common_name, f.Family AS family,
+                     regexp_replace(s.AnaCat, '\\?$', '') AS migration
+              FROM read_parquet('/work/in/species.parquet') s
+              LEFT JOIN read_parquet('/work/in/families.parquet') f USING (FamCode)
+              WHERE NULLIF(trim(regexp_replace(s.AnaCat, '\\?$', '')), '') IS NOT NULL
+            ),
+            iucn AS (SELECT DISTINCT id_no, sci_name
+                     FROM read_parquet('s3://public-iucn/iucn-ranges-2025/species-h0-index.parquet')),
+            tax AS (SELECT sis_taxon_id, latest_category_code
+                    FROM read_parquet('s3://public-iucn/taxonomy/iucn-taxonomy.parquet'))
+            SELECT i.id_no::BIGINT AS id_no, i.sci_name, fb.common_name, fb.family, fb.migration,
+                   fb.fishbase_spec_code::BIGINT AS fishbase_spec_code, tax.latest_category_code AS red_list_category
+            FROM fb JOIN iucn i ON i.sci_name = fb.sci
+            LEFT JOIN tax ON tax.sis_taxon_id = i.id_no
+            ORDER BY fb.migration, i.sci_name""")
+          print(con.sql("SELECT migration, COUNT(*) AS species FROM t GROUP BY 1 ORDER BY 2 DESC"))
+          print(con.sql("""SELECT COUNT(*) AS rows, COUNT(DISTINCT id_no) AS ids, COUNT(DISTINCT fishbase_spec_code) AS spec_codes,
+                                  COUNT(*) FILTER (WHERE red_list_category IS NULL) AS no_category,
+                                  COUNT(*) FILTER (WHERE common_name IS NULL) AS no_common_name,
+                                  COUNT(*) FILTER (WHERE migration IN ('anadromous','catadromous','amphidromous','diadromous')) AS diadromous
+                           FROM t"""))
+          print(con.sql("SELECT red_list_category, COUNT(*) FROM t GROUP BY 1 ORDER BY 2 DESC"))
+          con.execute("COPY t TO '/work/fishbase-migration.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)")
+          PY
+          rclone copyto /work/fishbase-migration.parquet nrp:public-coastal/fishbase-migration-v25-04/fishbase-migration.parquet $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
