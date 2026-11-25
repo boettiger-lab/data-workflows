@@ -50,6 +50,13 @@ auto-refresh from S3, so **after your cluster jobs finish, re-fire the check** (
 - A MapLibre GL JS example with the correct `source-layer` (= last segment of `--dataset`), documented prominently
 - A DuckDB example with the full public parquet URL
 
+**Link the README and AGENTS.md beside every new catalog and collection** (Portolan, #1056,
+#1057): `{"rel": "describedby", "href": "./README.md", "type": "text/markdown"}` and
+`{"rel": "agents", "href": "./AGENTS.md", "type": "text/markdown"}`, both relative. The
+AGENTS.md is the catalog's one generic file, `catalog/portolan/k8s/agents-md-1057/catalog-agents.md`,
+uploaded as `AGENTS.md` from the publish job; never write a per-dataset one, because dataset
+specifics belong in the STAC and the README. The publish guard keeps both links.
+
 ### ✍️ Descriptions are USER-FACING COPY — agents quote them to end users
 
 Asset, column and collection `description` fields are not internal documentation. GLEN
