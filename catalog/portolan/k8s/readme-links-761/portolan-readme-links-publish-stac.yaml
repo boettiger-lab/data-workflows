@@ -1,0 +1,58 @@
+# HAND-ROLLED: the generator does not write STAC. A metadata-only fix (#761), Portolan PTL-FIL-003:
+# the 87 catalogs and collections in stac-files.txt have a README.md beside them that describes
+# them (checked 2026-11-25) but do not link it. fix_readme.py adds the relative describedby link.
+#   kubectl create configmap portolan-readme-links-script -n geo-workflows \
+#     --from-file=catalog/portolan/k8s/readme-links-761/fix_readme.py \
+#     --from-file=catalog/portolan/k8s/readme-links-761/stac-files.txt \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/portolan/k8s/readme-links-761/portolan-readme-links-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: portolan-readme-links-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: portolan-readme-links-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: portolan-readme-links-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3000
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/guard.py || exit 1
+          one() {  # one <bucket/key>: fix the live file, guard it, upload it if it changed
+            set -euo pipefail
+            p="$1"; t=$(mktemp -d)
+            rclone cat "nrp:$p" > "$t/live.json"
+            rc=0; python3 /script/fix_readme.py "$t/live.json" "$t/new.json" "https://s3-west.nrp-nautilus.io/$p" || rc=$?
+            if [ "$rc" = 3 ]; then echo "SAME $p"; rm -rf "$t"; return 0; fi
+            [ "$rc" = 0 ] || { echo "FAIL fix $p"; return 1; }
+            python3 /tmp/guard.py "$t/new.json" "$t/live.json" || { echo "FAIL guard $p"; return 1; }
+            rclone copyto "$t/new.json" "nrp:$p" --retries 10 --low-level-retries 20 --retries-sleep 20s
+            echo "DONE $p"; rm -rf "$t"
+          }
+          export -f one
+          grep -v '^$' /script/stac-files.txt | xargs -P 8 -I{} bash -c 'one "$1" || echo "FAIL $1"' _ {} > /tmp/log 2>&1 || true
+          cat /tmp/log
+          echo "DONE $(grep -c '^DONE' /tmp/log)  SAME $(grep -c '^SAME' /tmp/log)  FAIL $(grep -c '^FAIL' /tmp/log)"
+          ! grep -q '^FAIL' /tmp/log
+        resources:
+          requests: {cpu: '2', memory: 2Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '2', memory: 2Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: portolan-readme-links-script}}
