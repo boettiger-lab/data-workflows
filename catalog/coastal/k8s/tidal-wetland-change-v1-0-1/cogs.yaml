@@ -83,9 +83,9 @@ spec:
             if [ "$NODATA" = 255 ]; then SRCND=None; AND=""; else SRCND=0; AND="-a_nodata 0"; fi
             export AND OVR
             mkdir -p tiled
-            conv() { GDAL_CACHEMAX=512 gdal_translate -q $AND "$1" "tiled/$(basename "$1")" \
+            conv() { GDAL_CACHEMAX=1024 gdal_translate -q $AND "$1" "tiled/$(basename "$1")" \
                        -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 -co COMPRESS=ZSTD -co SPARSE_OK=TRUE -co BIGTIFF=YES \
-                     && GDAL_CACHEMAX=512 gdaladdo -q -r "${OVR,,}" "tiled/$(basename "$1")" 2 4 8 16 32 64 128 256 \
+                     && GDAL_CACHEMAX=1024 gdaladdo -q -r "${OVR,,}" "tiled/$(basename "$1")" 2 4 8 16 32 64 128 256 \
                      && rm "$1"; }
             export -f conv
             time (find tiles -name '*.tif' | xargs -P 4 -I{} bash -c 'conv {}')
