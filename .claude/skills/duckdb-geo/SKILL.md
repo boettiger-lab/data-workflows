@@ -20,8 +20,10 @@ description: Connect the mcp__duckdb-geo__* query tools (public NRP ingress, sha
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}'
   ```
   200 = up. 401 = no token or the wrong one.
-- `duckdb-mcp.carlboettiger.info` is the cirrus failover for when NRP Ceph is down
-  (`docs/guide/mirror-failover.md` in the server repo). It has its own tokens, so an NRP token gets
-  401 there. Do not point this repo at it.
+- Authenticated access to the NRP server is the only configuration. Never configure another URL
+  (a port-forward, the cirrus deployment, a mirror), in any scope, even as a fallback. If NRP is
+  down, say so and wait; do not reroute.
+- A SessionStart hook (`.claude/hooks/check-duckdb-geo.py`) warns when any `duckdb-geo` entry
+  points elsewhere, the token is missing, or the endpoint does not answer 200. It is silent when healthy.
 - Requests time out after 600 s at the ingress: aggregate in SQL and batch large scans by `h0`.
 - Reads anonymously-readable buckets only.
