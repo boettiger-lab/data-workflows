@@ -1,0 +1,31 @@
+# HAND-ROLLED: the generator has no cleanup step. Deletes the staged raw build cache
+# (raw/fishbase-migration-v25-04/: FishBase species.parquet, families.parquet and MANIFEST.tsv)
+# once the published collection passes verify-stac.py; their sizes, SHA-256s and access date are
+# in the STAC description (#1072). A rebuild re-stages from Hugging Face with build.yaml.
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/fishbase-migration-v25-04/delete-raw.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fishbase-migration-delete-raw
+  namespace: geo-workflows
+  labels: {k8s-app: fishbase-migration-delete-raw}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: fishbase-migration-delete-raw}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 600
+      priorityClassName: opportunistic
+      containers:
+      - name: cleanup
+        image: ghcr.io/boettiger-lab/datasets:latest
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command: [bash, -c, "set -euo pipefail; rclone lsl nrp:public-coastal/raw/fishbase-migration-v25-04/; rclone purge nrp:public-coastal/raw/fishbase-migration-v25-04/; echo OK"]
+        resources:
+          requests: {cpu: '1', memory: 512Mi}
+          limits:   {cpu: '1', memory: 512Mi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

@@ -1,0 +1,80 @@
+# HAND-ROLLED: the generator does not write STAC. Publishes the fishbase-migration-v25-04 collection
+# and README, and adds a child link to the public-coastal bucket collection (#1072). A lookup table
+# has no style, render or preview image. The collection and README come from gen_stac.py
+# (committed beside this file), generated after the COGs and hex are final:
+#   python3 catalog/coastal/k8s/fishbase-migration-v25-04/gen_stac.py /tmp/fbstac
+#   kubectl create configmap fishbase-migration-stac-files -n geo-workflows \
+#     --from-file=stac-collection.json=/tmp/fbstac/stac-collection.json \
+#     --from-file=README.md=/tmp/fbstac/README.md --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/coastal/k8s/fishbase-migration-v25-04/publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fishbase-migration-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: fishbase-migration-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: fishbase-migration-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: files, mountPath: /files, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          H=https://s3-west.nrp-nautilus.io/public-coastal/fishbase-migration-v25-04
+          D=public-coastal/fishbase-migration-v25-04
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          mkdir -p /work && cd /work
+          # ConfigMap files are symlinks, which rclone will not copy: take real copies first.
+          cp -L /files/stac-collection.json c.json && cp -L /files/README.md README.md
+
+          rclone copyto README.md nrp:$D/README.md $R
+          guard_stac c.json nrp:$D/stac-collection.json
+          rclone copyto c.json nrp:$D/stac-collection.json $R
+
+          # Child link on the bucket collection, added only if absent; every other field kept.
+          rclone cat nrp:public-coastal/stac-collection.json > parent.json
+          python3 - <<'PY'
+          import json
+          p = json.load(open("parent.json"))
+          href = "https://s3-west.nrp-nautilus.io/public-coastal/fishbase-migration-v25-04/stac-collection.json"
+          if not any(l.get("href") == href for l in p["links"]):
+              p["links"].append({"rel": "child", "href": href, "type": "application/json",
+                                 "title": "Fish migration types from FishBase, matched to IUCN 2025 species (v25.04)"})
+          json.dump(p, open("parent.json", "w"), indent=2, ensure_ascii=False)
+          PY
+          guard_stac parent.json nrp:public-coastal/stac-collection.json
+          rclone copyto parent.json nrp:public-coastal/stac-collection.json $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: files, configMap: {name: fishbase-migration-stac-files}}
