@@ -3,7 +3,7 @@
         "duckdb-geo": {
             "type": "http",
             "url": "https://duckdb-mcp.nrp-nautilus.io/mcp",
-            "headers": { "Authorization": "Bearer ${GEO_WORKFLOWS_MCP_TOKEN}" }
+            "headersHelper": "printf '{\"Authorization\":\"Bearer %s\"}' \"${GEO_WORKFLOWS_MCP_TOKEN:-$(tr -d '\\n' < \"$HOME/.config/glen/geo-workflows-mcp-token\")}\""
         }
     }
 }
