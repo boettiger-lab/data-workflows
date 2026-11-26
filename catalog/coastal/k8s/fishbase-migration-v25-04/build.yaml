@@ -6,6 +6,9 @@
 #   id_no, sci_name, common_name, family, migration, fishbase_spec_code, red_list_category
 # and writes it to fishbase-migration-v25-04/fishbase-migration.parquet. Prints counts per class;
 # the four diadromous classes should reproduce the coasts explorer's 617 species.
+# The IUCN inputs (species index 1.6 MB, taxonomy 10.4 MB) are read over HTTPS and the table is
+# written to its s3:// path, so CI's verify-stac targets this collection rather than the large
+# public-iucn collections it only reads (their data checks hung the PR check).
 #   kubectl apply -n geo-workflows -f catalog/coastal/k8s/fishbase-migration-v25-04/build.yaml
 apiVersion: batch/v1
 kind: Job
@@ -75,9 +78,9 @@ spec:
               WHERE NULLIF(trim(regexp_replace(s.AnaCat, '\\?$', '')), '') IS NOT NULL
             ),
             iucn AS (SELECT DISTINCT id_no, sci_name
-                     FROM read_parquet('s3://public-iucn/iucn-ranges-2025/species-h0-index.parquet')),
+                     FROM read_parquet('https://s3-west.nrp-nautilus.io/public-iucn/iucn-ranges-2025/species-h0-index.parquet')),
             tax AS (SELECT sis_taxon_id, latest_category_code
-                    FROM read_parquet('s3://public-iucn/taxonomy/iucn-taxonomy.parquet'))
+                    FROM read_parquet('https://s3-west.nrp-nautilus.io/public-iucn/taxonomy/iucn-taxonomy.parquet'))
             SELECT i.id_no::BIGINT AS id_no, i.sci_name, fb.common_name, fb.family, fb.migration,
                    fb.fishbase_spec_code::BIGINT AS fishbase_spec_code, tax.latest_category_code AS red_list_category
             FROM fb JOIN iucn i ON i.sci_name = fb.sci
@@ -90,9 +93,8 @@ spec:
                                   COUNT(*) FILTER (WHERE migration IN ('anadromous','catadromous','amphidromous','diadromous')) AS diadromous
                            FROM t"""))
           print(con.sql("SELECT red_list_category, COUNT(*) FROM t GROUP BY 1 ORDER BY 2 DESC"))
-          con.execute("COPY t TO '/work/fishbase-migration.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)")
+          con.execute("COPY t TO 's3://public-coastal/fishbase-migration-v25-04/fishbase-migration.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)")
           PY
-          rclone copyto /work/fishbase-migration.parquet nrp:public-coastal/fishbase-migration-v25-04/fishbase-migration.parquet $R
           echo OK
         resources:
           requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
