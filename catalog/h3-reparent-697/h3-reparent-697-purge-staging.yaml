@@ -1,0 +1,38 @@
+# HAND-ROLLED: removes the #697 staging prefixes once the live hex and its sidecars are
+# re-verified (data-workflows#697). Staging is a build cache, never referenced from STAC.
+# Priority: opportunistic; a purge is short and idempotent.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: h3-reparent-697-purge-staging
+  namespace: geo-workflows
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: purge
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: "1", memory: 1Gi}
+          limits:   {cpu: "1", memory: 1Gi}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          for p in public-gbif/2026-09-reparent-697 public-obis/2026-09-09-reparent-697; do
+            rclone purge "nrp:$p" -v || true
+            n=$(rclone lsf -R --files-only "nrp:$p" 2>/dev/null | wc -l)
+            echo "$p: $n objects left"
+            [ "$n" = 0 ] || exit 1
+          done
+          echo done
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
