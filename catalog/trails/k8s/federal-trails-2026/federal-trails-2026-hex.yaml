@@ -2,13 +2,15 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: federal-trails-2026-hex
+  namespace: geo-workflows
   labels:
     k8s-app: federal-trails-2026-hex
 spec:
   completions: 200
   parallelism: 50
   completionMode: Indexed
-  backoffLimit: 0
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -50,12 +52,14 @@ spec:
           value: public-trails
         - name: DATASET
           value: federal-trails-2026
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 6963MiB
         command:
         - bash
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-trails/federal-trails-2026.parquet --output s3://public-trails/federal-trails-2026/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
+          cng-datasets vector --input s3://public-trails/federal-trails-2026.parquet --output s3://public-trails/federal-trails-2026/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0 --plan s3://public-trails/federal-trails-2026/_hex_plan.parquet
         resources:
           requests:
             cpu: '4'

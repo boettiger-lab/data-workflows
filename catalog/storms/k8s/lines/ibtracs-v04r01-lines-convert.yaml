@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: ibtracs-v04r01-lines-convert
+  namespace: geo-workflows
   labels:
     k8s-app: ibtracs-v04r01-lines-convert
 spec:
@@ -40,6 +41,8 @@ spec:
           value: 'FALSE'
         - name: BUCKET
           value: public-storms
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 13GiB
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone

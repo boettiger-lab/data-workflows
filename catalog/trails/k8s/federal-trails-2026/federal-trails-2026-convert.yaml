@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: federal-trails-2026-convert
+  namespace: geo-workflows
   labels:
     k8s-app: federal-trails-2026-convert
 spec:
@@ -40,6 +41,8 @@ spec:
           value: 'FALSE'
         - name: BUCKET
           value: public-trails
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 6963MiB
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone

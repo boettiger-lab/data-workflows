@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: ungulate-routes-repartition
+  namespace: geo-workflows
   labels:
     k8s-app: ungulate-routes-repartition
 spec:
@@ -42,6 +43,8 @@ spec:
           value: /tmp
         - name: BUCKET
           value: public-usgs-ungulate-migration
+        - name: CNG_POD_CPU
+          value: '4'
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
