@@ -1,0 +1,40 @@
+# HAND-ROLLED: copies the verified staging build over the live hex in place (data-workflows#697;
+# decision recorded there: replace in place, same edition). No generator step exists for this.
+# Apply ONLY after the staging checks on the issue pass. Server-side copy within the bucket;
+# every live h0=*/data_0.parquet is overwritten (--ignore-times), nothing is deleted. Staging is
+# purged by a separate step once the live data is re-verified.
+# Priority: opportunistic; a server-side copy is short and idempotent, so a preempted pod just reruns.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: h3-reparent-697-obis-swap
+  namespace: geo-workflows
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      priorityClassName: opportunistic
+      containers:
+      - name: swap
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        resources:
+          requests: {cpu: "1", memory: 1Gi}
+          limits:   {cpu: "1", memory: 1Gi}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          n=$(rclone lsf -R --files-only nrp:public-obis/2026-09-09-reparent-697/hex | grep -c 'data_0.parquet$')
+          echo "staged files: $n"
+          [ "$n" = 122 ] || { echo "expected 122 staged partitions"; exit 1; }
+          rclone copy nrp:public-obis/2026-09-09-reparent-697/hex nrp:public-obis/2026-09-09/hex --ignore-times --s3-no-check-bucket --transfers 16 -v
+          rclone check nrp:public-obis/2026-09-09-reparent-697/hex nrp:public-obis/2026-09-09/hex --size-only --one-way
+          echo done
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

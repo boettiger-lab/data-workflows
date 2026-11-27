@@ -177,16 +177,16 @@ data:
     con.execute(f"""
         COPY (
             SELECT *,
-                h3_latlng_to_cell(decimallatitude, decimallongitude, 0)  AS h0,
-                h3_latlng_to_cell(decimallatitude, decimallongitude, 1)  AS h1,
-                h3_latlng_to_cell(decimallatitude, decimallongitude, 2)  AS h2,
-                h3_latlng_to_cell(decimallatitude, decimallongitude, 3)  AS h3,
-                h3_latlng_to_cell(decimallatitude, decimallongitude, 4)  AS h4,
-                h3_latlng_to_cell(decimallatitude, decimallongitude, 5)  AS h5,
-                h3_latlng_to_cell(decimallatitude, decimallongitude, 6)  AS h6,
-                h3_latlng_to_cell(decimallatitude, decimallongitude, 7)  AS h7,
-                h3_latlng_to_cell(decimallatitude, decimallongitude, 8)  AS h8,
-                h3_latlng_to_cell(decimallatitude, decimallongitude, 9)  AS h9,
+                h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 10), 0)  AS h0,
+                h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 10), 1)  AS h1,
+                h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 10), 2)  AS h2,
+                h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 10), 3)  AS h3,
+                h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 10), 4)  AS h4,
+                h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 10), 5)  AS h5,
+                h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 10), 6)  AS h6,
+                h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 10), 7)  AS h7,
+                h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 10), 8)  AS h8,
+                h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 10), 9)  AS h9,
                 h3_latlng_to_cell(decimallatitude, decimallongitude, 10) AS h10
             FROM read_parquet({chunk})
             WHERE decimallatitude IS NOT NULL AND decimallongitude IS NOT NULL
