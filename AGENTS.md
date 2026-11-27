@@ -228,7 +228,7 @@ Rasters produce COG + hex only (no GeoParquet/PMTiles). Workflow: create WGS84 C
 SELECT ST_GeometryType(geom), COUNT(*) FROM read_parquet('s3://...') GROUP BY 1
 ```
 - **Points/MultiPoints:** each point → one H3 cell. At coarse resolutions (6–8) many points collapse to the same cell. Warning emitted during hex. Document in STAC.
-- **Lines/MultiLines:** supported as of `cng-datasets` PR #69. Each line is buffered by the H3 circumradius at the target resolution before polyfill. Default resolution **8** (auto-detected). Document: *"Line features were hexed to H3 resolution 8 by buffering each segment by the H3 cell circumradius before polyfill."*
+- **Lines/MultiLines:** each line is indexed to every H3 cell it passes through (cng-datasets 0.8.1 and later; earlier builds missed cells, increasingly with latitude, #728). Default resolution **8** (auto-detected). Document: *"Each line was indexed to every H3 cell it passes through at resolution 8."*
 
 **ALWAYS use the k8s workflow. Local env lacks tools and permissions.**
 

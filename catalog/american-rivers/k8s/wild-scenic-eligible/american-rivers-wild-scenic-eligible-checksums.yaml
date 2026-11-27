@@ -1,22 +1,23 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ccs-2022-stream-reach-coa-convert
+  name: american-rivers-wild-scenic-eligible-checksums
+  namespace: geo-workflows
   labels:
-    k8s-app: ccs-2022-stream-reach-coa-convert
+    k8s-app: american-rivers-wild-scenic-eligible-checksums
 spec:
   completions: 1
   parallelism: 1
-  backoffLimit: 1
+  backoffLimit: 2
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
       labels:
-        k8s-app: ccs-2022-stream-reach-coa-convert
+        k8s-app: american-rivers-wild-scenic-eligible-checksums
     spec:
       restartPolicy: Never
       containers:
-      - name: convert-task
+      - name: checksums-task
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
@@ -38,35 +39,19 @@ spec:
           value: 'false'
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
-        - name: BUCKET
-          value: public-swap
-        volumeMounts:
-        - name: rclone-config
-          mountPath: /root/.config/rclone
-          readOnly: true
         command:
         - bash
         - -c
         - |
-          set -euo pipefail
-          echo "Localizing raw geojson for stream-reach-coa..."
-          rclone copyto nrp:public-swap/missouri/raw/ccs-2022-stream-reach-coa.geojson /tmp/stream-reach-coa.geojson -v
-          cng-convert-to-parquet \
-            /tmp/stream-reach-coa.geojson \
-            s3://public-swap/missouri/ccs-2022/stream-reach-coa.parquet \
-            --row-group-size 100000
+          set -e
+          cng-datasets checksums s3://public-rivers/american-rivers/wild-scenic-eligible.parquet s3://public-rivers/american-rivers/wild-scenic-eligible.pmtiles s3://public-rivers/american-rivers/wild-scenic-eligible/hex/ --output s3://public-rivers/american-rivers/wild-scenic-eligible.checksums.json --workers 8
         resources:
           requests:
             cpu: '4'
-            memory: 32Gi
+            memory: 2Gi
           limits:
             cpu: '4'
-            memory: 32Gi
-      volumes:
-      - name: rclone-config
-        secret:
-          secretName: rclone-config
-      priorityClassName: opportunistic
+            memory: 2Gi
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

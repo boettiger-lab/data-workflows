@@ -43,6 +43,8 @@ spec:
           value: /tmp
         - name: BUCKET
           value: public-usgs
+        - name: CNG_POD_CPU
+          value: '4'
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
