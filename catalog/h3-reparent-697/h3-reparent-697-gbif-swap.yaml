@@ -1,6 +1,7 @@
 # HAND-ROLLED: copies the verified staging build over the live hex in place (data-workflows#697;
 # decision recorded there: replace in place, same edition). No generator step exists for this.
-# Apply ONLY after the staging checks on the issue pass. Server-side copy within the bucket;
+# Apply ONLY after the staging checks on the issue pass. Streams each file through the pod
+# (--disable copy): RGW's server-side multipart copy stalled at 0% on every file over ~7 GB;
 # every live h0=*/data_0.parquet is overwritten (--ignore-times), nothing is deleted. Staging is
 # purged by a separate step once the live data is re-verified.
 # Priority: opportunistic; a server-side copy is short and idempotent, so a preempted pod just reruns.
@@ -23,8 +24,8 @@ spec:
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         resources:
-          requests: {cpu: "1", memory: 1Gi}
-          limits:   {cpu: "1", memory: 1Gi}
+          requests: {cpu: "2", memory: 4Gi}
+          limits:   {cpu: "2", memory: 4Gi}
         command:
         - bash
         - -c
@@ -33,7 +34,8 @@ spec:
           n=$(rclone lsf -R --files-only nrp:public-gbif/2026-09-reparent-697/hex | grep -c 'data_0.parquet$')
           echo "staged files: $n"
           [ "$n" = 122 ] || { echo "expected 122 staged partitions"; exit 1; }
-          rclone copy nrp:public-gbif/2026-09-reparent-697/hex nrp:public-gbif/2026-09/hex --ignore-times --s3-no-check-bucket --transfers 16 -v
+          rclone copy nrp:public-gbif/2026-09-reparent-697/hex nrp:public-gbif/2026-09/hex --ignore-times --s3-no-check-bucket --disable copy \
+            --transfers 4 --s3-upload-concurrency 8 --s3-chunk-size 64M --stats 60s -v
           rclone check nrp:public-gbif/2026-09-reparent-697/hex nrp:public-gbif/2026-09/hex --size-only --one-way
           echo done
       volumes:
