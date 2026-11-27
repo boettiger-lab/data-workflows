@@ -159,7 +159,7 @@ for i, path in enumerate(chunk):
         con.execute(f"""
             INSERT INTO staging
             SELECT h3_latlng_to_cell(decimallatitude, decimallongitude, 8) AS h8,
-                   h3_latlng_to_cell(decimallatitude, decimallongitude, 0) AS h0,
+                   h3_cell_to_parent(h3_latlng_to_cell(decimallatitude, decimallongitude, 8), 0) AS h0,
                    *
             FROM (
                 SELECT {projection(keys)}

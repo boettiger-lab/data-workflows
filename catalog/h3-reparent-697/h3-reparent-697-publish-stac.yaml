@@ -1,0 +1,55 @@
+# HAND-ROLLED: the generator does not write STAC. A metadata-only follow-up to the #697 hex
+# repair: set_h3_note.py (committed beside this file) edits the LIVE gbif-derived and
+# obis-derived collections, so nothing else on them is touched. Apply after both swaps.
+#   kubectl create configmap h3-reparent-697-stac-script -n geo-workflows \
+#     --from-file=set_h3_note.py=catalog/h3-reparent-697/set_h3_note.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/h3-reparent-697/h3-reparent-697-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: h3-reparent-697-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: h3-reparent-697-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: h3-reparent-697-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          for spec in obis:public-obis gbif:public-gbif; do
+            which=${spec%%:*}; p="nrp:${spec#*:}/stac-collection.json"
+            rclone cat "$p" > /tmp/c.json
+            python3 /script/set_h3_note.py /tmp/c.json "$which"
+            guard_stac /tmp/c.json "$p"
+            rclone copyto /tmp/c.json "$p" $R
+          done
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: h3-reparent-697-stac-script}}
