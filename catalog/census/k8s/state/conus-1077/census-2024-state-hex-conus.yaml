@@ -40,6 +40,7 @@ spec:
         - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
         - {name: AWS_HTTPS, value: 'false'}
         - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        - {name: PUBLISH, value: '0'}   # 1 = flip staging to live (only after the freeze lifts)
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         command:
@@ -103,6 +104,7 @@ spec:
           open('/tmp/ok', 'w').write('ok')
           PYEOF
           test -f /tmp/ok
+          if [ "${PUBLISH:-0}" != "1" ]; then echo 'STAGED only (PUBLISH=0): state/hex-staging'; exit 0; fi
           rclone purge nrp:public-census/census-2024/state/hex/
           test "$(rclone lsf -R nrp:public-census/census-2024/state/hex/ 2>/dev/null | wc -l)" -eq 0
           rclone move nrp:public-census/census-2024/state/hex-staging/ nrp:public-census/census-2024/state/hex/
