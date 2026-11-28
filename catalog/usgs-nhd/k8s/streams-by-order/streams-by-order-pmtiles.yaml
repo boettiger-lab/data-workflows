@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: streams-by-order-pmtiles
+  namespace: geo-workflows
   labels:
     k8s-app: streams-by-order-pmtiles
 spec:
@@ -38,10 +39,8 @@ spec:
           value: 'false'
         - name: AWS_VIRTUAL_HOSTING
           value: 'FALSE'
-        # 30M-feature GeoJSONL + tippecanoe temp tiles exceed the 50Gi ephemeral cap,
-        # so the whole working dir + TMPDIR live on the shared scratch PVC.
         - name: TMPDIR
-          value: /scratch/tmp
+          value: /tmp
         - name: BUCKET
           value: public-usgs-nhd
         - name: DATASET
@@ -50,61 +49,53 @@ spec:
         - name: rclone-config
           mountPath: /root/.config/rclone
           readOnly: true
-        - name: scratch
-          mountPath: /scratch
-          subPath: nhd-pmtiles-streams
         command:
         - bash
         - -c
         - |
           set -e
-          mkdir -p /scratch/tmp
-          # tippecanoe opens many temp files for a 30M-feature input; the default soft
-          # fd limit (1024) triggers "Too many open files". Raise to the hard max.
-          ulimit -n "$(ulimit -Hn)" || true
-          echo "open-files limit now: $(ulimit -n)"
-          # Use optimized GeoParquet (has ID column) from convert job. Reuse an existing
-          # complete GeoJSONL on the PVC to avoid re-exporting on retries.
-          if [ ! -s /scratch/$DATASET.geojsonl ]; then
-            ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /scratch/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-usgs-nhd/streams-by-order.parquet -progress
-          fi
+          # Use optimized GeoParquet (has ID column) from convert job
+          # GDAL can read parquet via vsicurl
+          ogr2ogr -wrapdateline -datelineoffset 15 -f GeoJSONSeq /tmp/$DATASET.geojsonl /vsicurl/https://s3-west.nrp-nautilus.io/public-usgs-nhd/streams-by-order.parquet -progress
 
           # Generate PMTiles from GeoJSONSeq
           # TIPPECANOE_MAX_THREADS must be a power of 2; Kubernetes nodes can expose
           # non-power-of-2 logical CPU counts which triggers an internal assertion
           # failure "N shards not a power of 2" (felt/tippecanoe#216).
-          # Round detected CPU count down to nearest power of 2 to preserve I/O parallelism.
+          # Size from the pod's cgroup CPU quota, not os.cpu_count() (the node's cores),
+          # round down to a power of 2, and cap at 128: at 256+ threads tippecanoe caps
+          # its shards at 745, not a power of 2, and aborts anyway (issue #273).
           # Must be `export`ed: tippecanoe is a child process and reads this from the
           # environment, not the shell. A plain assignment is invisible to it, so it
           # falls back to the raw (non-power-of-2) CPU count and crashes (issue #77).
-          export TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
-          # 30M line features make z11+ tiles pathologically dense: tippecanoe's iterative
-          # --drop-densest fit stalls for hours on single tiles (z14 ballooned to 22GB; z12
-          # stalled at 99.9% on dense tiles). Cap maxzoom at 10 — a national stream-network
-          # overview layer that tiles reliably; street-level detail is served by the H3 hex
-          # and GeoParquet assets, not vector tiles. --simplification thins dense line
-          # vertices to keep tiles small and fast.
-          tippecanoe -o /scratch/$DATASET.pmtiles -l $DATASET -z10 --drop-densest-as-needed --simplification 10 --force /scratch/$DATASET.geojsonl
+          export TIPPECANOE_MAX_THREADS=$(python3 -c "from cng_datasets.raster.cog import _cgroup_cpu_count as c; n=min(c() or 4, 128); print(1<<(n.bit_length()-1))")
+
+          # Raise the soft open-file limit before tippecanoe (issue #154). It opens many
+          # temp files (per-thread x per-tile shards); on high-core nodes os.cpu_count()
+          # reports the node's full core count, so the thread/shard count blows past the
+          # container's default soft nofile limit (often 1024) and aborts with
+          # "Too many open files". `|| true` keeps going if the limit can't be raised.
+          ulimit -n 65536 || true
+          # -r1: keep every point at every zoom (issue #319). Without it tippecanoe thins
+          # points 2.5x per zoom below the max zoom, so a national view of 1,733 points
+          # showed 1 at z0 and 97 at z6. The rate applies only to points, so lines and
+          # polygons tile identically; --drop-densest-as-needed still bounds tile size.
+          tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET -r1 --coalesce-densest-as-needed --drop-densest-as-needed -z 11 --force /tmp/$DATASET.geojsonl
 
           # Upload to S3 using rclone
-          rclone copy /scratch/$DATASET.pmtiles nrp:public-usgs-nhd/
-          rm -f /scratch/$DATASET.geojsonl /scratch/$DATASET.pmtiles
+          rclone copy /tmp/$DATASET.pmtiles nrp:public-usgs-nhd/
+          rm /tmp/$DATASET.geojsonl /tmp/$DATASET.pmtiles
         resources:
           requests:
             cpu: '4'
             memory: 32Gi
-            ephemeral-storage: 10Gi
           limits:
             cpu: '4'
             memory: 32Gi
-            ephemeral-storage: 10Gi
       volumes:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      - name: scratch
-        persistentVolumeClaim:
-          claimName: rechunk-scratch
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:

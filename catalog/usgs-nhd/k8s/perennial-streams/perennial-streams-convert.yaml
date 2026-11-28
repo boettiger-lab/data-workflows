@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: perennial-streams-convert
+  namespace: geo-workflows
   labels:
     k8s-app: perennial-streams-convert
 spec:
@@ -40,6 +41,8 @@ spec:
           value: 'FALSE'
         - name: BUCKET
           value: public-usgs-nhd
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 27GiB
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
