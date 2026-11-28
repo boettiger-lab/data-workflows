@@ -1,0 +1,71 @@
+# HAND-ROLLED: moves the staged Ramsar rebuild (#1074) into the live wetlands-ramsar paths, which
+# the generator has no step for. Run only after the benchmark all-clear and a check of the staged
+# outputs.
+#   1. flat:     ramsar-rsis.parquet          -> ramsar/ramsar_wetlands.parquet
+#   2. PMTiles:  ramsar-rsis.pmtiles, layer renamed ramsar-rsis -> ramsar (the live styles and apps
+#                read source-layer 'ramsar')  -> ramsar/ramsar_wetlands.pmtiles
+#   3. hex:      ramsar-rsis/hex/             -> ramsar/hex/ (sync, so stale partitions go)
+#   4. originals from the PVC                 -> ramsar/source/
+#   5. STAC:     ramsar_stac.py on the live collection, then the publish guard
+#   6. remove the staging copies (ramsar-rsis*, ramsar-rsis-build/, the PVC download)
+#   kubectl create configmap ramsar-rsis-publish-script -n geo-workflows \
+#     --from-file=ramsar_stac.py=catalog/wetlands/k8s/ramsar-rsis/ramsar_stac.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/wetlands/k8s/ramsar-rsis/ramsar-rsis-publish.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ramsar-rsis-publish
+  namespace: geo-workflows
+  labels: {k8s-app: ramsar-rsis-publish}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: ramsar-rsis-publish}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 7200
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        - {name: scratch, mountPath: /scratch}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          B=nrp:public-wetlands
+          test -s /scratch/ramsar-rsis-1074/features_published.geojson
+          rclone copyto $B/ramsar-rsis.pmtiles /tmp/in.pmtiles $R
+          tile-join -f -pk -o /tmp/out.pmtiles --rename-layer=ramsar-rsis:ramsar /tmp/in.pmtiles
+          pmtiles show /tmp/out.pmtiles 2>/dev/null | grep -i layer || true
+          rclone copyto $B/ramsar-rsis.parquet $B/ramsar/ramsar_wetlands.parquet $R
+          rclone copyto /tmp/out.pmtiles $B/ramsar/ramsar_wetlands.pmtiles $R
+          rclone sync $B/ramsar-rsis/hex $B/ramsar/hex $R
+          rclone copy /scratch/ramsar-rsis-1074 $B/ramsar/source $R
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/guard.py
+          rclone cat $B/ramsar/stac-collection.json > /tmp/live.json
+          cp /tmp/live.json /tmp/c.json
+          python3 /script/ramsar_stac.py /tmp/c.json
+          python3 /tmp/guard.py /tmp/c.json /tmp/live.json
+          rclone copyto /tmp/c.json $B/ramsar/stac-collection.json $R
+          date -u +"published %Y-%m-%dT%H:%M:%SZ"
+          for f in ramsar-rsis.parquet ramsar-rsis.pmtiles ramsar-rsis.checksums.json; do rclone deletefile $B/$f $R; done
+          rclone purge $B/ramsar-rsis $R
+          rclone purge $B/ramsar-rsis-build $R
+          rm -rf /scratch/ramsar-rsis-1074
+          echo OK
+        resources:
+          requests: {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+          limits:   {cpu: '2', memory: 8Gi, ephemeral-storage: 10Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: ramsar-rsis-publish-script}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}

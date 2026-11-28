@@ -1,0 +1,52 @@
+# HAND-ROLLED: the source is a paged WFS the generator cannot read (#1074). Downloads the RSIS
+# boundaries (ramsar_sdi:features_published) and site centroids
+# (ramsar_sdi:features_centroid_published) with rsis_download.py onto the rechunk-scratch PVC.
+# The log prints each file's feature count, size, sha256 and the download date for the STAC.
+# Staging goes to the PVC, not s3://public-wetlands/raw/, because public-bucket writes were
+# frozen during the benchmark flights (2026-11-28); the build reads from the PVC, and the
+# originals are copied to s3://public-wetlands/ramsar/source/ when the rebuild publishes.
+#   kubectl create configmap ramsar-rsis-script -n geo-workflows \
+#     --from-file=rsis_download.py=catalog/wetlands/k8s/ramsar-rsis/rsis_download.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/wetlands/k8s/ramsar-rsis/ramsar-rsis-download.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ramsar-rsis-download
+  namespace: geo-workflows
+  labels: {k8s-app: ramsar-rsis-download}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: ramsar-rsis-download}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 14400
+      priorityClassName: opportunistic
+      containers:
+      - name: download
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: script, mountPath: /script, readOnly: true}
+        - {name: scratch, mountPath: /scratch}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          OUT=/scratch/ramsar-rsis-1074
+          date -u +"started %Y-%m-%dT%H:%M:%SZ"
+          export OGR_GEOJSON_MAX_OBJ_SIZE=0
+          python3 /script/rsis_download.py "$OUT"
+          ls -l "$OUT"; sha256sum "$OUT"/*.geojson
+          for f in "$OUT"/*.geojson; do ogrinfo -so -al "$f" | grep -E "Feature Count|Geometry:" || true; done
+          date -u +"finished %Y-%m-%dT%H:%M:%SZ"
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 4Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 4Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: script, configMap: {name: ramsar-rsis-script}}
+      - {name: scratch, persistentVolumeClaim: {claimName: rechunk-scratch}}
