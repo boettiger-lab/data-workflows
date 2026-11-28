@@ -1,0 +1,64 @@
+# HAND-ROLLED: a metadata-only rewrite the generator has no step for (#1077). Vector operations
+# between the vents and the other high-seas layers failed with a CRS mismatch. This copies the
+# exact GeoParquet `crs` object of ebsa.parquet (the object iho/high-seas.parquet also carries)
+# onto the vents file, so every reader resolves the two identically. Same coordinates (lon/lat),
+# same rows and columns, _cng_fid included; only the `geo` metadata changes. The hex has no
+# geometry and is untouched.
+#   kubectl apply -n geo-workflows -f catalog/high-seas/k8s/hydrothermal-vents/hydrothermal-vents-crs.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hydrothermal-vents-crs
+  namespace: geo-workflows
+  labels: {k8s-app: hydrothermal-vents-crs}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: hydrothermal-vents-crs}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: crs
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          rclone copyto nrp:public-high-seas/hydrothermal-vents.parquet /tmp/in.parquet $R
+          rclone copyto nrp:public-high-seas/ebsa.parquet /tmp/ref.parquet $R
+          python3 - <<'EOF'
+          import json, pyarrow.parquet as pq
+          ref = json.loads(pq.read_schema("/tmp/ref.parquet").metadata[b"geo"])
+          crs = ref["columns"][ref["primary_column"]]["crs"]
+          t = pq.read_table("/tmp/in.parquet")
+          if "geom_bbox" in t.column_names:
+              t = t.drop_columns(["geom_bbox"])
+          md = dict(t.schema.metadata)
+          geo = json.loads(md[b"geo"])
+          col = geo["columns"]["geom"]
+          col.pop("covering", None)
+          col["crs"] = crs
+          md[b"geo"] = json.dumps(geo).encode()
+          t = t.replace_schema_metadata(md)
+          pq.write_table(t, "/tmp/out.parquet", compression="zstd", row_group_size=2000)
+          out = pq.read_table("/tmp/out.parquet")
+          assert out.num_rows == 721
+          assert out.column("_cng_fid").to_pylist() == t.column("_cng_fid").to_pylist()
+          assert json.loads(pq.read_schema("/tmp/out.parquet").metadata[b"geo"])["columns"]["geom"]["crs"] == crs
+          print("rows", out.num_rows, "columns", out.column_names, "crs", crs.get("name"), crs.get("id"))
+          EOF
+          rclone copyto /tmp/out.parquet nrp:public-high-seas/hydrothermal-vents.parquet $R
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}

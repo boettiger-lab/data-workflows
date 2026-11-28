@@ -1,0 +1,85 @@
+# HAND-ROLLED: the generator does not write STAC. Answer-first metadata from the GLEN benchmark
+# studies (#1077): edit.py (committed beside this file) edits LIVE collections in place, so
+# nothing else on them is touched. Each number in it was measured on the published data.
+#   kubectl create configmap stac-fixes-1077-script -n geo-workflows \
+#     --from-file=edit.py=catalog/stac-fixes-1077/edit.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n geo-workflows -f catalog/stac-fixes-1077/stac-fixes-1077-publish-stac.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stac-fixes-1077-publish-stac
+  namespace: geo-workflows
+  labels: {k8s-app: stac-fixes-1077-publish-stac}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: stac-fixes-1077-publish-stac}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      containers:
+      - name: publish
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        - {name: script, mountPath: /script, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          curl -fsSL https://raw.githubusercontent.com/boettiger-lab/data-workflows/main/scripts/stac-publish-guard.py -o /tmp/stac-guard/guard.py --create-dirs || exit 1
+          guard_stac() {  # guard_stac <new.json> <nrp:path>; exits the job if the guard refuses
+            case "$2" in *.json) ;; *) return 0 ;; esac
+            rclone cat "$2" > /tmp/stac-guard/live.json 2>/dev/null || : > /tmp/stac-guard/live.json
+            python3 /tmp/stac-guard/guard.py "$1" /tmp/stac-guard/live.json || exit 1
+          }
+          for spec in \
+            calfire-2025-firep:public-fire/calfire-2025/firep \
+            gde-wetlands:public-ca30x30/groundwater-dependent-ecosystems/wetlands \
+            gde-vegetation:public-ca30x30/groundwater-dependent-ecosystems/vegetation \
+            wcb-approved-projects:public-tpl/wcb-approved-projects \
+            pad-us-4.1-combined:public-padus/padus-4-1/combined \
+            gbif-derived:public-gbif \
+            overture-divisions-countries-2026-02-18:public-overturemaps/2026-02-18.0/countries \
+            cwhr:public-ca30x30/cwhr \
+            cwhr13:public-ca30x30/cwhr13 \
+            ca30x30-ecoregion:public-ca30x30/ecoregion \
+            gfw-fishing-effort:public-gfw \
+            census-2024-county:public-census/census-2024/county \
+            census-2024-state:public-census/census-2024/state \
+            hydrothermal-vents:public-high-seas/hydrothermal-vents \
+            wdpa:public-wdpa/wdpa \
+            iho-maritime-boundaries:public-high-seas/iho \
+            meow-ecoregions:public-high-seas/meow \
+            rfmo-maritime-governance:public-high-seas/rfmo \
+            seafloor-geomorphology:public-high-seas/seafloor-geomorphology \
+            mpa-candidates:public-high-seas/mpa-candidates \
+            ebsa:public-high-seas/ebsa \
+            ebsa-2023:public-high-seas/ebsa-2023 \
+            longhurst-provinces:public-high-seas/longhurst \
+            ecs-extended-continental-shelf:public-high-seas/ecs \
+            ship-density:public-high-seas/ship-density \
+            deep-submergence-dives:public-high-seas/deep-submergence-dives \
+            bathymetric-features:public-high-seas/bathymetric-features \
+            gebco-2025:public-high-seas/gebco-2025 \
+            ; do
+            id=${spec%%:*}; p="nrp:${spec#*:}/stac-collection.json"
+            rclone cat "$p" > /tmp/c.json
+            test "$(python3 -c 'import json;print(json.load(open("/tmp/c.json"))["id"])')" = "$id"
+            python3 /script/edit.py /tmp/c.json
+            guard_stac /tmp/c.json "$p"
+            rclone copyto /tmp/c.json "$p" $R
+          done
+          echo OK
+        resources:
+          requests: {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+          limits:   {cpu: '1', memory: 1Gi, ephemeral-storage: 1Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
+      - {name: script, configMap: {name: stac-fixes-1077-script}}
