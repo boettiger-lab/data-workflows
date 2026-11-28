@@ -47,6 +47,10 @@ Format or epoch choices the user did not make are open questions under "Scope is
 above: assess them against the upstream data and settle them with the user (GMW #443: the issue said
 "prefer the GeoTIFF path" and "latest single year"; upstream ships 41 annual vector and raster layers).
 
+**Storage is what needs review, not compute.** Hex fan-outs run on idle, opportunistic NRP
+capacity, so pod-hours are not a reason to stop. A final processed product expected above
+**1 TB** of storage is: estimate its size on the issue and get Carl's agreement before building.
+
 ## ⛔ HARD BOUNDARY 0: Big-data compute runs on the cluster, NOT your laptop
 
 For ANY query/scan/aggregation over S3 parquet — catalog data **and** large intermediate/build files (e.g. a 24 GB consolidated GeoParquet) — use the **`mcp__duckdb-geo__query` MCP server**. It runs on generously-provisioned NRP cluster metal beside NRP S3, and DuckDB **streams** (larger-than-memory spills to disk) — so it does not hit the RAM limits or the slow laptop link (~12 MB/s) that bottleneck local work. It reads anonymously-readable buckets only.
@@ -228,7 +232,7 @@ Rasters produce COG + hex only (no GeoParquet/PMTiles). Workflow: create WGS84 C
 SELECT ST_GeometryType(geom), COUNT(*) FROM read_parquet('s3://...') GROUP BY 1
 ```
 - **Points/MultiPoints:** each point → one H3 cell. At coarse resolutions (6–8) many points collapse to the same cell. Warning emitted during hex. Document in STAC.
-- **Lines/MultiLines:** supported as of `cng-datasets` PR #69. Each line is buffered by the H3 circumradius at the target resolution before polyfill. Default resolution **8** (auto-detected). Document: *"Line features were hexed to H3 resolution 8 by buffering each segment by the H3 cell circumradius before polyfill."*
+- **Lines/MultiLines:** each line is indexed to every H3 cell it passes through (cng-datasets 0.8.1 and later; earlier builds missed cells, increasingly with latitude, #728). Default resolution **8** (auto-detected). Document: *"Each line was indexed to every H3 cell it passes through at resolution 8."*
 
 **ALWAYS use the k8s workflow. Local env lacks tools and permissions.**
 

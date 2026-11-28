@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: census-2025-roads-setup-bucket
+  namespace: geo-workflows
   labels:
     k8s-app: census-2025-roads-setup-bucket
 spec:

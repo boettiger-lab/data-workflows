@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: wildlife-movement-barriers-repartition
+  namespace: geo-workflows
   labels:
     k8s-app: wildlife-movement-barriers-repartition
 spec:
@@ -42,6 +43,8 @@ spec:
           value: /tmp
         - name: BUCKET
           value: public-connectivity
+        - name: CNG_POD_CPU
+          value: '4'
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
@@ -65,7 +68,6 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -75,9 +77,3 @@ spec:
                 operator: NotIn
                 values:
                 - 'true'
-              # Exclude nodes with observed broken egress/S3 connectivity (AGENTS.md).
-              - key: kubernetes.io/hostname
-                operator: NotIn
-                values:
-                - hpc-nrp-g1.nmsu.edu
-                - service-02.nrp.mghpcc.org

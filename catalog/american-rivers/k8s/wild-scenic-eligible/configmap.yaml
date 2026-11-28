@@ -1,6 +1,6 @@
 # Auto-generated ConfigMap containing job definitions
 # Generated from: american-rivers-wild-scenic-eligible-setup-bucket.yaml, american-rivers-wild-scenic-eligible-convert.yaml, american-rivers-wild-scenic-eligible-pmtiles.yaml, american-rivers-wild-scenic-eligible-hex.yaml, american-rivers-wild-scenic-eligible-repartition.yaml
-# Generation command: cng-datasets workflow --dataset american-rivers/wild-scenic-eligible --source-url s3://public-rivers/american-rivers/raw/wild-scenic-eligible-src.parquet --bucket public-rivers --h3-resolution 8 --parent-resolutions "0"
+# Generation command: cng-datasets workflow --dataset american-rivers/wild-scenic-eligible --source-url s3://public-rivers/american-rivers/raw/wild-scenic-eligible-src.parquet --bucket public-rivers --h3-resolution 8 --parent-resolutions "0" --cells-per-chunk 5000000
 #
 # This ConfigMap is equivalent to running:
 #   kubectl create configmap american-rivers-wild-scenic-eligible-yamls \
@@ -13,11 +13,76 @@
 # To update: regenerate workflow with cng-datasets and re-apply with kubectl apply -f configmap.yaml
 apiVersion: v1
 data:
+  american-rivers-wild-scenic-eligible-checksums.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: american-rivers-wild-scenic-eligible-checksums
+      namespace: geo-workflows
+      labels:
+        k8s-app: american-rivers-wild-scenic-eligible-checksums
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: american-rivers-wild-scenic-eligible-checksums
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: checksums-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            command:
+            - bash
+            - -c
+            - |
+              set -e
+              cng-datasets checksums s3://public-rivers/american-rivers/wild-scenic-eligible.parquet s3://public-rivers/american-rivers/wild-scenic-eligible.pmtiles s3://public-rivers/american-rivers/wild-scenic-eligible/hex/ --output s3://public-rivers/american-rivers/wild-scenic-eligible.checksums.json --workers 8
+            resources:
+              requests:
+                cpu: '4'
+                memory: 2Gi
+              limits:
+                cpu: '4'
+                memory: 2Gi
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
   american-rivers-wild-scenic-eligible-convert.yaml: |
     apiVersion: batch/v1
     kind: Job
     metadata:
       name: american-rivers-wild-scenic-eligible-convert
+      namespace: geo-workflows
       labels:
         k8s-app: american-rivers-wild-scenic-eligible-convert
     spec:
@@ -56,6 +121,8 @@ data:
               value: 'FALSE'
             - name: BUCKET
               value: public-rivers
+            - name: DUCKDB_MEMORY_LIMIT
+              value: 6963MiB
             volumeMounts:
             - name: rclone-config
               mountPath: /root/.config/rclone
@@ -80,7 +147,6 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -95,13 +161,15 @@ data:
     kind: Job
     metadata:
       name: american-rivers-wild-scenic-eligible-hex
+      namespace: geo-workflows
       labels:
         k8s-app: american-rivers-wild-scenic-eligible-hex
     spec:
-      completions: 8
-      parallelism: 8
+      completions: 200
+      parallelism: 50
       completionMode: Indexed
-      backoffLimit: 0
+      backoffLimitPerIndex: 2
+      maxFailedIndexes: 1
       podFailurePolicy:
         rules:
         - action: Ignore
@@ -143,12 +211,14 @@ data:
               value: public-rivers
             - name: DATASET
               value: american-rivers-wild-scenic-eligible
+            - name: DUCKDB_MEMORY_LIMIT
+              value: 6963MiB
             command:
             - bash
             - -c
             - |-
               set -e
-              cng-datasets vector --input s3://public-rivers/american-rivers/wild-scenic-eligible.parquet --output s3://public-rivers/american-rivers/wild-scenic-eligible/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
+              cng-datasets vector --input s3://public-rivers/american-rivers/wild-scenic-eligible.parquet --output s3://public-rivers/american-rivers/wild-scenic-eligible/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 1000 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0 --plan s3://public-rivers/american-rivers/wild-scenic-eligible/_hex_plan.parquet
             resources:
               requests:
                 cpu: '4'
@@ -158,7 +228,73 @@ data:
                 cpu: '4'
                 memory: 8Gi
                 ephemeral-storage: 10Gi
-          priorityClassName: opportunistic
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: feature.node.kubernetes.io/pci-10de.present
+                    operator: NotIn
+                    values:
+                    - 'true'
+  american-rivers-wild-scenic-eligible-plan.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: american-rivers-wild-scenic-eligible-plan
+      namespace: geo-workflows
+      labels:
+        k8s-app: american-rivers-wild-scenic-eligible-plan
+    spec:
+      completions: 1
+      parallelism: 1
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 10800
+      template:
+        metadata:
+          labels:
+            k8s-app: american-rivers-wild-scenic-eligible-plan
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: plan-task
+            image: ghcr.io/boettiger-lab/datasets:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_S3_ENDPOINT
+              value: rook-ceph-rgw-nautiluss3.rook
+            - name: AWS_PUBLIC_ENDPOINT
+              value: s3-west.nrp-nautilus.io
+            - name: AWS_HTTPS
+              value: 'false'
+            - name: AWS_VIRTUAL_HOSTING
+              value: 'FALSE'
+            - name: BUCKET
+              value: public-rivers
+            command:
+            - bash
+            - -c
+            - |-
+              set -e
+              cng-datasets vector-plan --input s3://public-rivers/american-rivers/wild-scenic-eligible.parquet --output s3://public-rivers/american-rivers/wild-scenic-eligible/_hex_plan.parquet --resolution 8 --cells-per-chunk 5000000 --max-chunks 200
+            terminationMessagePolicy: File
+            resources:
+              requests:
+                cpu: '2'
+                memory: 8Gi
+              limits:
+                cpu: '2'
+                memory: 8Gi
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -173,6 +309,7 @@ data:
     kind: Job
     metadata:
       name: american-rivers-wild-scenic-eligible-pmtiles
+      namespace: geo-workflows
       labels:
         k8s-app: american-rivers-wild-scenic-eligible-pmtiles
     spec:
@@ -232,9 +369,25 @@ data:
               # TIPPECANOE_MAX_THREADS must be a power of 2; Kubernetes nodes can expose
               # non-power-of-2 logical CPU counts which triggers an internal assertion
               # failure "N shards not a power of 2" (felt/tippecanoe#216).
-              # Round detected CPU count down to nearest power of 2 to preserve I/O parallelism.
-              TIPPECANOE_MAX_THREADS=$(python3 -c "import os; n=os.cpu_count() or 1; print(1<<(n.bit_length()-1))")
-              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET --drop-densest-as-needed --extend-zooms-if-still-dropping --force /tmp/$DATASET.geojsonl
+              # Size from the pod's cgroup CPU quota, not os.cpu_count() (the node's cores),
+              # round down to a power of 2, and cap at 128: at 256+ threads tippecanoe caps
+              # its shards at 745, not a power of 2, and aborts anyway (issue #273).
+              # Must be `export`ed: tippecanoe is a child process and reads this from the
+              # environment, not the shell. A plain assignment is invisible to it, so it
+              # falls back to the raw (non-power-of-2) CPU count and crashes (issue #77).
+              export TIPPECANOE_MAX_THREADS=$(python3 -c "from cng_datasets.raster.cog import _cgroup_cpu_count as c; n=min(c() or 4, 128); print(1<<(n.bit_length()-1))")
+
+              # Raise the soft open-file limit before tippecanoe (issue #154). It opens many
+              # temp files (per-thread x per-tile shards); on high-core nodes os.cpu_count()
+              # reports the node's full core count, so the thread/shard count blows past the
+              # container's default soft nofile limit (often 1024) and aborts with
+              # "Too many open files". `|| true` keeps going if the limit can't be raised.
+              ulimit -n 65536 || true
+              # -r1: keep every point at every zoom (issue #319). Without it tippecanoe thins
+              # points 2.5x per zoom below the max zoom, so a national view of 1,733 points
+              # showed 1 at z0 and 97 at z6. The rate applies only to points, so lines and
+              # polygons tile identically; --drop-densest-as-needed still bounds tile size.
+              tippecanoe -o /tmp/$DATASET.pmtiles -l $DATASET -r1 --coalesce-densest-as-needed --drop-densest-as-needed -z 11 --force /tmp/$DATASET.geojsonl
 
               # Upload to S3 using rclone
               rclone copy /tmp/$DATASET.pmtiles nrp:public-rivers/american-rivers/
@@ -250,7 +403,6 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -265,6 +417,7 @@ data:
     kind: Job
     metadata:
       name: american-rivers-wild-scenic-eligible-repartition
+      namespace: geo-workflows
       labels:
         k8s-app: american-rivers-wild-scenic-eligible-repartition
     spec:
@@ -305,6 +458,8 @@ data:
               value: /tmp
             - name: BUCKET
               value: public-rivers
+            - name: CNG_POD_CPU
+              value: '4'
             volumeMounts:
             - name: rclone-config
               mountPath: /root/.config/rclone
@@ -328,7 +483,6 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -343,6 +497,7 @@ data:
     kind: Job
     metadata:
       name: american-rivers-wild-scenic-eligible-setup-bucket
+      namespace: geo-workflows
       labels:
         k8s-app: american-rivers-wild-scenic-eligible-setup-bucket
     spec:
@@ -408,7 +563,6 @@ data:
           - name: rclone-config
             secret:
               secretName: rclone-config
-          priorityClassName: opportunistic
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:

@@ -2,13 +2,15 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: perennial-streams-hex
+  namespace: geo-workflows
   labels:
     k8s-app: perennial-streams-hex
 spec:
   completions: 200
   parallelism: 50
   completionMode: Indexed
-  backoffLimit: 0
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 1
   podFailurePolicy:
     rules:
     - action: Ignore
@@ -50,12 +52,14 @@ spec:
           value: public-usgs-nhd
         - name: DATASET
           value: perennial-streams
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 27GiB
         command:
         - bash
         - -c
         - |-
           set -e
-          cng-datasets vector --input s3://public-usgs-nhd/perennial-streams.parquet --output s3://public-usgs-nhd/perennial-streams/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 34000 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0
+          cng-datasets vector --input s3://public-usgs-nhd/perennial-streams.parquet --output s3://public-usgs-nhd/perennial-streams/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 33999 --intermediate-chunk-size 10 --resolution 8 --parent-resolutions 0 --plan s3://public-usgs-nhd/perennial-streams/_hex_plan.parquet
         resources:
           requests:
             cpu: '4'

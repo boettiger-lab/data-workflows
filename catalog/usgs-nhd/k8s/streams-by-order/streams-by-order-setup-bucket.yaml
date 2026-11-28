@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: streams-by-order-setup-bucket
+  namespace: geo-workflows
   labels:
     k8s-app: streams-by-order-setup-bucket
 spec:

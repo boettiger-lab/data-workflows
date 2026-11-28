@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: roadcore-fs-repartition
+  namespace: geo-workflows
   labels:
     k8s-app: roadcore-fs-repartition
 spec:
@@ -42,6 +43,8 @@ spec:
           value: /tmp
         - name: BUCKET
           value: public-usfs
+        - name: CNG_POD_CPU
+          value: '4'
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone

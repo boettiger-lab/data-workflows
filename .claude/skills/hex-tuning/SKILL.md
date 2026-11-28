@@ -162,7 +162,7 @@ Counterintuitive result: 10,000 small features at 8Gi can be fine, while a singl
 | Counties, districts | 8–10 | Mostly OK at 10; watch outliers |
 | Census tracts, parcels | 10 | Small features |
 | Points | 10 | Each point → one cell; coarser = aggregation |
-| Lines | 8 | Buffered by H3 circumradius; default 8 auto-detected |
+| Lines | 8 | Every cell the line passes through (0.8.1+); default 8 auto-detected |
 
 #### ⭐ H3 resolution & parent convention (join compatibility — pick native res AND parents deliberately)
 

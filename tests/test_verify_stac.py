@@ -756,6 +756,19 @@ class TargetsFromYaml(unittest.TestCase):
             ("public-ncp", "invest-peru-2019/habitat-quality"),
         })
 
+    def test_checksums_and_hex_plan_belong_to_the_dataset(self):
+        # cng-datasets 0.19+ plan and checksums manifests (#728)
+        text = (
+            "cng-datasets vector-plan --input s3://public-rivers/american-rivers/wse.parquet "
+            "--output s3://public-rivers/american-rivers/wse/_hex_plan.parquet\n"
+            "cng-datasets checksums s3://public-census/census-2025/roads.parquet "
+            "--output s3://public-census/census-2025/roads.checksums.json\n"
+        )
+        self.assertEqual(vs.targets_from_yaml(text), {
+            ("public-rivers", "american-rivers/wse"),
+            ("public-census", "census-2025/roads"),
+        })
+
 
 
 class AssetNotUnderRaw(unittest.TestCase):

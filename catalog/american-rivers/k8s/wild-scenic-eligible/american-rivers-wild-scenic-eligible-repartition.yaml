@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: american-rivers-wild-scenic-eligible-repartition
+  namespace: geo-workflows
   labels:
     k8s-app: american-rivers-wild-scenic-eligible-repartition
 spec:
@@ -42,6 +43,8 @@ spec:
           value: /tmp
         - name: BUCKET
           value: public-rivers
+        - name: CNG_POD_CPU
+          value: '4'
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
@@ -65,7 +68,6 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

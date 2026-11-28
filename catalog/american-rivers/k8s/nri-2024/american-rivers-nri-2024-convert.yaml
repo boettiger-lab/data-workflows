@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: american-rivers-nri-2024-convert
+  namespace: geo-workflows
   labels:
     k8s-app: american-rivers-nri-2024-convert
 spec:
@@ -40,6 +41,8 @@ spec:
           value: 'FALSE'
         - name: BUCKET
           value: public-rivers
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 6963MiB
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
@@ -64,7 +67,6 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

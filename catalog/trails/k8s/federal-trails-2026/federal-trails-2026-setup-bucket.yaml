@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: federal-trails-2026-setup-bucket
+  namespace: geo-workflows
   labels:
     k8s-app: federal-trails-2026-setup-bucket
 spec:

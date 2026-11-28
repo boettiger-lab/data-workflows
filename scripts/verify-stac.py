@@ -211,8 +211,11 @@ def targets_from_yaml(text: str) -> set[tuple[str, str]]:
             continue  # a COG raster (`<name>-cog.tif`, `…-cog-4326.tif`, …) is an asset
                       # of a collection, not a collection itself; the collection is
                       # derived from the dataset's hex/parquet path elsewhere in the YAML
+        # cng-datasets 0.19+ also writes `<dataset>.checksums.json` and the hex plan
+        # `<dataset>/_hex_plan.parquet`; both belong to the dataset's collection.
+        rest = re.sub(r"\.checksums\.json$", "", rest)
         rest = re.sub(r"\.(parquet|pmtiles|gpkg|geojson)$", "", rest)
-        for marker in ("/hex/", "/hex", "/chunks/", "/chunks", "/temp_versions"):
+        for marker in ("/hex/", "/hex", "/chunks/", "/chunks", "/temp_versions", "/_hex_plan"):
             i = rest.find(marker)
             if i >= 0:
                 rest = rest[:i]

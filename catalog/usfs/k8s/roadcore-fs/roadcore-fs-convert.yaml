@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: roadcore-fs-convert
+  namespace: geo-workflows
   labels:
     k8s-app: roadcore-fs-convert
 spec:
@@ -40,6 +41,8 @@ spec:
           value: 'FALSE'
         - name: BUCKET
           value: public-usfs
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 13GiB
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone

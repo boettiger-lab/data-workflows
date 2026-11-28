@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: streams-by-order-repartition
+  namespace: geo-workflows
   labels:
     k8s-app: streams-by-order-repartition
 spec:
@@ -42,6 +43,8 @@ spec:
           value: /tmp
         - name: BUCKET
           value: public-usgs-nhd
+        - name: CNG_POD_CPU
+          value: '4'
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone

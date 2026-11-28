@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: perennial-streams-setup-bucket
+  namespace: geo-workflows
   labels:
     k8s-app: perennial-streams-setup-bucket
 spec:

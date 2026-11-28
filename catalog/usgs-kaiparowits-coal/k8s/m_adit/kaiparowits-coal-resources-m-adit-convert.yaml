@@ -41,6 +41,8 @@ spec:
           value: 'FALSE'
         - name: BUCKET
           value: public-usgs
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 6963MiB
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
@@ -53,9 +55,7 @@ spec:
           cng-convert-to-parquet \
             https://s3-west.nrp-nautilus.io/public-usgs/raw/kaiparowits/kaiparowits.gpkg \
             s3://public-usgs/kaiparowits-coal-resources/m_adit.parquet \
-            --row-group-size 2000 \
-            --layer m_adit \
-            --expect-features 50
+            --row-group-size 100000
         resources:
           requests:
             cpu: '4'

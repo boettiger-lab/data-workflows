@@ -175,3 +175,10 @@ So:
 Base-shorter outnumbering base-longer ~2:1 points at reach **subdivision** in the newer NHD
 (which holds ~2× the features in this basin), but that mechanism is *inferred* — the faithfulness
 and tail measurements above are what was actually verified.
+
+## Re-hex on cng-datasets 0.8.1+ (#728)
+
+`flowline-hex/` is generated (v0.20.0) for re-hexing the published `flowline.parquet` only. Run it
+with `catalog/line-rehex-728/rehex.sh catalog/usgs-nhd/k8s/nhdplus-hr/flowline-hex nhdplus-hr-flowline`
+(plan, hex, repartition, checksums). Never apply its `workflow.yaml`: its convert step would read and
+rewrite the published file.

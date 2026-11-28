@@ -2,12 +2,13 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: wildlife-movement-barriers-convert
+  namespace: geo-workflows
   labels:
     k8s-app: wildlife-movement-barriers-convert
 spec:
   completions: 1
   parallelism: 1
-  backoffLimit: 5
+  backoffLimit: 1
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
@@ -40,6 +41,8 @@ spec:
           value: 'FALSE'
         - name: BUCKET
           value: public-connectivity
+        - name: DUCKDB_MEMORY_LIMIT
+          value: 6963MiB
         volumeMounts:
         - name: rclone-config
           mountPath: /root/.config/rclone
@@ -49,13 +52,8 @@ spec:
         - -c
         - |
           set -e
-          # Localize the source ONCE via rclone (retried, proven path on this cluster), then
-          # convert from local disk. GDAL/DuckDB opens the source several times (CRS detect,
-          # geometry detect, ID check, main read); doing those over a flaky network endpoint
-          # fails intermittently, so we read from local disk instead.
-          rclone copyto nrp:public-connectivity/raw/wildlife-movement-barriers.geojson /tmp/src.geojson
           cng-convert-to-parquet \
-            /tmp/src.geojson \
+            https://s3-west.nrp-nautilus.io/public-connectivity/raw/wildlife-movement-barriers.geojson \
             s3://public-connectivity/wildlife-movement-barriers.parquet \
             --row-group-size 100000
         resources:
@@ -69,7 +67,6 @@ spec:
       - name: rclone-config
         secret:
           secretName: rclone-config
-      priorityClassName: opportunistic
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
