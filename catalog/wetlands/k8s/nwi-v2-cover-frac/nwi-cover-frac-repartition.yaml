@@ -1,30 +1,26 @@
+# DEVIATION from generated output (#1082): staged under the unlinked prefix nwi-cover-frac/ while
+# public-bucket publishes are frozen; the generator derives the input from --dataset, so the
+# source is pointed back at the existing NWI conversion, s3://public-wetlands/nwi-v2.parquet.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nwi-v2-hex
+  name: nwi-cover-frac-repartition
   namespace: geo-workflows
   labels:
-    k8s-app: nwi-v2-hex
+    k8s-app: nwi-cover-frac-repartition
 spec:
-  completions: 7614
-  parallelism: 80
-  completionMode: Indexed
-  backoffLimitPerIndex: 3
-  maxFailedIndexes: 1
-  podFailurePolicy:
-    rules:
-    - action: Ignore
-      onPodConditions:
-      - type: DisruptionTarget
+  completions: 1
+  parallelism: 1
+  backoffLimit: 1
   ttlSecondsAfterFinished: 10800
   template:
     metadata:
       labels:
-        k8s-app: nwi-v2-hex
+        k8s-app: nwi-cover-frac-repartition
     spec:
       restartPolicy: Never
       containers:
-      - name: hex-task
+      - name: repartition-task
         image: ghcr.io/boettiger-lab/datasets:latest
         imagePullPolicy: Always
         env:
@@ -50,25 +46,31 @@ spec:
           value: /tmp
         - name: BUCKET
           value: public-wetlands
-        - name: DATASET
-          value: nwi-v2
-        - name: DUCKDB_MEMORY_LIMIT
-          value: 40GiB
+        - name: CNG_POD_CPU
+          value: '4'
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /root/.config/rclone
+          readOnly: true
         command:
         - bash
         - -c
-        - |-
+        - |
           set -e
-          cng-datasets vector --input s3://public-wetlands/nwi-v2.parquet --output s3://public-wetlands/nwi-v2/chunks --chunk-id ${JOB_COMPLETION_INDEX} --chunk-size 5000 --intermediate-chunk-size 10 --resolution 10 --parent-resolutions 9,8,0 --polyfill overlap
+          cng-datasets repartition --chunks-dir s3://public-wetlands/nwi-cover-frac/chunks --output-dir s3://public-wetlands/nwi-cover-frac/hex --source-parquet s3://public-wetlands/nwi-v2.parquet --cleanup --memory-limit 27GiB
         resources:
           requests:
             cpu: '4'
-            memory: 48Gi
-            ephemeral-storage: 20Gi
+            memory: 32Gi
+            ephemeral-storage: 50Gi
           limits:
             cpu: '4'
-            memory: 48Gi
-            ephemeral-storage: 20Gi
+            memory: 32Gi
+            ephemeral-storage: 50Gi
+      volumes:
+      - name: rclone-config
+        secret:
+          secretName: rclone-config
       priorityClassName: opportunistic
       affinity:
         nodeAffinity:
