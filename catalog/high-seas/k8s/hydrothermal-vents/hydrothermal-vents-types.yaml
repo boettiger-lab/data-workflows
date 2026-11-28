@@ -1,0 +1,112 @@
+# HAND-ROLLED: casts four columns of a published GeoParquet and its hex in place; cng-datasets has no retype step (#1077)
+#
+# data-workflows#1077: the STAC declares max_temperature_c, max_depth_m, min_depth_m and
+# spreading_rate_mm_a as float64, but the flat and the hex store them as text, with the
+# literal 'NA' for missing (measured 2026-11-28: 532, 2, 475 and 174 'NA' of 721; every
+# other value casts cleanly). Numeric filters fail or compare as strings.
+#
+# This casts them to float64 ('NA' -> NULL) with pyarrow. Rows, row order, _cng_fid, the
+# other columns, geometry and the GeoParquet `geo` metadata (EBSA's CRS object, set by
+# hydrothermal-vents-crs.yaml) are unchanged, and the job asserts all of that.
+# It never runs cng-convert-to-parquet, so ids are not renumbered (see BUILD.md).
+# PMTiles keep their tile attributes as built; not touched here.
+#
+# Default: STAGE only, to hydrothermal-vents/staging-1077/. Set PUBLISH=1 to also
+# replace the live flat and hex (only after the publish freeze lifts).
+#   kubectl apply -n geo-workflows -f catalog/high-seas/k8s/hydrothermal-vents/hydrothermal-vents-types.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hydrothermal-vents-types
+  namespace: geo-workflows
+  labels: {k8s-app: hydrothermal-vents-types}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata: {labels: {k8s-app: hydrothermal-vents-types}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 1800
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: types
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - {name: PUBLISH, value: '0'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          R="--retries 10 --low-level-retries 20 --retries-sleep 20s"
+          B=nrp:public-high-seas
+          STG=$B/hydrothermal-vents/staging-1077
+          mkdir -p /tmp/in/hex /tmp/out/hex
+          rclone copyto $B/hydrothermal-vents.parquet /tmp/in/flat.parquet $R
+          rclone copy $B/hydrothermal-vents/hex/ /tmp/in/hex/ $R
+          python3 - <<'PYEOF'
+          import glob, os, pyarrow as pa, pyarrow.compute as pc, pyarrow.parquet as pq
+          COLS = ["max_temperature_c", "max_depth_m", "min_depth_m", "spreading_rate_mm_a"]
+
+          def retype(src, dst):
+              t = pq.read_table(src)
+              md = t.schema.metadata
+              arrs = {}
+              for c in COLS:
+                  s = t[c]
+                  assert pa.types.is_string(s.type) or pa.types.is_large_string(s.type), (c, s.type)
+                  blank = pc.or_(pc.is_null(s), pc.equal(pc.utf8_trim_whitespace(s), "NA"))
+                  arrs[c] = pc.if_else(blank, None, s).cast(pa.float64())   # raises on any other text
+              out = t
+              for c in COLS:
+                  out = out.set_column(out.schema.get_field_index(c), c, arrs[c])
+              out = out.replace_schema_metadata(md)
+              pq.write_table(out, dst, compression="zstd")
+              back = pq.read_table(dst)
+              assert back.num_rows == t.num_rows and back.column_names == t.column_names
+              assert back.schema.metadata == md, "metadata changed"
+              for c in t.column_names:
+                  if c not in COLS:
+                      assert back[c].equals(t[c]), c
+              for c in COLS:
+                  assert back.schema.field(c).type == pa.float64()
+                  # Every non-'NA' value survives the round trip numerically.
+                  keep = pc.invert(pc.or_(pc.is_null(t[c]), pc.equal(pc.utf8_trim_whitespace(t[c]), "NA")))
+                  assert pc.all(pc.equal(pc.filter(back[c], keep),
+                                         pc.filter(t[c], keep).cast(pa.float64()))).as_py() in (True, None)
+              return t.num_rows, {c: back[c].null_count for c in COLS}
+
+          print("flat", retype("/tmp/in/flat.parquet", "/tmp/out/flat.parquet"))
+          n = 0
+          for src in sorted(glob.glob("/tmp/in/hex/h0=*/*.parquet")):
+              dst = src.replace("/tmp/in/", "/tmp/out/")
+              os.makedirs(os.path.dirname(dst), exist_ok=True)
+              n += retype(src, dst)[0]
+          print("hex rows", n)
+          assert n == 721, n
+          PYEOF
+          rclone copyto /tmp/out/flat.parquet $STG/hydrothermal-vents.parquet $R
+          rclone copy /tmp/out/hex/ $STG/hex/ $R
+          rclone lsf -R $STG/ | head
+          if [ "$PUBLISH" = "1" ]; then
+            rclone copyto /tmp/out/flat.parquet $B/hydrothermal-vents.parquet $R
+            rclone copy /tmp/out/hex/ $B/hydrothermal-vents/hex/ $R   # same 57 h0 files, overwritten
+            rclone purge $STG/
+            echo PUBLISHED
+          else
+            echo "STAGED only (PUBLISH=0)"
+          fi
+        resources:
+          requests: {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+          limits:   {cpu: '1', memory: 2Gi, ephemeral-storage: 2Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
