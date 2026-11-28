@@ -22,6 +22,7 @@
 # `nland` from conserved-areas hex-weights-res8, which #522 later removed, so the old
 # job could no longer run.
 #
+# Default PUBLISH=0 stages and validates only; PUBLISH=1 also flips.
 # Every output is staged and validated against the live grid before any flip:
 #   - res 10: same row count, same (h10, CA_Ecoregi) pairs, total area conserved;
 #   - res 9/8: per-cell SUM(land_area_km2) and SUM(nland) equal the live single-row
@@ -60,6 +61,7 @@ spec:
         - {name: AWS_HTTPS, value: 'false'}
         - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
         - {name: PYTHONPATH, value: /usr/lib/python3/dist-packages}
+        - {name: PUBLISH, value: '0'}   # 1 = flip staging to live (only after the freeze lifts)
         volumeMounts:
         - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
         command:
@@ -183,6 +185,7 @@ spec:
           open('/tmp/ok', 'w').write('ok')
           PYEOF
           test -f /tmp/ok || { echo 'staging validation failed; NOT flipping'; exit 1; }
+          if [ "${PUBLISH:-0}" != "1" ]; then echo 'STAGED only (PUBLISH=0): hex-staging, hex-res9-staging, hex-res8-staging'; exit 0; fi
 
           for A in hex hex-res9 hex-res8; do
             echo "--- flipping ecoregion/${A} ---"
