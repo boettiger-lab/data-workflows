@@ -1,3 +1,4 @@
+# HAND-ROLLED: derives the state hex from the county hex by STATEFP join instead of tessellating state polygons; cng-datasets has no derive-from-child step (#1077 adds conus)
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -93,7 +94,9 @@ spec:
                     s.REGION, s.DIVISION, s.STATEFP, s.STATENS,
                     s.GEOID, s.GEOIDFQ, s.STUSPS, s.NAME,
                     s.LSAD, s.MTFCC, s.FUNCSTAT,
-                    s.ALAND, s.AWATER, s.INTPTLAT, s.INTPTLON
+                    s.ALAND, s.AWATER, s.INTPTLAT, s.INTPTLON,
+                    -- #1077: contiguous US = 48 states + DC
+                    s.STUSPS NOT IN ('AK','HI','PR','GU','VI','AS','MP','UM') AS conus
                   FROM read_parquet('s3://public-census/census-2024/county/hex/h0={h0}/data_0.parquet') t
                   JOIN state s ON t.STATEFP = s.STATEFP
                 ) TO 's3://public-census/census-2024/state/hex/h0={h0}/data_0.parquet'
