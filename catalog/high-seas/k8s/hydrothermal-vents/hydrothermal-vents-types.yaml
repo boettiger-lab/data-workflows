@@ -96,7 +96,7 @@ spec:
           PYEOF
           rclone copyto /tmp/out/flat.parquet $STG/hydrothermal-vents.parquet $R
           rclone copy /tmp/out/hex/ $STG/hex/ $R
-          rclone lsf -R $STG/ | head
+          rclone lsf -R $STG/ | wc -l
           if [ "$PUBLISH" = "1" ]; then
             rclone copyto /tmp/out/flat.parquet $B/hydrothermal-vents.parquet $R
             rclone copy /tmp/out/hex/ $B/hydrothermal-vents/hex/ $R   # same 57 h0 files, overwritten
