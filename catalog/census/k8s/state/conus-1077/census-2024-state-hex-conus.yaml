@@ -1,0 +1,115 @@
+# HAND-ROLLED: adds one derived column to a published hex asset; cng-datasets has no step for that (#1077)
+#
+# data-workflows#1077: models answering contiguous-US questions typed 47-49 state codes
+# from memory and dropped states. This adds `conus` (BOOLEAN) to census-2024/state/hex:
+# true for the 48 contiguous states and DC, false for AK, HI, PR, GU, VI, AS, MP.
+# Checked 2026-11-28: 56 entities, 49 conus, 13,305,930 rows in 16 h0 partitions.
+#
+# Reads the live hex, stages, validates (same rows, 49 conus states, no other column
+# changed), then flips. derive-state-hex.yaml writes the same column, so a re-derive keeps it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: census-2024-state-hex-conus
+  namespace: geo-workflows
+  labels: {k8s-app: census-2024-state-hex-conus}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 10800
+  template:
+    metadata:
+      labels: {k8s-app: census-2024-state-hex-conus}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 3600
+      priorityClassName: opportunistic
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - {matchExpressions: [{key: feature.node.kubernetes.io/pci-10de.present, operator: NotIn, values: ['true']}]}
+      containers:
+      - name: conus
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        - {name: AWS_HTTPS, value: 'false'}
+        - {name: AWS_VIRTUAL_HOSTING, value: 'FALSE'}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          import duckdb, os
+          BASE = 's3://public-census/census-2024/state'
+          LIVE = BASE + '/hex/h0=*/data_0.parquet'
+          STG  = BASE + '/hex-staging'
+          NOT_CONUS = "('AK','HI','PR','GU','VI','AS','MP','UM')"
+
+          con = duckdb.connect()
+          con.execute("INSTALL httpfs; LOAD httpfs")
+          con.execute("SET preserve_insertion_order=false; SET temp_directory='/tmp/duckdb-spill'")
+          con.execute(
+              "CREATE SECRET s3 (TYPE S3, KEY_ID '{}', SECRET '{}', ENDPOINT '{}', "
+              "URL_STYLE 'path', USE_SSL false)".format(
+                  os.environ['AWS_ACCESS_KEY_ID'], os.environ['AWS_SECRET_ACCESS_KEY'],
+                  os.environ['AWS_S3_ENDPOINT']))
+
+          def cols(p):
+              return [r[0] for r in con.execute(
+                  "DESCRIBE SELECT * FROM read_parquet('{}')".format(p)).fetchall()]
+
+          live_cols = cols(LIVE)
+          assert 'conus' not in live_cols and live_cols[-1] == 'h0', live_cols
+          keep = live_cols[:-1]
+          out_cols = keep + ['conus', 'h0']
+          parts = [r[0] for r in con.execute(
+              "SELECT DISTINCT h0 FROM read_parquet('{}') ORDER BY 1".format(LIVE)).fetchall()]
+          for h0 in parts:
+              con.execute("""
+                  COPY (SELECT {k}, STUSPS NOT IN {nc} AS conus, h0
+                        FROM read_parquet('{live}') WHERE h0 = {h0})
+                  TO '{stg}/h0={h0}/data_0.parquet'
+                  (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
+              """.format(k=', '.join(keep), nc=NOT_CONUS, live=LIVE, h0=h0, stg=STG))
+              print('wrote h0', h0)
+
+          S = STG + '/h0=*/data_0.parquet'
+          assert cols(S) == out_cols, cols(S)
+          n_live = con.execute("SELECT COUNT(*) FROM read_parquet('{}')".format(LIVE)).fetchone()[0]
+          n_stg, n_conus_states, n_null = con.execute("""
+              SELECT COUNT(*), COUNT(DISTINCT STUSPS) FILTER (WHERE conus),
+                     COUNT(*) FILTER (WHERE conus IS NULL)
+              FROM read_parquet('{}')""".format(S)).fetchone()
+          # Every original column unchanged, row for row (multiset difference both ways).
+          k = ', '.join(keep)
+          diff = con.execute("""
+              SELECT (SELECT COUNT(*) FROM (SELECT {k}, h0 FROM read_parquet('{l}')
+                                            EXCEPT ALL SELECT {k}, h0 FROM read_parquet('{s}'))),
+                     (SELECT COUNT(*) FROM (SELECT {k}, h0 FROM read_parquet('{s}')
+                                            EXCEPT ALL SELECT {k}, h0 FROM read_parquet('{l}')))
+          """.format(k=k, l=LIVE, s=S)).fetchone()
+          print('ROWS live={} staged={} CONUS_STATES={} NULLS={} DIFF={}'.format(
+              n_live, n_stg, n_conus_states, n_null, diff))
+          assert n_stg == n_live and n_conus_states == 49 and n_null == 0 and diff == (0, 0)
+          open('/tmp/ok', 'w').write('ok')
+          PYEOF
+          test -f /tmp/ok
+          rclone purge nrp:public-census/census-2024/state/hex/
+          test "$(rclone lsf -R nrp:public-census/census-2024/state/hex/ 2>/dev/null | wc -l)" -eq 0
+          rclone move nrp:public-census/census-2024/state/hex-staging/ nrp:public-census/census-2024/state/hex/
+          rclone lsf -R nrp:public-census/census-2024/state/hex/ | wc -l
+          echo OK
+        resources:
+          requests: {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+          limits:   {cpu: '4', memory: 16Gi, ephemeral-storage: 20Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
