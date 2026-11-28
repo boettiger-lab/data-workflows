@@ -47,6 +47,10 @@ Format or epoch choices the user did not make are open questions under "Scope is
 above: assess them against the upstream data and settle them with the user (GMW #443: the issue said
 "prefer the GeoTIFF path" and "latest single year"; upstream ships 41 annual vector and raster layers).
 
+**Storage is what needs review, not compute.** Hex fan-outs run on idle, opportunistic NRP
+capacity, so pod-hours are not a reason to stop. A final processed product expected above
+**1 TB** of storage is: estimate its size on the issue and get Carl's agreement before building.
+
 ## ⛔ HARD BOUNDARY 0: Big-data compute runs on the cluster, NOT your laptop
 
 For ANY query/scan/aggregation over S3 parquet — catalog data **and** large intermediate/build files (e.g. a 24 GB consolidated GeoParquet) — use the **`mcp__duckdb-geo__query` MCP server**. It runs on generously-provisioned NRP cluster metal beside NRP S3, and DuckDB **streams** (larger-than-memory spills to disk) — so it does not hit the RAM limits or the slow laptop link (~12 MB/s) that bottleneck local work. It reads anonymously-readable buckets only.
