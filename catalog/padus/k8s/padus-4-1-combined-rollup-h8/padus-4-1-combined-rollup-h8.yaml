@@ -1,0 +1,111 @@
+# HAND-ROLLED: cng-datasets has no area-rollup step (#1081). Area-preserving resolution-8 rollup
+# of the PAD-US 4.1 Combined hex, so state and national totals read about 1/49 as many rows.
+#
+# One row per (h8, state, gap, category): covered_km2 = summed area of the DISTINCT native h10
+# cells under that h8 matched by any record in the group, so overlapping Fee, Easement,
+# Designation, Marine and Proclamation records count once. Because a union does not add across
+# groups (a cell under both a GAP 1 and a GAP 2 record would be counted twice), the common
+# combined groups are precomputed as their own rows:
+#   state    : each State_Nm code, plus 'CONUS' (48 states and DC; no AK, HI, territories, UNKF)
+#   gap      : '1', '2', '3', '4', plus '1-2' and '1-4' (any status)
+#   category : each Category, plus 'All' and 'Non-marine' (every Category except 'Marine')
+# h10 cells are exact (h3_cell_area on the native cell), so the rollup loses no accuracy for
+# any group it carries.
+#
+# The SQL was checked through duckdb-geo on Rhode Island (2026-11-28): the rollup's RI GAP 1-2
+# Non-marine total and the direct distinct-h10 area were both 416.777 km2.
+#
+#   kubectl apply -n geo-workflows -f catalog/padus/k8s/padus-4-1-combined-rollup-h8/padus-4-1-combined-rollup-h8.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: padus-4-1-combined-rollup-h8
+  namespace: geo-workflows
+  labels: {k8s-app: padus-4-1-combined-rollup-h8}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata: {labels: {k8s-app: padus-4-1-combined-rollup-h8}}
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 10800
+      priorityClassName: opportunistic
+      containers:
+      - name: rollup
+        image: ghcr.io/boettiger-lab/datasets:latest
+        imagePullPolicy: Always
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_ACCESS_KEY_ID}}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: {secretKeyRef: {name: aws, key: AWS_SECRET_ACCESS_KEY}}
+        - {name: AWS_S3_ENDPOINT, value: rook-ceph-rgw-nautiluss3.rook}
+        volumeMounts:
+        - {name: rclone-config, mountPath: /root/.config/rclone, readOnly: true}
+        command:
+        - bash
+        - -c
+        - |-
+          set -euo pipefail
+          python3 - <<'EOF'
+          import duckdb, os
+          SRC = "s3://public-padus/padus-4-1/combined/hex"
+          OUT = "/tmp/rollup"
+          con = duckdb.connect()
+          for ext in ("httpfs", "h3"):
+              con.execute(f"INSTALL {ext} FROM {'community' if ext == 'h3' else 'core'}; LOAD {ext}")
+          con.execute("SET http_retries=10; SET http_retry_wait_ms=3000; SET preserve_insertion_order=false")
+          con.execute("SET temp_directory='/tmp/spill'; SET memory_limit='24GiB'")
+          con.execute("CREATE SECRET s3 (TYPE S3, KEY_ID '{}', SECRET '{}', ENDPOINT '{}', URL_STYLE 'path', USE_SSL false)".format(
+              os.environ["AWS_ACCESS_KEY_ID"], os.environ["AWS_SECRET_ACCESS_KEY"], os.environ["AWS_S3_ENDPOINT"]))
+          non_conus = "('AK','HI','PR','GU','VI','AS','MP','UM','UNKF')"
+          h0s = [r[0] for r in con.execute(
+              f"SELECT DISTINCT h0 FROM read_parquet('{SRC}/h0=*/data_0.parquet', hive_partitioning=true)").fetchall()]
+          os.makedirs(OUT, exist_ok=True)
+          total = {}
+          for h0 in h0s:
+              con.execute(f"""
+                CREATE OR REPLACE TEMP TABLE base AS
+                SELECT DISTINCT h10, h8, State_Nm, GAP_Sts, Category
+                FROM read_parquet('{SRC}/h0={h0}/data_0.parquet')""")
+              con.execute(f"""
+                CREATE OR REPLACE TEMP TABLE r AS
+                WITH a AS (
+                  SELECT h10, h8, GAP_Sts, Category,
+                         unnest([State_Nm] || CASE WHEN State_Nm NOT IN {non_conus} THEN ['CONUS'] ELSE [] END) AS state
+                  FROM base),
+                b AS (
+                  SELECT h10, h8, state, Category,
+                         unnest([GAP_Sts, '1-4'] || CASE WHEN GAP_Sts IN ('1','2') THEN ['1-2'] ELSE [] END) AS gap
+                  FROM a),
+                x AS (
+                  SELECT h10, h8, state, gap,
+                         unnest([Category, 'All'] || CASE WHEN Category <> 'Marine' THEN ['Non-marine'] ELSE [] END) AS category
+                  FROM b)
+                SELECT h8, state, gap, category,
+                       SUM(h3_cell_area(h10, 'km^2'))::DOUBLE AS covered_km2,
+                       COUNT(*)::INTEGER AS n_h10,
+                       {h0}::BIGINT AS h0
+                FROM (SELECT DISTINCT h10, h8, state, gap, category FROM x)
+                GROUP BY ALL""")
+              os.makedirs(f"{OUT}/h0={h0}", exist_ok=True)
+              con.execute(f"COPY (SELECT * FROM r ORDER BY state, gap, category, h8) TO '{OUT}/h0={h0}/data_0.parquet' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)")
+              # check: the 'All'/'1-4' rollup of a state equals the distinct h10 area under it
+              chk = con.execute("""
+                SELECT (SELECT SUM(covered_km2) FROM r WHERE state='CONUS' AND gap='1-4' AND category='All'),
+                       (SELECT SUM(h3_cell_area(h10,'km^2')) FROM (SELECT DISTINCT h10 FROM base
+                          WHERE State_Nm NOT IN """ + non_conus + "))").fetchone()
+              assert abs((chk[0] or 0) - (chk[1] or 0)) <= 1e-6 * max(1, chk[1] or 0), chk
+              n = con.execute("SELECT COUNT(*) FROM r").fetchone()[0]
+              total[h0] = n
+              print(f"h0={h0}: {n:,} rollup rows; CONUS any-status {chk[0] or 0:,.1f} km2", flush=True)
+          print("partitions", len(total), "rows", sum(total.values()))
+          EOF
+          rclone copy /tmp/rollup nrp:public-padus/padus-4-1/combined/rollup-h8 --retries 10 --low-level-retries 20
+          echo OK
+        resources:
+          requests: {cpu: '4', memory: 32Gi, ephemeral-storage: 40Gi}
+          limits:   {cpu: '4', memory: 32Gi, ephemeral-storage: 40Gi}
+      volumes:
+      - {name: rclone-config, secret: {secretName: rclone-config}}
